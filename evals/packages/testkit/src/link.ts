@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { setTimeout as delay } from "node:timers/promises";
@@ -158,10 +159,13 @@ function parseStats(value: unknown): LinkStats {
   };
 }
 
-async function adminJson(baseUrl: string, path: string, body?: object): Promise<unknown> {
+async function adminJson(baseUrl: string, path: string, token: string, body?: object): Promise<unknown> {
   const response = await fetch(`${baseUrl}${path}`, {
     method: body === undefined ? "GET" : "POST",
-    headers: body === undefined ? undefined : { "content-type": "application/json" },
+    headers: {
+      authorization: `Bearer ${token}`,
+      ...(body === undefined ? {} : { "content-type": "application/json" }),
+    },
     body: body === undefined ? undefined : JSON.stringify(body),
     signal: AbortSignal.timeout(10_000),
   });
@@ -186,10 +190,11 @@ function waitForExit(child: ChildProcess): Promise<void> {
   return new Promise((resolve) => child.once("exit", () => resolve()));
 }
 
-async function localPlacement(upstream: DenRef): Promise<LinkPlacement> {
+async function localPlacement(upstream: DenRef, token: string): Promise<LinkPlacement> {
   const [port, adminPort] = await distinctLocalPorts();
   const script = fileURLToPath(new URL("./link-server.mjs", import.meta.url));
   const child = spawn(process.execPath, [script, "--upstream", upstream.webUrl, "--port", String(port), "--admin-port", String(adminPort)], {
+    env: { ...process.env, LINK_ADMIN_TOKEN: token },
     stdio: ["ignore", "pipe", "pipe"],
   });
   if (!child.stdout || !child.stderr) throw new Error("Den link child process did not expose output streams.");
@@ -206,7 +211,7 @@ async function localPlacement(upstream: DenRef): Promise<LinkPlacement> {
       await delay(50);
     }
     if (!output.includes(listening)) throw new Error(`Timed out waiting for Den link startup: ${output.slice(-2_000)}`);
-    await adminJson(`http://127.0.0.1:${adminPort}`, "/health");
+    await adminJson(`http://127.0.0.1:${adminPort}`, "/health", token);
   } catch (error) {
     child.kill("SIGKILL");
     throw error;
@@ -263,6 +268,7 @@ export function daytonaLinkCommands(
   upstream: string,
   port: number,
   adminPort: number,
+  token: string,
 ): { cleanup: string; upload: string[]; detach: string } {
   if (source.byteLength === 0 || source.byteLength > MAX_LINK_SCRIPT_BYTES) {
     throw new Error(`Den link runner must be between 1 and ${MAX_LINK_SCRIPT_BYTES} bytes.`);
@@ -270,6 +276,7 @@ export function daytonaLinkCommands(
   const upstreamUrl = safeRemoteUrl(upstream);
   const dataPort = validPort(port, "port");
   const controlPort = validPort(adminPort, "adminPort");
+  if (!/^[a-f0-9]{32,}$/.test(token)) throw new Error("Den link admin token must be at least 32 lowercase hex characters.");
   const encoded = Buffer.from(source).toString("base64");
   const upload = [`: > ${DAYTONA_LINK_BASE64}`];
   for (let offset = 0; offset < encoded.length; offset += DAYTONA_LINK_BASE64_CHUNK_LENGTH) {
@@ -291,7 +298,7 @@ export function daytonaLinkCommands(
 import os
 import subprocess
 log = open("/tmp/link-server.log", "ab", buffering=0)
-process = subprocess.Popen(["node", "${DAYTONA_LINK_SCRIPT}", "--upstream", "${upstreamUrl}", "--port", "${dataPort}", "--admin-port", "${controlPort}"], stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT, start_new_session=True, close_fds=True)
+process = subprocess.Popen(["node", "${DAYTONA_LINK_SCRIPT}", "--upstream", "${upstreamUrl}", "--port", "${dataPort}", "--admin-port", "${controlPort}"], stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT, start_new_session=True, close_fds=True, env={**os.environ, "LINK_ADMIN_TOKEN": "${token}"})
 temporary_pid = "${DAYTONA_LINK_PID}." + str(os.getpid())
 try:
     with open(temporary_pid, "w", encoding="ascii") as pid_file:
@@ -310,7 +317,7 @@ PYEOF`,
   };
 }
 
-async function daytonaPlacement(upstream: DenRef, sandbox: string, options: DenLinkOptions): Promise<LinkPlacement> {
+async function daytonaPlacement(upstream: DenRef, sandbox: string, options: DenLinkOptions, token: string): Promise<LinkPlacement> {
   const exec = options.daytonaExec ?? defaultDaytonaExec;
   const port = validPort(options.port ?? 3985, "port");
   const adminPort = validPort(options.adminPort ?? 3986, "adminPort");
@@ -320,7 +327,7 @@ async function daytonaPlacement(upstream: DenRef, sandbox: string, options: DenL
   // running inside that Den sandbox therefore cannot proxy back into itself.
   const upstreamUrl = safeRemoteUrl(upstream.webUrl);
   const source = await readFile(fileURLToPath(new URL("./link-server.mjs", import.meta.url)));
-  const commands = daytonaLinkCommands(source, upstreamUrl, port, adminPort);
+  const commands = daytonaLinkCommands(source, upstreamUrl, port, adminPort, token);
   const cleanup = (): Promise<string> => remoteExec(exec, sandbox, commands.cleanup, `Den link cleanup for ${sandbox}`);
   await cleanup();
   try {
@@ -332,7 +339,7 @@ async function daytonaPlacement(upstream: DenRef, sandbox: string, options: DenL
     let last = "not attempted";
     while (Date.now() < deadline) {
       try {
-        await remoteExec(exec, sandbox, `curl -sf http://127.0.0.1:${adminPort}/health`, `Den link health for ${sandbox}`, 10_000);
+        await remoteExec(exec, sandbox, `curl -sf -H "Authorization: Bearer ${token}" http://127.0.0.1:${adminPort}/health`, `Den link health for ${sandbox}`, 10_000);
         last = "ok";
         break;
       } catch (error) {
@@ -352,7 +359,7 @@ async function daytonaPlacement(upstream: DenRef, sandbox: string, options: DenL
     const adminUrl = firstHttpsUrl(adminPreview.stdout);
     if (!dataUrl) throw new Error(`daytona preview-url ${sandbox} -p ${port} did not print an https URL: ${dataPreview?.stdout.trim()}`);
     if (!adminUrl) throw new Error(`daytona preview-url ${sandbox} -p ${adminPort} did not print an https URL: ${adminPreview.stdout.trim()}`);
-    await adminJson(adminUrl, "/health");
+    await adminJson(adminUrl, "/health", token);
     let disposed = false;
     return {
       dataUrl,
@@ -370,11 +377,12 @@ async function daytonaPlacement(upstream: DenRef, sandbox: string, options: DenL
 }
 
 export async function denLink(upstream: DenRef, options: DenLinkOptions = {}): Promise<DenLink> {
+  const token = randomBytes(32).toString("hex");
   const placement = options.sandboxId
-    ? await daytonaPlacement(upstream, options.sandboxId, options)
-    : await localPlacement(upstream);
+    ? await daytonaPlacement(upstream, options.sandboxId, options, token)
+    : await localPlacement(upstream, token);
   const post = async (path: string, body: object): Promise<void> => {
-    await adminJson(placement.adminUrl, path, body);
+    await adminJson(placement.adminUrl, path, token, body);
   };
   return {
     ref: { apiUrl: `${placement.dataUrl}/api/den`, webUrl: placement.dataUrl },
@@ -385,13 +393,13 @@ export async function denLink(upstream: DenRef, options: DenLinkOptions = {}): P
       offline: (durationMs) => post("/offline", { durationMs }),
       clear: () => post("/clear", {}),
       async requests(): Promise<LinkLog> {
-        return parseLog(await adminJson(placement.adminUrl, "/requests"));
+        return parseLog(await adminJson(placement.adminUrl, "/requests", token));
       },
       async stats(): Promise<LinkStats> {
-        return parseStats(await adminJson(placement.adminUrl, "/stats"));
+        return parseStats(await adminJson(placement.adminUrl, "/stats", token));
       },
       async health(): Promise<{ ok: boolean; phase: string; offline: boolean }> {
-        return parseHealth(await adminJson(placement.adminUrl, "/health"));
+        return parseHealth(await adminJson(placement.adminUrl, "/health", token));
       },
     },
     [Symbol.asyncDispose]: () => placement.dispose(),

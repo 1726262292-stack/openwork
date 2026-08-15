@@ -1,10 +1,14 @@
 import assert from "node:assert/strict";
-import { access } from "node:fs/promises";
+import { X509Certificate } from "node:crypto";
+import { access, chmod, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import http from "node:http";
 import https from "node:https";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import tls from "node:tls";
 import { test } from "node:test";
 
-import { startEnterpriseTlsReverseEdge } from "../src/egress.ts";
+import { stageTrustedEnterpriseTlsRoot, startEnterpriseTlsReverseEdge } from "../src/egress.ts";
 
 function listen(server: http.Server): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -39,6 +43,108 @@ function request(url: string, options: { ca?: string; method?: string; path?: st
     outgoing.end(options.body);
   });
 }
+
+function peerCertificatePem(url: string): Promise<string> {
+  const target = new URL(url);
+  return new Promise((resolve, reject) => {
+    const socket = tls.connect({ host: target.hostname, port: Number(target.port), rejectUnauthorized: false }, () => {
+      const raw = socket.getPeerCertificate().raw;
+      socket.end();
+      if (!raw) reject(new Error("peer did not provide a certificate"));
+      else resolve(new X509Certificate(raw).toString());
+    });
+    socket.on("error", reject);
+  });
+}
+
+function manifest(rootPemPath: string): string {
+  return `${JSON.stringify({
+    pid: process.pid,
+    candidateUrl: "https://localhost:8443",
+    negativeUrl: "https://localhost:9443",
+    adminUrl: "http://127.0.0.1:8445",
+    rootPemPath,
+  })}\n`;
+}
+
+test("enterprise TLS privileged trust material is validated and staged", async (t) => {
+  const edge = await startEnterpriseTlsReverseEdge({ upstream: "http://127.0.0.1:1" });
+  const dir = await mkdtemp(path.join(tmpdir(), "openwork-enterprise-tls-validation-test-"));
+  const uid = typeof process.getuid === "function" ? process.getuid() : 0;
+  try {
+    await t.test("accepts an owned regular manifest and CA PEM", async () => {
+      const rootPemPath = path.join(dir, "happy-root.pem");
+      const manifestPath = path.join(dir, "happy-manifest.json");
+      await writeFile(rootPemPath, edge.rootPem, { mode: 0o600 });
+      await writeFile(manifestPath, manifest(rootPemPath), { mode: 0o600 });
+      const staged = await stageTrustedEnterpriseTlsRoot(manifestPath, [uid]);
+      try {
+        assert.deepEqual(staged.rootPem, Buffer.from(edge.rootPem));
+        assert.deepEqual(await readFile(staged.stagedRootPemPath), staged.rootPem);
+        assert.notEqual(staged.stagedRootPemPath, rootPemPath);
+        assert.equal((await stat(staged.stagedRootPemPath)).mode & 0o777, 0o600);
+      } finally {
+        await staged.cleanup();
+      }
+    });
+
+    await t.test("rejects a symlinked manifest", async () => {
+      const rootPemPath = path.join(dir, "manifest-link-root.pem");
+      const targetPath = path.join(dir, "manifest-target.json");
+      const manifestPath = path.join(dir, "manifest-link.json");
+      await writeFile(rootPemPath, edge.rootPem, { mode: 0o600 });
+      await writeFile(targetPath, manifest(rootPemPath), { mode: 0o600 });
+      await symlink(targetPath, manifestPath);
+      await assert.rejects(stageTrustedEnterpriseTlsRoot(manifestPath, [uid]), { name: "ENTERPRISE_TLS_MANIFEST_UNTRUSTED" });
+    });
+
+    await t.test("rejects a symlinked PEM", async () => {
+      const targetPath = path.join(dir, "pem-target.pem");
+      const rootPemPath = path.join(dir, "pem-link.pem");
+      const manifestPath = path.join(dir, "pem-link-manifest.json");
+      await writeFile(targetPath, edge.rootPem, { mode: 0o600 });
+      await symlink(targetPath, rootPemPath);
+      await writeFile(manifestPath, manifest(rootPemPath), { mode: 0o600 });
+      await assert.rejects(stageTrustedEnterpriseTlsRoot(manifestPath, [uid]), { name: "ENTERPRISE_TLS_ROOT_PEM_UNTRUSTED" });
+    });
+
+    await t.test("rejects a world-writable PEM", async () => {
+      const rootPemPath = path.join(dir, "writable-root.pem");
+      const manifestPath = path.join(dir, "writable-manifest.json");
+      await writeFile(rootPemPath, edge.rootPem, { mode: 0o600 });
+      await chmod(rootPemPath, 0o666);
+      await writeFile(manifestPath, manifest(rootPemPath), { mode: 0o600 });
+      await assert.rejects(stageTrustedEnterpriseTlsRoot(manifestPath, [uid]), { name: "ENTERPRISE_TLS_ROOT_PEM_UNTRUSTED" });
+    });
+
+    await t.test("rejects non-CA and unparseable PEM files", async () => {
+      const manifestPath = path.join(dir, "invalid-manifest.json");
+      const rootPemPath = path.join(dir, "invalid-root.pem");
+      await writeFile(manifestPath, manifest(rootPemPath), { mode: 0o600 });
+      await writeFile(rootPemPath, await peerCertificatePem(edge.candidateUrl), { mode: 0o600 });
+      await assert.rejects(stageTrustedEnterpriseTlsRoot(manifestPath, [uid]), /certificate is not a CA/u);
+      await writeFile(rootPemPath, "not a certificate\n", { mode: 0o600 });
+      await assert.rejects(stageTrustedEnterpriseTlsRoot(manifestPath, [uid]), { name: "ENTERPRISE_TLS_ROOT_PEM_UNTRUSTED" });
+    });
+
+    await t.test("rejects a relative rootPemPath", async () => {
+      const manifestPath = path.join(dir, "relative-manifest.json");
+      await writeFile(manifestPath, manifest("relative-root.pem"), { mode: 0o600 });
+      await assert.rejects(stageTrustedEnterpriseTlsRoot(manifestPath, [uid]), /rootPemPath must be absolute/u);
+    });
+
+    await t.test("rejects an owner outside the explicit allowed uid set", async () => {
+      const rootPemPath = path.join(dir, "owner-root.pem");
+      const manifestPath = path.join(dir, "owner-manifest.json");
+      await writeFile(rootPemPath, edge.rootPem, { mode: 0o600 });
+      await writeFile(manifestPath, manifest(rootPemPath), { mode: 0o600 });
+      await assert.rejects(stageTrustedEnterpriseTlsRoot(manifestPath, [uid + 1]), /owner uid .* is not allowed/u);
+    });
+  } finally {
+    await edge.stop();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
 
 test("enterprise TLS edge pins its upstream and exposes selective trust", async () => {
   const upstreamRequests: { method: string; url: string; body: string }[] = [];

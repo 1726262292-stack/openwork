@@ -1,5 +1,6 @@
 import { createServer, request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
+import { createHash, timingSafeEqual } from "node:crypto";
 import { clearTimeout, setTimeout } from "node:timers";
 import { URL } from "node:url";
 
@@ -29,7 +30,10 @@ function requiredPort(value, name) {
 const upstream = new URL(cliValue("upstream", process.env.LINK_UPSTREAM));
 const dataPort = requiredPort(cliValue("port", process.env.LINK_PORT), "port");
 const adminPort = requiredPort(cliValue("admin-port", process.env.LINK_ADMIN_PORT), "admin-port");
+const adminToken = process.env.LINK_ADMIN_TOKEN ?? cliValue("admin-token");
 if (upstream.protocol !== "http:" && upstream.protocol !== "https:") throw new Error("upstream must use http or https.");
+if (typeof adminToken !== "string" || !/^[a-f0-9]{32,}$/.test(adminToken)) throw new Error("admin token must be at least 32 hex characters.");
+const expectedAuthorizationHash = createHash("sha256").update(`Bearer ${adminToken}`).digest();
 
 let phase = "default";
 let profile = "baseline";
@@ -295,8 +299,17 @@ function sendJson(response, status, body) {
   response.end(text);
 }
 
+function isAuthorized(request) {
+  const receivedHash = createHash("sha256").update(headerText(request.headers.authorization)).digest();
+  return timingSafeEqual(receivedHash, expectedAuthorizationHash);
+}
+
 const adminServer = createServer((request, response) => {
   void (async () => {
+    if (!isAuthorized(request)) {
+      sendJson(response, 401, { error: "Unauthorized" });
+      return;
+    }
     const path = new URL(request.url ?? "/", "http://admin.invalid").pathname;
     if (request.method === "GET" && path === "/health") {
       sendJson(response, 200, { ok: true, upstream: upstream.href, phase, profile, offline, offlineUntil, rules: rules.length });

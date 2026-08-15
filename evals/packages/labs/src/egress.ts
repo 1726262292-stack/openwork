@@ -1,7 +1,7 @@
 import { execFile, spawnSync } from "node:child_process";
 import { randomUUID, X509Certificate } from "node:crypto";
 import { constants } from "node:fs";
-import { access, readFile, rm, writeFile, mkdtemp, mkdir } from "node:fs/promises";
+import { access, open, readFile, rm, writeFile, mkdtemp, mkdir } from "node:fs/promises";
 import http from "node:http";
 import https from "node:https";
 import net from "node:net";
@@ -106,6 +106,21 @@ export type LinuxTrustPrerequisiteResult = {
 } | {
   ok: false;
   failure: "ENTERPRISE_TLS_LINUX_ROOT_REQUIRED" | "ENTERPRISE_TLS_UPDATE_CA_CERTIFICATES_REQUIRED";
+};
+
+export type EnterpriseTlsEdgeManifest = {
+  pid: number;
+  candidateUrl: string;
+  negativeUrl: string;
+  adminUrl: string;
+  rootPemPath: string;
+};
+
+export type StagedEnterpriseTlsRoot = {
+  manifest: EnterpriseTlsEdgeManifest;
+  rootPem: Buffer;
+  stagedRootPemPath: string;
+  cleanup(): Promise<void>;
 };
 
 export type StartEnterpriseTlsReverseEdgeOptions = {
@@ -968,6 +983,136 @@ function createReverseEdgeServer(
     });
     proxyRequest.end(body);
   });
+}
+
+const ENTERPRISE_TLS_FILE_SIZE_LIMIT = 64 * 1024;
+
+class EnterpriseTlsTrustError extends Error {
+  constructor(name: "ENTERPRISE_TLS_MANIFEST_UNTRUSTED" | "ENTERPRISE_TLS_ROOT_PEM_UNTRUSTED", reason: string) {
+    super(`${name}: ${reason}`);
+    this.name = name;
+  }
+}
+
+function enterpriseTlsTrustError(
+  name: "ENTERPRISE_TLS_MANIFEST_UNTRUSTED" | "ENTERPRISE_TLS_ROOT_PEM_UNTRUSTED",
+  reason: string,
+): EnterpriseTlsTrustError {
+  return new EnterpriseTlsTrustError(name, reason);
+}
+
+function isEnterpriseTlsEdgeManifest(value: unknown): value is EnterpriseTlsEdgeManifest {
+  if (!isRecord(value)) return false;
+  return typeof value.pid === "number"
+    && typeof value.candidateUrl === "string"
+    && typeof value.negativeUrl === "string"
+    && typeof value.adminUrl === "string"
+    && typeof value.rootPemPath === "string";
+}
+
+export function enterpriseTlsAllowedUids(env: NodeJS.ProcessEnv = process.env): number[] {
+  const sudoUidText = env.SUDO_UID;
+  if (sudoUidText !== undefined && sudoUidText.trim() !== "") {
+    const sudoUid = Number(sudoUidText);
+    if (Number.isSafeInteger(sudoUid) && sudoUid >= 0) return [0, sudoUid];
+  }
+  if (typeof process.getuid !== "function") {
+    throw enterpriseTlsTrustError("ENTERPRISE_TLS_MANIFEST_UNTRUSTED", "the current uid is unavailable");
+  }
+  return [0, process.getuid()];
+}
+
+async function readTrustedFile(
+  filePath: string,
+  allowedUids: readonly number[],
+  errorName: "ENTERPRISE_TLS_MANIFEST_UNTRUSTED" | "ENTERPRISE_TLS_ROOT_PEM_UNTRUSTED",
+): Promise<{ bytes: Buffer; ownerUid: number }> {
+  let handle;
+  try {
+    handle = await open(filePath, constants.O_RDONLY | constants.O_NOFOLLOW);
+  } catch (error) {
+    throw enterpriseTlsTrustError(errorName, `cannot open ${filePath} without following symlinks: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  try {
+    const stat = await handle.stat();
+    if (!stat.isFile()) throw enterpriseTlsTrustError(errorName, `${filePath} is not a regular file`);
+    if ((stat.mode & 0o022) !== 0) throw enterpriseTlsTrustError(errorName, `${filePath} is group- or world-writable`);
+    if (!allowedUids.includes(stat.uid)) throw enterpriseTlsTrustError(errorName, `${filePath} owner uid ${stat.uid} is not allowed`);
+    if (stat.size > ENTERPRISE_TLS_FILE_SIZE_LIMIT) throw enterpriseTlsTrustError(errorName, `${filePath} exceeds ${ENTERPRISE_TLS_FILE_SIZE_LIMIT} bytes`);
+    return { bytes: await handle.readFile(), ownerUid: stat.uid };
+  } catch (error) {
+    if (error instanceof EnterpriseTlsTrustError) throw error;
+    throw enterpriseTlsTrustError(errorName, `cannot validate ${filePath}: ${error instanceof Error ? error.message : String(error)}`);
+  } finally {
+    await handle.close().catch(() => undefined);
+  }
+}
+
+export async function readTrustedEnterpriseTlsManifest(
+  manifestPath: string,
+  allowedUids: readonly number[] = enterpriseTlsAllowedUids(),
+): Promise<{ manifest: EnterpriseTlsEdgeManifest; ownerUid: number }> {
+  const trusted = await readTrustedFile(manifestPath, allowedUids, "ENTERPRISE_TLS_MANIFEST_UNTRUSTED");
+  let value: unknown;
+  try {
+    value = JSON.parse(trusted.bytes.toString("utf8"));
+  } catch (error) {
+    throw enterpriseTlsTrustError("ENTERPRISE_TLS_MANIFEST_UNTRUSTED", `invalid JSON: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  if (!isEnterpriseTlsEdgeManifest(value)) {
+    throw enterpriseTlsTrustError("ENTERPRISE_TLS_MANIFEST_UNTRUSTED", "manifest fields are invalid");
+  }
+  if (!path.isAbsolute(value.rootPemPath)) {
+    throw enterpriseTlsTrustError("ENTERPRISE_TLS_MANIFEST_UNTRUSTED", "rootPemPath must be absolute");
+  }
+  return { manifest: value, ownerUid: trusted.ownerUid };
+}
+
+export async function stageTrustedEnterpriseTlsRoot(
+  manifestPath: string,
+  allowedUids: readonly number[] = enterpriseTlsAllowedUids(),
+): Promise<StagedEnterpriseTlsRoot> {
+  const trustedManifest = await readTrustedEnterpriseTlsManifest(manifestPath, allowedUids);
+  const trustedRoot = await readTrustedFile(
+    trustedManifest.manifest.rootPemPath,
+    allowedUids,
+    "ENTERPRISE_TLS_ROOT_PEM_UNTRUSTED",
+  );
+  if (trustedRoot.ownerUid !== trustedManifest.ownerUid) {
+    throw enterpriseTlsTrustError("ENTERPRISE_TLS_ROOT_PEM_UNTRUSTED", "manifest and root PEM owners do not match");
+  }
+  const pemText = trustedRoot.bytes.toString("utf8");
+  const certificateBlocks = pemText.match(/-----BEGIN CERTIFICATE-----[\s\S]*?-----END CERTIFICATE-----/gu);
+  if (certificateBlocks?.length !== 1 || certificateBlocks[0]?.trim() !== pemText.trim()) {
+    throw enterpriseTlsTrustError("ENTERPRISE_TLS_ROOT_PEM_UNTRUSTED", "root PEM must contain exactly one certificate");
+  }
+  try {
+    const certificate = new X509Certificate(trustedRoot.bytes);
+    if (!certificate.ca) throw enterpriseTlsTrustError("ENTERPRISE_TLS_ROOT_PEM_UNTRUSTED", "certificate is not a CA");
+  } catch (error) {
+    if (error instanceof EnterpriseTlsTrustError) throw error;
+    throw enterpriseTlsTrustError("ENTERPRISE_TLS_ROOT_PEM_UNTRUSTED", `certificate is not parseable: ${error instanceof Error ? error.message : String(error)}`);
+  }
+
+  let stagingDir: string;
+  try {
+    stagingDir = await mkdtemp(path.join(tmpdir(), "openwork-enterprise-tls-trust-"));
+  } catch (error) {
+    throw enterpriseTlsTrustError("ENTERPRISE_TLS_ROOT_PEM_UNTRUSTED", `cannot create staging directory: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  const stagedRootPemPath = path.join(stagingDir, "root.pem");
+  try {
+    await writeFile(stagedRootPemPath, trustedRoot.bytes, { flag: "wx", mode: 0o600 });
+  } catch (error) {
+    await rm(stagingDir, { recursive: true, force: true }).catch(() => undefined);
+    throw enterpriseTlsTrustError("ENTERPRISE_TLS_ROOT_PEM_UNTRUSTED", `cannot stage root PEM: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  return {
+    manifest: trustedManifest.manifest,
+    rootPem: trustedRoot.bytes,
+    stagedRootPemPath,
+    cleanup: () => rm(stagingDir, { recursive: true, force: true }),
+  };
 }
 
 export function linuxTrustStorePlan(rootPemPath: string): LinuxTrustStorePlan {

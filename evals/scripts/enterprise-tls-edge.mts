@@ -5,17 +5,14 @@ import { setTimeout } from "node:timers/promises";
 
 import {
   linuxTrustStorePlan,
+  readTrustedEnterpriseTlsManifest,
+  stageTrustedEnterpriseTlsRoot,
   startEnterpriseTlsReverseEdge,
+  type EnterpriseTlsEdgeManifest,
   type LinuxTrustCommand,
 } from "../packages/labs/src/egress.ts";
 
-type EdgeManifest = {
-  pid: number;
-  candidateUrl: string;
-  negativeUrl: string;
-  adminUrl: string;
-  rootPemPath: string;
-};
+type EdgeManifest = EnterpriseTlsEdgeManifest;
 
 function option(name: string, fallback?: string): string {
   const index = process.argv.indexOf(name);
@@ -30,19 +27,8 @@ function portOption(name: string, fallback: number): number {
   return value;
 }
 
-function isManifest(value: unknown): value is EdgeManifest {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
-  return "pid" in value && typeof value.pid === "number"
-    && "candidateUrl" in value && typeof value.candidateUrl === "string"
-    && "negativeUrl" in value && typeof value.negativeUrl === "string"
-    && "adminUrl" in value && typeof value.adminUrl === "string"
-    && "rootPemPath" in value && typeof value.rootPemPath === "string";
-}
-
 async function readManifest(manifestPath: string): Promise<EdgeManifest> {
-  const value: unknown = JSON.parse(await readFile(manifestPath, "utf8"));
-  if (!isManifest(value)) throw new Error(`Invalid enterprise TLS edge manifest: ${manifestPath}`);
-  return value;
+  return (await readTrustedEnterpriseTlsManifest(manifestPath)).manifest;
 }
 
 function run(command: LinuxTrustCommand): Promise<void> {
@@ -55,14 +41,19 @@ function run(command: LinuxTrustCommand): Promise<void> {
 }
 
 async function changeTrust(action: "install" | "remove", manifestPath: string): Promise<void> {
-  const manifest = await readManifest(manifestPath);
-  const plan = linuxTrustStorePlan(manifest.rootPemPath);
-  const prerequisite = await plan.checkPrerequisites();
-  if (!prerequisite.ok) throw new Error(prerequisite.failure);
-  const commands = action === "install"
-    ? plan.install(prerequisite.updateCaCertificatesPath)
-    : plan.remove(prerequisite.updateCaCertificatesPath);
-  for (const command of commands) await run(command);
+  const staged = action === "install" ? await stageTrustedEnterpriseTlsRoot(manifestPath) : null;
+  try {
+    const manifest = staged?.manifest ?? await readManifest(manifestPath);
+    const plan = linuxTrustStorePlan(staged?.stagedRootPemPath ?? manifest.rootPemPath);
+    const prerequisite = await plan.checkPrerequisites();
+    if (!prerequisite.ok) throw new Error(prerequisite.failure);
+    const commands = action === "install"
+      ? plan.install(prerequisite.updateCaCertificatesPath)
+      : plan.remove(prerequisite.updateCaCertificatesPath);
+    for (const command of commands) await run(command);
+  } finally {
+    await staged?.cleanup().catch(() => undefined);
+  }
 }
 
 async function stop(manifestPath: string): Promise<void> {

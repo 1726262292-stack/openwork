@@ -6,6 +6,7 @@ import type { Server } from "node:http";
 import type { DaytonaExec } from "@openwork/hosts";
 
 const LARGE_BODY = Buffer.alloc(192 * 1024, 97);
+const ADMIN_TOKEN = "a".repeat(64);
 
 function listen(server: Server): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -45,7 +46,7 @@ function absoluteGet(proxyUrl: string, target: string): Promise<string> {
 
 test("Daytona link commands upload the runner-side script before launching its temp path", () => {
   const source = Buffer.alloc(32 * 1024, 97);
-  const commands = daytonaLinkCommands(source, "https://den.example.test", 3985, 3986);
+  const commands = daytonaLinkCommands(source, "https://den.example.test", 3985, 3986, ADMIN_TOKEN);
   assert(commands.cleanup.includes("pid=$(</tmp/openwork-den-link-server.pid)"));
   assert(commands.cleanup.includes('kill "$pid"'));
   assert(commands.cleanup.includes("rm -f /tmp/openwork-den-link-server.pid /tmp/openwork-den-link-server.mjs /tmp/openwork-den-link-server.mjs.b64"));
@@ -70,7 +71,15 @@ test("Daytona link commands upload the runner-side script before launching its t
   assert(commands.detach.includes('"node", "/tmp/openwork-den-link-server.mjs"'));
   assert(commands.detach.includes("pid_file.write(str(process.pid)"));
   assert(commands.detach.includes('os.replace(temporary_pid, "/tmp/openwork-den-link-server.pid")'));
+  assert(commands.detach.includes(`env={**os.environ, "LINK_ADMIN_TOKEN": "${ADMIN_TOKEN}"}`));
+  const launch = commands.detach.split("\n").find((line) => line.startsWith("process = subprocess.Popen"));
+  assert(launch);
+  assert(!launch.slice(0, launch.indexOf("], stdin=")).includes(ADMIN_TOKEN));
   assert(!commands.detach.includes("/workspace/evals"));
+  assert.throws(
+    () => daytonaLinkCommands(source, "https://den.example.test", 3985, 3986, "not-hex"),
+    /at least 32 lowercase hex characters/,
+  );
 });
 
 test("denLink separates a sandbox loopback client from public admin control and defaults to public previews", async () => {
@@ -87,9 +96,9 @@ test("denLink separates a sandbox loopback client from public admin control and 
     };
   };
   const originalFetch = globalThis.fetch;
-  const fetched: string[] = [];
-  globalThis.fetch = async (input) => {
-    fetched.push(String(input));
+  const fetched: Array<{ url: string; authorization: string | null }> = [];
+  globalThis.fetch = async (input, init) => {
+    fetched.push({ url: String(input), authorization: new Headers(init?.headers).get("authorization") });
     return new Response(JSON.stringify({ ok: true, phase: "default", offline: false }), {
       headers: { "content-type": "application/json" },
     });
@@ -109,7 +118,11 @@ test("denLink separates a sandbox loopback client from public admin control and 
         calls.filter((args) => args[0] === "preview-url").map((args) => args.at(-1)),
         ["3986"],
       );
-      assert.deepEqual(fetched, ["https://admin-preview.example.test/health"]);
+      assert.equal(fetched.length, 1);
+      assert.equal(fetched[0]?.url, "https://admin-preview.example.test/health");
+      assert.match(fetched[0]?.authorization ?? "", /^Bearer [a-f0-9]{64}$/);
+      const healthCommand = calls.find((args) => args[0] === "exec" && args.at(-1)?.includes("curl -sf"))?.at(-1);
+      assert.match(healthCommand ?? "", /curl -sf -H "Authorization: Bearer [a-f0-9]{64}" http:\/\/127\.0\.0\.1:3986\/health/);
     }
 
     calls.length = 0;
@@ -128,6 +141,48 @@ test("denLink separates a sandbox loopback client from public admin control and 
     );
   } finally {
     globalThis.fetch = originalFetch;
+  }
+});
+
+test("denLink admin rejects missing and wrong bearer tokens without mutating state", async () => {
+  const upstream = createServer((_request, response) => response.end("ok"));
+  const port = await listen(upstream);
+  const originalFetch = globalThis.fetch;
+  let adminHealthUrl = "";
+  let authorization = "";
+  globalThis.fetch = async (input, init) => {
+    const url = String(input);
+    const header = new Headers(init?.headers).get("authorization");
+    if (url.endsWith("/health") && header !== null) {
+      adminHealthUrl = url;
+      authorization = header;
+    }
+    return originalFetch(input, init);
+  };
+  try {
+    await using link = await denLink({
+      apiUrl: `http://127.0.0.1:${port}/api/den`,
+      webUrl: `http://127.0.0.1:${port}`,
+    });
+    await link.admin.phase("protected");
+    assert.match(authorization, /^Bearer [a-f0-9]{64}$/);
+    const phaseUrl = adminHealthUrl.replace(/\/health$/, "/phase");
+    for (const headers of [
+      { "content-type": "application/json" },
+      { authorization: "Bearer " + "b".repeat(64), "content-type": "application/json" },
+    ]) {
+      const denied = await originalFetch(phaseUrl, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ name: "attacker" }),
+      });
+      assert.equal(denied.status, 401);
+      assert.deepEqual(await denied.json(), { error: "Unauthorized" });
+    }
+    assert.equal((await link.admin.health()).phase, "protected");
+  } finally {
+    globalThis.fetch = originalFetch;
+    await close(upstream);
   }
 });
 
