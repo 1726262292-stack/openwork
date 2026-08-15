@@ -53,12 +53,18 @@ function resolveAppAsarPath(context) {
   return path.join(context.appOutDir, "resources", "app.asar");
 }
 
+function normalizeAsarEntryPath(entry, separator) {
+  return entry.split(separator).join("/");
+}
+
 function verifyRuntimeDependencies(context) {
   const appAsarPath = resolveAppAsarPath(context);
   if (!appAsarPath || !fs.existsSync(appAsarPath)) {
     throw new Error(`Missing packaged app.asar at ${appAsarPath || context.appOutDir}`);
   }
-  const packagedFiles = new Set(asar.listPackage(appAsarPath));
+  const packagedFiles = new Set(
+    asar.listPackage(appAsarPath).map((entry) => normalizeAsarEntryPath(entry, path.sep)),
+  );
   const stagedNodeModules = path.resolve(__dirname, "..", ".electron-runtime", "node_modules");
   const packageJsonPaths = [];
   function visitNodeModules(nodeModulesPath, archivePrefix) {
@@ -170,3 +176,4 @@ async function afterPack(context) {
 
 module.exports = afterPack;
 module.exports.default = afterPack;
+module.exports.normalizeAsarEntryPath = normalizeAsarEntryPath;
