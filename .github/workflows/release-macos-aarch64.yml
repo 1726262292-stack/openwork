@@ -539,9 +539,17 @@ jobs:
       # The repo commits a permanent 0.0.0-dev placeholder; the release
       # version exists only as the git tag. Stamp it into the workspace so
       # electron-builder, app.getVersion(), and the Vite bundle carry it.
+      # Pre-redesign tags carry real committed versions and no stamp script —
+      # skipping is exactly the old behavior for them.
       - name: Stamp release version
         shell: bash
-        run: node scripts/release/stamp-version.mjs --version "$RELEASE_VERSION"
+        run: |
+          set -euo pipefail
+          if [ -f scripts/release/stamp-version.mjs ]; then
+            node scripts/release/stamp-version.mjs --version "$RELEASE_VERSION"
+          else
+            echo "Pre-redesign tag: committed package.json versions are in effect."
+          fi
 
       - name: Write Electron notary API key (macOS)
         if: matrix.os_type == 'macos' && env.MACOS_NOTARIZE == 'true'
@@ -921,10 +929,17 @@ jobs:
         run: pnpm install --frozen-lockfile --prefer-offline
 
       # openwork-server publishes with the tag-derived version; the committed
-      # package.json holds the permanent 0.0.0-dev placeholder.
+      # package.json holds the permanent 0.0.0-dev placeholder. Pre-redesign
+      # tags carry real committed versions and no stamp script.
       - name: Stamp release version
         shell: bash
-        run: node scripts/release/stamp-version.mjs --version "$RELEASE_VERSION"
+        run: |
+          set -euo pipefail
+          if [ -f scripts/release/stamp-version.mjs ]; then
+            node scripts/release/stamp-version.mjs --version "$RELEASE_VERSION"
+          else
+            echo "Pre-redesign tag: committed package.json versions are in effect."
+          fi
 
       - name: Check npm versions
         id: npm-versions
