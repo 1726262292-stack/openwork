@@ -158,7 +158,6 @@ export function PluginsScreen() {
   return (
     <DashboardPageTemplate
       icon={Puzzle}
-      badgeLabel="Preview"
       title="Plugin Directory"
       description="Discover and manage plugins — bundles of skills, hooks, MCP servers, agents, and commands that extend your workers."
       colors={["#EDE9FE", "#4C1D95", "#7C3AED", "#C4B5FD"]}

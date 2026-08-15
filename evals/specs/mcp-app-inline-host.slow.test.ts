@@ -1,6 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { expect, onTestFinished } from "vitest";
 import { clickButton, control, createAndSelectWorkspace, evalIn, waitFor } from "@openwork/behaviors";
+import { connect, debuggerUrlFor, evaluate, listTargets } from "@openwork/cdp";
 import { screenshot, validate } from "@openwork/fraimz";
 import { desktop } from "@openwork/hosts";
 import { needs, test } from "@openwork/testkit";
@@ -21,6 +22,97 @@ const title = !appSpecsEnabled
   : !localPlacement
     ? "MCP App inline host skipped — needs local placement without OPENWORK_EVAL_DEN_API_URL"
     : "a generated Artifact saves normally, then initializes and renders structuredContent inline";
+
+async function createWorkspaceForRenderer(
+  app: Awaited<ReturnType<typeof desktop>>,
+  path: string,
+): Promise<{ workspaceId: string; route: string }> {
+  const packaged = await evalIn(app, "location.protocol === 'file:'");
+  if (packaged !== true) return createAndSelectWorkspace(app, { path });
+
+  const created = await evalIn(app, `(async () => {
+    const port = localStorage.getItem("openwork.server.port");
+    const hostToken = localStorage.getItem("openwork.server.hostToken");
+    const invokeDesktop = window.__OPENWORK_ELECTRON__?.invokeDesktop;
+    if (!port || !hostToken || !invokeDesktop) return {
+      error: "packaged host prerequisites unavailable",
+      missing: [!port ? "port" : null, !hostToken ? "hostToken" : null, !invokeDesktop ? "invokeDesktop" : null].filter(Boolean),
+    };
+    const response = await fetch("http://127.0.0.1:" + port + "/workspaces/local", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-OpenWork-Host-Token": hostToken },
+      body: JSON.stringify({ folderPath: ${JSON.stringify(path)}, preset: "starter" }),
+    });
+    const payload = await response.json();
+    if (!response.ok || typeof payload?.activeId !== "string") {
+      return { error: "workspace creation failed: " + response.status + " " + JSON.stringify(payload) };
+    }
+    const workspaceId = payload.activeId;
+    await invokeDesktop("workspaceSetSelected", workspaceId);
+    await invokeDesktop("workspaceSetRuntimeActive", workspaceId);
+    localStorage.setItem("openwork.react.activeWorkspace", workspaceId);
+    const raw = localStorage.getItem("openwork.preferences");
+    let preferences = {};
+    try { preferences = raw ? JSON.parse(raw) : {}; } catch { preferences = {}; }
+    if (!preferences || typeof preferences !== "object" || Array.isArray(preferences)) preferences = {};
+    localStorage.setItem("openwork.preferences", JSON.stringify({ ...preferences, hasCompletedOnboarding: true }));
+    return { workspaceId };
+  })()`, { awaitPromise: true, timeoutMs: 60_000 });
+  if (!isRecord(created) || typeof created.workspaceId !== "string") {
+    throw new Error(`Could not prepare the packaged workspace: ${JSON.stringify(created)}`);
+  }
+  await evalIn(app, `(() => {
+    location.hash = "/workspace/" + encodeURIComponent(${JSON.stringify(created.workspaceId)}) + "/session";
+    location.reload();
+    return true;
+  })()`);
+  await waitFor(app, `location.protocol === "file:"
+    && location.hash.includes(${JSON.stringify(`/workspace/${created.workspaceId}/session`)})
+    && Boolean(window.__openworkControl)`, {
+    timeoutMs: 120_000,
+    label: "packaged workspace task route",
+  });
+  const engineStarted = await evalIn(app, `(async () => {
+    const invokeDesktop = window.__OPENWORK_ELECTRON__?.invokeDesktop;
+    if (!invokeDesktop) return "invokeDesktop unavailable";
+    await invokeDesktop("engineStart", ${JSON.stringify(path)}, {
+      runtime: "direct",
+      workspacePaths: [${JSON.stringify(path)}],
+      openworkRemoteAccess: false,
+    });
+    const serverInfo = await invokeDesktop("openworkServerInfo");
+    if (serverInfo?.baseUrl) {
+      const serverUrl = new URL(serverInfo.baseUrl);
+      localStorage.setItem("openwork.server.url", serverInfo.baseUrl);
+      localStorage.setItem("openwork.server.port", serverUrl.port);
+      if (serverInfo.clientToken) localStorage.setItem("openwork.server.token", serverInfo.clientToken);
+      if (serverInfo.hostToken) localStorage.setItem("openwork.server.hostToken", serverInfo.hostToken);
+    }
+    return "started";
+  })()`, { awaitPromise: true, timeoutMs: 60_000 });
+  if (engineStarted !== "started") throw new Error(String(engineStarted));
+  const engineReady = await evalIn(app, `(async () => {
+    const port = localStorage.getItem("openwork.server.port");
+    const token = localStorage.getItem("openwork.server.token");
+    if (!port || !token) return "missing local server credentials";
+    const deadline = Date.now() + 120_000;
+    let last = "";
+    while (Date.now() < deadline) {
+      try {
+        const response = await fetch(
+          "http://127.0.0.1:" + port + "/workspace/" + encodeURIComponent(${JSON.stringify(created.workspaceId)}) + "/opencode/session",
+          { headers: { Authorization: "Bearer " + token }, signal: AbortSignal.timeout(2_000) },
+        );
+        if (response.ok) return "ready";
+        last = "HTTP " + response.status;
+      } catch (error) { last = String(error); }
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+    return "engine not ready: " + last;
+  })()`, { awaitPromise: true, timeoutMs: 130_000 });
+  if (engineReady !== "ready") throw new Error(String(engineReady));
+  return { workspaceId: created.workspaceId, route: String(await evalIn(app, "location.hash")) };
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -57,6 +149,22 @@ async function waitForMountedArtifact(app: Awaited<ReturnType<typeof desktop>>, 
       includeDOMRects: false,
     });
     if (snapshotContainsMountedArtifact(snapshot)) return true;
+    const targets = await listTargets(app.handle.cdpUrl);
+    const sandbox = targets.find((target) => target.type === "iframe"
+      && target.url.includes("/mcp-apps/sandbox.html")
+      && target.webSocketDebuggerUrl);
+    if (sandbox) {
+      const client = await connect(debuggerUrlFor(app.handle.cdpUrl, sandbox));
+      try {
+        const mounted = await evaluate(client, `(() => {
+          const text = document.querySelector("iframe")?.contentDocument?.body?.innerText ?? "";
+          return text.includes("Quarterly plan") && text.includes("Ready");
+        })()`);
+        if (mounted === true) return true;
+      } finally {
+        client.close();
+      }
+    }
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
   return false;
@@ -360,9 +468,7 @@ test.skipIf(!appSpecsEnabled || !localPlacement)(title, { timeout: 240_000 }, as
       OPENWORK_INFERENCE_BASE_URL: "",
     },
   });
-  const workspace = await createAndSelectWorkspace(app, {
-    path: `/tmp/openwork-mcp-app-inline-host-${Date.now()}`,
-  });
+  const workspace = await createWorkspaceForRenderer(app, `/tmp/openwork-mcp-app-inline-host-${Date.now()}`);
   const configured = await evalIn(app, `(async () => {
     const port = localStorage.getItem("openwork.server.port");
     const token = localStorage.getItem("openwork.server.token");
@@ -485,8 +591,8 @@ test.skipIf(!appSpecsEnabled || !localPlacement)(title, { timeout: 240_000 }, as
   })()`);
   expect(hostClaim).toBe(true);
   const mountedReact = await waitForMountedArtifact(app);
-  expect(mountedReact).toBe(true);
   const transcript = await evalIn(app, `document.body?.innerText ?? ""`);
+  expect(mountedReact, transcript).toBe(true);
   expect(transcript).not.toContain("MCP_APP_INITIALIZE_TIMEOUT");
   expect(transcript).not.toContain("MCP_APP_RESOURCE_ACCEPT_TIMEOUT");
   expect(transcript).not.toContain("MCP_APP_RESOURCE_NOT_FOUND");

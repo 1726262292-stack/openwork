@@ -263,6 +263,8 @@ jobs:
       RELEASE_TAG: ${{ needs.resolve-release.outputs.release_tag }}
       MACOS_NOTARIZE: ${{ needs.resolve-release.outputs.notarize }}
       SIGN_WINDOWS: ${{ needs.resolve-release.outputs.sign_windows }}
+      OPENWORK_DESKTOP_SENTRY_DSN: ${{ secrets.OPENWORK_DESKTOP_SENTRY_DSN || vars.OPENWORK_DESKTOP_SENTRY_DSN }}
+      OPENWORK_DESKTOP_SENTRY_TRACES_SAMPLE_RATE: ${{ vars.OPENWORK_DESKTOP_SENTRY_TRACES_SAMPLE_RATE || '0.01' }}
 
     strategy:
       fail-fast: false

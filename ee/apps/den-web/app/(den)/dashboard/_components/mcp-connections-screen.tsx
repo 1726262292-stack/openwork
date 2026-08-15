@@ -639,7 +639,6 @@ export function McpConnectionsScreen() {
     <DashboardPageTemplate
       icon={Plug}
       title="Connectors"
-      badgeLabel="Beta"
       description="Connectors is where you can add MCP servers that your whole team can use."
       colors={["#E2E8F0", "#020617", "#0F172A", "#94A3B8"]}
     >

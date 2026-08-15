@@ -89,6 +89,7 @@ import { addRoute, matchRoute, type AuthMode, type RequestContext, type Route } 
 import { registerSessionRoutes } from "./routes/sessions.js";
 import { registerWorkspaceRoutes } from "./routes/workspaces.js";
 import { registerCloudMcpRoutes } from "./routes/cloud-mcp.js";
+import { captureServerException } from "./telemetry.js";
 import {
   completeLocalManagedMcpAuthorization,
   createLocalManagedMcpConnection,
@@ -973,6 +974,9 @@ export async function startServer(config: ServerConfig): Promise<ServeResult> {
           const response = await proxyOpencodeRequest({ config, request, url, workspace, proxyPath: mount.restPath });
           return finalize(response);
         } catch (error) {
+          if (!(error instanceof ApiError)) {
+            captureServerException(error, { method: request.method, route: "/workspace/:id/opencode/*" });
+          }
           const apiError = error instanceof ApiError
             ? error
             : new ApiError(500, "internal_error", "Unexpected server error");
@@ -1022,6 +1026,9 @@ export async function startServer(config: ServerConfig): Promise<ServeResult> {
           const response = await proxyOpencodeRequest({ config, request, url, workspace: config.workspaces[0] });
           return finalize(response);
         } catch (error) {
+          if (!(error instanceof ApiError)) {
+            captureServerException(error, { method: request.method, route: "/opencode/*" });
+          }
           const apiError = error instanceof ApiError
             ? error
             : new ApiError(500, "internal_error", "Unexpected server error");
@@ -1061,6 +1068,7 @@ export async function startServer(config: ServerConfig): Promise<ServeResult> {
         return finalize(response);
       } catch (error) {
         if (!(error instanceof ApiError)) {
+          captureServerException(error, { method: request.method, route: url.pathname });
           console.error("[openwork-server] Unhandled error:", error);
         }
         const apiError = error instanceof ApiError
@@ -1095,6 +1103,7 @@ export async function startServer(config: ServerConfig): Promise<ServeResult> {
       idleTimeout: 120,
     });
   } catch (error) {
+    captureServerException(error, { method: "START", route: "startServer" });
     cloudProviderSync.stop();
     invalidateEngineMcpServerState(config, engineMcpServerState);
     watcherHandle.close();

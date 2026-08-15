@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test"
 
-import { OpenworkServerError, type OpenworkMcpAppResource } from "../src/app/lib/openwork-server"
+import {
+  createOpenworkServerClient,
+  normalizeMcpAppHostOrigin,
+  OpenworkServerError,
+  type OpenworkMcpAppResource,
+} from "../src/app/lib/openwork-server"
 import { formatMcpAppDiagnostic, safeMcpAppDiagnosticMessage } from "../src/components/chat/mcp-app-diagnostics"
 import {
   buildMcpAppCsp,
@@ -26,6 +31,16 @@ function fixture(overrides: Partial<OpenworkMcpAppResource> = {}): OpenworkMcpAp
 }
 
 describe("MCP App iframe policy", () => {
+  test("uses the opaque message origin for packaged file hosts", () => {
+    expect(normalizeMcpAppHostOrigin("file://")).toBe("null")
+    expect(normalizeMcpAppHostOrigin("null")).toBe("null")
+    expect(normalizeMcpAppHostOrigin("https://desktop.example")).toBe("https://desktop.example")
+
+    const client = createOpenworkServerClient({ baseUrl: "http://localhost:61856" })
+    const sandbox = client.mcpAppSandbox(fixture(), "file://")
+    expect(new URL(sandbox.url).searchParams.get("hostOrigin")).toBe("null")
+  })
+
   test("keeps ordinary tools silent while surfacing advertised resource failures", () => {
     expect(isActionableMcpAppResolutionError(new OpenworkServerError(503, "mcp_unreachable", "offline"))).toBe(false)
     expect(isActionableMcpAppResolutionError(new OpenworkServerError(404, "resource_read_failed", "missing"))).toBe(true)
