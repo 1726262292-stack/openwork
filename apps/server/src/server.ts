@@ -9,6 +9,7 @@ import { ApprovalService } from "./approvals.js";
 import {
   EnginePool,
   enginePoolForConfig,
+  managedEnginePoolForConfig,
   setEnginePoolForConfig,
   type EnginePoolConnection,
   type EngineEventProxyLease,
@@ -1280,17 +1281,23 @@ export async function proxyOpencodeRequest(input: {
       method,
       headers,
       body,
-    }).catch(() => {
+    }).then(() => {
+      managedEnginePoolForConfig(input.config)?.reportRequestSuccess(baseUrl);
+    }).catch((error: unknown) => {
+      if (workspace) managedEnginePoolForConfig(input.config)?.reportRequestFailure(baseUrl, error, workspace);
       // Command failures are surfaced through the OpenCode event stream.
     });
     return jsonResponse({ ok: true, accepted: true });
   }
   const forward = async () => {
-    const response = await loopbackFetch(targetUrl, {
-      method,
-      headers,
-      body,
-    });
+    let response: Response;
+    try {
+      response = await loopbackFetch(targetUrl, { method, headers, body });
+      managedEnginePoolForConfig(input.config)?.reportRequestSuccess(baseUrl);
+    } catch (error) {
+      if (workspace) managedEnginePoolForConfig(input.config)?.reportRequestFailure(baseUrl, error, workspace);
+      throw error;
+    }
 
     if (response.status === 404 && route?.fallback) {
       const fallbackHeaders = headersForEngineConnection(headers, route.fallback);
@@ -4104,7 +4111,7 @@ async function syncRuntimeMcpToOpencodeEngine(
   const failures: EngineMcpSyncFailure[] = [];
   const registrations: EngineMcpRegistrationResult[] = [];
   for (const [name, mcpConfig] of entries) {
-    const registration = await postMcpEntryWithRetry(url, headers, name, mcpConfig);
+    const registration = await postMcpEntryWithRetry(config, workspace, url, headers, name, mcpConfig);
     registrations.push(registration);
     if (registration.failure) failures.push(registration.failure);
   }
@@ -4158,6 +4165,8 @@ async function syncRuntimeMcpToOpencodeEngine(
 // (the engine is often mid-rebuild right after a dispose). 4xx responses
 // are not retried — they won't change.
 async function postMcpEntryWithRetry(
+  config: ServerConfig,
+  workspace: WorkspaceInfo,
   url: URL,
   headers: Record<string, string>,
   name: string,
@@ -4174,6 +4183,7 @@ async function postMcpEntryWithRetry(
         body: JSON.stringify({ name, config: mcpConfig }),
         signal: AbortSignal.timeout(15_000),
       });
+      managedEnginePoolForConfig(config)?.reportRequestSuccess(url.origin);
       if (response.ok) {
         // OpenCode's dynamic registration endpoint historically treats every
         // 2xx response as accepted delivery and Cloud readiness verifies the
@@ -4197,7 +4207,8 @@ async function postMcpEntryWithRetry(
         message: "OpenCode rejected the MCP registration request",
       };
       if (response.status < 500) return { name, status: "failed", source: "transport_failure", errorSummary: null, failure };
-    } catch {
+    } catch (error) {
+      managedEnginePoolForConfig(config)?.reportRequestFailure(url.origin, error, workspace);
       failure = {
         name,
         registrationStatus: "failed",
