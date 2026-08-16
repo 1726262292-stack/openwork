@@ -5,6 +5,7 @@ import { extname, resolve, sep } from "node:path"
 import { createJsonStdoutLogger, type JsonObject, type JsonStdoutLogger } from "@openwork-ee/utils/observability"
 import { Hono } from "hono"
 import { env } from "./env.js"
+import { createInstanceFetch, fetchWithConnectRetry, type FetchLike } from "./instance-fetch.js"
 
 type InstanceStatus = "provisioning" | "waking" | "ready" | "failed"
 type NonReadyStatus = "provisioning" | "waking" | "failed"
@@ -30,9 +31,11 @@ export type GatewayAppOptions = {
   webRoot?: string
   denApiBase?: string
   gatewayKey?: string
+  buildVersion?: string
   resolveTtlMs?: number
   now?: () => number
   fetchImpl?: typeof fetch
+  instanceFetch?: FetchLike
   logger?: JsonStdoutLogger
   logRequests?: boolean
 }
@@ -41,9 +44,11 @@ type GatewayConfig = {
   webRoot?: string
   denApiBase: string
   gatewayKey?: string
+  buildVersion?: string
   resolveTtlMs: number
   now: () => number
   fetchImpl: typeof fetch
+  instanceFetch: FetchLike
   logger: JsonStdoutLogger
   logRequests: boolean
 }
@@ -53,7 +58,6 @@ const INDEX_CACHE = "no-cache"
 const gatewayKeyHeader = "X-OpenWork-Gateway-Key"
 const resolvePath = "/v1/cloud/gateway/resolve"
 const denApiRoutePrefix = "/api/den"
-const gatewayMarker = { version: 1 }
 const hopByHopHeaders = new Set([
   "connection",
   "keep-alive",
@@ -86,6 +90,14 @@ const alwaysProxyPathPrefixes = [
 const workspacePathPrefix = "/workspace/"
 const defaultLogger = createJsonStdoutLogger({ serviceName: "den-gateway" })
 
+function createLazyInstanceFetch(connectTimeoutMs: number): FetchLike {
+  let instanceFetch: FetchLike | undefined
+  return (url, init) => {
+    instanceFetch ??= createInstanceFetch({ connectTimeoutMs })
+    return instanceFetch(url, init)
+  }
+}
+
 class GatewayHttpError extends Error {
   status: number
   code: string
@@ -107,9 +119,11 @@ function createConfig(options: GatewayAppOptions): GatewayConfig {
     webRoot: options.webRoot ?? env.webRoot,
     denApiBase: normalizeHttpBaseUrl(options.denApiBase ?? env.denApiBase),
     gatewayKey: options.gatewayKey ?? env.gatewayKey,
+    buildVersion: options.buildVersion ?? env.buildVersion,
     resolveTtlMs: options.resolveTtlMs ?? env.resolveTtlMs,
     now: options.now ?? Date.now,
     fetchImpl: options.fetchImpl ?? fetch,
+    instanceFetch: options.instanceFetch ?? options.fetchImpl ?? createLazyInstanceFetch(env.upstreamConnectTimeoutMs),
     logger: options.logger ?? defaultLogger,
     logRequests: options.logRequests ?? env.logRequests,
   }
@@ -312,7 +326,8 @@ function escapeScriptJson(json: string) {
   return json.replace(/[<>&\u2028\u2029]/g, (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`)
 }
 
-function injectGatewayMarker(html: string) {
+function injectGatewayMarker(html: string, buildVersion: string | undefined) {
+  const gatewayMarker = { version: 1, ...(buildVersion ? { build: buildVersion } : {}) }
   const marker = escapeScriptJson(JSON.stringify(gatewayMarker))
   const script = `<script>window.__OPENWORK_GATEWAY__ = ${marker}</script>`
   const headCloseIndex = html.toLowerCase().indexOf("</head>")
@@ -322,7 +337,7 @@ function injectGatewayMarker(html: string) {
   return `${html.slice(0, headCloseIndex)}${script}${html.slice(headCloseIndex)}`
 }
 
-async function serveFile(root: string, relativePath: string, requestPathname: string, method: string) {
+async function serveFile(root: string, relativePath: string, requestPathname: string, method: string, buildVersion: string | undefined) {
   const filePath = await resolveWithinRoot(root, relativePath)
   const fileStat = await stat(filePath).catch(() => null)
   if (!fileStat?.isFile()) {
@@ -338,7 +353,7 @@ async function serveFile(root: string, relativePath: string, requestPathname: st
 
   if (isTextExtension(extension)) {
     const body = await readFile(filePath, "utf8")
-    const text = relativePath === "index.html" ? injectGatewayMarker(body) : body
+    const text = relativePath === "index.html" ? injectGatewayMarker(body, buildVersion) : body
     return new Response(text, { status: 200, headers })
   }
 
@@ -346,7 +361,7 @@ async function serveFile(root: string, relativePath: string, requestPathname: st
   return new Response(new Uint8Array(bytes), { status: 200, headers })
 }
 
-async function serveStatic(request: Request, webRoot: string | undefined) {
+async function serveStatic(request: Request, webRoot: string | undefined, buildVersion: string | undefined) {
   if (!webRoot) {
     return null
   }
@@ -363,14 +378,14 @@ async function serveStatic(request: Request, webRoot: string | undefined) {
   }
 
   try {
-    const file = await serveFile(webRoot, relativePath, url.pathname, method)
+    const file = await serveFile(webRoot, relativePath, url.pathname, method, buildVersion)
     if (file) {
       return file
     }
     if (url.pathname.startsWith("/assets/")) {
       return notFoundResponse()
     }
-    return await serveFile(webRoot, "index.html", "/index.html", method) ?? notFoundResponse()
+    return await serveFile(webRoot, "index.html", "/index.html", method, buildVersion) ?? notFoundResponse()
   } catch (error) {
     if (error instanceof GatewayHttpError) {
       return gatewayErrorResponse(error)
@@ -575,11 +590,15 @@ async function proxyToInstance(input: {
 }) {
   let response: Response
   try {
-    response = await input.config.fetchImpl(buildProxyUrl(input.resolution.url, input.request.url), {
-      method: input.request.method,
-      headers: upstreamRequestHeaders(input.request.headers, input.resolution.clientToken, input.resolution.hostToken),
-      body: await requestBody(input.request),
-      redirect: "manual",
+    response = await fetchWithConnectRetry({
+      fetchImpl: input.config.instanceFetch,
+      url: buildProxyUrl(input.resolution.url, input.request.url),
+      init: {
+        method: input.request.method,
+        headers: upstreamRequestHeaders(input.request.headers, input.resolution.clientToken, input.resolution.hostToken),
+        body: await requestBody(input.request),
+        redirect: "manual",
+      },
     })
   } catch {
     return jsonResponse({ error: "gateway_upstream_failed" }, 502)
@@ -651,8 +670,8 @@ export function createGatewayApp(options: GatewayAppOptions = {}) {
     }
   })
 
-  app.get("/__gw/health", (c) => c.json({ ok: true, service: "den-gateway" }))
-  app.get("/__gw/ready", (c) => c.json({ ok: true, service: "den-gateway" }))
+  app.get("/__gw/health", (c) => c.json({ ok: true, service: "den-gateway", ...(config.buildVersion ? { build: config.buildVersion } : {}) }))
+  app.get("/__gw/ready", (c) => c.json({ ok: true, service: "den-gateway", ...(config.buildVersion ? { build: config.buildVersion } : {}) }))
 
   app.all(denApiRoutePrefix, (c) => proxyToDenApi({ config, request: c.req.raw }))
   app.all(`${denApiRoutePrefix}/*`, (c) => proxyToDenApi({ config, request: c.req.raw }))
@@ -662,7 +681,7 @@ export function createGatewayApp(options: GatewayAppOptions = {}) {
       return handleProxy({ config, cache, request: c.req.raw })
     }
 
-    return await serveStatic(c.req.raw, config.webRoot) ?? notFoundResponse()
+    return await serveStatic(c.req.raw, config.webRoot, config.buildVersion) ?? notFoundResponse()
   })
 
   return app

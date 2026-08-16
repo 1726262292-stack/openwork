@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto"
 import { eq } from "@openwork-ee/den-db/drizzle"
 import { OrganizationTable, ScimProviderTable, SsoConnectionTable } from "@openwork-ee/den-db/schema"
 import { normalizeDenTypeId, type DenTypeId } from "@openwork-ee/utils/typeid"
@@ -5,14 +6,16 @@ import type { Hono } from "hono"
 import { describeRoute } from "hono-openapi"
 import { z } from "zod"
 import { auth } from "../../auth.js"
+import { verifyBotProtection } from "../../bot-protection.js"
 import { validateBrandIconUrl } from "../../brand-icon-validation.js"
 import { organizationCloudEnabled } from "../../capability-sources/cloud-rollout.js"
+import { codemodeScriptsEnabled } from "../../capability-sources/codemode-rollout.js"
 import { memberFacingMcpConnectionsEnabled } from "../../capability-sources/external-mcp-rollout.js"
 import { organizationInstallLinksEnabled } from "../../capability-sources/install-links-rollout.js"
 import { db } from "../../db.js"
 import { checkEntitlement, getOrganizationEntitlements, parseOrganizationPlan } from "../../entitlements.js"
 import { env } from "../../env.js"
-import { findEnterpriseAuthRequirementForEmail } from "../../enterprise-auth-requirement.js"
+import { findEnterpriseAuthRequirementForEmailDomain, resolveNonSsoSignInMethodForEmail } from "../../enterprise-auth-requirement.js"
 import { authenticatedRoute, jsonValidator, orgMemberRoute, orgRoleRoute, publicRoute, queryValidator, resolveMemberTeamsMiddleware } from "../../middleware/index.js"
 import { denTypeIdSchema, enterprisePlanRequiredSchema, forbiddenSchema, invalidRequestSchema, jsonResponse, notFoundSchema, unauthorizedSchema } from "../../openapi.js"
 import { validateInvitationAcceptVerification } from "../../organization-join-verification.js"
@@ -20,18 +23,21 @@ import { normalizeOrganizationMetadata } from "../../organization-limits.js"
 import {
   acceptInvitationForUser,
   createOrganizationForUser,
+  getOrganizationContextForUser,
   getInvitationPreview,
   getSingletonSsoStatus,
   normalizeAllowedEmailDomains,
   OrganizationEmailDomainRestrictionError,
   serializeMemberFacingOrganizationMetadata,
+  seedDefaultOrganizationRoles,
   setSessionActiveOrganization,
   type AcceptInvitationForUserResult,
   updateOrganizationSettings,
 } from "../../orgs.js"
 import { getRequiredUserEmail } from "../../user.js"
+import { checkRateLimit } from "../../utils/rate-limit.js"
 import type { OrgRouteVariables } from "./shared.js"
-import { ensureOrganizationSuperAdmin, orgAccessFailureStatus } from "./shared.js"
+import { ensureOrganizationAdminRole, ensureOrganizationSuperAdmin, orgAccessFailureStatus } from "./shared.js"
 
 const createOrganizationSchema = z.object({
   name: z.string().trim().min(2).max(120),
@@ -54,12 +60,41 @@ const resolveSsoByEmailQuerySchema = z.object({
   email: z.string().trim().email(),
 })
 
+const organizationContextQuerySchema = z.object({
+  refreshRoles: z.enum(["true", "false"]).optional().transform((value) => value === "true"),
+})
+
 const resolveSsoByEmailResponseSchema = z.object({
-  requireSso: z.boolean(),
+  requireSso: z.literal(true),
+  method: z.literal("sso"),
   organizationSlug: z.string(),
   signInPath: z.string(),
   signInUrl: z.string().url(),
-}).meta({ ref: "ResolveOrganizationSsoByEmailResponse" })
+}).or(z.object({
+  requireSso: z.literal(false),
+  method: z.union([z.literal("google"), z.literal("password"), z.literal("signup")]),
+})).meta({ ref: "ResolveOrganizationSsoByEmailResponse" })
+
+const botVerificationFailedSchema = z.object({
+  error: z.literal("bot_verification_failed"),
+  message: z.string(),
+}).meta({ ref: "BotVerificationFailedError" })
+
+const rateLimitedSchema = z.object({
+  error: z.literal("rate_limited"),
+  message: z.string(),
+}).meta({ ref: "RateLimitedError" })
+
+const SSO_RESOLVE_IDENTITY_RATE_LIMIT_MAX = 20
+const SSO_RESOLVE_RATE_LIMIT_WINDOW_MS = 60_000
+// See the login-options buckets: a long domain window buys burst tolerance for
+// a coworker sign-in wave while keeping SUSTAINED per-domain throughput below
+// the previous flat 20/min (120 per 10 min = 12/min; 30 misses per 10 min = 3/min).
+const SSO_RESOLVE_DOMAIN_RATE_LIMIT_WINDOW_MS = 600_000
+const SSO_RESOLVE_DOMAIN_RATE_LIMIT_MAX = 120
+const SSO_RESOLVE_DOMAIN_MISS_RATE_LIMIT_MAX = 30
+// A generous domain bucket bounds distributed enumeration without recreating coworker lockouts;
+// only unresolved addresses pay the tighter miss bucket.
 
 const singleOrgSsoStatusResponseSchema = z.object({
   configured: z.boolean(),
@@ -174,6 +209,47 @@ function getStoredSessionId(session: { id?: string | null } | null) {
   } catch {
     return null
   }
+}
+
+function getRequestAddress(headers: Headers) {
+  const forwarded = headers.get("x-forwarded-for")?.split(",")[0]?.trim()
+  return forwarded || headers.get("x-real-ip")?.trim() || "unknown"
+}
+
+function sha256Hex(value: string) {
+  return createHash("sha256").update(value).digest("hex")
+}
+
+function normalizeResolveEmail(email: string) {
+  return email.trim().toLowerCase()
+}
+
+export function ssoResolveRateLimitKeys(headers: Headers, email: string) {
+  const normalizedEmail = normalizeResolveEmail(email)
+  const domainHash = sha256Hex(normalizedEmail.slice(normalizedEmail.lastIndexOf("@") + 1))
+  return {
+    ip: `org-sso-resolve:ip:${sha256Hex(getRequestAddress(headers))}`,
+    email: `org-sso-resolve:email:${sha256Hex(normalizedEmail)}`,
+    domain: `org-sso-resolve:domain:${domainHash}`,
+    domainMiss: `org-sso-resolve:domain-miss:${domainHash}`,
+  }
+}
+
+async function checkSsoResolveRateLimit(keys: ReturnType<typeof ssoResolveRateLimitKeys>) {
+  const now = Date.now()
+
+  for (const key of [keys.ip, keys.email]) {
+    const retryAfter = await checkRateLimit(key, SSO_RESOLVE_IDENTITY_RATE_LIMIT_MAX, SSO_RESOLVE_RATE_LIMIT_WINDOW_MS, now)
+    if (retryAfter !== null) {
+      return retryAfter
+    }
+  }
+
+  return checkRateLimit(keys.domain, SSO_RESOLVE_DOMAIN_RATE_LIMIT_MAX, SSO_RESOLVE_DOMAIN_RATE_LIMIT_WINDOW_MS, now)
+}
+
+function checkSsoResolveMissRateLimit(key: string) {
+  return checkRateLimit(key, SSO_RESOLVE_DOMAIN_MISS_RATE_LIMIT_MAX, SSO_RESOLVE_DOMAIN_RATE_LIMIT_WINDOW_MS, Date.now())
 }
 
 async function setRequestActiveOrganization(
@@ -479,28 +555,72 @@ export function registerOrgCoreRoutes<T extends { Variables: OrgRouteVariables }
     describeRoute({
       tags: ["Organizations"],
       hide: true,
-      summary: "Resolve required organization SSO by email",
-      description: "Returns the org SSO entry URL when the email belongs to a member of any organization with SSO or SCIM configured.",
+      summary: "Resolve sign-in method by email",
+      description: "Returns a uniform sign-in routing envelope. SSO routing is resolved by verified domain; non-SSO routing is protected by bot verification and rate limiting.",
       responses: {
-        200: jsonResponse("Organization SSO resolution returned successfully.", resolveSsoByEmailResponseSchema),
-        204: { description: "No organization SSO or SCIM requirement matched this email." },
+        200: jsonResponse("Sign-in resolution returned successfully.", resolveSsoByEmailResponseSchema),
         400: jsonResponse("The SSO resolution query parameters were invalid.", invalidRequestSchema),
+        403: jsonResponse("Bot verification failed.", botVerificationFailedSchema),
+        429: jsonResponse("Too many SSO resolution attempts.", rateLimitedSchema),
       },
     }),
     publicRoute,
     queryValidator(resolveSsoByEmailQuerySchema),
     async (c) => {
       const query = c.req.valid("query")
-      const requirement = await findEnterpriseAuthRequirementForEmail(query.email)
-      if (!requirement) {
-        return c.body(null, 204)
+
+      // Security note:
+      // This endpoint intentionally preserves per-user auth-method routing for non-SSO
+      // accounts as a product UX decision. To reduce enumeration risk it:
+      // 1. resolves SSO by verified domain, not membership,
+      // 2. requires Vercel BotID verification before per-user method resolution,
+      // 3. relies on Better Auth/routing rate limits,
+      // 4. returns a uniform 200 response envelope for successful lookups.
+      const botProtection = await verifyBotProtection()
+      if (!botProtection.ok) {
+        return c.json({
+          error: "bot_verification_failed",
+          message: botProtection.message,
+        }, botProtection.status)
+      }
+
+      const rateLimitKeys = ssoResolveRateLimitKeys(c.req.raw.headers, query.email)
+      const retryAfter = await checkSsoResolveRateLimit(rateLimitKeys)
+      if (retryAfter !== null) {
+        c.header("Retry-After", String(retryAfter))
+        return c.json({
+          error: "rate_limited",
+          message: "Too many sign-in resolution attempts. Try again later.",
+        }, 429)
+      }
+
+      const requirement = await findEnterpriseAuthRequirementForEmailDomain(query.email)
+
+      if (requirement) {
+        return c.json({
+          requireSso: true,
+          method: "sso",
+          organizationSlug: requirement.organizationSlug,
+          signInPath: requirement.signInPath,
+          signInUrl: new URL(requirement.signInPath, env.betterAuthTrustedOrigins[0] ?? env.betterAuthUrl).toString(),
+        })
+      }
+
+      const method = await resolveNonSsoSignInMethodForEmail(query.email)
+      if (method === "signup") {
+        const missRetryAfter = await checkSsoResolveMissRateLimit(rateLimitKeys.domainMiss)
+        if (missRetryAfter !== null) {
+          c.header("Retry-After", String(missRetryAfter))
+          return c.json({
+            error: "rate_limited",
+            message: "Too many sign-in resolution attempts. Try again later.",
+          }, 429)
+        }
       }
 
       return c.json({
-        requireSso: true,
-        organizationSlug: requirement.organizationSlug,
-        signInPath: requirement.signInPath,
-        signInUrl: new URL(requirement.signInPath, env.betterAuthTrustedOrigins[0] ?? env.betterAuthUrl).toString(),
+        requireSso: false,
+        method,
       })
     },
   )
@@ -518,9 +638,31 @@ export function registerOrgCoreRoutes<T extends { Variables: OrgRouteVariables }
       },
     }),
     orgMemberRoute(),
+    queryValidator(organizationContextQuerySchema),
     resolveMemberTeamsMiddleware,
     async (c) => {
-      const payload = c.get("organizationContext")
+      let payload = c.get("organizationContext")
+      const query = c.req.valid("query")
+
+      if (query.refreshRoles) {
+        const permission = ensureOrganizationAdminRole(c, "Only workspace owners and admins can refresh organization roles.")
+        if (!permission.ok) {
+          return c.json(permission.response, orgAccessFailureStatus(permission.response))
+        }
+
+        await seedDefaultOrganizationRoles(payload.organization.id)
+        const refreshedPayload = await getOrganizationContextForUser({
+          organizationId: payload.organization.id,
+          userId: normalizeDenTypeId("user", c.get("user").id),
+        })
+        if (!refreshedPayload) {
+          return c.json({ error: "organization_not_found" }, 404)
+        }
+
+        payload = refreshedPayload
+        c.set("organizationContext", payload)
+      }
+
       const owner = payload.members.find((member: typeof payload.members[number]) => member.isOwner) ?? null
       const cloudEnabled = organizationCloudEnabled(payload.organization.metadata, { orgMode: env.orgMode })
       const [ssoRows, scimRows] = await Promise.all([
@@ -560,6 +702,7 @@ export function registerOrgCoreRoutes<T extends { Variables: OrgRouteVariables }
           mcpConnections: memberFacingMcpConnectionsEnabled(payload.organization.metadata, {
             gatingEnabled: env.mcpConnectionsGatingEnabled,
           }),
+          codemodeScripts: codemodeScriptsEnabled(payload.organization.metadata),
           installLinks: organizationInstallLinksEnabled(payload.organization.metadata, {
             gatingEnabled: env.installLinksGatingEnabled,
           }),

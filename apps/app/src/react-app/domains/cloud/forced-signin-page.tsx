@@ -7,12 +7,17 @@ import {
   clearDenSession,
   createDenClient,
   DEFAULT_DEN_BASE_URL,
+  denOriginComparisonKey,
   normalizeDenBaseUrl,
   readDenBootstrapConfig,
   readDenSettings,
   resolveDenBaseUrls,
+  setDenBootstrapConfig,
 } from "../../../app/lib/den";
+import { markDesktopSignInInitiated } from "../../../app/lib/den-sign-in-intent";
 import { exchangeHandoffAndSignIn } from "../../../app/lib/den-handoff";
+import { parseManualAuthInput } from "../../../app/lib/manual-auth-input";
+import { normalizeOrganizationServerInput } from "../../../app/lib/organization-server-input";
 import {
   denSessionUpdatedEvent,
   type DenSessionUpdatedDetail,
@@ -21,7 +26,7 @@ import { usePlatform } from "../../kernel/platform";
 import { useBootState } from "../../shell/boot-state";
 import { useDenAuth } from "./den-auth-provider";
 import { useDesktopConfig } from "./desktop-config-provider";
-import { applyBrandAppName } from "../../../app/lib/desktop";
+import { applyBrandAppName, readDesktopDistributionInfo } from "../../../app/lib/desktop";
 import { DenSignInSurface } from "./den-signin-surface";
 import { tryOpenBrowserAuthUrl } from "./open-browser-auth";
 import { saveControlPlaneUrl } from "../settings/cloud/control-plane-url";
@@ -29,41 +34,6 @@ import { saveControlPlaneUrl } from "../settings/cloud/control-plane-url";
 export type ForcedSigninPageProps = {
   developerMode: boolean;
 };
-
-/**
- * Parse a pasted manual-auth input. Accepts either a raw handoff grant
- * string (>= 12 chars) or an `openwork://den-auth?grant=…` deep link.
- * Matches the Solid ForcedSigninPage exactly so flows stay fungible.
- */
-export function parseManualAuthInput(value: string) {
-  const trimmed = value.trim();
-  if (!trimmed) return null;
-
-  try {
-    const url = new URL(trimmed);
-    const protocol = url.protocol.toLowerCase();
-    const routeHost = url.hostname.toLowerCase();
-    const routePath = url.pathname.replace(/^\/+/, "").toLowerCase();
-    const routeSegments = routePath.split("/").filter(Boolean);
-    const routeTail = routeSegments[routeSegments.length - 1] ?? "";
-    if (
-      (protocol === "openwork:" || protocol === "openwork-dev:") &&
-      (routeHost === "den-auth" ||
-        routePath === "den-auth" ||
-        routeTail === "den-auth")
-    ) {
-      const grant = url.searchParams.get("grant")?.trim() ?? "";
-      const nextBaseUrl =
-        normalizeDenBaseUrl(url.searchParams.get("denBaseUrl")?.trim() ?? "") ??
-        undefined;
-      return grant ? { grant, baseUrl: nextBaseUrl } : null;
-    }
-  } catch {
-    // Treat non-URL input as a raw handoff grant.
-  }
-
-  return trimmed.length >= 12 ? { grant: trimmed } : null;
-}
 
 /**
  * React port of the Solid `ForcedSigninPage`
@@ -111,6 +81,7 @@ export function ForcedSigninPage({ developerMode }: ForcedSigninPageProps) {
   const openBrowserAuth = useCallback(
     (mode: "sign-in" | "sign-up") => {
       const url = buildDenAuthUrl(baseUrl, mode);
+      markDesktopSignInInitiated();
       setSigninFallbackUrl(url);
       setStatusMessage(
         mode === "sign-up"
@@ -140,10 +111,23 @@ export function ForcedSigninPage({ developerMode }: ForcedSigninPageProps) {
       const result = await exchangeHandoffAndSignIn(grant, {
         baseUrl: nextBaseUrl,
         client,
+        // Pasted one-time codes are desktop-initiated sign-ins.
+        desktopInitiated: true,
         fallbackErrorMessage: t("den.error_no_token"),
       });
       if (!result.ok) {
         return false;
+      }
+
+      if (readDesktopDistributionInfo().flavor === "enterprise") {
+        await setDenBootstrapConfig({
+          baseUrl: nextBaseUrl,
+          requireSignin: true,
+          enterpriseActivation: {
+            activatedAt: new Date().toISOString(),
+            denBaseUrl: nextBaseUrl,
+          },
+        });
       }
 
       if (developerMode) {
@@ -155,6 +139,11 @@ export function ForcedSigninPage({ developerMode }: ForcedSigninPageProps) {
       setManualAuthInput("");
       setManualAuthOpen(false);
       return true;
+    } catch (error) {
+      setAuthError(
+        error instanceof Error ? error.message : t("den.error_signin_failed"),
+      );
+      return false;
     } finally {
       setAuthBusy(false);
     }
@@ -166,6 +155,19 @@ export function ForcedSigninPage({ developerMode }: ForcedSigninPageProps) {
       if (!parsed) {
         setAuthError(t("den.error_paste_valid_code"));
       }
+      return;
+    }
+
+    if (parsed.baseUrl && denOriginComparisonKey(parsed.baseUrl) !== denOriginComparisonKey(baseUrl)) {
+      let pastedOrigin = parsed.baseUrl;
+      try {
+        pastedOrigin = new URL(parsed.baseUrl).origin;
+      } catch {
+        // Keep the parsed URL as the safe display fallback.
+      }
+      // Warden LZL-USH: switching servers must use the explicit workspace-address control, never a pasted link.
+      setBaseUrlDraft(parsed.baseUrl);
+      setAuthError(t("den.error_signin_link_other_server", { origin: pastedOrigin }));
       return;
     }
 
@@ -191,7 +193,8 @@ export function ForcedSigninPage({ developerMode }: ForcedSigninPageProps) {
   }, [authBusy, baseUrl, exchangeGrant]);
 
   const applyBaseUrl = useCallback(async (value?: string) => {
-    const normalized = normalizeDenBaseUrl(value ?? baseUrlDraft);
+    const serverOrigin = normalizeOrganizationServerInput(value ?? baseUrlDraft);
+    const normalized = serverOrigin ? normalizeDenBaseUrl(serverOrigin) : null;
     if (!normalized) {
       setBaseUrlError(t("den.error_base_url"));
       return false;

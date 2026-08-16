@@ -170,7 +170,7 @@ function DropdownMenuCheckboxItem({
       {...props}
     >
       <span
-        className="pointer-events-none absolute end-2 flex items-center justify-center"
+        className="pointer-events-none absolute inset-e-2 flex items-center justify-center"
         data-slot="dropdown-menu-checkbox-item-indicator"
       >
         <MenuPrimitive.CheckboxItemIndicator>
@@ -211,7 +211,7 @@ function DropdownMenuRadioItem({
       {...props}
     >
       <span
-        className="pointer-events-none absolute end-2 flex items-center justify-center"
+        className="pointer-events-none absolute inset-e-2 flex items-center justify-center"
         data-slot="dropdown-menu-radio-item-indicator"
       >
         <MenuPrimitive.RadioItemIndicator>
@@ -245,7 +245,7 @@ function DropdownMenuShortcut({
     <span
       data-slot="dropdown-menu-shortcut"
       className={cn(
-        "ms-auto text-xs tracking-widest text-muted-foreground group-focus/dropdown-menu-item:text-accent-foreground",
+        "ms-auto text-xs tracking-widest text-muted-foreground group-focus/dropdown-menu-item:text-accent-foreground pointer-coarse:hidden max-lg:hidden",
         className
       )}
       {...props}

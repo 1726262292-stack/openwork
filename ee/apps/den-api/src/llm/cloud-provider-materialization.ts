@@ -7,7 +7,9 @@ import {
   WorkerTokenTable,
 } from "@openwork-ee/den-db/schema"
 import { db } from "../db.js"
+import { env } from "../env.js"
 import { appLogger } from "../observability/logger.js"
+import { fetchWithConnectRetry, previewFetch } from "../workers/preview-fetch.js"
 import { decodeProviderCredential, readProviderEnvNames } from "./provider-credentials.js"
 
 type JsonRecord = Record<string, unknown>
@@ -65,6 +67,7 @@ type FetchImpl = (input: string, init?: RequestInit) => Promise<Response>
 
 type MaterializationLogger = {
   warn: (message: string, metadata?: JsonRecord) => void
+  error: (message: string, metadata?: JsonRecord) => void
 }
 
 export type CloudProviderMaterializationResult =
@@ -95,11 +98,27 @@ export type CloudProviderMaterializationResult =
 
 export type MaterializeCloudWorkerProviders = typeof materializeCloudWorkerProviders
 
-export const OPENWORK_PROVIDERS_FINGERPRINT_ENV = "OPENWORK_PROVIDERS_FINGERPRINT"
-
 const logger = appLogger.child({ component: "cloud_provider_materialization" })
 const requestTimeoutMs = 8_000
-const materializedFingerprintByWorker = new Map<WorkerId, string>()
+/**
+ * Cache of what we have already materialized, keyed by worker AND instance.
+ *
+ * Keying by worker alone was a bug: a recycle onto a new snapshot replaces the
+ * sandbox, and the new instance starts with an empty env store (only the runtime
+ * config survives, on the shared volume). With a worker-only key den-api kept
+ * answering "cached" and never wrote the credential into the new instance, so
+ * every provider failed with "API key is missing" while still showing up in the
+ * picker.
+ */
+const materializedFingerprintByWorkerInstance = new Map<string, string>()
+const materializationFailureByWorkerInstance = new Map<string, {
+  failedAt: number
+  result: Extract<CloudProviderMaterializationResult, { ok: false }>
+}>()
+
+function materializationCacheKey(workerId: WorkerId, instanceUrl: string): string {
+  return `${workerId}\u0000${instanceUrl}`
+}
 const unsupportedLogFingerprintByWorker = new Map<WorkerId, string>()
 const modelConfigPassthroughKeys = [
   "family",
@@ -434,12 +453,14 @@ function hostTokenHeaders(hostToken: string) {
 class MaterializationHttpError extends Error {
   readonly label: string
   readonly status: number
+  readonly responseBody: string
 
-  constructor(label: string, status: number) {
+  constructor(label: string, status: number, responseBody = "") {
     super(`${label}_failed_${status}`)
     this.name = "MaterializationHttpError"
     this.label = label
     this.status = status
+    this.responseBody = responseBody
   }
 }
 
@@ -465,29 +486,8 @@ async function requestOk(input: {
 }) {
   const response = await fetchWithTimeout(input.fetchImpl, input.url, input.init)
   if (!response.ok) {
-    throw new MaterializationHttpError(input.label, response.status)
+    throw new MaterializationHttpError(input.label, response.status, await response.text())
   }
-}
-
-async function readStoredFingerprint(input: {
-  fetchImpl: FetchImpl
-  instanceUrl: string
-  hostToken: string
-}) {
-  const response = await fetchWithTimeout(input.fetchImpl, `${input.instanceUrl}/env/${OPENWORK_PROVIDERS_FINGERPRINT_ENV}`, {
-    method: "GET",
-    headers: hostTokenHeaders(input.hostToken),
-  })
-  if (response.status === 404) {
-    return null
-  }
-  if (!response.ok) {
-    throw new Error(`fingerprint_read_failed_${response.status}`)
-  }
-
-  const payload = await readJsonObject(response)
-  const item = isRecord(payload.item) ? payload.item : null
-  return item ? readString(item.value) : null
 }
 
 async function readRuntimeManagedProviders(input: {
@@ -578,6 +578,19 @@ function buildRuntimeProviderPatch(prepared: PreparedMaterialization, currentMan
   }
 
   return patch
+}
+
+function materializedProviderStateMatches(prepared: PreparedMaterialization, currentManagedProviders: JsonRecord) {
+  const desiredManagedProviders: JsonRecord = {}
+  for (const provider of prepared.providers) {
+    desiredManagedProviders[provider.runtimeProviderId] = provider.config
+  }
+
+  return stableJson(currentManagedProviders) === stableJson(desiredManagedProviders)
+}
+
+function materializedEnvStateMatches(entries: EnvEntry[], snapshot: EnvSnapshot) {
+  return entries.every((entry) => snapshot.get(entry.key) === entry.value)
 }
 
 function buildRuntimeProviderRollbackPatch(prepared: PreparedMaterialization, currentManagedProviders: JsonRecord) {
@@ -718,16 +731,41 @@ async function patchRuntimeProviders(input: {
   hostToken: string
   patch: JsonRecord
 }) {
-  await requestOk({
-    fetchImpl: input.fetchImpl,
-    label: "runtime_provider_patch",
-    url: `${input.instanceUrl}/runtime-config/providers`,
-    init: {
-      method: "PATCH",
-      headers: hostTokenHeaders(input.hostToken),
-      body: JSON.stringify({ provider: input.patch }),
-    },
+  const response = await fetchWithTimeout(input.fetchImpl, `${input.instanceUrl}/runtime-config/providers`, {
+    method: "PATCH",
+    headers: hostTokenHeaders(input.hostToken),
+    body: JSON.stringify({ provider: input.patch }),
   })
+  if (!response.ok) {
+    throw new MaterializationHttpError("runtime_provider_patch", response.status, await response.text())
+  }
+
+  // An instance older than this route answers 200 with the SPA index.html
+  // instead of 404, because the web root is the catch-all. Observed on a real
+  // worker still running openwork-server 0.18.3: the patch "succeeded", the
+  // engine ended up with zero providers, and the org saw an opaque failure
+  // instead of "this workspace needs an update". Treat a non-JSON body as an
+  // unsupported route so the caller can degrade honestly.
+  const body = await response.text()
+  if (!looksLikeJsonObject(body)) {
+    throw new MaterializationHttpError("runtime_provider_patch", UNSUPPORTED_ROUTE_STATUS, body.slice(0, 200))
+  }
+}
+
+/**
+ * Synthetic status for "this instance does not implement the route", used when
+ * the instance answers 200 with something that is not the route's JSON.
+ */
+const UNSUPPORTED_ROUTE_STATUS = 501
+
+function looksLikeJsonObject(body: string): boolean {
+  const trimmed = body.trim()
+  if (!trimmed.startsWith("{")) return false
+  try {
+    return typeof JSON.parse(trimmed) === "object"
+  } catch {
+    return false
+  }
 }
 
 async function verifyRuntimeProviders(input: {
@@ -781,7 +819,9 @@ function failureResult(input: {
   fingerprint: string | null
   providers: number
 }) {
-  const message = input.error instanceof Error ? input.error.message : input.reason
+  const message = input.error instanceof MaterializationHttpError && input.error.responseBody
+    ? `${input.error.message}: ${input.error.responseBody}`
+    : input.error instanceof Error ? input.error.message : input.reason
   return {
     ok: false,
     status: "failed",
@@ -812,7 +852,7 @@ function unsupportedResult(input: {
 function unsupportedProviderRouteReason(error: unknown) {
   return error instanceof MaterializationHttpError
     && error.label === "runtime_provider_patch"
-    && (error.status === 404 || error.status === 405)
+    && (error.status === 404 || error.status === 405 || error.status === UNSUPPORTED_ROUTE_STATUS)
     ? error.message
     : null
 }
@@ -822,15 +862,31 @@ function logFailure(input: {
   workerId: WorkerId
   organizationId: OrganizationId
   result: Extract<CloudProviderMaterializationResult, { ok: false }>
+  cause: unknown
 }) {
-  input.logger.warn("cloud provider materialization failed", {
+  const metadata = {
     worker_id: input.workerId,
     organization_id: input.organizationId,
     reason: input.result.reason,
     message: input.result.message,
     fingerprint: input.result.fingerprint,
     providers: input.result.providers,
-  })
+  }
+  if (
+    input.cause instanceof MaterializationHttpError
+    && input.cause.status >= 400
+    && input.cause.status < 500
+    && (input.cause.label === "env_write" || input.cause.label === "runtime_provider_patch")
+  ) {
+    input.logger.error("cloud provider materialization write rejected", {
+      ...metadata,
+      status: input.cause.status,
+      response_body: input.cause.responseBody,
+    })
+    return
+  }
+
+  input.logger.warn("cloud provider materialization failed", metadata)
 }
 
 async function logUnsupportedOnce(input: {
@@ -877,19 +933,29 @@ export async function materializeCloudWorkerProviders(input: {
   store?: CloudProviderMaterializationStore
   fetchImpl?: FetchImpl
   logger?: MaterializationLogger
+  now?: () => number
 }): Promise<CloudProviderMaterializationResult> {
   const materializationLogger = input.logger ?? logger
   const store = input.store ?? databaseMaterializationStore
-  const fetchImpl = input.fetchImpl ?? fetch
+  const fetchImpl = input.fetchImpl ?? ((url, init = {}) => fetchWithConnectRetry({
+    fetchImpl: previewFetch(),
+    url,
+    init,
+  }))
+  const now = input.now ?? Date.now
   const instanceUrl = normalizeBaseUrl(input.instanceUrl)
+  const cacheKey = materializationCacheKey(input.workerId, instanceUrl)
   let fingerprint: string | null = null
   let providerCount = 0
-  let cleanupHostToken: string | null = null
-  let clearStoredFingerprintOnFailure = false
 
   try {
     if (!instanceUrl) {
       throw new Error("instance_url_missing")
+    }
+
+    const recentFailure = materializationFailureByWorkerInstance.get(cacheKey)
+    if (!input.force && recentFailure && now() - recentFailure.failedAt < env.cloudMaterializationFailureCooldownMs) {
+      return recentFailure.result
     }
 
     const providers = await store.listProviders(input.organizationId)
@@ -897,7 +963,8 @@ export async function materializeCloudWorkerProviders(input: {
     fingerprint = prepared.fingerprint
     providerCount = prepared.providers.length
 
-    if (!input.force && materializedFingerprintByWorker.get(input.workerId) === fingerprint) {
+    if (!input.force && materializedFingerprintByWorkerInstance.get(cacheKey) === fingerprint) {
+      materializationFailureByWorkerInstance.delete(cacheKey)
       return { ok: true, status: "cached", fingerprint, providers: providerCount }
     }
 
@@ -910,29 +977,7 @@ export async function materializeCloudWorkerProviders(input: {
     if (!tokens.hostToken || !tokens.clientToken) {
       throw new Error("worker_tokens_missing")
     }
-    cleanupHostToken = tokens.hostToken
-
-    const storedFingerprint = await readStoredFingerprint({
-      fetchImpl,
-      instanceUrl,
-      hostToken: tokens.hostToken,
-    })
     const desiredProviderIds = prepared.providers.map((provider) => provider.runtimeProviderId)
-    if (storedFingerprint === fingerprint) {
-      try {
-        await verifyRuntimeProviders({
-          fetchImpl,
-          instanceUrl,
-          clientToken: tokens.clientToken,
-          providerIds: desiredProviderIds,
-        })
-        materializedFingerprintByWorker.set(input.workerId, fingerprint)
-        return { ok: true, status: "noop", fingerprint, providers: providerCount }
-      } catch {
-        clearStoredFingerprintOnFailure = true
-      }
-    }
-
     const currentManagedProviders = await readRuntimeManagedProviders({
       fetchImpl,
       instanceUrl,
@@ -946,6 +991,15 @@ export async function materializeCloudWorkerProviders(input: {
       hostToken: tokens.hostToken,
       entries: prepared.envEntries,
     })
+    if (
+      materializedProviderStateMatches(prepared, currentManagedProviders)
+      && materializedEnvStateMatches(prepared.envEntries, envSnapshot)
+    ) {
+      materializedFingerprintByWorkerInstance.set(cacheKey, fingerprint)
+      materializationFailureByWorkerInstance.delete(cacheKey)
+      return { ok: true, status: "noop", fingerprint, providers: providerCount }
+    }
+
     let envWritten = false
     let providerPatched = false
 
@@ -973,7 +1027,7 @@ export async function materializeCloudWorkerProviders(input: {
     } catch (error) {
       const unsupportedReason = unsupportedProviderRouteReason(error)
       if (unsupportedReason) {
-        materializedFingerprintByWorker.delete(input.workerId)
+        materializedFingerprintByWorkerInstance.delete(cacheKey)
         await logUnsupportedOnce({
           logger: materializationLogger,
           workerId: input.workerId,
@@ -985,11 +1039,13 @@ export async function materializeCloudWorkerProviders(input: {
           instanceUrl,
           clientToken: tokens.clientToken,
         })
-        return unsupportedResult({
+        const result = unsupportedResult({
           reason: unsupportedReason,
           fingerprint: prepared.fingerprint,
           providers: providerCount,
         })
+        materializationFailureByWorkerInstance.set(cacheKey, { failedAt: now(), result })
+        return result
       }
 
       if (providerPatched) {
@@ -1023,29 +1079,10 @@ export async function materializeCloudWorkerProviders(input: {
       throw error
     }
 
-    // The fingerprint is intentionally stored inside the instance's env store:
-    // it survives restarts with the rest of the sandbox state, contains only
-    // hashes/non-secret metadata, and avoids a Den schema migration for a value
-    // whose truth is scoped to that one runtime.
-    await writeEnvEntries({
-      fetchImpl,
-      instanceUrl,
-      hostToken: tokens.hostToken,
-      entries: [{ key: OPENWORK_PROVIDERS_FINGERPRINT_ENV, value: fingerprint }],
-    })
-
-    materializedFingerprintByWorker.set(input.workerId, fingerprint)
+    materializedFingerprintByWorkerInstance.set(cacheKey, fingerprint)
+    materializationFailureByWorkerInstance.delete(cacheKey)
     return { ok: true, status: "applied", fingerprint, providers: providerCount }
   } catch (error) {
-    if (clearStoredFingerprintOnFailure && cleanupHostToken && fingerprint) {
-      await deleteEnvEntry({
-        fetchImpl,
-        instanceUrl,
-        hostToken: cleanupHostToken,
-        key: OPENWORK_PROVIDERS_FINGERPRINT_ENV,
-        ignoreNotFound: true,
-      }).catch(() => undefined)
-    }
     const result = failureResult({
       reason: error instanceof Error ? error.message : "provider_materialization_failed",
       error,
@@ -1057,7 +1094,9 @@ export async function materializeCloudWorkerProviders(input: {
       workerId: input.workerId,
       organizationId: input.organizationId,
       result,
+      cause: error,
     })
+    materializationFailureByWorkerInstance.set(cacheKey, { failedAt: now(), result })
     return result
   }
 }

@@ -2,12 +2,13 @@
 import type { CSSProperties } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePanelRef } from "react-resizable-panels";
-import { Cloud, FileText, Globe, Mic2, PanelRight, TextSearch, Zap } from "lucide-react";
+import { Cloud, FileText, Globe, Mic2, MoreHorizontal, PanelRight, TextSearch, Zap } from "lucide-react";
 
 import { resolveExtensionIconSrc } from "@/react-app/design-system/extension-icon-src";
 import { t } from "../../../../i18n";
 import { OPENWORK_EXTENSION_CATALOG } from "../../../../app/constants";
 import { buildDenAuthUrl, readDenBootstrapConfig } from "../../../../app/lib/den";
+import { markDesktopSignInInitiated } from "../../../../app/lib/den-sign-in-intent";
 import { type OpenworkServerClient, type OpenworkServerStatus } from "../../../../app/lib/openwork-server";
 import { getDisplaySessionTitle } from "../../../../app/lib/session-title";
 import type { BootPhase } from "../../../../app/lib/startup-boot";
@@ -23,7 +24,21 @@ import type {
 } from "../../../../app/types";
 import type { ShareWorkspaceModalProps } from "../../workspace/types";
 import { Button } from "@/components/ui/button";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import {
   Dialog,
   DialogClose,
@@ -58,16 +73,18 @@ import type { NewTaskComposerContext } from "./new-task-composer";
 import { Badge } from "@/components/ui/badge";
 import type { SessionCloudMcpMaintenanceState } from "../../connections/use-session-mcp-maintenance";
 import { OwDotTicker } from "../../../shell/dot-ticker";
-import { NotificationBell } from "../../../shell/notification-center";
 import { useReactRenderWatchdog } from "../../../shell/react-render-watchdog";
 import { useShellConfig } from "../../../shell/shell-config";
 import { type SidePanelItem, useUiStateStore } from "../../../shell/ui-state-store";
+import type { SessionNumberShortcutsState } from "../../../shell/session-number-shortcuts";
+import { useBootOverlayVisible } from "../../../shell/boot-state";
 
 import { isElectronRuntime } from "../../../../app/utils";
 import { isCollectibleArtifactTarget, isLocalhostBrowserTarget, isOpenableFileTarget, type OpenTarget } from "../artifacts/open-target";
 import type { OpenTargetOptions } from "@/lib/target-provider";
 import { VoicePanel } from "../voice/voice-panel";
 import { SidePanel } from "../panel/side-panel";
+import { getSidePanelSessionKey } from "../panel/side-panel-session";
 import { TerminalDock } from "../terminal/terminal-dock";
 import { useActivePanelTab, usePanelTabStore, useSessionPanelState } from "../panel/panel-tab-store";
 import { useWorkspaceShellLayout } from "../../../shell/workspace-shell-layout";
@@ -144,6 +161,9 @@ export type SessionPageSidebarProps = {
   onEditWorkspaceConnection: (workspaceId: string) => void;
   onForgetWorkspace: (workspaceId: string) => void;
   onOpenCreateWorkspace: () => void;
+  automationsActive?: boolean;
+  automationsNeedAttention?: boolean;
+  onOpenAutomations?: () => void;
   /** Opens the cross-session message search dialog (Cmd/Ctrl+Shift+F). */
   onOpenSessionSearch?: () => void;
   onReorderWorkspaces?: (workspaceIds: string[]) => void;
@@ -155,6 +175,7 @@ export type SessionPageSurfaceProps = Omit<
 >;
 
 export type SessionPageProps = {
+  sessionNumberShortcuts: SessionNumberShortcutsState;
   selectedSessionId: string | null;
   selectedWorkspaceId: string;
   selectedWorkspaceDisplay: {
@@ -189,6 +210,7 @@ export type SessionPageProps = {
   mcpConnectedCount: number;
   onSendFeedback: () => void;
   onOpenSettings: () => void;
+  onOpenExtensions: () => void;
   sidebar: SessionPageSidebarProps;
   surface?: SessionPageSurfaceProps | null;
   history?: SessionPageHistoryControls | null;
@@ -206,6 +228,8 @@ export type SessionPageProps = {
   statusBar?: Partial<StatusBarOverrides>;
   notFoundMessage?: string | null;
   mainContentTakeover?: React.ReactNode;
+  mainContentTitle?: string;
+  extensionsActive?: boolean;
   onOpenProviderAuth?: () => void;
   /** Chat-first: create a default workspace and start a task from the empty-state composer. */
   onChatFirstTask?: (prompt: string, attachments?: ComposerAttachment[]) => void;
@@ -218,27 +242,13 @@ export type SessionPageProps = {
   onAccessibleTargetsChange?: (targets: OpenTarget[]) => void;
   /** Settings content rendered inside the right pane when the settings rail icon is active. */
   settingsSlot?: React.ReactNode;
+  /** Workspace-scoped first-class surface rendered in place of the conversation. */
+  primarySlot?: React.ReactNode;
+  primaryTitle?: string;
   terminalOpen?: boolean;
   onTerminalOpenChange?: (open: boolean) => void;
   onSessionTabsChange?: (tabs: OpenSessionTab[]) => void;
 };
-
-function getSidebarInitialLoading(props: SessionPageSidebarProps) {
-  if (props.workspaceSessionGroups.some((group) => group.sessions.length > 0)) {
-    return false;
-  }
-  if (props.sidebarHydratedFromCache) return false;
-  if (
-    props.startupPhase !== "sessionIndexReady" &&
-    props.startupPhase !== "firstSessionReady" &&
-    props.startupPhase !== "ready"
-  ) {
-    return true;
-  }
-  return props.workspaceSessionGroups.some(
-    (group) => group.status === "loading" || group.status === "idle",
-  );
-}
 
 function sessionTitleForId(groups: WorkspaceSessionGroup[], id: string | null | undefined) {
   if (!id) return "";
@@ -311,10 +321,13 @@ export function SessionPage(props: SessionPageProps) {
   const { config: shellConfig } = useShellConfig();
   const platform = usePlatform();
   const denAuth = useDenAuth();
+  const isMobile = useIsMobile();
+  const bootOverlayVisible = useBootOverlayVisible();
   const sidebarOpen = useUiStateStore((state) => state.sidebarOpen);
   const setSidebarOpen = useUiStateStore((state) => state.setSidebarOpen);
+  const sidePanelSessionKey = getSidePanelSessionKey(props.selectedSessionId);
   const sessionSidePanel = useUiStateStore((state) => (
-    props.selectedSessionId ? state.sidePanelState[props.selectedSessionId] ?? null : null
+    state.sidePanelState[sidePanelSessionKey] ?? null
   ));
   const voiceSidePanelOpen = useUiStateStore((state) => state.sidePanelState[GLOBAL_VOICE_SIDE_PANEL_KEY] === "voice");
   const setSidePanelState = useUiStateStore((state) => state.setSidePanelState);
@@ -325,8 +338,8 @@ export function SessionPage(props: SessionPageProps) {
   const transcriptTargets = usePanelTabStore((state) => (
     props.selectedSessionId ? state.transcriptArtifactTargets[props.selectedSessionId] ?? EMPTY_TRANSCRIPT_TARGETS : EMPTY_TRANSCRIPT_TARGETS
   ));
-  const sessionPanelState = useSessionPanelState(props.selectedSessionId ?? "");
-  const activePanelTab = useActivePanelTab(props.selectedSessionId ?? "");
+  const sessionPanelState = useSessionPanelState(sidePanelSessionKey);
+  const activePanelTab = useActivePanelTab(sidePanelSessionKey);
   const [hiddenTargetRevision, setHiddenTargetRevision] = useState(0);
   const [, setExtensionStateVersion] = useState(0);
   const hiddenAccessibleTargetIds = useMemo(
@@ -353,6 +366,7 @@ export function SessionPage(props: SessionPageProps) {
   const showCloudSignIn = shellConfig.cloudSignin && !denAuth.isSignedIn && denAuth.status !== "checking";
   const openCloudSignIn = useCallback(() => {
     const baseUrl = readDenBootstrapConfig().baseUrl;
+    markDesktopSignInInitiated();
     // Label stays "Sign in"; opens the sign-up tab so new users aren't defaulted into sign-in.
     platform.openLink(buildDenAuthUrl(baseUrl, "sign-up"));
   }, [platform]);
@@ -376,6 +390,7 @@ export function SessionPage(props: SessionPageProps) {
   const workbenchTabs = useWorkbenchStore((state) => state.tabs);
   const workbenchSplitSessionId = useWorkbenchStore((state) => state.splitSessionId);
   const focusedWorkbenchPane = useWorkbenchStore((state) => state.focusedPane);
+  const activeWorkbenchPane = isMobile ? "primary" : focusedWorkbenchPane;
   const syncWorkbench = useWorkbenchStore((state) => state.sync);
   const openWorkbenchTab = useWorkbenchStore((state) => state.openTab);
   const setWorkbenchSplit = useWorkbenchStore((state) => state.setSplit);
@@ -395,8 +410,8 @@ export function SessionPage(props: SessionPageProps) {
   const setCurrentSidePanel = useCallback((panel: SidePanelItem | null) => {
     setSidePanelState(GLOBAL_VOICE_SIDE_PANEL_KEY, panel === "voice" ? "voice" : null);
     if (panel === "voice") return;
-    setSidePanelState(props.selectedSessionId, panel);
-  }, [props.selectedSessionId, setSidePanelState]);
+    setSidePanelState(sidePanelSessionKey, panel);
+  }, [setSidePanelState, sidePanelSessionKey]);
 
   const toggleCurrentSidePanel = useCallback((panel: SidePanelItem) => {
     if (panel === "voice") {
@@ -404,8 +419,8 @@ export function SessionPage(props: SessionPageProps) {
       return;
     }
     setSidePanelState(GLOBAL_VOICE_SIDE_PANEL_KEY, null);
-    toggleSidePanelState(props.selectedSessionId, panel);
-  }, [props.selectedSessionId, setSidePanelState, toggleSidePanelState]);
+    toggleSidePanelState(sidePanelSessionKey, panel);
+  }, [setSidePanelState, sidePanelSessionKey, toggleSidePanelState]);
 
   // When the agent calls a built-in browser tool, the main process opens
   // the WebContentsView and sends panel-opened; when hide_browser is called
@@ -524,6 +539,9 @@ export function SessionPage(props: SessionPageProps) {
   const closeRightPane = useCallback(() => {
     setCurrentSidePanel(null);
   }, [setCurrentSidePanel]);
+  const openGeneralSidePanel = useCallback(() => {
+    setCurrentSidePanel("panel");
+  }, [setCurrentSidePanel]);
   const openBrowserRailPane = useCallback(() => {
     if (!hasBrowserTabs) return;
     // Opening the browser pane should land on a usable page, not an empty
@@ -573,7 +591,11 @@ export function SessionPage(props: SessionPageProps) {
   }), []);
   useControlAction(setBrowserProxyControlAction);
   const openArtifactRailPane = useCallback(() => {
-    if (!hasArtifactTargets || !props.selectedSessionId) return;
+    if (!hasArtifactTargets) {
+      setCurrentSidePanel("panel");
+      return;
+    }
+    if (!props.selectedSessionId) return;
     const activeTab = sessionPanelState.tabs.find((tab) => tab.id === sessionPanelState.activeTabId);
     const artifactTargetIds = new Set(artifactFileTargets.map((target) => target.id));
     const currentArtifactTab = activeTab?.type === "artifact" && artifactTargetIds.has(activeTab.id) ? activeTab : null;
@@ -607,7 +629,7 @@ export function SessionPage(props: SessionPageProps) {
     if (!panelRailActive) {
       toggleCurrentSidePanel("panel");
     }
-  }, [artifactFileTargets, hasArtifactTargets, openTab, panelRailActive, props.selectedSessionId, selectTab, sessionPanelState, toggleCurrentSidePanel]);
+  }, [artifactFileTargets, hasArtifactTargets, openTab, panelRailActive, props.selectedSessionId, selectTab, sessionPanelState, setCurrentSidePanel, toggleCurrentSidePanel]);
   const openVoiceRailPane = useCallback(() => {
     toggleCurrentSidePanel("voice");
   }, [toggleCurrentSidePanel]);
@@ -784,13 +806,14 @@ export function SessionPage(props: SessionPageProps) {
   const hasMainContentTakeover = Boolean(props.mainContentTakeover);
   const showWorkspaceSetupEmptyState = props.workspaces.length === 0 && !props.selectedSessionId;
   const showStartupSkeleton =
+    !bootOverlayVisible &&
+    !props.primarySlot &&
     !hasMainContentTakeover &&
     !props.selectedSessionId &&
     !props.clientConnected &&
     props.startupPhase !== "sessionIndexReady" &&
     props.startupPhase !== "firstSessionReady" &&
     props.startupPhase !== "ready";
-  const sidebarInitialLoading = useMemo(() => getSidebarInitialLoading(props.sidebar), [props.sidebar]);
   // Derive the main-pane error from the same data the sidebar uses so the two
   // panes can never disagree. We check (in priority order):
   // 1. selectedWorkspaceError (errorsByWorkspaceId[selectedWorkspaceId])
@@ -831,12 +854,14 @@ export function SessionPage(props: SessionPageProps) {
       reactSessionToken &&
       props.surface,
   );
-  const canRenderSplitSurface = Boolean(canRenderReactSurface && splitSessionId && splitSessionId !== props.selectedSessionId);
+  const canRenderSplitSurface = Boolean(!isMobile && canRenderReactSurface && splitSessionId && splitSessionId !== props.selectedSessionId);
   // Route-level refreshes must only gate the very first paint of a session.
   // Once the surface can mount it owns its own data stream, so replacing a
   // rendered chat with a loading pane (and leaving it there when a refresh
   // hangs) is never correct.
   const showSessionLoadingState =
+    !bootOverlayVisible &&
+    !props.primarySlot &&
     Boolean(props.selectedSessionId) &&
     props.sessionLoadingById(props.selectedSessionId) &&
     !hasMainContentTakeover &&
@@ -990,7 +1015,7 @@ export function SessionPage(props: SessionPageProps) {
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-[radial-gradient(circle_at_top,rgba(74,111,255,0.12),transparent_42%),var(--app-bg,#0b1020)] text-dls-text mac:bg-transparent">
+    <div className="flex h-full min-h-0 flex-col bg-[radial-gradient(circle_at_top,rgba(74,111,255,0.12),transparent_42%),var(--app-bg,#0b1020)] text-dls-text max-lg:pt-[env(safe-area-inset-top)] mac:bg-transparent">
       <SidebarProvider
         open={sidebarOpen}
         onOpenChange={setSidebarOpen}
@@ -1003,11 +1028,11 @@ export function SessionPage(props: SessionPageProps) {
         style={sidebarProviderStyle}
       >
         <AppSidebar
+          sessionNumberShortcuts={props.sessionNumberShortcuts}
           workspaceSessionGroups={props.sidebar.workspaceSessionGroups}
           selectedWorkspaceId={props.sidebar.selectedWorkspaceId}
           developerMode={props.sidebar.developerMode}
           selectedSessionId={props.sidebar.selectedSessionId}
-          showInitialLoading={sidebarInitialLoading}
           showSessionActions={Boolean(props.onRenameSession || props.onDeleteSession || props.onArchiveSession)}
           sessionStatusById={props.sidebar.sessionStatusById}
           connectingWorkspaceId={props.sidebar.connectingWorkspaceId}
@@ -1039,6 +1064,9 @@ export function SessionPage(props: SessionPageProps) {
           onForgetWorkspace={props.sidebar.onForgetWorkspace}
           onOpenCreateWorkspace={props.sidebar.onOpenCreateWorkspace}
           onOpenSessionSearch={props.sidebar.onOpenSessionSearch}
+          automationsActive={props.sidebar.automationsActive}
+          automationsNeedAttention={props.sidebar.automationsNeedAttention}
+          onOpenAutomations={props.sidebar.onOpenAutomations}
           conversationHistory={{
             canGoBack: canGoBackInConversationHistory,
             canGoForward: canGoForwardInConversationHistory,
@@ -1047,6 +1075,8 @@ export function SessionPage(props: SessionPageProps) {
           onReorderWorkspaces={props.sidebar.onReorderWorkspaces}
           onStartResize={startLeftSidebarResize}
           onOpenAccountSettings={props.onOpenSettings}
+          onOpenExtensions={props.onOpenExtensions}
+          extensionsActive={props.extensionsActive}
           status={{
             clientConnected: props.clientConnected,
             openworkServerStatus: props.openworkServerStatus,
@@ -1062,20 +1092,24 @@ export function SessionPage(props: SessionPageProps) {
             onSendFeedback: props.onSendFeedback,
           }}
         />
-        <SidebarInset className="min-h-0 overflow-hidden bg-sidebar mac:bg-transparent mac:[&_header]:transition-[padding-left] mac:[&_header]:duration-200 mac:[&_header]:ease-linear mac:peer-data-[state=collapsed]:[&_header]:pl-28 mac:max-md:[&_header]:pl-28">
-          <div className="flex min-h-0 flex-1 py-2 pl-2">
+        <SidebarInset className="min-h-0 overflow-hidden bg-sidebar mac:bg-transparent mac:[&_header]:transition-[padding-left] mac:[&_header]:duration-200 mac:[&_header]:ease-linear mac:peer-data-[state=collapsed]:[&_header]:pl-34 mac:max-md:[&_header]:pl-34">
+          <div className="flex min-h-0 flex-1 max-lg:p-0 lg:py-2 lg:pl-2">
           <ResizablePanelGroup
             orientation="horizontal"
             onLayoutChanged={sidePanelOpen ? commitBrowserPanelWidth : undefined}
-            className="min-h-0 flex-1 rounded-[14px]"
+            className="min-h-0 flex-1 max-lg:rounded-none lg:rounded-[14px]"
           >
-            <ResizablePanel minSize="360px" className="min-w-0">
-              <main className="flex h-full min-w-0 flex-col overflow-hidden rounded-[14px] border border-border bg-dls-surface shadow-[0_8px_24px_rgba(15,23,42,0.06)] dark:shadow-[0_10px_30px_rgba(0,0,0,0.45)] mac:bg-dls-surface/85 mac:backdrop-blur-2xl mac:backdrop-saturate-150">
-          <header className="z-10 flex h-9 shrink-0 items-center justify-between border-b border-border px-4 md:px-6 mac:titlebar-drag  mac:backdrop-blur-2xl mac:backdrop-saturate-150 @container/titlebar">
+            <ResizablePanel minSize={isMobile ? "0px" : "360px"} className="min-w-0">
+              <main className="flex h-full min-w-0 flex-col overflow-hidden bg-dls-surface max-lg:rounded-none max-lg:border-0 max-lg:shadow-none lg:rounded-[14px] lg:border lg:border-border lg:shadow-[0_8px_24px_rgba(15,23,42,0.06)] dark:lg:shadow-[0_10px_30px_rgba(0,0,0,0.45)] mac:bg-dls-surface/85 mac:backdrop-blur-2xl mac:backdrop-saturate-150">
+          <header className="z-10 flex h-9 shrink-0 items-center justify-between border-b border-border px-3 max-lg:h-12 lg:px-6 mac:titlebar-drag  mac:backdrop-blur-2xl mac:backdrop-saturate-150 @container/titlebar">
             <div className="flex min-w-0 items-center gap-3">
               {shellConfig.sidebar ? <SidebarTrigger className="mac:hidden" /> : null}
               <h1 className="truncate text-[13px] font-medium text-dls-text">
-                {showWorkspaceSetupEmptyState
+                {props.primaryTitle
+                  ? props.primaryTitle
+                  : props.mainContentTitle
+                  ? props.mainContentTitle
+                  : showWorkspaceSetupEmptyState
                   ? t("session.create_or_connect_workspace")
                   : selectedSessionTitle || t("session.default_title")}
               </h1>
@@ -1097,15 +1131,14 @@ export function SessionPage(props: SessionPageProps) {
             </div>
 
             <div className="flex items-center gap-1.5 text-gray-10 mac:titlebar-no-drag">
-              {/* Revert/redo moved to per-message actions */}
-              {findButtonSessionId ? (
+              {!props.primarySlot && findButtonSessionId && !hasMainContentTakeover ? (
                 <Tooltip>
                   <TooltipTrigger
                     render={
                       <Button
                         variant="ghost"
                         size="icon-sm"
-                        className="rounded-xl text-gray-10 transition-colors hover:bg-muted hover:text-foreground"
+                        className="hidden rounded-xl text-gray-10 transition-colors hover:bg-muted hover:text-foreground lg:inline-flex"
                         aria-label="Find in conversation"
                         onClick={() => useSessionFindStore.getState().openFind({ sessionId: findButtonSessionId })}
                       >
@@ -1116,7 +1149,6 @@ export function SessionPage(props: SessionPageProps) {
                   <TooltipContent>Find in conversation (⌘F)</TooltipContent>
                 </Tooltip>
               ) : null}
-              <NotificationBell />
               <Tooltip>
                 <TooltipTrigger
                   render={
@@ -1124,7 +1156,7 @@ export function SessionPage(props: SessionPageProps) {
                       variant="ghost"
                       size="icon-sm"
                       className={cn(
-                        "rounded-xl text-gray-10 transition-colors hover:bg-muted hover:text-foreground",
+                        "hidden rounded-xl text-gray-10 transition-colors hover:bg-muted hover:text-foreground lg:inline-flex",
                         sidePanelOpen && "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary",
                       )}
                       aria-label={sidePanelOpen ? "Close side panel" : "Open side panel"}
@@ -1133,7 +1165,7 @@ export function SessionPage(props: SessionPageProps) {
                         if (sidePanelOpen) {
                           closeRightPane();
                         } else {
-                          openBrowserRailPane();
+                          openGeneralSidePanel();
                         }
                       }}
                     >
@@ -1147,6 +1179,7 @@ export function SessionPage(props: SessionPageProps) {
                 <Button
                   variant="secondary"
                   size="sm"
+                  className="hidden lg:inline-flex"
                   onClick={openCloudSignIn}
                   title={t("den.signin_title")}
                   aria-label={t("den.signin_title")}
@@ -1155,10 +1188,51 @@ export function SessionPage(props: SessionPageProps) {
                   <span>{t("den.signin_button")}</span>
                 </Button>
               ) : null}
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  render={
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      className="rounded-xl text-gray-10 transition-colors hover:bg-muted hover:text-foreground lg:hidden"
+                      aria-label="More actions"
+                    >
+                      <MoreHorizontal size={18} />
+                    </Button>
+                  }
+                />
+                <DropdownMenuContent align="end" className="w-56">
+                  {!props.primarySlot && findButtonSessionId && !hasMainContentTakeover ? (
+                    <DropdownMenuItem
+                      onClick={() => useSessionFindStore.getState().openFind({ sessionId: findButtonSessionId })}
+                    >
+                      <TextSearch className="size-4" />
+                      Find in conversation
+                    </DropdownMenuItem>
+                  ) : null}
+                  <DropdownMenuItem onClick={openArtifactRailPane}>
+                    <FileText className="size-4" />
+                    Artifacts{artifactTargetCount > 0 ? ` (${artifactTargetCount})` : ""}
+                  </DropdownMenuItem>
+                  {voiceExtensionEnabled ? (
+                    <DropdownMenuItem onClick={openVoiceRailPane}>
+                      <Mic2 className="size-4" />
+                      Voice Mode
+                    </DropdownMenuItem>
+                  ) : null}
+                  {showCloudSignIn ? (
+                    <DropdownMenuItem onClick={openCloudSignIn}>
+                      <Cloud className="size-4" />
+                      {t("den.signin_button")}
+                    </DropdownMenuItem>
+                  ) : null}
+                </DropdownMenuContent>
+              </DropdownMenu>
               {props.developerMode ? (
                 <Button
                   variant="ghost"
                   size="sm"
+                  className="hidden lg:inline-flex"
                   onClick={() => {
                     try {
                       window.localStorage.removeItem("openwork.acknowledgedProviders");
@@ -1176,8 +1250,12 @@ export function SessionPage(props: SessionPageProps) {
           <ResizablePanelGroup orientation="vertical" className="min-h-0 flex-1 overflow-hidden">
             <ResizablePanel minSize="180px" className="min-h-0">
             <div className="relative h-full min-w-0 overflow-hidden bg-dls-surface mac:bg-dls-surface/85 mac:backdrop-blur-2xl mac:backdrop-saturate-150">
+              {props.primarySlot ? (
+                <div className="h-full overflow-y-auto" data-workspace-primary-slot>
+                  {props.primarySlot}
+                </div>
+              ) : null}
               {hasMainContentTakeover ? props.mainContentTakeover : null}
-
               {showStartupSkeleton ? (
                 <div className="px-6 py-14" role="status" aria-live="polite">
                   <div className="mx-auto max-w-2xl space-y-6">
@@ -1232,7 +1310,7 @@ export function SessionPage(props: SessionPageProps) {
                 )
               ) : null}
 
-              {!hasMainContentTakeover && !showDelayedSessionLoadingState && canRenderReactSurface ? (
+              {!props.primarySlot && !hasMainContentTakeover && !showDelayedSessionLoadingState && canRenderReactSurface ? (
                 <div className="flex h-full min-h-0 flex-col">
                   <ResizablePanelGroup
                     key={canRenderSplitSurface ? "workbench-split" : "workbench-single"}
@@ -1240,10 +1318,10 @@ export function SessionPage(props: SessionPageProps) {
                     className="min-h-0 flex-1"
                   >
                     <ResizablePanel
-                      minSize="320px"
+                      minSize={isMobile ? "0px" : "320px"}
                       className="min-h-0 min-w-0"
                       data-workbench-pane="primary"
-                      data-workbench-pane-focused={focusedWorkbenchPane === "primary" ? "true" : undefined}
+                      data-workbench-pane-focused={activeWorkbenchPane === "primary" ? "true" : undefined}
                       onPointerDown={() => focusWorkbenchPane("primary")}
                       onFocusCapture={() => focusWorkbenchPane("primary")}
                     >
@@ -1259,7 +1337,7 @@ export function SessionPage(props: SessionPageProps) {
                         environmentClient={props.environmentClient}
                         workspaceId={props.runtimeWorkspaceId!}
                         sessionId={props.selectedSessionId!}
-                        isControlTarget={focusedWorkbenchPane === "primary"}
+                        isControlTarget={activeWorkbenchPane === "primary"}
                         opencodeBaseUrl={reactSessionBaseUrl}
                         openworkToken={reactSessionToken}
                         todos={props.todos}
@@ -1280,7 +1358,7 @@ export function SessionPage(props: SessionPageProps) {
                           minSize="320px"
                           className="min-h-0 min-w-0"
                           data-workbench-pane="secondary"
-                          data-workbench-pane-focused={focusedWorkbenchPane === "secondary" ? "true" : undefined}
+                          data-workbench-pane-focused={activeWorkbenchPane === "secondary" ? "true" : undefined}
                           onPointerDown={() => focusWorkbenchPane("secondary")}
                           onFocusCapture={() => focusWorkbenchPane("secondary")}
                         >
@@ -1290,7 +1368,7 @@ export function SessionPage(props: SessionPageProps) {
                             environmentClient={props.environmentClient}
                             workspaceId={props.runtimeWorkspaceId!}
                             sessionId={splitSessionId!}
-                            isControlTarget={focusedWorkbenchPane === "secondary"}
+                            isControlTarget={activeWorkbenchPane === "secondary"}
                             opencodeBaseUrl={reactSessionBaseUrl}
                             openworkToken={reactSessionToken}
                             todos={[]}
@@ -1303,7 +1381,7 @@ export function SessionPage(props: SessionPageProps) {
                 </div>
               ) : null}
 
-              {!hasMainContentTakeover && !showDelayedSessionLoadingState && !canRenderReactSurface && !showStartupSkeleton ? (
+              {!props.primarySlot && !hasMainContentTakeover && !showDelayedSessionLoadingState && !canRenderReactSurface && !showStartupSkeleton ? (
                 <div className={`mx-auto max-w-[800px] px-6 ${showWorkspaceSetupEmptyState ? "pt-20" : "pt-10"}`}>
                   {props.notFoundMessage ? (
                     <div className="px-6 py-16 text-center">
@@ -1383,7 +1461,7 @@ export function SessionPage(props: SessionPageProps) {
               ) : null}
             </div>
             </ResizablePanel>
-            {props.terminalOpen ? (
+            {props.terminalOpen && !isMobile ? (
               <>
                 <ResizableHandle />
                 <ResizablePanel defaultSize="280px" minSize="160px" maxSize="55%" className="min-h-0">
@@ -1399,7 +1477,7 @@ export function SessionPage(props: SessionPageProps) {
 
               </main>
             </ResizablePanel>
-              {sidePanelOpen ? (
+              {sidePanelOpen && !isMobile ? (
               <>
                 <ResizableHandle className="hidden bg-transparent lg:flex" />
                 <ResizablePanel
@@ -1421,22 +1499,67 @@ export function SessionPage(props: SessionPageProps) {
                       sessionId={props.selectedSessionId}
                       onClose={closeRightPane}
                     />
-                  ) : activeSidePanel === "panel" && props.selectedSessionId ? (
+                  ) : activeSidePanel === "panel" ? (
                     <SidePanel
-                      sessionId={props.selectedSessionId}
+                      sessionId={sidePanelSessionKey}
                       client={props.openworkServerClient}
                       workspaceId={props.runtimeWorkspaceId}
                       workspaceRoot={props.selectedWorkspaceRoot}
                       isRemoteWorkspace={props.surface?.isRemoteWorkspace ?? false}
                       onClose={closeRightPane}
+                      onOpenExtensions={props.settingsSlot ? () => setCurrentSidePanel("extensions") : undefined}
+                      onOpenVoice={voiceExtensionEnabled ? openVoiceRailPane : undefined}
                     />
                   ) : null}
                   </div>
                 </ResizablePanel>
               </>
             ) : null}
+            {isMobile ? (
+              <Sheet
+                open={sidePanelOpen}
+                onOpenChange={(open) => {
+                  if (!open) closeRightPane();
+                }}
+              >
+                <SheetContent
+                  side="bottom"
+                  className="h-[min(88dvh,100dvh)] max-h-[88dvh] p-0 pb-[env(safe-area-inset-bottom)]"
+                >
+                  <SheetHeader className="sr-only">
+                    <SheetTitle>Session panel</SheetTitle>
+                    <SheetDescription>Artifacts, files, and session tools</SheetDescription>
+                  </SheetHeader>
+                  <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-dls-surface">
+                    {activeSidePanel === "extensions" && props.settingsSlot ? (
+                      <div className="flex h-full min-h-0 flex-col overflow-y-auto bg-background">
+                        {props.settingsSlot}
+                      </div>
+                    ) : activeSidePanel === "voice" ? (
+                      <VoicePanel
+                        client={props.openworkServerClient}
+                        workspaceId={props.runtimeWorkspaceId}
+                        sessionId={props.selectedSessionId}
+                        onClose={closeRightPane}
+                      />
+                    ) : activeSidePanel === "panel" ? (
+                      <SidePanel
+                        sessionId={sidePanelSessionKey}
+                        client={props.openworkServerClient}
+                        workspaceId={props.runtimeWorkspaceId}
+                        workspaceRoot={props.selectedWorkspaceRoot}
+                        isRemoteWorkspace={props.surface?.isRemoteWorkspace ?? false}
+                        onClose={closeRightPane}
+                        onOpenExtensions={props.settingsSlot ? () => setCurrentSidePanel("extensions") : undefined}
+                        onOpenVoice={voiceExtensionEnabled ? openVoiceRailPane : undefined}
+                      />
+                    ) : null}
+                  </div>
+                </SheetContent>
+              </Sheet>
+            ) : null}
           </ResizablePanelGroup>
-          <aside className="flex w-9 shrink-0 flex-col items-center gap-1 px-0.5 py-2 text-muted-foreground mac:titlebar-no-drag">
+          <aside className="hidden w-9 shrink-0 flex-col items-center gap-1 px-0.5 py-2 text-muted-foreground lg:flex mac:titlebar-no-drag">
             {isElectronRuntime() ? (
               <Button
                 variant="ghost"
@@ -1474,14 +1597,13 @@ export function SessionPage(props: SessionPageProps) {
               variant="ghost"
               size="icon-sm"
               className={cn(
-                "rounded-xl transition-colors hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-35 disabled:hover:bg-transparent disabled:hover:text-muted-foreground",
-                panelRailActive && hasArtifactTargets && "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary",
+                "rounded-xl transition-colors hover:bg-muted hover:text-foreground",
+                panelRailActive && "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary",
               )}
               onClick={openArtifactRailPane}
-              title={hasArtifactTargets ? `Artifacts (${artifactTargetCount})` : "No artifacts yet"}
-              aria-label={hasArtifactTargets ? `Artifacts (${artifactTargetCount})` : "No artifacts yet"}
-              aria-pressed={panelRailActive && hasArtifactTargets}
-              disabled={!hasArtifactTargets}
+              title={`Artifacts (${artifactTargetCount})`}
+              aria-label={`Artifacts (${artifactTargetCount})`}
+              aria-pressed={panelRailActive}
             >
               <FileText size={15} />
               {artifactTargetCount > 0 ? (
@@ -1493,7 +1615,7 @@ export function SessionPage(props: SessionPageProps) {
           </aside>
           </div>
         </SidebarInset>
-        {shellConfig.sidebar ? <SidebarTrigger className="hidden mac:absolute mac:left-[64px] top-[3px] z-50 mac:flex titlebar-no-drag" /> : null}
+        {shellConfig.sidebar ? <SidebarTrigger className="hidden mac:absolute mac:left-[88px] top-[3px] z-50 mac:flex titlebar-no-drag" /> : null}
       </SidebarProvider>
 
       {props.providerAuthModal ? <ProviderAuthModal {...props.providerAuthModal} /> : null}

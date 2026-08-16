@@ -27,6 +27,7 @@ import { jsonValidator, publicRoute, authenticatedRoute } from "../../middleware
 import { DEFAULT_ORGANIZATION_LIMITS } from "../../organization-limits.js"
 import { denTypeIdSchema, forbiddenSchema, invalidRequestSchema, jsonResponse, notFoundSchema, unauthorizedSchema } from "../../openapi.js"
 import { seedDefaultOrganizationRoles, setSessionActiveOrganization } from "../../orgs.js"
+import { clampUtf8Bytes, PROJECTION_TEXT_MAX_BYTES } from "../org/plugin-system/projection-text.js"
 import type { AuthContextVariables } from "../../session.js"
 import {
   DEFAULT_OPENWORK_MARKETPLACE_DESCRIPTION,
@@ -270,7 +271,7 @@ export function registerBootstrapRoutes<T extends { Variables: AuthContextVariab
           sourceMode: "cloud",
           title: metadata.title,
           description: metadata.description,
-          searchText: [metadata.title, metadata.description, skillText].filter(Boolean).join("\n"),
+          searchText: clampUtf8Bytes([metadata.title, metadata.description, skillText].filter(Boolean).join("\n"), PROJECTION_TEXT_MAX_BYTES),
           currentFileName: null,
           currentFileExtension: null,
           currentRelativePath: null,
@@ -447,6 +448,7 @@ export function registerBootstrapRoutes<T extends { Variables: AuthContextVariab
             ),
           )
           .limit(1)
+          .for("update")
 
         if (!claim) {
           return null
@@ -457,6 +459,7 @@ export function registerBootstrapRoutes<T extends { Variables: AuthContextVariab
           .from(MemberTable)
           .where(and(eq(MemberTable.organizationId, claim.organizationId), eq(MemberTable.userId, normalizedUserId), isNull(MemberTable.removedAt)))
           .limit(1)
+          .for("update")
         const [removedMember] = existingMember
           ? []
           : await tx
@@ -464,12 +467,15 @@ export function registerBootstrapRoutes<T extends { Variables: AuthContextVariab
             .from(MemberTable)
             .where(and(eq(MemberTable.organizationId, claim.organizationId), eq(MemberTable.userId, normalizedUserId), isNotNull(MemberTable.removedAt)))
             .limit(1)
+            .for("update")
 
-        const memberId = existingMember?.id ?? removedMember?.id ?? createDenTypeId("member")
+        if (removedMember) {
+          return { status: "membership_removed" as const }
+        }
+
+        const memberId = existingMember?.id ?? createDenTypeId("member")
         if (existingMember) {
           await tx.update(MemberTable).set({ role: claim.role, joinedAt: now }).where(eq(MemberTable.id, existingMember.id))
-        } else if (removedMember) {
-          await tx.update(MemberTable).set({ role: claim.role, joinedAt: now, removedAt: null, removedByOrgMember: null }).where(eq(MemberTable.id, removedMember.id))
         } else {
           await tx.insert(MemberTable).values({
             id: memberId,
@@ -502,6 +508,12 @@ export function registerBootstrapRoutes<T extends { Variables: AuthContextVariab
 
       if (!result) {
         return c.json({ error: "claim_not_found", message: "This workspace claim link is missing, expired, or already used." }, 404)
+      }
+      if ("status" in result && result.status === "membership_removed") {
+        return c.json({
+          error: "membership_removed",
+          message: "Your access to this workspace was removed. Ask a workspace admin for a new invite.",
+        }, 403)
       }
 
       if (session?.id) {

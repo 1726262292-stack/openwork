@@ -2,13 +2,16 @@
 import * as React from "react";
 import {
   AlertCircle,
+  AlertTriangle,
   Archive,
   ArchiveRestore,
   ArrowLeft,
   ArrowRight,
+  Clock3,
   ChevronRight,
   Columns2,
   FolderPlus,
+  LayoutGrid,
   MoreHorizontal,
   Pencil,
   Pin,
@@ -21,6 +24,7 @@ import {
   RotateCcw,
   Settings,
   FolderOpen,
+  SquarePen,
   Tag,
   X,
 } from "lucide-react";
@@ -29,6 +33,7 @@ import { LazyMotion, Reorder, domMax, m, useDragControls } from "motion/react";
 import { getDisplaySessionTitle } from "../../../../app/lib/session-title";
 import type { WorkspaceInfo } from "../../../../app/lib/desktop";
 import { OpenWorkDenHelpLink } from "../../workspace/openwork-den-help-link";
+import { NotificationBell } from "../../../shell/notification-center";
 import type {
   WorkspaceConnectionState,
   WorkspaceSessionGroup,
@@ -42,6 +47,7 @@ import {
 } from "../../../../app/utils";
 import { t } from "../../../../i18n";
 import { useBrandLogoUrl } from "../../cloud/brand-theme";
+import { canCreateWorkspaces } from "../../../../app/lib/workspace-creation-policy";
 
 import {
   Sidebar,
@@ -103,6 +109,13 @@ import {
 import { SidebarContext, useSidebarContext } from "./app-sidebar-provider";
 import { AccountStatusMenu, type AccountStatusMenuProps } from "./account-status-menu";
 import { usePlatform } from "../../../kernel/platform";
+import {
+  sessionNumberAriaKeyShortcut,
+  sessionNumberShortcutDescription,
+  sessionNumberShortcutLabel,
+  sessionNumberShortcutTargetKey,
+  type SessionNumberShortcutsState,
+} from "../../../shell/session-number-shortcuts";
 import type { SidebarContextValue } from "./app-sidebar-provider";
 import {
   MAX_SESSIONS_PREVIEW,
@@ -138,6 +151,8 @@ import {
 } from "./sidebar-lanes";
 import { WorkspaceAvatarPicker } from "./workspace-avatar-picker";
 import { useWorkbenchStore } from "../chat/workbench-store";
+import { SidebarDestination } from "./sidebar-destination";
+import { SessionTitle } from "./session-title";
 
 /** Paper Desktop: unread #2FBE54, needs-action #E8933A (14px artboard → ~8px app). */
 const OUTCOME_DOT_UNREAD = "#2FBE54";
@@ -466,7 +481,7 @@ function SessionHoverQuickActions({
     <div
       data-session-hover-actions
       className={cn(
-        "absolute right-2 top-1/2 z-10 flex -translate-y-1/2 items-center gap-0.5 opacity-0 pointer-events-none transition-opacity group-hover/menu-sub-item:opacity-100 group-hover/menu-sub-item:pointer-events-auto group-has-data-popup-open/menu-sub-item:opacity-100 group-has-data-popup-open/menu-sub-item:pointer-events-auto",
+        "absolute right-2 top-1/2 z-10 flex -translate-y-1/2 items-center gap-0.5 opacity-0 pointer-events-none transition-opacity group-hover/menu-sub-item:opacity-100 group-hover/menu-sub-item:pointer-events-auto group-has-data-popup-open/menu-sub-item:opacity-100 group-has-data-popup-open/menu-sub-item:pointer-events-auto max-lg:opacity-100 max-lg:pointer-events-auto pointer-coarse:opacity-100 pointer-coarse:pointer-events-auto",
         className,
       )}
     >
@@ -806,8 +821,8 @@ function SidebarSplitPill({ workspaceSessionGroups, selectedWorkspaceId, selecte
 }
 
 export type AppSidebarProps = {
+  sessionNumberShortcuts: SessionNumberShortcutsState;
   workspaceSessionGroups: WorkspaceSessionGroup[];
-  showInitialLoading?: boolean;
   selectedWorkspaceId: string;
   developerMode: boolean;
   selectedSessionId: string | null;
@@ -832,6 +847,9 @@ export type AppSidebarProps = {
   onEditWorkspaceConnection: (workspaceId: string) => void;
   onForgetWorkspace: (workspaceId: string) => void;
   onOpenCreateWorkspace: () => void;
+  automationsActive?: boolean;
+  automationsNeedAttention?: boolean;
+  onOpenAutomations?: () => void;
   /** Opens the cross-session message search dialog (Cmd/Ctrl+Shift+F). */
   onOpenSessionSearch?: () => void;
   /** Back/forward across recently viewed conversations, rendered at the top of the sidebar. */
@@ -843,6 +861,8 @@ export type AppSidebarProps = {
   onReorderWorkspaces?: (workspaceIds: string[]) => void;
   onStartResize?: React.PointerEventHandler<HTMLButtonElement>;
   onOpenAccountSettings?: () => void;
+  onOpenExtensions: () => void;
+  extensionsActive?: boolean;
   /** Live app status, shown inside the footer account menu. */
   status: Omit<AccountStatusMenuProps, "onOpenAccountSettings">;
 };
@@ -870,6 +890,13 @@ export function AppSidebar(props: AppSidebarProps) {
     () => new Set(),
   );
   const previousSessionStatusRef = React.useRef<Record<string, string>>({});
+  const sessionNumberShortcutByTarget = React.useMemo(
+    () => new Map(props.sessionNumberShortcuts.targets.map((target) => [
+      sessionNumberShortcutTargetKey(target.workspaceId, target.sessionId),
+      target.digit,
+    ])),
+    [props.sessionNumberShortcuts.targets],
+  );
 
   // Green unread dots: agent finished while the user was on another session.
   React.useEffect(() => {
@@ -1006,6 +1033,8 @@ export function AppSidebar(props: AppSidebarProps) {
     toggleSessionExpanded,
     expandedWorkspaceIds,
     expandedSessionIds,
+    sessionNumberShortcutOs: props.sessionNumberShortcuts.os,
+    sessionNumberShortcutByTarget,
   };
 
   const brandLogoUrl = useBrandLogoUrl();
@@ -1054,7 +1083,7 @@ export function AppSidebar(props: AppSidebarProps) {
         ) : null}
         {props.conversationHistory ? (
           <div
-            className="flex shrink-0 items-center justify-end gap-0.5 px-2 pb-1 mac:absolute mac:right-1.5 mac:top-[7px] mac:z-50 mac:p-0 mac:titlebar-no-drag"
+            className="flex shrink-0 items-center justify-end gap-0.5 px-2 pb-1 max-lg:hidden mac:absolute mac:right-1.5 mac:top-[7px] mac:z-50 mac:p-0 mac:titlebar-no-drag"
             role="group"
             aria-label="Conversation history controls"
           >
@@ -1084,9 +1113,22 @@ export function AppSidebar(props: AppSidebarProps) {
             </Button>
           </div>
         ) : null}
-        {props.onOpenSessionSearch ? (
-          <SidebarHeader className="pb-0 pe-0">
-            <SidebarMenu>
+        <SidebarHeader className="pb-0 pe-0">
+          <SidebarMenu>
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                type="button"
+                data-sidebar-new-chat
+                aria-label={t("session.new_task")}
+                tooltip={t("session.new_task")}
+                disabled={props.newTaskDisabled}
+                onClick={() => props.onCreateTaskInWorkspace(props.selectedWorkspaceId)}
+              >
+                <SquarePen />
+                <span className="flex-1 truncate">{t("session.new_task")}</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+            {props.onOpenSessionSearch ? (
               <SidebarMenuItem>
                 <SidebarMenuButton
                   onClick={props.onOpenSessionSearch}
@@ -1095,14 +1137,43 @@ export function AppSidebar(props: AppSidebarProps) {
                 >
                   <Search className="size-4" />
                   <span className="flex-1 truncate">{t("workspace_list.search_sessions")}</span>
-                  <kbd className="ml-auto font-sans text-[11px] tracking-wide text-sidebar-foreground/50">
+                  <kbd className="ml-auto font-sans text-[11px] tracking-wide text-sidebar-foreground/50 max-lg:hidden pointer-coarse:hidden">
                     {isMacPlatform() ? "⌘⇧F" : "Ctrl+Shift+F"}
                   </kbd>
                 </SidebarMenuButton>
               </SidebarMenuItem>
-            </SidebarMenu>
-          </SidebarHeader>
-        ) : null}
+            ) : null}
+            {props.onOpenAutomations ? (
+              <SidebarDestination
+                active={props.automationsActive === true}
+                icon={Clock3}
+                label="Automations"
+                labelContent={(
+                  <span className="flex min-w-0 flex-1 items-center gap-2">
+                    <span className="truncate">Automations</span>
+                    {props.automationsNeedAttention ? (
+                      <AlertTriangle
+                        data-automations-attention-indicator
+                        className="ml-auto size-3.5 shrink-0 text-warning"
+                        aria-label="An Automation needs attention"
+                      />
+                    ) : null}
+                  </span>
+                )}
+                onSelect={props.onOpenAutomations}
+              />
+            ) : null}
+            <SidebarDestination
+              active={props.extensionsActive === true}
+              icon={LayoutGrid}
+              label={t("settings.tab_extensions")}
+              onSelect={props.onOpenExtensions}
+            />
+            <SidebarMenuItem>
+              <NotificationBell variant="sidebar-row" />
+            </SidebarMenuItem>
+          </SidebarMenu>
+        </SidebarHeader>
         <SidebarSplitPill
           workspaceSessionGroups={props.workspaceSessionGroups}
           selectedWorkspaceId={props.selectedWorkspaceId}
@@ -1114,6 +1185,7 @@ export function AppSidebar(props: AppSidebarProps) {
             layoutScroll
             data-slot="sidebar-content"
             data-sidebar="content"
+            data-session-number-modifier-held={props.sessionNumberShortcuts.modifierHeld ? "true" : undefined}
             className="no-scrollbar flex min-h-0 flex-1 flex-col gap-px overflow-auto [--radius:var(--radius-xl)] group-data-[collapsible=icon]:overflow-hidden"
           >
             {pinnedSessions.length > 0 ? (
@@ -1123,15 +1195,17 @@ export function AppSidebar(props: AppSidebarProps) {
               <span className={SIDEBAR_SECTION_LABEL}>
                 {t("workspace_list.title")}
               </span>
-              <button
-                type="button"
-                className="ml-auto flex size-5 items-center justify-center rounded text-muted-foreground/60 transition-colors hover:bg-sidebar-accent hover:text-foreground"
-                onClick={props.onOpenCreateWorkspace}
-                aria-label={t("workspace_list.add_workspace")}
-                title={t("workspace_list.add_workspace")}
-              >
-                <Plus className="size-3.5" />
-              </button>
+              {canCreateWorkspaces() ? (
+                <button
+                  type="button"
+                  className="ml-auto flex size-5 items-center justify-center rounded text-muted-foreground/60 transition-colors hover:bg-sidebar-accent hover:text-foreground"
+                  onClick={props.onOpenCreateWorkspace}
+                  aria-label={t("workspace_list.add_workspace")}
+                  title={t("workspace_list.add_workspace")}
+                >
+                  <Plus className="size-3.5" />
+                </button>
+              ) : null}
             </div>
             <Reorder.Group
               as="div"
@@ -1145,7 +1219,6 @@ export function AppSidebar(props: AppSidebarProps) {
                   key={group.workspace.id}
                   group={group}
                   className={cn(index === 0 && "mac:pt-0")}
-                  showInitialLoading={props.showInitialLoading}
                   previewCount={previewCount(group.workspace.id)}
                   showMoreSessions={showMoreSessions}
                 />
@@ -1325,7 +1398,6 @@ function GlobalPinnedSessionTree({ group, sessionId }: GlobalPinnedSessionEntry)
 type WorkspaceReorderItemProps = {
   className: string;
   group: WorkspaceSessionGroup;
-  showInitialLoading?: boolean;
   previewCount: number;
   showMoreSessions: (workspaceId: string, totalRoots: number) => void;
 };
@@ -1333,7 +1405,6 @@ type WorkspaceReorderItemProps = {
 function WorkspaceReorderItem({
   className,
   group,
-  showInitialLoading,
   previewCount,
   showMoreSessions,
 }: WorkspaceReorderItemProps) {
@@ -1358,7 +1429,6 @@ function WorkspaceReorderItem({
       <WorkspaceSidebarGroup
         className={className}
         group={group}
-        showInitialLoading={showInitialLoading}
         previewCount={previewCount}
         showMoreSessions={showMoreSessions}
         onWorkspaceTitlePointerDown={(event) => dragControls.start(event)}
@@ -1411,7 +1481,7 @@ function WorkspaceHeader({
         )}
       </SidebarGlyphSlot>
       <div
-        className="min-w-0 flex-1 cursor-grab touch-none transition-[padding] duration-75 active:cursor-grabbing group-hover/workspace-header:pr-14 group-has-[[data-workspace-actions]:focus-within]/workspace-header:pr-14 group-has-data-popup-open/workspace-header:pr-10 group-hover/workspace-header:group-has-data-popup-open/workspace-header:pr-14 pr-2"
+        className="min-w-0 flex-1 cursor-grab touch-none active:cursor-grabbing pr-8 group-hover/workspace-header:pr-20 group-has-[[data-workspace-actions]:focus-within]/workspace-header:pr-20 group-has-data-popup-open/workspace-header:pr-20"
         onPointerDown={onTitlePointerDown}
       >
         <span className="block ow-fade-truncate">{label}</span>
@@ -1428,7 +1498,6 @@ function WorkspaceHeader({
 type WorkspaceSidebarGroupProps = {
   className: string;
   group: WorkspaceSessionGroup;
-  showInitialLoading?: boolean;
   previewCount: number;
   showMoreSessions: (workspaceId: string, totalRoots: number) => void;
   onWorkspaceTitlePointerDown: React.PointerEventHandler<HTMLDivElement>;
@@ -1437,7 +1506,6 @@ type WorkspaceSidebarGroupProps = {
 function WorkspaceSidebarGroup({
   className,
   group,
-  showInitialLoading,
   previewCount,
   showMoreSessions,
   onWorkspaceTitlePointerDown,
@@ -1534,19 +1602,22 @@ function WorkspaceSidebarGroup({
                 workspace={workspace}
                 statusLabel={statusLabel}
                 isError={group.status === "error"}
-                isLoading={group.status === "loading" || isConnecting}
+                isLoading={isConnecting}
                 onTitlePointerDown={onWorkspaceTitlePointerDown}
               />
-              <div data-workspace-actions className="group/workspace-actions absolute right-8 top-1/2 flex -translate-y-1/2 items-center gap-0.5">
+              <div
+                data-workspace-actions
+                className="group/workspace-actions absolute right-8 top-1/2 z-10 flex -translate-y-1/2 items-center gap-0.5 opacity-0 pointer-events-none transition-opacity group-hover/workspace-header:opacity-100 group-hover/workspace-header:pointer-events-auto group-focus-within/workspace-actions:opacity-100 group-focus-within/workspace-actions:pointer-events-auto group-has-data-popup-open/workspace-header:opacity-100 group-has-data-popup-open/workspace-header:pointer-events-auto"
+              >
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="size-5 text-muted-foreground opacity-0 group-hover/workspace-header:opacity-100 group-focus-within/workspace-actions:opacity-100"
+                  data-workspace-new-task
+                  className="size-5 text-muted-foreground"
                   onClick={(e) => {
                     e.stopPropagation();
                     ctx.onCreateTaskInWorkspace(workspace.id);
                   }}
-                  disabled={ctx.newTaskDisabled}
                   aria-label={t("session.new_task")}
                   title={t("session.new_task")}
                 >
@@ -1556,13 +1627,13 @@ function WorkspaceSidebarGroup({
                   workspace={workspace}
                   isConnectionActionBusy={isConnectionActionBusy}
                   canRecover={canRecover}
-                  className="size-5 text-muted-foreground opacity-0 group-hover/workspace-header:opacity-100 group-focus-within/workspace-actions:opacity-100 data-popup-open:opacity-100"
+                  className="size-5 text-muted-foreground"
                 />
               </div>
               <Button
                 variant="ghost"
                 size="icon"
-                className="absolute right-2 top-1/2 size-5 -translate-y-1/2 text-muted-foreground flex items-center justify-center group/expand-collapse-button"
+                className="absolute right-2 top-1/2 z-10 size-5 -translate-y-1/2 text-muted-foreground flex items-center justify-center group/expand-collapse-button"
                 aria-label={isExpanded ? t("sidebar.collapse") : t("sidebar.expand")}
                 aria-expanded={isExpanded}
                 onClick={(e) => {
@@ -1592,16 +1663,7 @@ function WorkspaceSidebarGroup({
                       ctx.onEditWorkspaceConnection(workspace.id);
                     }}
                   />
-                ) : showInitialLoading || (group.status === "loading" && group.sessions.length === 0) ? (
-                  <SidebarMenuSubItem>
-                    <SidebarMenuSubButton aria-disabled className={cn("text-muted-foreground text-xs truncate", SIDEBAR_ROW_LANE)}>
-                      <SidebarGlyphSlot>
-                        <SessionDotMatrixLoader label={t("workspace.loading_tasks")} />
-                      </SidebarGlyphSlot>
-                      <span className="truncate">{t("workspace.loading_tasks")}</span>
-                    </SidebarMenuSubButton>
-                  </SidebarMenuSubItem>
-                ) : activeSessions.length > 0 ? (
+                ) : group.status === "loading" && group.sessions.length === 0 ? null : activeSessions.length > 0 ? (
                   <>
                     {wsGroups.length > 0 ? (
                       <GroupedSessionList
@@ -2195,6 +2257,31 @@ type SessionMenuItemProps = {
   workspaceName?: string;
 };
 
+function SessionNumberShortcutSlot({ digit }: { digit: number | undefined }) {
+  const ctx = useSidebarContext();
+  if (digit === undefined) return null;
+
+  const label = sessionNumberShortcutLabel(ctx.sessionNumberShortcutOs, digit);
+
+  return (
+    <span
+      data-session-action-slot="number-shortcut"
+      aria-hidden="true"
+      className={cn(
+        "flex h-5 shrink-0 items-center justify-center",
+        ctx.sessionNumberShortcutOs === "macos" ? "w-8" : "w-11",
+      )}
+    >
+      <kbd
+        data-session-shortcut-badge={digit}
+        className="inline-flex h-5 items-center justify-center rounded-md border border-sidebar-border/70 bg-sidebar-accent/80 px-1.5 font-sans text-[10px] font-medium leading-none tracking-tight text-sidebar-foreground/70 shadow-xs"
+      >
+        {label}
+      </kbd>
+    </span>
+  );
+}
+
 function SessionMenuItem({
   session,
   tree,
@@ -2206,6 +2293,8 @@ function SessionMenuItem({
   workspaceName,
 }: SessionMenuItemProps) {
   const ctx = useSidebarContext();
+  const [isTitleHovered, setIsTitleHovered] = React.useState(false);
+  const [isTitleFocused, setIsTitleFocused] = React.useState(false);
   const unreadIds = useUnreadSessionIds();
   const isSelected = ctx.selectedSessionId === session.id;
   const displayTitle = getDisplaySessionTitle(session.title);
@@ -2217,6 +2306,12 @@ function SessionMenuItem({
   const isUnread = unreadIds.has(session.id) && !isSelected;
   const isArchived = isSessionArchived(session);
   const relativeTime = formatSessionRelativeTime(session.time?.updated ?? session.time?.created);
+  const shortcutDigit = ctx.sessionNumberShortcutByTarget.get(
+    sessionNumberShortcutTargetKey(workspaceId, session.id),
+  );
+  const ariaKeyShortcuts = shortcutDigit === undefined
+    ? undefined
+    : sessionNumberAriaKeyShortcut(ctx.sessionNumberShortcutOs, shortcutDigit);
 
   const openSession = () => {
     useSessionManagementStore.getState().clearUnread(session.id);
@@ -2230,6 +2325,13 @@ function SessionMenuItem({
 
     ctx.onPrefetchSession?.(workspaceId, session.id);
   };
+
+  const handlePointerEnter = (event: React.PointerEvent) => {
+    prefetchSession();
+    if (event.pointerType === "mouse") setIsTitleHovered(true);
+  };
+
+  const titleIntent = isTitleFocused ? "focus" : isTitleHovered ? "hover" : null;
 
   const dragProps = depth === 0 ? {
     draggable: true,
@@ -2287,7 +2389,12 @@ function SessionMenuItem({
       onOpenChange={() => ctx.toggleSessionExpanded(session.id)}
       className="group/session-collapsible"
     >
-      <SidebarMenuSubItem {...dragProps} data-sidebar-session-id={session.id} data-sidebar-nest-depth={visualDepth}>
+      <SidebarMenuSubItem
+        {...dragProps}
+        data-sidebar-session-id={session.id}
+        data-sidebar-session-workspace-id={workspaceId}
+        data-sidebar-nest-depth={visualDepth}
+      >
         <SessionContextMenu sessionId={session.id} workspaceId={workspaceId} isPinned={isPinned} isArchived={isArchived}>
           <CollapsibleTrigger
             render={
@@ -2298,14 +2405,20 @@ function SessionMenuItem({
                 data-session-tab-id={session.id}
                 data-session-tab-active={isSelected ? "true" : undefined}
                 onClick={openSession}
-                onPointerEnter={prefetchSession}
-                onFocus={prefetchSession}
+                onPointerEnter={handlePointerEnter}
+                onPointerLeave={() => setIsTitleHovered(false)}
+                onFocus={() => {
+                  prefetchSession();
+                  setIsTitleFocused(true);
+                }}
+                onBlur={() => setIsTitleFocused(false)}
                 aria-label={accessibleState}
+                aria-description={shortcutDigit === undefined ? undefined : sessionNumberShortcutDescription(ctx.sessionNumberShortcutOs, shortcutDigit)}
+                aria-keyshortcuts={ariaKeyShortcuts}
               >
                 {leading}
-                <span className="min-w-0 flex-1 ow-fade-truncate" title={itemTitle}>
-                  {displayTitle}
-                </span>
+                <SessionTitle intent={titleIntent} title={displayTitle} tooltip={itemTitle} />
+                <SessionNumberShortcutSlot digit={shortcutDigit} />
                 <span className="flex size-6 shrink-0 items-center justify-center">
                   <ChevronRight className="size-4 text-muted-foreground transition-transform duration-200 group-data-open/session-collapsible:rotate-90 hover:text-foreground" />
                 </span>
@@ -2317,21 +2430,34 @@ function SessionMenuItem({
       </SidebarMenuSubItem>
     </Collapsible>
   ) : (
-    <SidebarMenuSubItem {...dragProps} data-sidebar-session-id={session.id} data-sidebar-nest-depth={visualDepth}>
+    <SidebarMenuSubItem
+      {...dragProps}
+      data-sidebar-session-id={session.id}
+      data-sidebar-session-workspace-id={workspaceId}
+      data-sidebar-nest-depth={visualDepth}
+    >
       <SessionContextMenu sessionId={session.id} workspaceId={workspaceId} isPinned={isPinned} isArchived={isArchived}>
         <SidebarMenuSubButton
           isActive={isSelected}
           data-session-tab-id={session.id}
           data-session-tab-active={isSelected ? "true" : undefined}
           onClick={openSession}
-          onPointerEnter={prefetchSession}
-          onFocus={prefetchSession}
+          onPointerEnter={handlePointerEnter}
+          onPointerLeave={() => setIsTitleHovered(false)}
+          onFocus={() => {
+            prefetchSession();
+            setIsTitleFocused(true);
+          }}
+          onBlur={() => setIsTitleFocused(false)}
           aria-label={accessibleState}
+          aria-description={shortcutDigit === undefined ? undefined : sessionNumberShortcutDescription(ctx.sessionNumberShortcutOs, shortcutDigit)}
+          aria-keyshortcuts={ariaKeyShortcuts}
           className={rowButtonClass}
           style={rowButtonStyle}
         >
           {leading}
-          <span className="min-w-0 flex-1 ow-fade-truncate" title={itemTitle}>{displayTitle}</span>
+          <SessionTitle intent={titleIntent} title={displayTitle} tooltip={itemTitle} />
+          <SessionNumberShortcutSlot digit={shortcutDigit} />
         </SidebarMenuSubButton>
       </SessionContextMenu>
       {trailing}

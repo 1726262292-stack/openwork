@@ -1,6 +1,7 @@
 .turbo/
 node_modules/
 apps/desktop/dist-electron/
+apps/desktop/.electron-runtime/
 apps/desktop/dist-electron-demo-a/
 apps/desktop/dist-electron-demo-b/
 packages/*/node_modules/
@@ -71,3 +72,6 @@ transcript-analysis
 evals/results/
 .playwright-mcp/
 .vscode/
+
+# Warden local run logs
+.warden/logs/

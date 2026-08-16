@@ -89,6 +89,20 @@ function SocialButton({
   );
 }
 
+function PasswordFeedbackList({ messages }: { messages: string[] }) {
+  if (messages.length === 0) {
+    return null;
+  }
+
+  return (
+    <ul className="m-0 grid list-disc gap-1 pl-5 text-sm font-medium text-rose-600" aria-live="polite">
+      {messages.map((message, index) => (
+        <li key={`${index}:${message}`}>{message}</li>
+      ))}
+    </ul>
+  );
+}
+
 function DesktopHandoffCopyLink({
   openworkUrl,
   label,
@@ -203,7 +217,10 @@ export function AuthPanel({
   hideEmailField = false,
   hideLockedEmailSummary = false,
   emailFirstFlow = false,
+  emailFirstInvitationId,
+  resolveEmailFirstOnPrefill = false,
   eyebrow = "Account",
+  hideIntro = false,
   bare = false,
   signUpContent,
   signInContent,
@@ -217,7 +234,10 @@ export function AuthPanel({
   hideEmailField?: boolean;
   hideLockedEmailSummary?: boolean;
   emailFirstFlow?: boolean;
+  emailFirstInvitationId?: string;
+  resolveEmailFirstOnPrefill?: boolean;
   eyebrow?: string;
+  hideIntro?: boolean;
   // When true the panel renders without its own `den-frame`/padding, so a parent
   // (the unified split auth card) can own the surface. Defaults to a self-framed
   // card for standalone callers (invite, workspace-claim).
@@ -229,6 +249,7 @@ export function AuthPanel({
   const router = useRouter();
   const pathname = usePathname();
   const prefillRef = useRef<string | null>(null);
+  const resolvedLoginOptionPrefillRef = useRef<string | null>(null);
   const [passwordResetRequested, setPasswordResetRequested] = useState(false);
   const [passwordResetBusy, setPasswordResetBusy] = useState(false);
   const [passwordResetInfo, setPasswordResetInfo] = useState("");
@@ -251,6 +272,7 @@ export function AuthPanel({
     authBusy,
     authInfo,
     authError,
+    signupPasswordFeedback,
     user,
     desktopAuthRequested,
     desktopRedirectUrl,
@@ -271,15 +293,24 @@ export function AuthPanel({
   const visibleAuthMode = resolveVisibleAuthMode({ authMode, runtimeConfig, runtimeConfigLoaded });
   const singleOrgName = runtimeConfig.singleOrgName || "OpenWork";
   const singleOrgSlug = runtimeConfig.singleOrgSlug.trim();
+  const emailFirstInvite = emailFirstInvitationId?.trim() ?? "";
+
+  function getLoginOptionsPath(targetEmail: string) {
+    const params = new URLSearchParams({ email: targetEmail });
+    if (emailFirstInvite) {
+      params.set("invite", emailFirstInvite);
+    }
+    return `/v1/auth/login-options?${params.toString()}`;
+  }
 
   useEffect(() => {
-    if (isSingleOrgPrivateSignup && authMode === "sign-up") {
+    if (isSingleOrgPrivateSignup && !emailFirstInvite && authMode === "sign-up") {
       setAuthMode("sign-in");
     }
-  }, [authMode, isSingleOrgPrivateSignup, setAuthMode]);
+  }, [authMode, emailFirstInvite, isSingleOrgPrivateSignup, setAuthMode]);
 
   useEffect(() => {
-    if (!isSingleOrgSsoMode || pathname === "/") {
+    if (!isSingleOrgSsoMode || pathname === "/" || pathname === "/join-org") {
       return;
     }
 
@@ -324,7 +355,7 @@ export function AuthPanel({
   };
 
   const requestedEmailFirstStep = loginOption?.nextStep ?? "email";
-  const emailFirstStep: EmailFirstStep = isSingleOrgPrivateSignup && requestedEmailFirstStep === "new_account" ? "password" : requestedEmailFirstStep;
+  const emailFirstStep: EmailFirstStep = isSingleOrgPrivateSignup && !emailFirstInvite && requestedEmailFirstStep === "new_account" ? "password" : requestedEmailFirstStep;
   const emailFirstEmail = email.trim();
   const emailFirstContent: PanelContent =
     emailFirstStep === "email"
@@ -361,6 +392,7 @@ export function AuthPanel({
           title: "Create your account.",
           copy: "Set up your OpenWork Cloud account.",
           submitLabel: "Sign up",
+          ...signUpContent,
         };
 
   const desktopGrant = getDesktopGrant(desktopRedirectUrl);
@@ -370,10 +402,10 @@ export function AuthPanel({
     ? resolvedVerificationContent
     : isPasswordResetRequest
       ? passwordResetContent
-      : emailFirstFlow
-      ? emailFirstContent
-      : isSingleOrgSsoMode
-      ? singleOrgSsoContent
+    : isSingleOrgSsoMode
+    ? singleOrgSsoContent
+    : emailFirstFlow
+    ? emailFirstContent
       : visibleAuthMode === "sign-in"
       ? resolvedSignInContent
       : resolvedSignUpContent;
@@ -401,7 +433,65 @@ export function AuthPanel({
     setAuthName("");
     setPassword("");
     setVerificationCode("");
+    resolvedLoginOptionPrefillRef.current = null;
   }, [initialMode, prefillKey, prefilledEmail, setAuthMode, setAuthName, setEmail, setPassword, setVerificationCode]);
+
+  useEffect(() => {
+    const trimmedEmail = prefilledEmail?.trim() ?? "";
+    const key = prefillKey ?? trimmedEmail;
+    if (!emailFirstFlow || !resolveEmailFirstOnPrefill || !trimmedEmail || resolvedLoginOptionPrefillRef.current === key || loginOption || loginOptionBusy) {
+      return;
+    }
+
+    resolvedLoginOptionPrefillRef.current = key;
+    // This lookup is superseded only when a different email takes over, which the
+    // ref above already tracks. Tying it to effect cleanup instead would latch
+    // loginOptionBusy on any unrelated re-render: the cleanup discards the
+    // in-flight reply, the re-run returns early because it sees the busy flag,
+    // and the invite screen checks the sign-in method forever.
+    const superseded = () => resolvedLoginOptionPrefillRef.current !== key;
+
+    async function resolvePrefilledLoginOption() {
+      setLoginOptionBusy(true);
+      setLoginOptionError(null);
+      setLoginOption(null);
+      setPassword("");
+      setAuthName("");
+
+      try {
+        const { response, payload } = await requestJson(getLoginOptionsPath(trimmedEmail), { method: "GET" }, 12000);
+        if (superseded()) {
+          return;
+        }
+        if (!response.ok) {
+          setLoginOptionError(getErrorMessage(payload, response.status === 403 ? "We could not verify this sign-in attempt. Please refresh and try again." : `Could not check sign-in options (${response.status}).`));
+          return;
+        }
+
+        const nextOption = readLoginOption(payload);
+        if (!nextOption) {
+          setLoginOptionError("The sign-in options response was incomplete. Try again.");
+          return;
+        }
+
+        setEmail(trimmedEmail);
+        setAuthMode(nextOption.nextStep === "new_account" ? "sign-up" : "sign-in");
+        setLoginOption(nextOption);
+      } catch (error) {
+        if (!superseded()) {
+          setLoginOptionError(error instanceof Error ? error.message : "Could not check sign-in options.");
+        }
+      } finally {
+        if (!superseded()) {
+          setLoginOptionBusy(false);
+        }
+      }
+    }
+
+    void resolvePrefilledLoginOption();
+    // loginOption and loginOptionBusy are read above only to skip redundant work.
+    // Listing them here would re-run this effect on its own state writes.
+  }, [emailFirstFlow, emailFirstInvite, prefillKey, prefilledEmail, resolveEmailFirstOnPrefill, setAuthMode, setAuthName, setEmail, setPassword]);
 
   const switchMode = (mode: AuthMode) => {
     if (mode === authMode && !passwordResetRequested) {
@@ -455,9 +545,9 @@ export function AuthPanel({
     setAuthName("");
 
     try {
-      const { response, payload } = await requestJson(`/v1/auth/login-options?email=${encodeURIComponent(trimmedEmail)}`, { method: "GET" }, 12000);
+      const { response, payload } = await requestJson(getLoginOptionsPath(trimmedEmail), { method: "GET" }, 12000);
       if (!response.ok) {
-        setLoginOptionError(getErrorMessage(payload, `Could not check sign-in options (${response.status}).`));
+        setLoginOptionError(getErrorMessage(payload, response.status === 403 ? "We could not verify this sign-in attempt. Please refresh and try again." : `Could not check sign-in options (${response.status}).`));
         return;
       }
 
@@ -532,8 +622,9 @@ export function AuthPanel({
   // OpenWork button.
   const isSignedInWithDesktopHandoff = Boolean(desktopAuthRequested && user && !authError);
   const signedInEmail = user?.email?.trim() || "";
-  const emailFirstPanelActive = emailFirstFlow && !verificationRequired && !isPasswordResetRequest;
+  const emailFirstPanelActive = emailFirstFlow && !isSingleOrgSsoMode && !verificationRequired && !isPasswordResetRequest;
   const emailFirstFormBusy = loginOptionBusy || authBusy || desktopRedirectBusy;
+  const waitingForPrefilledLoginOption = resolveEmailFirstOnPrefill && Boolean(prefilledEmail?.trim()) && !loginOption;
 
   if (isSignedInWithDesktopHandoff) {
     return (
@@ -586,13 +677,15 @@ export function AuthPanel({
   if (emailFirstPanelActive) {
     return (
       <div className={shellClass("gap-4 sm:gap-5", "p-5 sm:p-6 md:p-7")}>
-        <div className="grid gap-3">
-          <p className="den-eyebrow">{eyebrow}</p>
-          <div className="grid gap-2">
-            <h2 className="den-title-lg">{activeContent.title}</h2>
-            <p className="den-copy">{activeContent.copy}</p>
+        {!hideIntro ? (
+          <div className="grid gap-3">
+            <p className="den-eyebrow">{eyebrow}</p>
+            <div className="grid gap-2">
+              <h2 className="den-title-lg">{activeContent.title}</h2>
+              <p className="den-copy">{activeContent.copy}</p>
+            </div>
           </div>
-        </div>
+        ) : null}
 
         {desktopAuthRequested && desktopRedirectUrl ? (
           <DesktopHandoffAction
@@ -603,7 +696,13 @@ export function AuthPanel({
           />
         ) : null}
 
-        {emailFirstStep === "email" ? (
+        {waitingForPrefilledLoginOption ? (
+          <div className="den-frame-inset rounded-[1.5rem] px-4 py-3 text-center text-sm text-[var(--dls-text-secondary)]" aria-live="polite">
+            {loginOptionBusy ? "Checking the workspace sign-in method..." : "Could not check the workspace sign-in method. Refresh and try again."}
+          </div>
+        ) : null}
+
+        {!waitingForPrefilledLoginOption && emailFirstStep === "email" ? (
           <form className="grid gap-4" onSubmit={resolveEmailFirstStep}>
             <label className="grid gap-2">
               <span className="den-label">Email</span>
@@ -627,7 +726,7 @@ export function AuthPanel({
           </form>
         ) : null}
 
-        {emailFirstStep === "sso" ? (
+        {!waitingForPrefilledLoginOption && emailFirstStep === "sso" ? (
           <button
             type="button"
             className="den-button-primary w-full"
@@ -639,7 +738,7 @@ export function AuthPanel({
           </button>
         ) : null}
 
-        {emailFirstStep === "google" ? (
+        {!waitingForPrefilledLoginOption && emailFirstStep === "google" ? (
           <SocialButton
             onClick={() => void beginSocialAuth("google")}
             disabled={!runtimeConfigLoaded || authBusy || desktopRedirectBusy}
@@ -649,7 +748,7 @@ export function AuthPanel({
           </SocialButton>
         ) : null}
 
-        {emailFirstStep === "github" ? (
+        {!waitingForPrefilledLoginOption && emailFirstStep === "github" ? (
           <SocialButton
             onClick={() => void beginSocialAuth("github")}
             disabled={!runtimeConfigLoaded || authBusy || desktopRedirectBusy}
@@ -659,7 +758,7 @@ export function AuthPanel({
           </SocialButton>
         ) : null}
 
-        {emailFirstStep === "password" ? (
+        {!waitingForPrefilledLoginOption && emailFirstStep === "password" ? (
           <form
             className="grid gap-4"
             onSubmit={async (event) => {
@@ -699,7 +798,7 @@ export function AuthPanel({
           </form>
         ) : null}
 
-        {emailFirstStep === "new_account" ? (
+        {!waitingForPrefilledLoginOption && emailFirstStep === "new_account" ? (
           <form
             className="grid gap-4"
             onSubmit={async (event) => {
@@ -707,17 +806,21 @@ export function AuthPanel({
               await handleAuthNavigation(next);
             }}
           >
-            <label className="grid gap-2">
-              <span className="den-label">Email</span>
-              <input
-                className="den-input"
-                type="email"
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-                autoComplete="email"
-                required
-              />
-            </label>
+            {!hideEmailField ? (
+              <label className="grid gap-2">
+                <span className="den-label">Email</span>
+                <input
+                  className="den-input disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-500"
+                  type="email"
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                  autoComplete="email"
+                  readOnly={lockEmail}
+                  disabled={lockEmail}
+                  required
+                />
+              </label>
+            ) : null}
             <label className="grid gap-2">
               <span className="den-label">Name</span>
               <input
@@ -729,16 +832,20 @@ export function AuthPanel({
                 required
               />
             </label>
-            <div className="den-divider" aria-hidden="true">
-              <span>or</span>
-            </div>
-            <SocialButton
-              onClick={() => void beginSocialAuth("google")}
-              disabled={!runtimeConfigLoaded || authBusy || desktopRedirectBusy}
-            >
-              <GoogleLogo />
-              <span>Sign up with Google</span>
-            </SocialButton>
+            {!hideSocialAuth ? (
+              <>
+                <div className="den-divider" aria-hidden="true">
+                  <span>or</span>
+                </div>
+                <SocialButton
+                  onClick={() => void beginSocialAuth("google")}
+                  disabled={!runtimeConfigLoaded || authBusy || desktopRedirectBusy}
+                >
+                  <GoogleLogo />
+                  <span>Sign up with Google</span>
+                </SocialButton>
+              </>
+            ) : null}
             <label className="grid gap-2">
               <span className="den-label">Password</span>
               <input
@@ -747,11 +854,13 @@ export function AuthPanel({
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
                 autoComplete="new-password"
+                aria-invalid={signupPasswordFeedback.length > 0}
                 required
               />
+              <PasswordFeedbackList messages={signupPasswordFeedback} />
             </label>
             <button type="submit" className="den-button-primary w-full" disabled={formBusy}>
-              {formBusy ? "Working..." : "Sign up"}
+              {formBusy ? "Working..." : activeContent.submitLabel}
               {!formBusy ? <ArrowRight className="h-4 w-4" /> : null}
             </button>
           </form>
@@ -762,8 +871,13 @@ export function AuthPanel({
             className="den-frame-inset grid gap-1 rounded-[1.5rem] px-4 py-3 text-center text-[13px] text-[var(--dls-text-secondary)]"
             aria-live="polite"
           >
-            {loginOptionError ? <p className="font-medium text-rose-600">{loginOptionError}</p> : <p>{authInfo}</p>}
-            {!loginOptionError && authError ? <p className="font-medium text-rose-600">{authError}</p> : null}
+            {loginOptionError ? (
+              <p className="font-medium text-rose-600">{loginOptionError}</p>
+            ) : authError ? (
+              <p className="font-medium text-rose-600">{authError}</p>
+            ) : (
+              <p>{authInfo}</p>
+            )}
           </div>
         ) : null}
       </div>
@@ -772,13 +886,15 @@ export function AuthPanel({
 
   return (
     <div className={shellClass("gap-4 sm:gap-5", "p-5 sm:p-6 md:p-7")}>
-      <div className="grid gap-3">
-        <p className="den-eyebrow">{eyebrow}</p>
-        <div className="grid gap-2">
-          <h2 className="den-title-lg">{activeContent.title}</h2>
-          <p className="den-copy">{activeContent.copy}</p>
+      {!hideIntro ? (
+        <div className="grid gap-3">
+          <p className="den-eyebrow">{eyebrow}</p>
+          <div className="grid gap-2">
+            <h2 className="den-title-lg">{activeContent.title}</h2>
+            <p className="den-copy">{activeContent.copy}</p>
+          </div>
         </div>
-      </div>
+      ) : null}
 
       {showModeTabs ? (
         <div
@@ -912,8 +1028,10 @@ export function AuthPanel({
               value={password}
               onChange={(event) => setPassword(event.target.value)}
               autoComplete={visibleAuthMode === "sign-up" ? "new-password" : "current-password"}
+              aria-invalid={visibleAuthMode === "sign-up" && signupPasswordFeedback.length > 0}
               required
             />
+            {visibleAuthMode === "sign-up" ? <PasswordFeedbackList messages={signupPasswordFeedback} /> : null}
           </label>
         ) : verificationRequired ? (
           <label className="grid gap-2">

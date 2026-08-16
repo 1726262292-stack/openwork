@@ -525,6 +525,7 @@ describe("classifyEngineMcpTransportCause", () => {
 describe("agent context diagnostics analyzer", () => {
   test("mirrors Connect's health-first steering priority", () => {
     const snapshot = {
+      status: "available",
       connectEnabled: false,
       connectCatalogEnabled: false,
       cloudMcpPresent: false,
@@ -894,6 +895,7 @@ describe("agent context diagnostics analyzer", () => {
     });
 
     const firstRun = await run();
+    expect(firstRun.connect).toMatchObject({ stateStatus: "missing", connectEnabled: false });
     expect(checkById(firstRun, "connect-steering-scope")).toMatchObject({
       status: "passed",
       details: { connectStateStatus: "missing", connectEnabled: false },
@@ -901,12 +903,50 @@ describe("agent context diagnostics analyzer", () => {
 
     await writeFile(join(fixture.root, "state", "connect-state.json"), "{not valid json", "utf8");
     const corrupt = await run();
+    expect(corrupt.connect).toMatchObject({ stateStatus: "invalid", connectEnabled: false });
     expect(checkById(corrupt, "connect-steering-scope")).toMatchObject({
       status: "warning",
       evidenceKind: "unavailable",
       code: "connect_state_unavailable",
       owner: "openwork-server",
       details: { connectStateStatus: "invalid" },
+    });
+  });
+
+  test("surfaces managed MCP vault recovery evidence without decrypting the vault", async () => {
+    const fixture = await createFixture();
+    const run = () => runAgentContextDiagnostics({
+      config: fixture.config,
+      workspace: fixture.workspace,
+      request: emptyObservedRequest,
+      inspectRegistration: () => "connected" as const,
+    });
+
+    const fresh = await run();
+    expect(checkById(fresh, "workspace-runtime")).toMatchObject({
+      details: {
+        managedMcpVaultStatus: "absent",
+        managedMcpVaultRecoveredAt: null,
+        managedMcpVaultQuarantinedTo: null,
+      },
+    });
+
+    fixture.config.localManagedMcpVaultKey = async () => new Uint8Array(32);
+    const quarantinedTo = "local-managed-mcp-vault.json.openwork-backup-20260815094500";
+    await writeFile(join(fixture.root, "state", "local-managed-mcp-vault.json"), JSON.stringify({
+      schemaVersion: 2,
+      index: {},
+      vault: { schemaVersion: 1, algorithm: "aes-256-gcm", iv: "AAAA", tag: "AAAA", data: "AAAA" },
+      lastRecovery: { at: 1_755_000_000_000, reason: "secure_storage_changed", quarantinedTo },
+    }), "utf8");
+
+    const recovered = await run();
+    expect(checkById(recovered, "workspace-runtime")).toMatchObject({
+      details: {
+        managedMcpVaultStatus: "recovered",
+        managedMcpVaultRecoveredAt: 1_755_000_000_000,
+        managedMcpVaultQuarantinedTo: quarantinedTo,
+      },
     });
   });
 

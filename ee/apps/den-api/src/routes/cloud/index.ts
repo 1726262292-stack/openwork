@@ -11,9 +11,10 @@ import { env, type DenOrgMode } from "../../env.js"
 import { orgMemberRoute } from "../../middleware/index.js"
 import { jsonResponse, notFoundSchema, unauthorizedSchema } from "../../openapi.js"
 import { materializeCloudWorkerProviders } from "../../llm/cloud-provider-materialization.js"
-import { flushWorkerCheckpointOnDaytona, getDaytonaSandboxRecord, inspectDaytonaSandbox, refreshDaytonaSignedPreview, stopWorkerOnDaytona } from "../../workers/daytona.js"
+import { currentDaytonaSandboxName, flushWorkerCheckpointOnDaytona, getDaytonaSandboxRecord, inspectDaytonaSandbox, refreshDaytonaSignedPreview, stopWorkerOnDaytona } from "../../workers/daytona.js"
 import { CLOUD_INSTANCE_BACKEND, CLOUD_INSTANCE_NAME } from "../../workers/cloud-constants.js"
 import { wakeCloudWorker as defaultWakeCloudWorker } from "../../workers/cloud-lifecycle.js"
+import { fetchWithConnectRetry, previewFetch } from "../../workers/preview-fetch.js"
 import { appLogger } from "../../observability/logger.js"
 import type { OrgRouteVariables } from "../org/shared.js"
 import { continueCloudProvisioning, token } from "../workers/shared.js"
@@ -42,7 +43,9 @@ type CloudWorker = Pick<typeof WorkerTable.$inferSelect, "id" | "name" | "status
   image_version?: typeof WorkerTable.$inferSelect.image_version
 }
 type WorkerToken = Pick<typeof WorkerTokenTable.$inferSelect, "scope" | "token">
-type CloudSandboxRecord = Pick<NonNullable<Awaited<ReturnType<typeof getDaytonaSandboxRecord>>>, "signed_preview_url" | "signed_preview_url_expires_at">
+type CloudSandboxRecord = Pick<NonNullable<Awaited<ReturnType<typeof getDaytonaSandboxRecord>>>, "signed_preview_url" | "signed_preview_url_expires_at"> & {
+  sandbox_id?: string | null
+}
 type CloudSandboxInspection = { state: string | null } | null
 type OrgId = typeof WorkerTable.$inferSelect.org_id
 type UserId = NonNullable<typeof WorkerTable.$inferSelect.created_by_user_id>
@@ -58,6 +61,7 @@ type CloudInstanceResponse = {
 }
 type CloudInstanceMemberResponse = CloudInstanceResponse & {
   imageVersion?: string | null
+  instanceName?: string | null
   latestVersion?: string | null
 }
 type CloudGatewayInstanceResponse = CloudInstanceResponse & {
@@ -102,6 +106,7 @@ const cloudInstanceResponseSchema = z.object({
   status: z.enum(["provisioning", "waking", "ready", "failed"]),
   url: z.string().url().nullable(),
   imageVersion: z.string().nullable().optional(),
+  instanceName: z.string().nullable().optional(),
   latestVersion: z.string().nullable().optional(),
 }).meta({ ref: "CloudInstanceResponse" })
 
@@ -222,9 +227,13 @@ function healthUrlForPreview(signedPreviewUrl: string) {
 
 async function probeSignedPreview(signedPreviewUrl: string) {
   try {
-    const response = await fetch(healthUrlForPreview(signedPreviewUrl), {
-      method: "GET",
-      signal: AbortSignal.timeout(signedPreviewProbeTimeoutMs),
+    const response = await fetchWithConnectRetry({
+      fetchImpl: previewFetch(),
+      url: healthUrlForPreview(signedPreviewUrl),
+      init: {
+        method: "GET",
+        signal: AbortSignal.timeout(signedPreviewProbeTimeoutMs),
+      },
     })
     return response.ok
   } catch {
@@ -607,10 +616,22 @@ function isRunningSandboxState(state: string | null) {
   return normalized === "running" || normalized === "started"
 }
 
-function memberCloudInstanceResponse(worker: CloudWorker, instance: CloudInstanceResponse): CloudInstanceMemberResponse {
+function cloudInstanceName(worker: CloudWorker, sandbox: CloudSandboxRecord | null) {
+  if (!sandbox) return null
+  const storedName = sandbox.sandbox_id?.trim() ?? ""
+  if (storedName) return storedName
+  if ("sandbox_id" in sandbox) {
+    return currentDaytonaSandboxName({ workerId: worker.id, name: worker.name })
+  }
+  return null
+}
+
+function memberCloudInstanceResponse(worker: CloudWorker, instance: CloudInstanceResponse, sandbox: CloudSandboxRecord | null): CloudInstanceMemberResponse {
+  const instanceName = cloudInstanceName(worker, sandbox)
   return {
     ...instance,
     imageVersion: worker.image_version ?? null,
+    ...(instanceName ? { instanceName } : {}),
     latestVersion: env.daytona.snapshot ?? null,
   }
 }
@@ -962,7 +983,8 @@ export function registerCloudRoutes<T extends { Variables: OrgRouteVariables }>(
         now,
       })
 
-      return c.json(memberCloudInstanceResponse(resolved.worker, resolved.instance))
+      const sandbox = await getSandboxRecord(resolved.worker.id)
+      return c.json(memberCloudInstanceResponse(resolved.worker, resolved.instance, sandbox))
     },
   )
 

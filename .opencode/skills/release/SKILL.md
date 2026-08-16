@@ -1,45 +1,60 @@
 # Skill: release
 
-Cut an OpenWork release from `dev`. The "Release App" workflow
-(`.github/workflows/release-macos-aarch64.yml`, triggered by a `v*` tag push or
-dispatch) builds, signs, and publishes the standard desktop app assets on the
-GitHub release.
+Cut an OpenWork release. The "Release App" workflow
+(`.github/workflows/release-macos-aarch64.yml`) builds, signs, and publishes
+the desktop app assets on the GitHub release. Full runbook:
+`docs/RELEASING.md`.
+
+**Versions live in git tags only.** Every committed `package.json` holds the
+permanent `0.0.0-dev` placeholder; CI stamps the tag-derived version into the
+workspace at build time (`scripts/release/stamp-version.mjs`). A release makes
+**zero commits to this repo** — no bump commit, no backfill PR, no packaging
+PR.
+
+A release is **done when the run is green and the GitHub release is published**
+(not a draft) — never when the tag is created.
 
 ---
 
-## Prepare
-
-Work from latest `origin/dev` with a clean tree (use a fresh worktree/branch,
-e.g. `release/vX.Y.Z`). Confirm dev CI is green.
-
----
-
-## Bump
+## Cut a release (default path)
 
 ```bash
-pnpm bump:patch     # or bump:minor / bump:major / bump:set -- X.Y.Z
+pnpm release:cut            # dispatches Release App with bump=patch
+pnpm release:cut minor      # or major
+pnpm release:cut --version 0.19.0
+pnpm release:cut:watch      # same as release:cut, then tails the run
 ```
 
-This updates `apps/app`, `apps/desktop`, `apps/server`
-package.json versions, `ee/apps/den-api/src/generated/desktop-versions.ts`
-(den-api's `PUBLISHED_DESKTOP_VERSIONS` — the install door redirects to
-`v<PUBLISHED_DESKTOP_VERSIONS[0]>`), and `pnpm-lock.yaml`. Revert incidental
-noise (e.g. `*.tsbuildinfo`) before committing.
-
-Commit as `chore(release): vX.Y.Z`, open a PR against `dev`, merge when checks
-pass.
-
----
-
-## Tag
-
-Tag the merge commit on dev; the tag push triggers Release App:
+Equivalent by hand:
 
 ```bash
-git fetch origin dev
-git tag vX.Y.Z origin/dev
-git push origin vX.Y.Z
+gh workflow run "Release App" --repo different-ai/openwork -f bump=patch
 ```
+
+The run resolves the next version from existing `v*` tags, creates the tag on
+`origin/dev` HEAD, verifies it (`scripts/release/verify-tag.mjs`: stable
+format + strictly greater than every other stable tag), stamps the version
+into the CI workspace, builds all 18 electron matrix legs, publishes npm +
+Daytona + AUR, and flips the draft release public.
+
+Requirement: the `v*` tag ruleset must list **GitHub Actions** as a bypass
+actor so the workflow can push the tag it creates. If the tag push is
+rejected, the run fails with instructions — fix the ruleset or fall back to a
+manual tag push.
+
+## Tag-first (expedited, admins only)
+
+To release a commit that is not yet reviewed onto `dev` (incident response),
+push the tag manually — the tag names exactly the code that ships:
+
+```bash
+git tag vX.Y.Z <sha>
+git push origin vX.Y.Z     # v* ruleset grants admins bypass
+```
+
+The Expedited Release Audit workflow opens a post-hoc review issue when the
+tagged commit is not on `dev`. Never push `dev` directly or bypass its branch
+rules.
 
 ---
 
@@ -50,22 +65,30 @@ gh run list --repo different-ai/openwork --workflow "Release App" --limit 1
 gh run watch <run-id> --repo different-ai/openwork --exit-status --interval 90
 ```
 
-The run includes a Windows test job; any test failure blocks publish (the
-release stays draft).
+Publishing is gated on the electron matrix, electron assets, and npm publish.
+`Publish AUR` (continue-on-error) and `Build + Push Daytona Snapshot` are
+**non-blocking channels**: their failures don't stop the release — rerun the
+workflow with the same tag once the channel recovers.
 
-**If the run fails:** land the fix on `dev` via a normal PR, then move the tag
-and let the workflow re-fire — safe only while the release never published:
-
-```bash
-git push --delete origin vX.Y.Z
-git tag -f vX.Y.Z origin/dev
-git push origin vX.Y.Z
-```
-
-**Rerun without retagging** (e.g. transient failure):
+**Rerun an existing tag (recovery)** — transient failures, or replaying
+non-blocking channels:
 
 ```bash
 gh workflow run "Release App" --repo different-ai/openwork -f tag=vX.Y.Z
+```
+
+Recovery runs skip tag creation and monotonicity, build source pinned to the
+tag, and pick up workflow-file fixes from `dev` automatically (the workflow
+definition runs from the dispatched ref; only the checked-out sources are
+pinned to the tag).
+
+**If the run fails before the release is published:** land the fix on `dev`
+via a normal protected-branch PR and cut the next patch (`pnpm release:cut`).
+Only delete/recreate a tag after verifying the GitHub release is still
+draft-only:
+
+```bash
+git push --delete origin vX.Y.Z
 ```
 
 ---
@@ -76,24 +99,38 @@ gh workflow run "Release App" --repo different-ai/openwork -f tag=vX.Y.Z
 gh release view vX.Y.Z --repo different-ai/openwork --json assets --jq '.assets[].name'
 ```
 
-Expect the app assets (`openwork-<platform>-X.Y.Z.*`, `latest*.yml`), including:
+Expect the app assets (`openwork-<platform>-X.Y.Z.*`, `latest*.yml` updater
+manifests), including:
 
 - `openwork-mac-arm64-X.Y.Z.dmg`
 - `openwork-mac-x64-X.Y.Z.dmg`
 - `openwork-win-x64-X.Y.Z.exe`
 
-Spot-check a download URL resolves (302 to release-assets CDN):
+The desktop updater 404s on `latest*.yml` until the release is published —
+that error in a running app during the build window is expected and
+self-heals. Spot-check a download URL resolves (302 to release-assets CDN):
 
 ```bash
 curl -sI "https://github.com/different-ai/openwork/releases/download/vX.Y.Z/openwork-mac-arm64-X.Y.Z.dmg" | head -2
 ```
 
+Confirm `npm view openwork-server version` matches.
+
 ---
 
 ## Notes
 
-- Desktop installer fixes only reach users through a new release — the org install
-  door (`/v1/install/:platform`) 302s to versioned assets.
-- den deployments built from source pick up the new pin via
-  `PUBLISHED_DESKTOP_VERSIONS[0]` (den-api `src/version.ts`); no env vars
-  required.
+- Desktop installer fixes only reach users through a new release — the org
+  install door (`/v1/install/:platform`) 302s to versioned assets.
+- den-api discovers published versions from the GitHub Releases API at
+  runtime (`ee/apps/den-api/src/desktop-releases.ts`): the new version is
+  live for orgs as soon as the release is published — no den deploy needed.
+  The committed `generated/desktop-versions.ts` is only a cold-start/offline
+  fallback.
+- AUR publishes by rendering the committed `packaging/aur` template
+  (pkgver=0.0.0) in the CI workspace and pushing to aur.archlinux.org — the
+  AUR-side commit is that channel's publish protocol; this repo stays
+  untouched.
+- Native workspace deps must stay converged on one major across all apps —
+  electron-builder rebuilds every copy it finds (see #3561/#3563 for the
+  three-release outage this caused).

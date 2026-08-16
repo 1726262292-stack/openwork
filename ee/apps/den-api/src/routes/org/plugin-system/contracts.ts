@@ -33,6 +33,7 @@ import {
   connectorInstanceListQuerySchema,
   connectorInstanceListResponseSchema,
   connectorInstanceMutationResponseSchema,
+  connectorInstanceSyncNowResponseSchema,
   connectorInstanceParamsSchema,
   connectorInstanceUpdateSchema,
   connectorMappingCreateSchema,
@@ -87,6 +88,8 @@ import {
   marketplacePluginParamsSchema,
   marketplacePluginWriteSchema,
   marketplaceUpdateSchema,
+  meLibraryListResponseSchema,
+  mePluginAccessListResponseSchema,
   pluginAccessGrantParamsSchema,
   pluginConfigObjectParamsSchema,
   pluginCreateSchema,
@@ -102,10 +105,12 @@ import {
   pluginParamsSchema,
   pluginUpdateSchema,
   resourceAccessGrantWriteSchema,
+  teamParamsSchema,
+  teamPluginAccessListResponseSchema,
 } from "./schemas.js"
 
 type EndpointMethod = "DELETE" | "GET" | "PATCH" | "POST"
-type EndpointAudience = "admin" | "public_webhook"
+type EndpointAudience = "admin" | "member" | "public_webhook"
 type EndpointTag = "Config Objects" | "Plugins" | "Marketplaces" | "Connectors" | "GitHub" | "Webhooks"
 
 type EndpointContract = {
@@ -167,6 +172,9 @@ export const pluginArchRoutePaths = {
   pluginReleases: `${orgBasePath}/plugins/:pluginId/releases`,
   pluginAccess: `${orgBasePath}/plugins/:pluginId/access`,
   pluginAccessGrant: `${orgBasePath}/plugins/:pluginId/access/:grantId`,
+  meLibrary: `${orgBasePath}/me/library`,
+  mePluginAccess: `${orgBasePath}/me/plugin-access`,
+  teamPluginAccess: `${orgBasePath}/teams/:teamId/plugin-access`,
   pluginGithubMcpImportPreview: `${orgBasePath}/plugins/import-mcps-from-github-url/preview`,
   pluginGithubMcpImport: `${orgBasePath}/plugins/import-mcps-from-github-url`,
   marketplaces: `${orgBasePath}/marketplaces`,
@@ -190,6 +198,7 @@ export const pluginArchRoutePaths = {
   connectorInstanceArchive: `${orgBasePath}/connector-instances/:connectorInstanceId/archive`,
   connectorInstanceDisable: `${orgBasePath}/connector-instances/:connectorInstanceId/disable`,
   connectorInstanceEnable: `${orgBasePath}/connector-instances/:connectorInstanceId/enable`,
+  connectorInstanceSyncNow: `${orgBasePath}/connector-instances/:connectorInstanceId/sync-now`,
   connectorInstanceAccess: `${orgBasePath}/connector-instances/:connectorInstanceId/access`,
   connectorInstanceAccessGrant: `${orgBasePath}/connector-instances/:connectorInstanceId/access/:grantId`,
   connectorTargets: `${orgBasePath}/connector-instances/:connectorInstanceId/targets`,
@@ -233,7 +242,7 @@ export const pluginArchEndpointContracts: Record<string, EndpointContract> = {
     tag: "Config Objects",
   },
   createConfigObject: {
-    audience: "admin",
+    audience: "member",
     description: "Create a cloud or imported config object and optionally attach it to plugins.",
     method: "POST",
     path: pluginArchRoutePaths.configObjects,
@@ -288,7 +297,7 @@ export const pluginArchEndpointContracts: Record<string, EndpointContract> = {
   },
   attachConfigObjectToPlugin: {
     audience: "admin",
-    description: "Attach a config object to a plugin using plugin-scoped write access.",
+    description: "Attach a config object to a plugin using plugin-scoped write access. Attaching a Program additionally requires manager access to that Program because Plugin or Marketplace membership can expand its audience.",
     method: "POST",
     path: pluginArchRoutePaths.configObjectPlugins,
     request: { body: configObjectPluginAttachSchema, params: configObjectParamsSchema },
@@ -297,7 +306,7 @@ export const pluginArchEndpointContracts: Record<string, EndpointContract> = {
   },
   removeConfigObjectFromPlugin: {
     audience: "admin",
-    description: "Remove one active plugin membership from a config object.",
+    description: "Remove one active plugin membership from a config object. Removing a Program additionally requires manager access to that Program because it revokes inherited Plugin or Marketplace access.",
     method: "DELETE",
     path: pluginArchRoutePaths.configObjectPlugin,
     request: { params: configObjectParamsSchema.extend({ pluginId: pluginParamsSchema.shape.pluginId }) },
@@ -377,7 +386,7 @@ export const pluginArchEndpointContracts: Record<string, EndpointContract> = {
     tag: "Plugins",
   },
   createPlugin: {
-    audience: "admin",
+    audience: "member",
     description: "Create a private-by-default plugin, optionally bundled with components, org-wide sharing, and marketplace publishing.",
     method: "POST",
     path: pluginArchRoutePaths.plugins,
@@ -464,6 +473,31 @@ export const pluginArchEndpointContracts: Record<string, EndpointContract> = {
     path: pluginArchRoutePaths.pluginAccess,
     request: { params: pluginParamsSchema },
     response: { description: "Plugin access grants.", schema: accessGrantListResponseSchema, status: 200 },
+    tag: "Plugins",
+  },
+  listMePluginAccess: {
+    audience: "member",
+    description: "List the caller's effective plugin library with all applicable access edges.",
+    method: "GET",
+    path: pluginArchRoutePaths.mePluginAccess,
+    response: { description: "Effective member plugin access.", schema: mePluginAccessListResponseSchema, status: 200 },
+    tag: "Plugins",
+  },
+  listMeLibrary: {
+    audience: "member",
+    description: "List the plugins and connections the caller can use with all applicable access edges.",
+    method: "GET",
+    path: pluginArchRoutePaths.meLibrary,
+    response: { description: "Effective member library.", schema: meLibraryListResponseSchema, status: 200 },
+    tag: "Plugins",
+  },
+  listTeamPluginAccess: {
+    audience: "member",
+    description: "List the plugins a team can use through direct, marketplace, and organization-wide access.",
+    method: "GET",
+    path: pluginArchRoutePaths.teamPluginAccess,
+    request: { params: teamParamsSchema },
+    response: { description: "Effective plugin access for the team.", schema: teamPluginAccessListResponseSchema, status: 200 },
     tag: "Plugins",
   },
   grantPluginAccess: {
@@ -869,6 +903,15 @@ export const pluginArchEndpointContracts: Record<string, EndpointContract> = {
     path: pluginArchRoutePaths.connectorSyncEventRetry,
     request: { params: connectorSyncEventParamsSchema },
     response: { description: "Connector sync retry queued successfully.", schema: connectorSyncAsyncResponseSchema, status: 202 },
+    tag: "Connectors",
+  },
+  connectorInstanceSyncNow: {
+    audience: "admin",
+    description: "Queue sync work for every idle target in a connector instance.",
+    method: "POST",
+    path: pluginArchRoutePaths.connectorInstanceSyncNow,
+    request: { params: connectorInstanceParamsSchema },
+    response: { description: "Connector instance sync queued successfully.", schema: connectorInstanceSyncNowResponseSchema, status: 200 },
     tag: "Connectors",
   },
   getGithubConnectorDiscovery: {

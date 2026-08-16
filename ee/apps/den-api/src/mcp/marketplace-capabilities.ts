@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNull } from "@openwork-ee/den-db/drizzle"
+import { and, desc, eq, inArray, isNull, notExists } from "@openwork-ee/den-db/drizzle"
 import {
   ConfigObjectAccessGrantTable,
   ConfigObjectTable,
@@ -27,6 +27,9 @@ import { getConnectedAccount, getOrgOAuthClient } from "../capability-sources/oa
 import { db } from "../db.js"
 import { resolvePluginArchGrantRole } from "../routes/org/plugin-system/access.js"
 import { openworkOrganizationConnectionsUrl, openworkYourConnectionsUrl } from "./connection-navigation.js"
+import { parseCodemodeScriptPayload, type CodemodeScriptInputIssue } from "./codemode-script-object.js"
+import { type BuiltCodemodeTools } from "./codemode-tools.js"
+import { executeSavedCodemodeScript } from "./saved-codemode-script-service.js"
 import { listPluginMcpRequirementBindings, type PluginMcpRequirementBindingRow } from "./plugin-mcp-requirement-bindings.js"
 import { scoreText, tokenize } from "./search.js"
 import type { McpMemberIdentity } from "./external-capabilities.js"
@@ -48,7 +51,7 @@ export type RemoteSkillDescriptor = {
 
 export type AccessibleMarketplaceCapabilityReference = {
   configObjectId: string
-  marketplaceId: string
+  marketplaceId: string | null
   objectType: MarketplaceCapabilityObjectType
   pluginId: string
 }
@@ -85,7 +88,7 @@ type MemberRow = Pick<typeof MemberTable.$inferSelect, "id" | "role">
 type UsableExternalMcpConnection = Awaited<ReturnType<typeof listUsableExternalMcpConnections>>[number]
 type MarketplaceCapabilityRow = {
   configObject: ConfigObjectRow
-  marketplace: typeof MarketplaceTable.$inferSelect
+  marketplace: typeof MarketplaceTable.$inferSelect | null
   plugin: typeof PluginTable.$inferSelect
 }
 type GrantRow = {
@@ -107,7 +110,7 @@ export type MarketplaceCapabilityMatch = CapabilityMatch & {
   mcpRequirements?: MarketplaceMcpRequirementStatus[]
 }
 
-export type MarketplaceCapabilityStatus = "connection_available" | "content_not_synced" | "needs_admin_setup" | "needs_connection" | "needs_install" | "ready" | "reconnect" | "unsupported"
+export type MarketplaceCapabilityStatus = "connection_available" | "content_not_synced" | "executed" | "needs_admin_setup" | "needs_connection" | "needs_install" | "ready" | "reconnect" | "unsupported"
 
 export type MarketplaceMcpRequirementState = "needs_admin_setup" | "needs_connection" | "ready" | "reconnect"
 
@@ -136,7 +139,7 @@ export type MarketplaceMcpRequirementStatus = {
 export type MarketplaceCapabilityExecutePayload = {
   kind: ConfigObjectType
   plugin: string
-  marketplace: string
+  marketplace: string | null
   name: string
   description: string | null
   provenance: string
@@ -144,6 +147,17 @@ export type MarketplaceCapabilityExecutePayload = {
   definition?: string | null
   serverSpec?: Record<string, unknown>
   source?: string | null
+  value?: unknown
+  logs?: string[]
+  toolCalls?: Array<{ name: string }>
+  durationMs?: number
+  receiptId?: string | null
+  canonicalResult?: string
+  markdown?: string
+  resultDigest?: string
+  inputSchemaDigest?: string | null
+  outputSchemaDigest?: string | null
+  rendererVersion?: "codemode-markdown-v1"
   status?: MarketplaceCapabilityStatus
   hint?: string
   action?: MarketplaceMcpRequirementAction
@@ -153,8 +167,44 @@ export type MarketplaceCapabilityExecutePayload = {
 export type MarketplaceCapabilityExecuteResult =
   | { ok: true; result: MarketplaceCapabilityExecutePayload }
   | { ok: false; error: "unknown_capability" | "forbidden"; message: string }
+  | {
+      ok: false
+      error: "invalid_capability_arguments"
+      message: string
+      issues: CodemodeScriptInputIssue[]
+      sameArgumentsRetryable: false
+      retry: { action: "correct_arguments"; searchRequired: false }
+      receiptId?: string | null
+    }
+  | {
+      ok: false
+      error: "capability_unavailable"
+      message: string
+      providerCallAttempted: false
+      missing: Array<{ capabilityName: string; scriptPath: string }>
+      receiptId?: string | null
+    }
+  | {
+      ok: false
+      error: "script_failed"
+      message: string
+      kind: string
+      toolCalls: Array<{ name: string }>
+      receiptId?: string | null
+    }
 
-export type MarketplaceConfigObjectExecutionMode = "desktop_only" | "instructional" | "mcp"
+export type MarketplaceConfigObjectExecutionMode = "codemode" | "desktop_only" | "instructional" | "mcp"
+
+export type AccessibleSavedCodemodeScript = {
+  pluginId: string
+  configObjectId: string
+  configObjectVersionId: string
+  title: string
+  description: string | null
+  inputSchema: unknown | null
+  outputSchema: unknown | null
+  requiredCapabilities: Array<{ capabilityName: string; scriptPath: string }>
+}
 
 export type MarketplaceCloudReadinessState = "ready" | "needs_signin" | "needs_admin_setup" | "desktop_only" | "not_synced"
 
@@ -273,19 +323,27 @@ function pluginPath(row: MarketplaceCapabilityRow): string {
 }
 
 function provenance(pluginName: string): string {
-  return `Content from marketplace plugin ${pluginName} ${PROVENANCE_SUFFIX}`
+  return `Content from plugin ${pluginName} ${PROVENANCE_SUFFIX}`
 }
 
 function objectHint(row: MarketplaceCapabilityRow): string {
-  return `Install marketplace plugin "${row.plugin.name}" from "${row.marketplace.name}" locally to use "${row.configObject.title}".`
+  return row.marketplace
+    ? `Install marketplace plugin "${row.plugin.name}" from "${row.marketplace.name}" locally to use "${row.configObject.title}".`
+    : `Install plugin "${row.plugin.name}" locally to use "${row.configObject.title}".`
 }
 
 function contentNotSyncedHint(row: MarketplaceCapabilityRow): string {
   return `Marketplace plugin "${row.plugin.name}" has not synced content for "${row.configObject.title}" yet. Connect or sync the source, then try again.`
 }
 
+function unsupportedScriptHint(row: MarketplaceCapabilityRow, message: string): string {
+  return `Marketplace plugin "${row.plugin.name}" saved script "${row.configObject.title}" cannot run: ${message}`
+}
+
 function summaryFor(row: MarketplaceCapabilityRow): string {
-  const prefix = `[${row.marketplace.name} / ${row.plugin.name}] ${row.configObject.title}`
+  const prefix = row.marketplace
+    ? `[${row.marketplace.name} / ${row.plugin.name}] ${row.configObject.title}`
+    : `[${row.plugin.name}] ${row.configObject.title}`
   const description = row.configObject.description?.trim()
   return description ? `${prefix}: ${description}` : prefix
 }
@@ -307,7 +365,7 @@ function basePayload(row: MarketplaceCapabilityRow): MarketplaceCapabilityExecut
   return {
     kind: row.configObject.objectType,
     plugin: row.plugin.name,
-    marketplace: row.marketplace.name,
+    marketplace: row.marketplace ? row.marketplace.name : null,
     name: row.configObject.title,
     description: row.configObject.description,
     provenance: provenance(row.plugin.name),
@@ -371,6 +429,58 @@ async function listActiveMarketplaceRows(organizationId: OrganizationId): Promis
   return rows
 }
 
+async function listGrantOnlyRows(organizationId: OrganizationId): Promise<MarketplaceCapabilityRow[]> {
+  const rows = await db
+    .select({
+      configObject: ConfigObjectTable,
+      plugin: PluginTable,
+    })
+    .from(ConfigObjectTable)
+    .innerJoin(
+      PluginConfigObjectTable,
+      eq(PluginConfigObjectTable.configObjectId, ConfigObjectTable.id),
+    )
+    .innerJoin(
+      PluginTable,
+      eq(PluginTable.id, PluginConfigObjectTable.pluginId),
+    )
+    .where(and(
+      eq(ConfigObjectTable.organizationId, organizationId),
+      eq(ConfigObjectTable.status, "active"),
+      isNull(ConfigObjectTable.deletedAt),
+      eq(PluginConfigObjectTable.organizationId, organizationId),
+      isNull(PluginConfigObjectTable.removedAt),
+      eq(PluginTable.organizationId, organizationId),
+      eq(PluginTable.status, "active"),
+      isNull(PluginTable.deletedAt),
+      notExists(
+        db
+          .select({ id: MarketplacePluginTable.id })
+          .from(MarketplacePluginTable)
+          .innerJoin(
+            MarketplaceTable,
+            eq(MarketplaceTable.id, MarketplacePluginTable.marketplaceId),
+          )
+          .where(and(
+            eq(MarketplacePluginTable.pluginId, PluginTable.id),
+            eq(MarketplacePluginTable.organizationId, organizationId),
+            isNull(MarketplacePluginTable.removedAt),
+            eq(MarketplaceTable.organizationId, organizationId),
+            eq(MarketplaceTable.status, "active"),
+            isNull(MarketplaceTable.deletedAt),
+          )),
+      ),
+    ))
+    .orderBy(PluginTable.name, ConfigObjectTable.title)
+  return rows.map((row) => ({ ...row, marketplace: null }))
+}
+
+async function listActiveCapabilityRows(organizationId: OrganizationId): Promise<MarketplaceCapabilityRow[]> {
+  const marketplaceRows = await listActiveMarketplaceRows(organizationId)
+  const grantOnlyRows = await listGrantOnlyRows(organizationId)
+  return [...marketplaceRows, ...grantOnlyRows]
+}
+
 async function listActiveMarketplaceRowsForCapability(input: {
   configObjectId: ConfigObjectId
   organizationId: OrganizationId
@@ -419,6 +529,51 @@ async function listActiveMarketplaceRowsForCapability(input: {
     ))
     .orderBy(MarketplaceTable.name)
   return rows
+}
+
+async function listGrantOnlyRowsForCapability(input: {
+  configObjectId: ConfigObjectId
+  organizationId: OrganizationId
+  pluginId: PluginId
+}): Promise<MarketplaceCapabilityRow[]> {
+  const rows = await db
+    .select({
+      configObject: ConfigObjectTable,
+      plugin: PluginTable,
+    })
+    .from(ConfigObjectTable)
+    .innerJoin(
+      PluginConfigObjectTable,
+      eq(PluginConfigObjectTable.configObjectId, ConfigObjectTable.id),
+    )
+    .innerJoin(
+      PluginTable,
+      eq(PluginTable.id, PluginConfigObjectTable.pluginId),
+    )
+    .where(and(
+      eq(ConfigObjectTable.id, input.configObjectId),
+      eq(ConfigObjectTable.organizationId, input.organizationId),
+      eq(ConfigObjectTable.status, "active"),
+      isNull(ConfigObjectTable.deletedAt),
+      eq(PluginConfigObjectTable.organizationId, input.organizationId),
+      eq(PluginConfigObjectTable.pluginId, input.pluginId),
+      isNull(PluginConfigObjectTable.removedAt),
+      eq(PluginTable.id, input.pluginId),
+      eq(PluginTable.organizationId, input.organizationId),
+      eq(PluginTable.status, "active"),
+      isNull(PluginTable.deletedAt),
+    ))
+  return rows.map((row) => ({ ...row, marketplace: null }))
+}
+
+async function listActiveRowsForCapability(input: {
+  configObjectId: ConfigObjectId
+  organizationId: OrganizationId
+  pluginId: PluginId
+}): Promise<MarketplaceCapabilityRow[]> {
+  const marketplaceRows = await listActiveMarketplaceRowsForCapability(input)
+  if (marketplaceRows.length > 0) return marketplaceRows
+  return listGrantOnlyRowsForCapability(input)
 }
 
 async function listConfigObjectGrants(organizationId: OrganizationId, configObjectIds: ConfigObjectId[]) {
@@ -490,7 +645,7 @@ async function filterVisibleRows(input: {
   )
   const marketplaceGrantRows = await listMarketplaceGrants(
     input.organizationId,
-    unique(input.rows.map((row) => row.marketplace.id)),
+    unique(input.rows.flatMap((row) => row.marketplace ? [row.marketplace.id] : [])),
   )
   const configObjectGrants = groupGrants(configObjectGrantRows)
   const pluginGrants = groupGrants(pluginGrantRows)
@@ -503,7 +658,9 @@ async function filterVisibleRows(input: {
     // for every role so admins can curate what OpenWork exposes to them.
     if (grantRole(input.member, configObjectGrants.get(row.configObject.id) ?? [])) return true
     if (grantRole(input.member, pluginGrants.get(row.plugin.id) ?? [])) return true
-    return Boolean(grantRole(input.member, marketplaceGrants.get(row.marketplace.id) ?? []))
+    return row.marketplace
+      ? Boolean(grantRole(input.member, marketplaceGrants.get(row.marketplace.id) ?? []))
+      : false
   })
 }
 
@@ -519,23 +676,31 @@ export async function listAccessibleMarketplaceCapabilityReferences(input: {
   const rows = await filterVisibleRows({
     organizationId,
     member: input.member,
-    rows: await listActiveMarketplaceRows(organizationId),
+    rows: await listActiveCapabilityRows(organizationId),
   })
   const references = new Map<string, AccessibleMarketplaceCapabilityReference>()
   for (const row of rows) {
-    const key = `${row.marketplace.id}:${row.plugin.id}:${row.configObject.id}`
+    const marketplaceId = row.marketplace ? row.marketplace.id : null
+    const key = `${marketplaceId ?? "grant-only"}:${row.plugin.id}:${row.configObject.id}`
     references.set(key, {
       configObjectId: row.configObject.id,
-      marketplaceId: row.marketplace.id,
+      marketplaceId,
       objectType: row.configObject.objectType,
       pluginId: row.plugin.id,
     })
   }
-  return [...references.values()].sort((left, right) =>
-    left.marketplaceId.localeCompare(right.marketplaceId)
-    || left.pluginId.localeCompare(right.pluginId)
-    || left.configObjectId.localeCompare(right.configObjectId)
-  )
+  return [...references.values()].sort((left, right) => {
+    const marketplaceOrder = left.marketplaceId === right.marketplaceId
+      ? 0
+      : left.marketplaceId === null
+        ? 1
+        : right.marketplaceId === null
+          ? -1
+          : left.marketplaceId.localeCompare(right.marketplaceId)
+    return marketplaceOrder
+      || left.pluginId.localeCompare(right.pluginId)
+      || left.configObjectId.localeCompare(right.configObjectId)
+  })
 }
 
 export async function listAccessibleMarketplaceSkillDescriptors(input: {
@@ -552,7 +717,7 @@ export async function listAccessibleMarketplaceSkillDescriptors(input: {
   const rows = await filterVisibleRows({
     organizationId,
     member: input.member,
-    rows: (await listActiveMarketplaceRows(organizationId))
+    rows: (await listActiveCapabilityRows(organizationId))
       .filter((row) => row.configObject.objectType === "skill"),
   })
   const descriptors = new Map<string, RemoteSkillDescriptor>()
@@ -569,7 +734,7 @@ export async function listAccessibleMarketplaceSkillDescriptors(input: {
         name,
         title: row.configObject.title,
       }),
-      marketplaceName: row.marketplace.name,
+      ...(row.marketplace ? { marketplaceName: row.marketplace.name } : {}),
       pluginName: row.plugin.name,
       capability,
       location: `skill://${name}/SKILL.md`,
@@ -590,6 +755,21 @@ async function latestVersion(configObjectId: ConfigObjectId, organizationId: Org
     ))
     .orderBy(desc(ConfigObjectVersionTable.createdAt), desc(ConfigObjectVersionTable.id))
     .limit(1)
+  return rows[0] ?? null
+}
+
+async function exactVersion(configObjectId: ConfigObjectId, organizationId: OrganizationId, versionId: string) {
+  let normalizedVersionId: DenTypeId<"configObjectVersion">
+  try {
+    normalizedVersionId = normalizeDenTypeId("configObjectVersion", versionId)
+  } catch {
+    return null
+  }
+  const rows = await db.select().from(ConfigObjectVersionTable).where(and(
+    eq(ConfigObjectVersionTable.id, normalizedVersionId),
+    eq(ConfigObjectVersionTable.configObjectId, configObjectId),
+    eq(ConfigObjectVersionTable.organizationId, organizationId),
+  )).limit(1)
   return rows[0] ?? null
 }
 
@@ -629,10 +809,18 @@ export function marketplaceConfigObjectExecutionMode(objectType: ConfigObjectTyp
     case "custom":
     case "skill":
       return "instructional"
+    case "script":
+      return "codemode"
+    case "app":
     case "hook":
     case "tool":
       return "desktop_only"
   }
+}
+
+export function marketplaceConfigObjectReadyWhenSynced(objectType: ConfigObjectType): boolean {
+  const mode = marketplaceConfigObjectExecutionMode(objectType)
+  return mode === "codemode" || mode === "instructional"
 }
 
 export function marketplaceMcpServerEntries(spec: Record<string, unknown>, fallbackName: string): { config: Record<string, unknown>; name: string }[] {
@@ -959,7 +1147,8 @@ async function marketplacePluginMcpRequirementStatuses(input: {
   const byPlugin = new Map<string, MarketplaceMcpRequirementStatus[]>()
   if (requirements.length === 0) return byPlugin
 
-  const allConnections = await listExternalMcpConnections(input.organizationId)
+  const allConnections = (await listExternalMcpConnections(input.organizationId))
+    .filter((connection) => connection.kind === "external_mcp")
   const usableConnections = await listUsableExternalMcpConnections({
     organizationId: input.organizationId,
     orgMembershipId: input.member.orgMembershipId,
@@ -1105,7 +1294,8 @@ export async function resolveMarketplacePluginCloudReadiness(input: {
     orgMembershipId: input.member.orgMembershipId,
     teamIds: input.member.teamIds,
   })
-  const allConnections = await listExternalMcpConnections(input.organizationId)
+  const allConnections = (await listExternalMcpConnections(input.organizationId))
+    .filter((connection) => connection.kind === "external_mcp")
   const desktopManifestPluginIds = new Set(input.desktopManifestPluginIds ?? [])
 
   for (const pluginId of pluginIds) {
@@ -1119,7 +1309,7 @@ export async function resolveMarketplacePluginCloudReadiness(input: {
       continue
     }
 
-    const hasInstructional = objects.some((object) => latestVersions.has(object.id) && marketplaceConfigObjectExecutionMode(object.objectType) === "instructional")
+    const hasInstructional = objects.some((object) => latestVersions.has(object.id) && marketplaceConfigObjectReadyWhenSynced(object.objectType))
     if (objects.some((object) => !latestVersions.has(object.id))) {
       readiness.set(pluginId, { state: "not_synced", hasInstructional, connections: [] })
       continue
@@ -1216,6 +1406,7 @@ function commandArguments(body: unknown): string {
 }
 
 export async function searchMarketplaceCapabilities(input: {
+  codemodeEnabled?: boolean
   enabled?: boolean
   limit?: number
   member: McpMemberIdentity | null
@@ -1234,7 +1425,7 @@ export async function searchMarketplaceCapabilities(input: {
   const rows = await filterVisibleRows({
     organizationId,
     member: input.member,
-    rows: await listActiveMarketplaceRows(organizationId),
+    rows: await listActiveCapabilityRows(organizationId),
   })
   const requirementStatusesByPluginId = await marketplacePluginMcpRequirementStatuses({
     organizationId,
@@ -1244,6 +1435,7 @@ export async function searchMarketplaceCapabilities(input: {
   const matchesByName = new Map<string, MarketplaceCapabilityMatch>()
 
   for (const row of rows) {
+    if (row.configObject.objectType === "script" && input.codemodeEnabled !== true) continue
     if (input.objectTypes && !input.objectTypes.includes(row.configObject.objectType)) continue
     const score = scoreMarketplaceRow(row, queryTokens)
     if (score <= 0) continue
@@ -1257,10 +1449,10 @@ export async function searchMarketplaceCapabilities(input: {
       summary: summaryFor(row),
       pathParams: [],
       queryParams: [],
-      hasBody: row.configObject.objectType === "command",
+      hasBody: row.configObject.objectType === "command" || row.configObject.objectType === "script",
       kind: row.configObject.objectType,
       plugin: row.plugin.name,
-      marketplace: row.marketplace.name,
+      ...(row.marketplace ? { marketplace: row.marketplace.name } : {}),
     }
     if (row.configObject.objectType === "tool") {
       match.status = "needs_install"
@@ -1287,13 +1479,53 @@ export async function searchMarketplaceCapabilities(input: {
     .slice(0, input.limit ?? 5)
 }
 
+export async function listAccessibleSavedCodemodeScripts(input: {
+  member: McpMemberIdentity
+  organizationId: string
+}): Promise<AccessibleSavedCodemodeScript[]> {
+  const organizationId = normalizeDenTypeId("organization", input.organizationId)
+  if (!await getActiveMember(organizationId, input.member)) return []
+  const rows = await filterVisibleRows({
+    organizationId,
+    member: input.member,
+    rows: await listActiveCapabilityRows(organizationId),
+  })
+  const scripts: AccessibleSavedCodemodeScript[] = []
+  const seen = new Set<string>()
+  for (const row of rows) {
+    if (row.configObject.objectType !== "script" || seen.has(row.configObject.id)) continue
+    const version = await latestVersion(row.configObject.id, organizationId)
+    if (!version) continue
+    const parsed = parseCodemodeScriptPayload(version.normalizedPayloadJson)
+    if (!parsed.ok) continue
+    seen.add(row.configObject.id)
+    scripts.push({
+      pluginId: row.plugin.id,
+      configObjectId: row.configObject.id,
+      configObjectVersionId: version.id,
+      title: row.configObject.title,
+      description: row.configObject.description,
+      inputSchema: parsed.payload.inputSchema ?? null,
+      outputSchema: parsed.payload.outputSchema ?? null,
+      requiredCapabilities: parsed.payload.requiredCapabilities,
+    })
+  }
+  return scripts.sort((left, right) => left.title.localeCompare(right.title))
+}
+
 export async function executeMarketplaceCapability(input: {
+  buildTools?: () => Promise<BuiltCodemodeTools>
   body?: unknown
+  codemodeEnabled?: boolean
   configObjectId: string
+  configObjectVersionId?: string
+  automationRunId?: DenTypeId<"automationRun">
   enabled?: boolean
   member: McpMemberIdentity | null
   organizationId: string
   pluginId: string
+  redirectUriBase?: string
+  validateScriptOutput?: boolean
 }): Promise<MarketplaceCapabilityExecuteResult> {
   if (input.enabled === false) {
     return { ok: false, error: "unknown_capability", message: "No such capability." }
@@ -1308,12 +1540,15 @@ export async function executeMarketplaceCapability(input: {
   }
 
   const organizationId = normalizeDenTypeId("organization", input.organizationId)
-  const rows = await listActiveMarketplaceRowsForCapability({
+  const rows = await listActiveRowsForCapability({
     organizationId,
     pluginId: normalizedIds.pluginId,
     configObjectId: normalizedIds.configObjectId,
   })
   if (rows.length === 0) {
+    return { ok: false, error: "unknown_capability", message: "No such capability." }
+  }
+  if (rows[0]?.configObject.objectType === "script" && input.codemodeEnabled !== true) {
     return { ok: false, error: "unknown_capability", message: "No such capability." }
   }
 
@@ -1324,10 +1559,12 @@ export async function executeMarketplaceCapability(input: {
   const visibleRows = await filterVisibleRows({ organizationId, member: input.member, rows })
   const row = visibleRows[0]
   if (!row) {
-    return { ok: false, error: "forbidden", message: "You have not been granted access to this marketplace plugin capability." }
+    return { ok: false, error: "forbidden", message: "You have not been granted access to this plugin capability." }
   }
 
-  const version = await latestVersion(row.configObject.id, organizationId)
+  const version = input.configObjectVersionId
+    ? await exactVersion(row.configObject.id, organizationId, input.configObjectVersionId)
+    : await latestVersion(row.configObject.id, organizationId)
   if (!version) {
     return {
       ok: true,
@@ -1335,6 +1572,74 @@ export async function executeMarketplaceCapability(input: {
         ...basePayload(row),
         status: "content_not_synced",
         hint: contentNotSyncedHint(row),
+      },
+    }
+  }
+
+  if (row.configObject.objectType === "script") {
+    const execution = await executeSavedCodemodeScript({
+      database: db,
+      organizationId,
+      orgMembershipId: input.member.orgMembershipId,
+      pluginId: row.plugin.id,
+      configObjectId: row.configObject.id,
+      configObjectVersionId: version.id,
+      automationRunId: input.automationRunId,
+      normalizedPayloadJson: version.normalizedPayloadJson,
+      code: version.rawSourceText ?? "",
+      scriptInput: input.body,
+      validateOutput: input.validateScriptOutput === true,
+      buildTools: input.buildTools ?? (async () => ({ tools: {}, manifest: [] })),
+    })
+    if (!execution.ok && execution.error === "unsupported") {
+      return {
+        ok: true,
+        result: {
+          ...basePayload(row),
+          status: "unsupported",
+          hint: unsupportedScriptHint(row, execution.message),
+        },
+      }
+    }
+    if (!execution.ok && (execution.error === "invalid_arguments" || execution.error === "invalid_result")) {
+      return {
+        ok: false,
+        error: "invalid_capability_arguments",
+        message: execution.message,
+        issues: execution.issues,
+        sameArgumentsRetryable: false,
+        retry: { action: "correct_arguments", searchRequired: false },
+        receiptId: execution.receiptId ?? null,
+      }
+    }
+    if (!execution.ok && execution.error === "capability_unavailable") return execution
+    if (!execution.ok && execution.error === "script_failed") {
+      return {
+        ok: false,
+        error: "script_failed",
+        message: execution.message,
+        kind: execution.kind,
+        toolCalls: execution.toolCalls,
+        receiptId: execution.receiptId ?? null,
+      }
+    }
+    if (!execution.ok) return { ok: false, error: "script_failed", message: execution.message, kind: "InvalidDataValue", toolCalls: [] }
+    return {
+      ok: true,
+      result: {
+        ...basePayload(row),
+        status: "executed",
+        value: execution.value,
+        logs: execution.logs,
+        toolCalls: execution.toolCalls,
+        durationMs: execution.durationMs,
+        receiptId: execution.receiptId,
+        canonicalResult: execution.canonicalResult,
+        markdown: execution.markdown,
+        resultDigest: execution.resultDigest,
+        inputSchemaDigest: execution.inputSchemaDigest,
+        outputSchemaDigest: execution.outputSchemaDigest,
+        rendererVersion: execution.rendererVersion,
       },
     }
   }

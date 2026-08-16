@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -9,11 +9,46 @@ import {
   commandMatchesPackagedSidecar,
   embeddedServerImportUrl,
   prioritizeWorkspacePaths,
+  resetRuntimeStatesAfterFailedServerStart,
+  resolveEngineRolloverPreference,
+  resolveEvalLocalServerDelayMs,
   resolveOpenworkServerConfigPath,
   seedWorkspacePathsForEmbeddedServer,
   selectStickyOpenworkPortWorkspace,
   snapshotEngineState,
+  snapshotOpenworkServerState,
 } from "./runtime.mjs";
+
+describe("bundled OpenCode runtime", () => {
+  it("pins the engine release containing the timestamp-based session loop repair", async () => {
+    const constantsPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../constants.json");
+    const constants = JSON.parse(await readFile(constantsPath, "utf8"));
+
+    // OpenCode #40990 stops old assistant messages with lexicographically
+    // later IDs from short-circuiting a newly appended user turn.
+    assert.equal(constants.opencodeVersion, "v1.18.18");
+  });
+});
+
+describe("engine rollover preference", () => {
+  it("uses an explicit value and otherwise restores the persisted value", () => {
+    assert.equal(resolveEngineRolloverPreference(true, false), true);
+    assert.equal(resolveEngineRolloverPreference(false, true), false);
+    assert.equal(resolveEngineRolloverPreference(undefined, true), true);
+    assert.equal(resolveEngineRolloverPreference(undefined, false), false);
+  });
+
+  it("reports the active mode in the desktop server snapshot", () => {
+    const snapshot = snapshotOpenworkServerState({
+      child: null,
+      childExited: true,
+      inProcess: true,
+      engineRollover: true,
+    });
+    assert.equal(snapshot.running, true);
+    assert.equal(snapshot.engineRollover, true);
+  });
+});
 
 describe("prioritizeWorkspacePaths", () => {
   it("keeps the active runtime workspace first", () => {
@@ -60,6 +95,16 @@ describe("selectStickyOpenworkPortWorkspace", () => {
       selectStickyOpenworkPortWorkspace([], ["/workspace/from-server"]),
       "/workspace/from-server",
     );
+  });
+});
+
+describe("resolveEvalLocalServerDelayMs", () => {
+  it("enables only positive finite eval delays", () => {
+    assert.equal(resolveEvalLocalServerDelayMs({ OPENWORK_EVAL_LOCAL_SERVER_DELAY_MS: "3000" }), 3000);
+    assert.equal(resolveEvalLocalServerDelayMs({ OPENWORK_EVAL_LOCAL_SERVER_DELAY_MS: "0" }), 0);
+    assert.equal(resolveEvalLocalServerDelayMs({ OPENWORK_EVAL_LOCAL_SERVER_DELAY_MS: "-1" }), 0);
+    assert.equal(resolveEvalLocalServerDelayMs({ OPENWORK_EVAL_LOCAL_SERVER_DELAY_MS: "Infinity" }), 0);
+    assert.equal(resolveEvalLocalServerDelayMs({ OPENWORK_EVAL_LOCAL_SERVER_DELAY_MS: "invalid" }), 0);
   });
 });
 
@@ -169,5 +214,87 @@ describe("snapshotEngineState", () => {
     assert.equal(snapshot.running, true);
     assert.equal(snapshot.managedByServer, true);
     assert.equal(snapshot.pid, 12345);
+  });
+});
+
+describe("resetRuntimeStatesAfterFailedServerStart", () => {
+  function staleServerState() {
+    return {
+      child: null,
+      childExited: true,
+      inProcess: true,
+      remoteAccessEnabled: true,
+      host: "127.0.0.1",
+      port: 4141,
+      baseUrl: "http://127.0.0.1:4141",
+      connectUrl: null,
+      mdnsUrl: null,
+      lanUrl: null,
+      clientToken: "client-token",
+      ownerToken: "owner-token",
+      hostToken: "host-token",
+      managedOpencodeBinPath: "/usr/local/bin/opencode",
+      managedOpencodeBinSource: "known-location",
+      lastStdout: "server stdout",
+      lastStderr: "server stderr",
+      managedOpencodeExecution: { command: "opencode" },
+    };
+  }
+
+  function staleEngineState() {
+    return {
+      child: null,
+      childExited: false,
+      runtime: "direct",
+      projectDir: "/workspace/current",
+      hostname: "127.0.0.1",
+      port: 4097,
+      baseUrl: "http://127.0.0.1:4097",
+      opencodeUsername: "user",
+      opencodePassword: "pass",
+      opencodeBinPath: "/usr/local/bin/opencode",
+      opencodeBinSource: "known-location",
+      managedByServer: true,
+      managedPid: 12345,
+      managedIsAlive: () => true,
+      lastStdout: "engine stdout",
+      lastStderr: "engine stderr",
+      execution: { command: "opencode" },
+    };
+  }
+
+  it("clears a dead managed runtime so snapshots cannot report it running", () => {
+    const serverState = staleServerState();
+    const engineState = staleEngineState();
+
+    resetRuntimeStatesAfterFailedServerStart(serverState, engineState, { manageOpencode: true });
+
+    assert.equal(serverState.inProcess, false);
+    assert.equal(serverState.port, null);
+    assert.equal(serverState.baseUrl, null);
+    assert.equal(serverState.ownerToken, null);
+    // Diagnostics survive the reset.
+    assert.equal(serverState.lastStdout, "server stdout");
+    assert.equal(serverState.lastStderr, "server stderr");
+
+    assert.equal(engineState.baseUrl, null);
+    assert.equal(engineState.managedByServer, false);
+    assert.equal(engineState.managedPid, null);
+    assert.equal(snapshotEngineState(engineState).running, false);
+    // A retry via engineRestart still knows its workspace.
+    assert.equal(engineState.projectDir, "/workspace/current");
+    assert.equal(engineState.lastStderr, "engine stderr");
+  });
+
+  it("leaves an external engine untouched when the failed start did not manage it", () => {
+    const serverState = staleServerState();
+    const engineState = staleEngineState();
+    engineState.managedByServer = false;
+
+    resetRuntimeStatesAfterFailedServerStart(serverState, engineState, { manageOpencode: false });
+
+    assert.equal(serverState.inProcess, false);
+    assert.equal(engineState.baseUrl, "http://127.0.0.1:4097");
+    assert.equal(engineState.projectDir, "/workspace/current");
   });
 });

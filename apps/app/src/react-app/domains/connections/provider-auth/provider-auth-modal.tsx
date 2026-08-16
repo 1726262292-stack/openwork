@@ -1,6 +1,7 @@
 /** @jsxImportSource react */
 import {
   CheckCircle2,
+  ChevronLeft,
   ChevronRight,
   Loader2,
   Search,
@@ -71,7 +72,6 @@ export type ProviderAuthModalProps = {
   authMethods: Record<string, ProviderAuthMethod[]>;
   onSelect: (providerId: string, methodIndex?: number) => Promise<ProviderOAuthStartResult>;
   onSubmitApiKey: (providerId: string, apiKey: string) => Promise<string | void>;
-  onConnectCloudProvider: (cloudProviderId: string) => Promise<string | void>;
   onSubmitOAuth: (
     providerId: string,
     methodIndex: number,
@@ -88,10 +88,9 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
   const isRemoteWorker = workerType === "remote";
 
   const [view, setView] = useState<
-    "list" | "method" | "api" | "cloud" | "oauth-code" | "oauth-auto" | "openwork-subscribe"
+    "list" | "method" | "api" | "oauth-code" | "oauth-auto" | "openwork-subscribe"
   >("list");
   const [selectedProviderId, setSelectedProviderId] = useState<string | null>(null);
-  const [selectedCloudMethod, setSelectedCloudMethod] = useState<ProviderAuthMethod | null>(null);
   const [apiKeyInput, setApiKeyInput] = useState("");
   const [oauthCodeInput, setOauthCodeInput] = useState("");
   const [oauthSession, setOauthSession] = useState<ProviderOAuthSession | null>(null);
@@ -222,14 +221,26 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
   const resolvedView = selectedEntry ? view : "list";
   const errorMessage = localError ?? props.error;
 
+  // Connected providers lead the list so the two groups render as one flat
+  // array — keyboard navigation keeps indexing straight into display order.
   const filteredEntries = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
-    if (!query) return entries;
-    return entries.filter((entry) => {
-      const methodText = entry.methods.map((method) => method.label || (method.type === "oauth" ? "OAuth" : "API key")).join(" ");
-      return `${entry.name} ${entry.id} ${methodText}`.toLowerCase().includes(query);
-    });
+    const matched = query
+      ? entries.filter((entry) => {
+          const methodText = entry.methods.map((method) => method.label || (method.type === "oauth" ? "OAuth" : "API key")).join(" ");
+          return `${entry.name} ${entry.id} ${methodText}`.toLowerCase().includes(query);
+        })
+      : entries;
+    return [
+      ...matched.filter((entry) => entry.connected),
+      ...matched.filter((entry) => !entry.connected),
+    ];
   }, [entries, searchQuery]);
+
+  const connectedCount = useMemo(
+    () => filteredEntries.filter((entry) => entry.connected).length,
+    [filteredEntries],
+  );
 
   const oauthInstructions = oauthSession?.authorization.instructions?.trim() ?? "";
   const isOpenAiHeadlessSession = Boolean(
@@ -263,7 +274,6 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
     }
     setView("list");
     setSelectedProviderId(null);
-    setSelectedCloudMethod(null);
     setApiKeyInput("");
     setOauthCodeInput("");
     setOauthSession(null);
@@ -508,7 +518,6 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
   const handleMethodSelect = async (method: ProviderAuthMethod) => {
     if (!selectedEntry || actionDisabled) return;
     setLocalError(null);
-    setSelectedCloudMethod(null);
 
     if (method.type === "oauth") {
       await startOauth(selectedEntry, method.methodIndex);
@@ -516,8 +525,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
     }
 
     if (method.type === "cloud") {
-      setSelectedCloudMethod(method);
-      setView("cloud");
+      setView("openwork-subscribe");
       return;
     }
 
@@ -570,19 +578,6 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
     }
   };
 
-  const handleCloudSubmit = async () => {
-    if (!selectedCloudMethod?.cloudProviderId || actionDisabled) return;
-
-    setLocalError(null);
-    try {
-      await props.onConnectCloudProvider(selectedCloudMethod.cloudProviderId);
-      props.onClose();
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to connect organization provider";
-      setLocalError(message);
-    }
-  };
-
   const handleOauthCodeSubmit = async () => {
     if (!selectedEntry || !oauthSession || actionDisabled) return;
 
@@ -617,14 +612,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
 
     if (resolvedView === "api" && (selectedEntry?.methods.length ?? 0) > 1) {
       setView("method");
-      setSelectedCloudMethod(null);
       setApiKeyInput("");
-      setLocalError(null);
-      return;
-    }
-    if (resolvedView === "cloud" && (selectedEntry?.methods.length ?? 0) > 1) {
-      setView("method");
-      setSelectedCloudMethod(null);
       setLocalError(null);
       return;
     }
@@ -634,7 +622,6 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
   const submittingLabel = () => {
     if (!props.submitting) return null;
     if (resolvedView === "api") return "Saving API key...";
-    if (resolvedView === "cloud") return "Connecting organization provider...";
     if (resolvedView === "oauth-code") return "Verifying authorization code...";
     if (resolvedView === "oauth-auto") return "Waiting for OAuth confirmation...";
     return "Opening authentication...";
@@ -692,7 +679,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
       return "Continue in the browser and let OpenWork finish the connection automatically.";
     }
     if (method.type === "cloud") {
-      return method.description ?? "Use the provider and credential managed by your organization.";
+      return "Subscribe to OpenWork Models.";
     }
     if (isOpencodeZenProvider(entry.id)) {
       return "Sign in to OpenCode Zen with an API key to unlock paid models alongside the free tier.";
@@ -751,63 +738,74 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
 
                   {filteredEntries.length ? (
                     filteredEntries.map((entry, index) => (
-                      <button
-                        key={entry.id}
-                        type="button"
-                        className={`w-full group flex items-start gap-3.5 rounded-xl px-3.5 py-3 text-left transition-all duration-200 disabled:opacity-60 disabled:cursor-not-allowed ${
-                          index === activeEntryIndex ? "bg-gray-3/60" : "hover:bg-gray-3/30"
-                        }`}
-                        disabled={actionDisabled}
-                        onMouseEnter={() => setActiveEntryIndex(index)}
-                        onClick={() => handleEntrySelect(entry)}
-                      >
-                        <div className="flex size-8 shrink-0 items-center justify-center rounded-full border border-gray-5/60 bg-gray-2 shadow-sm overflow-hidden">
-                          <ProviderIcon providerId={entry.id} size={18} className="text-gray-12" />
-                        </div>
+                      <div key={entry.id}>
+                        {index === 0 && entry.connected ? (
+                          <div className="px-1 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-gray-10">
+                            Connected
+                          </div>
+                        ) : null}
+                        {index === connectedCount && !entry.connected ? (
+                          <div className="px-1 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-gray-10">
+                            {connectedCount ? "All providers" : "Providers"}
+                          </div>
+                        ) : null}
+                        <button
+                          type="button"
+                          className={`w-full group flex items-start gap-3.5 rounded-xl px-3.5 py-3 text-left transition-all duration-200 disabled:opacity-60 disabled:cursor-not-allowed ${
+                            index === activeEntryIndex ? "bg-gray-3/60" : "hover:bg-gray-3/30"
+                          }`}
+                          disabled={actionDisabled}
+                          onMouseEnter={() => setActiveEntryIndex(index)}
+                          onClick={() => handleEntrySelect(entry)}
+                        >
+                          <div className="flex size-9 shrink-0 items-center justify-center rounded-[11px] border border-gray-5/60 bg-gray-1 shadow-sm overflow-hidden">
+                            <ProviderIcon providerId={entry.id} size={20} className="text-gray-12" />
+                          </div>
 
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center justify-between gap-3">
-                            <div className="min-w-0 flex items-center gap-2">
-                              <div className="text-[14px] font-medium text-gray-12 truncate tracking-tight">
-                                {entry.name}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between gap-3">
+                              <div className="min-w-0 flex items-center gap-2">
+                                <div className="text-[14px] font-medium text-gray-12 truncate tracking-tight">
+                                  {entry.name}
+                                </div>
+                              </div>
+                              <div className="flex items-center justify-end shrink-0">
+                                {entry.connected ? (
+                                  <div className="flex items-center gap-1 text-[11px] font-medium text-green-11 bg-green-4/20 border border-green-5/30 px-1.5 py-0.5 rounded-md">
+                                    <CheckCircle2 size={12} strokeWidth={2.5} />
+                                    Connected
+                                  </div>
+                                ) : (
+                                  <div className="text-[12px] font-medium text-gray-9 group-hover:text-gray-12 transition-colors flex items-center gap-0.5 opacity-80 group-hover:opacity-100">
+                                    Connect
+                                    <ChevronRight size={14} className="opacity-0 -ml-2 group-hover:opacity-100 group-hover:ml-0 transition-all duration-200" />
+                                  </div>
+                                )}
                               </div>
                             </div>
-                            <div className="flex items-center justify-end shrink-0">
-                              {entry.connected ? (
-                                <div className="flex items-center gap-1 text-[11px] font-medium text-green-11 bg-green-4/20 border border-green-5/30 px-1.5 py-0.5 rounded-md">
-                                  <CheckCircle2 size={12} strokeWidth={2.5} />
-                                  Connected
-                                </div>
-                              ) : (
-                                <div className="text-[12px] font-medium text-gray-9 group-hover:text-gray-12 transition-colors flex items-center gap-0.5 opacity-80 group-hover:opacity-100">
-                                  Connect
-                                  <ChevronRight size={14} className="opacity-0 -ml-2 group-hover:opacity-100 group-hover:ml-0 transition-all duration-200" />
-                                </div>
-                              )}
+                            <div className="text-[11px] text-gray-9 font-mono truncate mt-0.5 opacity-60 group-hover:opacity-80 transition-opacity">
+                              {entry.id}
+                            </div>
+
+                            <div className="mt-2 flex flex-wrap gap-1.5">
+                              {entry.methods.map((method) => (
+                                <span
+                                  key={`${entry.id}-${method.type}-${method.methodIndex ?? method.label}`}
+                                  className={`text-[10px] font-medium px-2 py-0.5 rounded-md border ${
+                                    method.type === "oauth"
+                                      ? "bg-indigo-3/30 text-indigo-11 border-indigo-5/30"
+                                      : method.type === "cloud"
+                                        ? "bg-emerald-3/30 text-emerald-11 border-emerald-5/30"
+                                        : "bg-gray-3/40 text-gray-11 border-gray-6/40"
+                                  }`}
+                                >
+                                  {methodLabel(method)}
+                                </span>
+                              ))}
                             </div>
                           </div>
-                          <div className="text-[11px] text-gray-9 font-mono truncate mt-0.5 opacity-60 group-hover:opacity-80 transition-opacity">
-                            {entry.id}
-                          </div>
-
-                          <div className="mt-2 flex flex-wrap gap-1.5">
-                            {entry.methods.map((method) => (
-                              <span
-                                key={`${entry.id}-${method.type}-${method.methodIndex ?? method.cloudProviderId ?? method.label}`}
-                                className={`text-[10px] font-medium px-2 py-0.5 rounded-md border ${
-                                  method.type === "oauth"
-                                    ? "bg-indigo-3/30 text-indigo-11 border-indigo-5/30"
-                                    : method.type === "cloud"
-                                      ? "bg-emerald-3/30 text-emerald-11 border-emerald-5/30"
-                                      : "bg-gray-3/40 text-gray-11 border-gray-6/40"
-                                }`}
-                              >
-                                {methodLabel(method)}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      </button>
+                        </button>
+                      </div>
                     ))
                   ) : (
                     <div className="text-sm text-gray-10 pt-2">
@@ -833,7 +831,7 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
                   <div className="grid gap-2">
                     {selectedEntry.methods.map((method) => (
                       <button
-                        key={`${selectedEntry.id}-${method.type}-${method.methodIndex ?? method.cloudProviderId ?? method.label}`}
+                        key={`${selectedEntry.id}-${method.type}-${method.methodIndex ?? method.label}`}
                         type="button"
                         className={`w-full rounded-xl border px-4 py-3.5 text-left transition-all duration-200 disabled:opacity-60 disabled:cursor-not-allowed ${
                           method.type === "oauth"
@@ -852,19 +850,20 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
               ) : null}
 
               {resolvedView === "api" && selectedEntry ? (
-                <div className="rounded-xl border border-gray-6/40 bg-gray-2/50 shadow-sm p-5 space-y-4">
-                  <div className="flex items-center justify-between gap-4">
-                    <div>
-                      <div className="text-sm font-medium text-gray-12">{selectedEntry.name}</div>
-                      <div className="text-xs text-gray-10 mt-1">
-                        {isOpencodeZenProvider(selectedEntry.id)
-                          ? "Sign in to OpenCode Zen with an API key from opencode.ai/auth."
-                          : "Paste your API key to connect."}
-                      </div>
+                <div className="space-y-4">
+                  <div className="flex items-center gap-3">
+                    <div className="flex size-9 shrink-0 items-center justify-center rounded-[11px] border border-gray-5/60 bg-gray-1 shadow-sm overflow-hidden">
+                      <ProviderIcon providerId={selectedEntry.id} size={20} className="text-gray-12" />
                     </div>
-                    <Button variant="outline" onClick={handleBack} disabled={actionDisabled}>
-                      Back
-                    </Button>
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium text-gray-12 truncate">{selectedEntry.name}</div>
+                      <div className="text-[11px] text-gray-9 font-mono truncate">{selectedEntry.id}</div>
+                    </div>
+                  </div>
+                  <div className="text-xs text-gray-10">
+                    {isOpencodeZenProvider(selectedEntry.id)
+                      ? "Sign in to OpenCode Zen with an API key from opencode.ai/auth."
+                      : "Paste your API key to connect."}
                   </div>
                   {isOpencodeZenProvider(selectedEntry.id) ? (
                     <div className="rounded-lg border border-indigo-5/30 bg-indigo-3/15 px-3 py-2.5 text-xs text-indigo-12 space-y-1.5">
@@ -895,61 +894,18 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
                     disabled={actionDisabled}
                   />
                   {selectedEntry.env.length > 0 ? (
-                    <div className="text-[11px] text-gray-9">
-                      Env vars: <span className="font-mono">{selectedEntry.env.join(", ")}</span>
+                    <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-gray-9">
+                      Env vars:
+                      {selectedEntry.env.map((envVar) => (
+                        <span
+                          key={envVar}
+                          className="rounded-md bg-gray-3/40 px-1.5 py-0.5 font-mono text-[10px] text-gray-11"
+                        >
+                          {envVar}
+                        </span>
+                      ))}
                     </div>
                   ) : null}
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="text-[11px] text-gray-9">Keys are stored locally by OpenCode.</div>
-                    <Button
-                      onClick={handleApiSubmit}
-                      disabled={actionDisabled || !apiKeyInput.trim()}
-                    >
-                      {props.submitting ? (
-                        <>
-                          <Loader2 className="size-4 animate-spin" />
-                          Saving…
-                        </>
-                      ) : (
-                        "Save key"
-                      )}
-                    </Button>
-                  </div>
-                </div>
-              ) : null}
-
-              {resolvedView === "cloud" && selectedEntry && selectedCloudMethod ? (
-                <div className="rounded-xl border border-gray-6/40 bg-gray-2/50 shadow-sm p-5 space-y-4">
-                  <div className="flex items-center justify-between gap-4">
-                    <div>
-                      <div className="text-sm font-medium text-gray-12">{selectedEntry.name}</div>
-                      <div className="text-xs text-gray-10 mt-1">Connect with the provider managed by your organization.</div>
-                    </div>
-                    <Button variant="outline" onClick={handleBack} disabled={actionDisabled}>
-                      Back
-                    </Button>
-                  </div>
-                  <div className="text-xs text-gray-9">
-                    {selectedCloudMethod.description ?? "Use the provider and credential managed by your organization."}
-                  </div>
-                  {(selectedCloudMethod.modelCount ?? 0) > 0 ? (
-                    <div className="rounded-lg border border-gray-6/60 bg-gray-1/60 px-3 py-2 text-[11px] text-gray-9">
-                      {(selectedCloudMethod.modelCount ?? 0)} curated model{(selectedCloudMethod.modelCount ?? 0) === 1 ? "" : "s"} will be added to this workspace.
-                    </div>
-                  ) : null}
-                  {(selectedCloudMethod.env?.length ?? 0) > 0 ? (
-                    <div className="text-[11px] text-gray-9">
-                      Env vars: <span className="font-mono">{selectedCloudMethod.env?.join(", ")}</span>
-                    </div>
-                  ) : null}
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="text-[11px] text-gray-9">
-                      OpenWork will install the provider config and use the credential stored for your org.
-                    </div>
-                    <Button onClick={handleCloudSubmit} disabled={actionDisabled}>
-                      {props.submitting ? "Connecting..." : "Connect provider"}
-                    </Button>
-                  </div>
                 </div>
               ) : null}
 
@@ -1102,12 +1058,35 @@ export default function ProviderAuthModal(props: ProviderAuthModalProps) {
           <div className="min-h-[16px] text-xs text-gray-10">
             {props.submitting ? submittingLabel() : null}
           </div>
-          <DialogClose
-            disabled={actionDisabled}
-            render={<Button variant="outline" disabled={actionDisabled} />}
-          >
-            Close
-          </DialogClose>
+          {/* One action bar per view: Back returns to the list, Close dismisses,
+              and the view's primary action sits last. */}
+          <div className="flex w-full items-center gap-2">
+            {resolvedView === "api" && selectedEntry ? (
+              <Button variant="outline" onClick={handleBack} disabled={actionDisabled}>
+                <ChevronLeft className="size-4" />
+                Back
+              </Button>
+            ) : null}
+            <div className="flex-1" />
+            <DialogClose
+              disabled={actionDisabled}
+              render={<Button variant="outline" disabled={actionDisabled} />}
+            >
+              Close
+            </DialogClose>
+            {resolvedView === "api" && selectedEntry ? (
+              <Button onClick={handleApiSubmit} disabled={actionDisabled || !apiKeyInput.trim()}>
+                {props.submitting ? (
+                  <>
+                    <Loader2 className="size-4 animate-spin" />
+                    Saving…
+                  </>
+                ) : (
+                  "Save key"
+                )}
+              </Button>
+            ) : null}
+          </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>

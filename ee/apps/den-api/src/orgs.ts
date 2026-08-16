@@ -4,6 +4,7 @@ import {
   AuthUserTable,
   ConnectedAccountTable,
   InvitationTable,
+  LlmProviderAccessTable,
   MemberTable,
   OrganizationRoleTable,
   OrganizationTable,
@@ -13,6 +14,7 @@ import {
 } from "@openwork-ee/den-db/schema"
 import { createDenTypeId, normalizeDenTypeId } from "@openwork-ee/utils/typeid"
 import { revokeOrganizationApiKeysForMember } from "./api-keys.js"
+import { cache } from "./cache.js"
 import { revokeMembershipSessionCredentials } from "./credential-revocation.js"
 import { db } from "./db.js"
 import { env } from "./env.js"
@@ -39,7 +41,7 @@ import {
   type OrganizationPermissionRecord,
 } from "./organization-access.js"
 import { ensureDefaultDesktopPolicyForOrganization } from "./desktop-policies.js"
-import { isProtectedOrganizationRoleName } from "./organization-role-hierarchy.js"
+import { isProtectedOrganizationRoleName, shouldRevokeSessionsForRoleChange } from "./organization-role-hierarchy.js"
 import { isSingleOrgOwnerEmailEligible, resolveSingleOrgMembershipRole } from "./single-org-policy.js"
 
 type UserId = typeof AuthUserTable.$inferSelect.id
@@ -500,8 +502,6 @@ function normalizeAssignableRole(input: string, availableRoles: Set<string>, fal
 }
 
 export async function listAssignableRoles(orgId: OrgId) {
-  await ensureDefaultDynamicRoles(orgId)
-
   const rows = await db
     .select({ role: OrganizationRoleTable.role })
     .from(OrganizationRoleTable)
@@ -534,6 +534,7 @@ async function insertMemberIfMissing(input: {
     defaultRole: input.role,
   })
   if (invitedMember) {
+    await cache.org.deleteMembers(input.organizationId)
     return invitedMember
   }
 
@@ -553,6 +554,7 @@ async function insertMemberIfMissing(input: {
       role: input.role,
       joinedAt: new Date(),
     })
+    await cache.org.deleteMembers(input.organizationId)
   } catch {}
 
   const created = await db
@@ -624,7 +626,8 @@ export async function acceptPendingInvitationForBootstrapMembership(input: {
 
   // Bootstrap paths already grant same-org membership before email verification.
   // organization-join-verification.ts keeps that gate on the explicit accept endpoint.
-  return acceptInvitation(invitation, input.userId, { fallbackRole: input.defaultRole })
+  const accepted = await acceptInvitation(invitation, input.userId, { fallbackRole: input.defaultRole })
+  return accepted?.member ?? null
 }
 
 export async function reconcilePendingInvitationsForUser(userId: UserId) {
@@ -666,8 +669,10 @@ export async function reconcilePendingInvitationsForUser(userId: UserId) {
       continue
     }
 
-    await acceptInvitation(invitation, userId)
-    acceptedCount += 1
+    const accepted = await acceptInvitation(invitation, userId)
+    if (accepted) {
+      acceptedCount += 1
+    }
   }
 
   return acceptedCount
@@ -675,120 +680,181 @@ export async function reconcilePendingInvitationsForUser(userId: UserId) {
 
 async function acceptInvitation(invitation: InvitationRow, userId: UserId, options?: { fallbackRole?: string }) {
   const availableRoles = await listAssignableRoles(invitation.organizationId)
-  const role = normalizeAssignableRole(invitation.role, availableRoles, options?.fallbackRole)
-  const joinedAt = new Date()
-
-  const existingMemberRows = await db
-    .select()
-    .from(MemberTable)
-    .where(and(eq(MemberTable.organizationId, invitation.organizationId), eq(MemberTable.userId, userId), isNull(MemberTable.removedAt)))
-    .limit(1)
-
-  const invitedMemberRows = await db
-    .select()
-    .from(MemberTable)
-    .where(and(eq(MemberTable.inviteId, invitation.id), eq(MemberTable.organizationId, invitation.organizationId), isNull(MemberTable.removedAt)))
-    .limit(1)
-
-  const invitedMember = invitedMemberRows[0] ?? null
-  const existingMember = existingMemberRows[0] ?? null
-  const removedMember = existingMember
-    ? null
-    : await findSoftRemovedMemberForUser({
-      organizationId: invitation.organizationId,
-      userId,
-    })
-  let member = existingMember
-
-  if (existingMember && invitedMember) {
-    const existingJoinedAt = existingMember.joinedAt ?? joinedAt
-    const existingRole = roleIncludesOwner(existingMember.role) ? existingMember.role : role
-    await db
-      .update(MemberTable)
-      .set({ role: existingRole, joinedAt: existingJoinedAt })
-      .where(eq(MemberTable.id, existingMember.id))
-    if (invitedMember.id !== existingMember.id) {
-      await db.delete(MemberTable).where(eq(MemberTable.id, invitedMember.id))
+  return db.transaction(async (tx) => {
+    const lockedInvitations = await tx
+      .select()
+      .from(InvitationTable)
+      .where(and(
+        eq(InvitationTable.id, invitation.id),
+        eq(InvitationTable.organizationId, invitation.organizationId),
+      ))
+      .for("update")
+    const currentInvitation = lockedInvitations[0] ?? null
+    if (!currentInvitation) {
+      return null
     }
-    member = { ...existingMember, role: existingRole, joinedAt: existingJoinedAt }
-  }
 
-  if (!member && removedMember) {
-    await db
-      .update(MemberTable)
-      .set({
+    const existingMemberRows = await tx
+      .select()
+      .from(MemberTable)
+      .where(and(eq(MemberTable.organizationId, currentInvitation.organizationId), eq(MemberTable.userId, userId), isNull(MemberTable.removedAt)))
+      .limit(1)
+      .for("update")
+    const existingMember = existingMemberRows[0] ?? null
+    const invitationStatus = getInvitationStatus(currentInvitation)
+    if (invitationStatus !== "pending") {
+      return invitationStatus === "accepted" && existingMember
+        ? { invitation: currentInvitation, member: existingMember, newlyAccepted: false }
+        : null
+    }
+
+    const role = normalizeAssignableRole(currentInvitation.role, availableRoles, options?.fallbackRole)
+    const joinedAt = new Date()
+    const invitedMemberRows = await tx
+      .select()
+      .from(MemberTable)
+      .where(and(eq(MemberTable.inviteId, currentInvitation.id), eq(MemberTable.organizationId, currentInvitation.organizationId), isNull(MemberTable.removedAt)))
+      .limit(1)
+      .for("update")
+    const invitedMember = invitedMemberRows[0] ?? null
+    const removedMemberRows = existingMember
+      ? []
+      : await tx
+          .select()
+          .from(MemberTable)
+          .where(and(eq(MemberTable.organizationId, currentInvitation.organizationId), eq(MemberTable.userId, userId), isNotNull(MemberTable.removedAt)))
+          .limit(1)
+          .for("update")
+    const removedMember = removedMemberRows[0] ?? null
+    let member = existingMember
+
+    if (existingMember && invitedMember) {
+      const existingJoinedAt = existingMember.joinedAt ?? joinedAt
+      const existingRole = roleIncludesOwner(existingMember.role) ? existingMember.role : role
+      await tx
+        .update(MemberTable)
+        .set({ role: existingRole, joinedAt: existingJoinedAt })
+        .where(eq(MemberTable.id, existingMember.id))
+      if (invitedMember.id !== existingMember.id) {
+        await tx.delete(MemberTable).where(eq(MemberTable.id, invitedMember.id))
+      }
+      member = { ...existingMember, role: existingRole, joinedAt: existingJoinedAt }
+    }
+
+    if (!member && removedMember && invitedMember) {
+      // A new explicit invitation is a new access lifecycle. Keep the removed
+      // row for audit history, but activate the invitation placeholder so any
+      // teams or direct grants assigned while the invite was pending remain
+      // attached to the member who joins.
+      await tx
+        .update(MemberTable)
+        .set({ userId: null })
+        .where(eq(MemberTable.id, removedMember.id))
+      await tx
+        .update(MemberTable)
+        .set({ userId, role, joinedAt })
+        .where(eq(MemberTable.id, invitedMember.id))
+      member = {
+        ...invitedMember,
+        userId,
         role,
         joinedAt,
-        removedAt: null,
-        removedByOrgMember: null,
-        inviteId: invitation.id,
-        invitedByOrgMember: invitation.orgMemberId,
-      })
-      .where(eq(MemberTable.id, removedMember.id))
-    if (invitedMember && invitedMember.id !== removedMember.id) {
-      await db.delete(MemberTable).where(eq(MemberTable.id, invitedMember.id))
-    }
-    member = {
-      ...removedMember,
-      role,
-      joinedAt,
-      removedAt: null,
-      removedByOrgMember: null,
-      inviteId: invitation.id,
-      invitedByOrgMember: invitation.orgMemberId,
-    }
-  }
-
-  if (!member && invitedMember) {
-    await db
-      .update(MemberTable)
-      .set({ userId, role, joinedAt })
-      .where(eq(MemberTable.id, invitedMember.id))
-    member = { ...invitedMember, userId, role, joinedAt }
-  }
-
-  if (!member) {
-    const createdMember = await insertMemberIfMissing({
-      organizationId: invitation.organizationId,
-      userId,
-      role,
-    })
-    if (!createdMember) {
-      throw new Error("failed_to_create_member")
-    }
-    member = createdMember
-  }
-
-  if (invitation.teamId) {
-    const teams = await db
-      .select({ id: TeamTable.id })
-      .from(TeamTable)
-      .where(eq(TeamTable.id, invitation.teamId))
-      .limit(1)
-
-    if (teams[0]) {
-      const existingTeamMember = await db
-        .select({ id: TeamMemberTable.id })
-        .from(TeamMemberTable)
-        .where(and(eq(TeamMemberTable.teamId, invitation.teamId), eq(TeamMemberTable.orgMembershipId, member.id)))
-        .limit(1)
-
-      if (!existingTeamMember[0]) {
-        await db.insert(TeamMemberTable).values({
-          id: createDenTypeId("teamMember"),
-          teamId: invitation.teamId,
-          orgMembershipId: member.id,
-        })
       }
     }
-  }
 
-  await db
-    .update(InvitationTable)
-    .set({ status: "accepted" })
-    .where(eq(InvitationTable.id, invitation.id))
+    if (!member && removedMember) {
+      const memberId = createDenTypeId("member")
+      // Legacy invitations may not have a pending member placeholder. They
+      // still represent a fresh access lifecycle, so detach the audit row and
+      // create a new membership instead of reviving stale membership grants.
+      await tx
+        .update(MemberTable)
+        .set({ userId: null })
+        .where(eq(MemberTable.id, removedMember.id))
+      await tx.insert(MemberTable).values({
+        id: memberId,
+        organizationId: currentInvitation.organizationId,
+        userId,
+        role,
+        joinedAt,
+        inviteId: currentInvitation.id,
+        invitedByOrgMember: currentInvitation.orgMemberId,
+      })
+      const createdMembers = await tx
+        .select()
+        .from(MemberTable)
+        .where(eq(MemberTable.id, memberId))
+        .limit(1)
+      member = createdMembers[0]
+      if (!member) {
+        throw new Error("failed_to_create_member")
+      }
+    }
 
-  return member
+    if (!member && invitedMember) {
+      await tx
+        .update(MemberTable)
+        .set({ userId, role, joinedAt })
+        .where(eq(MemberTable.id, invitedMember.id))
+      member = { ...invitedMember, userId, role, joinedAt }
+    }
+
+    if (!member) {
+      const memberId = createDenTypeId("member")
+      await tx.insert(MemberTable).values({
+        id: memberId,
+        organizationId: currentInvitation.organizationId,
+        userId,
+        role,
+        joinedAt,
+        inviteId: currentInvitation.id,
+        invitedByOrgMember: currentInvitation.orgMemberId,
+      })
+      const createdMembers = await tx
+        .select()
+        .from(MemberTable)
+        .where(eq(MemberTable.id, memberId))
+        .limit(1)
+      member = createdMembers[0]
+      if (!member) {
+        throw new Error("failed_to_create_member")
+      }
+    }
+
+    if (currentInvitation.teamId) {
+      const teams = await tx
+        .select({ id: TeamTable.id })
+        .from(TeamTable)
+        .where(and(
+          eq(TeamTable.id, currentInvitation.teamId),
+          eq(TeamTable.organizationId, currentInvitation.organizationId),
+        ))
+        .limit(1)
+
+      if (teams[0]) {
+        const existingTeamMember = await tx
+          .select({ id: TeamMemberTable.id })
+          .from(TeamMemberTable)
+          .where(and(eq(TeamMemberTable.teamId, currentInvitation.teamId), eq(TeamMemberTable.orgMembershipId, member.id)))
+          .limit(1)
+
+        if (!existingTeamMember[0]) {
+          await tx.insert(TeamMemberTable).values({
+            id: createDenTypeId("teamMember"),
+            teamId: currentInvitation.teamId,
+            orgMembershipId: member.id,
+          })
+        }
+      }
+    }
+
+    await tx
+      .update(InvitationTable)
+      .set({ status: "accepted" })
+      .where(and(eq(InvitationTable.id, currentInvitation.id), eq(InvitationTable.status, "pending")))
+
+    return { invitation: currentInvitation, member, newlyAccepted: true }
+  })
 }
 
 export async function acceptInvitationForUser(input: {
@@ -853,12 +919,34 @@ export async function acceptInvitationForUser(input: {
     throw new OrganizationEmailDomainRestrictionError(input.email, allowedEmailDomains ?? [])
   }
 
-  const member = await acceptInvitation(invitation, input.userId)
-  await runPostOrganizationMemberChangeHooks({ organizationId: invitation.organizationId, memberId: member.id, change: "added" })
+  const accepted = await acceptInvitation(invitation, input.userId)
+  if (!accepted) {
+    const currentInvitation = await getInvitationById(input.invitationId)
+    if (currentInvitation && getInvitationStatus(currentInvitation) === "accepted") {
+      const removedMember = await findSoftRemovedMemberForUser({
+        organizationId: currentInvitation.organizationId,
+        userId: input.userId,
+      })
+      if (removedMember) {
+        return {
+          status: "membership_removed",
+          invitation: currentInvitation,
+        }
+      }
+    }
+    return null
+  }
+  if (accepted.newlyAccepted) {
+    await runPostOrganizationMemberChangeHooks({
+      organizationId: accepted.invitation.organizationId,
+      memberId: accepted.member.id,
+      change: "added",
+    })
+  }
   return {
     status: "accepted",
-    invitation,
-    member,
+    invitation: accepted.invitation,
+    member: accepted.member,
   }
 }
 
@@ -1064,7 +1152,6 @@ export async function ensureSingletonOrganizationForUser(userId: UserId) {
     organizationId: organization.id,
     createdByOrgMemberId: member.id,
   })
-  await ensureDefaultDynamicRoles(organization.id)
 
   return organization.id
 }
@@ -1078,8 +1165,6 @@ export async function ensureUserOrgAccess(input: {
 
   const memberships = await listMembershipRows(input.userId)
   if (memberships.length > 0) {
-    const organizationIds = [...new Set(memberships.map((membership) => membership.organizationId))]
-    await Promise.all(organizationIds.map((organizationId) => ensureDefaultDynamicRoles(organizationId)))
     return memberships[0].organizationId
   }
 
@@ -1274,6 +1359,16 @@ export async function setSessionActiveOrganization(sessionId: SessionId, organiz
     .update(AuthSessionTable)
     .set({ activeOrganizationId: organizationId })
     .where(eq(AuthSessionTable.id, sessionId))
+
+  const rows = await db
+    .select({ token: AuthSessionTable.token })
+    .from(AuthSessionTable)
+    .where(eq(AuthSessionTable.id, sessionId))
+    .limit(1)
+  const session = rows[0]
+  if (session) {
+    await cache.auth.deleteSession(session.token)
+  }
 }
 
 export async function listUserOrgs(userId: UserId) {
@@ -1397,31 +1492,7 @@ export async function getOrganizationContextForUser(input: {
     return null
   }
 
-  await ensureDefaultDynamicRoles(organization.id)
-
-  const members = await db
-    .select({
-      id: MemberTable.id,
-      userId: MemberTable.userId,
-      inviteId: MemberTable.inviteId,
-      role: MemberTable.role,
-      createdAt: MemberTable.createdAt,
-      joinedAt: MemberTable.joinedAt,
-      user: {
-        id: AuthUserTable.id,
-        email: AuthUserTable.email,
-        name: AuthUserTable.name,
-        image: AuthUserTable.image,
-      },
-      invitation: {
-        email: InvitationTable.email,
-      },
-    })
-    .from(MemberTable)
-    .leftJoin(AuthUserTable, eq(MemberTable.userId, AuthUserTable.id))
-    .leftJoin(InvitationTable, eq(MemberTable.inviteId, InvitationTable.id))
-    .where(and(eq(MemberTable.organizationId, organization.id), isNull(MemberTable.removedAt)))
-    .orderBy(asc(MemberTable.createdAt))
+  const members = await cache.org.members(organization.id)
 
   const invitations = await db
     .select({
@@ -1464,25 +1535,7 @@ export async function getOrganizationContextForUser(input: {
       joinedAt: currentMember.joinedAt,
       isOwner: roleIncludesOwner(currentMember.role),
     },
-    members: members.map((member) => {
-      const email = member.user?.email ?? member.invitation?.email ?? "invited@example.com"
-      const name = member.user?.name ?? getInvitedMemberName(email)
-      return {
-        id: member.id,
-        userId: member.userId,
-        inviteId: member.inviteId,
-        role: member.role,
-        createdAt: member.createdAt,
-        joinedAt: member.joinedAt,
-        isOwner: roleIncludesOwner(member.role),
-        user: {
-          id: member.user?.id ?? member.id,
-          email,
-          name,
-          image: member.user?.image ?? null,
-        },
-      }
-    }),
+    members,
     invitations,
     roles: [
       {
@@ -1682,15 +1735,20 @@ export async function updateOrganizationMemberRole(input: {
   })
 
   if (updated.ok && updated.changed) {
+    await cache.org.deleteMembers(input.organizationId)
     await revokeOrganizationApiKeysForMember({
       organizationId: input.organizationId,
       orgMembershipId: updated.member.id,
       userId: updated.member.userId,
     })
-    await revokeMembershipSessionCredentials({
-      organizationId: input.organizationId,
-      userId: updated.member.userId,
-    })
+    // Revocation prevents a live session from retaining access it just lost.
+    // An upgrade removes no access, so there is nothing to revoke.
+    if (shouldRevokeSessionsForRoleChange(updated.previousRole, updated.nextRole)) {
+      await revokeMembershipSessionCredentials({
+        organizationId: input.organizationId,
+        userId: updated.member.userId,
+      })
+    }
   }
 
   return updated
@@ -1812,6 +1870,8 @@ export async function transferOrganizationOwnership(input: {
     return transfer
   }
 
+  await cache.org.deleteMembers(input.organizationId)
+
   for (const ownerRow of transfer.demotedOwners) {
     await revokeOrganizationApiKeysForMember({
       organizationId: input.organizationId,
@@ -1886,6 +1946,10 @@ export async function removeOrganizationMember(input: {
     await tx
       .delete(TeamMemberTable)
       .where(eq(TeamMemberTable.orgMembershipId, member.id))
+
+    await tx
+      .delete(LlmProviderAccessTable)
+      .where(eq(LlmProviderAccessTable.orgMembershipId, member.id))
 
     await tx
       .update(MemberTable)

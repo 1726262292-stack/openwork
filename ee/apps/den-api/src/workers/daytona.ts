@@ -16,6 +16,7 @@ type ProvisionInput = {
   clientToken: string
   activityToken: string
 }
+type SandboxNameInput = Pick<ProvisionInput, "workerId" | "name">
 
 type ProvisionedInstance = {
   provider: string
@@ -115,20 +116,9 @@ function createDaytonaClient() {
 async function listDaytonaSandboxIdsByLabels(labels: Record<string, string>) {
   const daytona = createDaytonaClient()
   const ids: string[] = []
-  let page = 1
-  const limit = 100
 
-  while (true) {
-    const sandboxes = await daytona.list(labels, page, limit)
-    for (const sandbox of sandboxes.items) {
-      ids.push(sandbox.id)
-    }
-
-    if (sandboxes.items.length < limit) {
-      break
-    }
-
-    page += 1
+  for await (const sandbox of daytona.list({ labels, limit: 100 })) {
+    ids.push(sandbox.id)
   }
 
   return ids
@@ -192,7 +182,7 @@ function sandboxLabels(workerId: WorkerId) {
   }
 }
 
-export function daytonaSandboxName(input: ProvisionInput) {
+export function daytonaSandboxName(input: SandboxNameInput) {
   return slug(
     `${env.daytona.sandboxNamePrefix}-${input.name}-${workerHint(input.workerId)}`,
   ).slice(0, 63)
@@ -206,14 +196,14 @@ function snapshotShortVersion(snapshot: string) {
   return slug(snapshot).slice(0, 24) || "snapshot"
 }
 
-export function daytonaSandboxNameForSnapshot(input: ProvisionInput, snapshot: string) {
+export function daytonaSandboxNameForSnapshot(input: SandboxNameInput, snapshot: string) {
   const shortVersion = snapshotShortVersion(snapshot)
   const base = daytonaSandboxName(input)
   const baseLength = Math.max(1, 63 - shortVersion.length - 1)
   return slug(`${base.slice(0, baseLength)}-${shortVersion}`).slice(0, 63)
 }
 
-function currentDaytonaSandboxName(input: ProvisionInput) {
+export function currentDaytonaSandboxName(input: SandboxNameInput) {
   const snapshot = currentDaytonaImageVersion()
   return snapshot ? daytonaSandboxNameForSnapshot(input, snapshot) : daytonaSandboxName(input)
 }
@@ -338,7 +328,13 @@ function checkpointLastFlushMarkerPath() {
 }
 
 function checkpointEnvironmentScript() {
-  return `OPENWORK_STATE_MANIFEST=${shellQuote(checkpointStateManifest())}
+  // The engine keeps its sessions in a SQLite database under its own data dir
+  // (opencode.db), which lives on the container overlay rather than a volume.
+  // It was missing from the checkpoint, so every recycle onto a new snapshot
+  // started the user from scratch. Resolved from $HOME in-shell so it tracks
+  // the image instead of a hardcoded /root.
+  return `ENGINE_STATE_PATH=\${OPENWORK_ENGINE_STATE_PATH:-\$HOME/.local/share/opencode}
+OPENWORK_STATE_MANIFEST="${checkpointStateManifest()} \$ENGINE_STATE_PATH"
 CHECKPOINT_DIR=${shellQuote(checkpointDir())}
 RESTORE_MARKER=${shellQuote(checkpointRestoreMarkerPath())}
 LAST_FLUSH_MARKER=${shellQuote(checkpointLastFlushMarkerPath())}
@@ -386,7 +382,14 @@ flush_checkpoint() {
   for state_path in $OPENWORK_STATE_MANIFEST; do
     set -- "$@" "\${state_path#/}"
   done
-  if tar -C / -cf "$tmp_checkpoint" "$@"; then
+  # Collapse the WAL so the copied database is self-consistent and small. Best
+  # effort: a locked or absent database must never fail the flush.
+  if [ -f "$ENGINE_STATE_PATH/opencode.db" ]; then
+    node -e 'const{DatabaseSync}=require("node:sqlite");const db=new DatabaseSync(process.argv[1]);db.exec("PRAGMA wal_checkpoint(TRUNCATE)");db.close()' "$ENGINE_STATE_PATH/opencode.db" >/dev/null 2>&1 || true
+  fi
+  # Credentials are re-materialized and re-delivered on every start, so they are
+  # deliberately not persisted to the shared volume. Logs are noise.
+  if tar -C / --exclude="\${ENGINE_STATE_PATH#/}/auth.json" --exclude="\${ENGINE_STATE_PATH#/}/log" -cf "$tmp_checkpoint" "$@"; then
     if cp "$tmp_checkpoint" "$CHECKPOINT_DIR/ckpt-$epoch.tar"; then
       touch "$LAST_FLUSH_MARKER"
       rm -f "$tmp_checkpoint"
@@ -451,7 +454,9 @@ export function buildOpenWorkStartCommand(input: ProvisionInput) {
     ` --host 0.0.0.0`,
     ` --port ${shellQuote(String(env.daytona.openworkPort))}`,
     ` --cors '*'`,
-    ` --approval manual`,
+    // This single-user worker's SPA has no approvals responder, so manual mode makes gated writes such as chat-attachment uploads time out to 403.
+    // Auto matches the desktop sidecar's approvalMode; viewer tokens remain blocked by scope checks.
+    ` --approval auto`,
     ` --verbose`,
   ].join("")
   const script = `

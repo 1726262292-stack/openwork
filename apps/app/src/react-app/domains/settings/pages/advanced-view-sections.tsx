@@ -429,6 +429,7 @@ interface AdvancedCloudMcpDiagnosticsSectionProps {
 export function AdvancedCloudMcpDiagnosticsSection(props: AdvancedCloudMcpDiagnosticsSectionProps) {
   const [busy, setBusy] = useState(false);
   const [copyStatus, setCopyStatus] = useState<string | null>(null);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
   const safeHealth = sanitizeCloudMcpHealthDiagnostic(props.cloudMcpHealth);
   const projection = props.cloudMcpHealth?.tools.providerProjection;
   const compatibility = props.cloudMcpHealth?.compatibility;
@@ -436,8 +437,11 @@ export function AdvancedCloudMcpDiagnosticsSection(props: AdvancedCloudMcpDiagno
   const refresh = async () => {
     setBusy(true);
     setCopyStatus(null);
+    setRefreshError(null);
     try {
       await props.onRefresh();
+    } catch (error) {
+      setRefreshError(error instanceof Error ? error.message : "Could not refresh Cloud MCP diagnostics.");
     } finally {
       setBusy(false);
     }
@@ -476,6 +480,7 @@ export function AdvancedCloudMcpDiagnosticsSection(props: AdvancedCloudMcpDiagno
         </LayoutSectionItemHeader>
 
         {copyStatus ? <SettingsNotice>{copyStatus}</SettingsNotice> : null}
+        {refreshError ? <SettingsNotice tone="error">{refreshError}</SettingsNotice> : null}
         {props.cloudMcpHealth ? (
           <div className="space-y-2 rounded-xl border border-gray-6 bg-gray-1/60 p-3">
             <div className="grid gap-2">

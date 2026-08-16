@@ -62,6 +62,13 @@ function emitFault(context: OAuthRequestContext, summary: string): void {
   })
 }
 
+function trailingDotAuthorityUrl(baseUrl: string): string {
+  const url = new URL(baseUrl)
+  if (!url.hostname || url.hostname.endsWith(".")) return baseUrl
+  const port = url.port ? `:${url.port}` : ""
+  return `${url.protocol}//${url.hostname}.${port}`
+}
+
 function sendInvalidClient(context: OAuthRequestContext): void {
   const { response, profile, scenario, state, correlationId } = context
   if (profile.provider === "microsoft") {
@@ -91,6 +98,20 @@ function sendInvalidClient(context: OAuthRequestContext): void {
   sendOAuthError(response, 401, "invalid_client", "The synthetic OAuth client was rejected")
 }
 
+function sendTokenError(
+  context: OAuthRequestContext,
+  status: number,
+  error: string,
+  errorDescription: string,
+  slackError: "invalid_code" | "invalid_refresh_token",
+): void {
+  if (context.profile.oauth.tokenResponseStyle === "slack-user") {
+    sendJson(context.response, 200, { ok: false, error: slackError })
+    return
+  }
+  sendOAuthError(context.response, status, error, errorDescription)
+}
+
 export async function handleOAuthRequest(context: OAuthRequestContext): Promise<boolean> {
   const { request, response, url, baseUrl, scenario, profile, state, correlationId } = context
   const mcpUrl = new URL(profile.endpointPath, baseUrl).href
@@ -112,9 +133,13 @@ export async function handleOAuthRequest(context: OAuthRequestContext): Promise<
       sendJson(response, 200, { resource: `${mcpUrl}/wrong-resource`, authorization_servers: [baseUrl] })
       return true
     }
+    const authorizationServers = faultApplies(context, "trailing-dot-url")
+      ? [trailingDotAuthorityUrl(baseUrl)]
+      : [baseUrl]
+    if (authorizationServers[0] !== baseUrl) emitFault(context, "Published an authorization-server URL with a stray trailing-dot host")
     sendJson(response, 200, {
       resource: mcpUrl,
-      authorization_servers: [baseUrl],
+      authorization_servers: authorizationServers,
       scopes_supported: scenario.oauth.requiredResourceScopes,
       bearer_methods_supported: ["header"],
     })
@@ -247,6 +272,21 @@ export async function handleOAuthRequest(context: OAuthRequestContext): Promise<
       sendOAuthError(response, 400, "invalid_request", "Client, redirect URI, resource, and PKCE S256 must match the active scenario")
       return true
     }
+    if (faultApplies(context, "redirect-uri-whitelist")) {
+      emitFault(context, "Rejected OAuth authorization because the redirect URI is not allowlisted")
+      sendOAuthError(response, 400, "invalid_request", "redirect URI is not an allowed destination")
+      return true
+    }
+    if (faultApplies(context, "dcr-required")) {
+      emitFault(context, "Rejected manual OAuth authorization because dynamic client registration is required")
+      sendOAuthError(
+        response,
+        400,
+        "dynamic_client_registration_required",
+        "The MCP connection failed before OpenWork could complete the protocol lifecycle. Dynamic client registration is required before this gateway accepts OAuth authorization.",
+      )
+      return true
+    }
     if (
       requestedScopes.length === 0 ||
       requestedScopes.some((requestedScope) => !scenario.oauth.authorizationScopes.includes(requestedScope)) ||
@@ -302,7 +342,11 @@ export async function handleOAuthRequest(context: OAuthRequestContext): Promise<
         : client?.tokenEndpointAuthMethod === "client_secret_post" && safeEqual(client.clientSecret, clientSecret)
     if (faultApplies(context, "reject-client") || !client || !clientAuthenticationValid) {
       if (context.activeFault?.effect === "reject-client") emitFault(context, "Rejected the OAuth client during token exchange")
-      sendInvalidClient(context)
+      if (profile.oauth.tokenResponseStyle === "slack-user") {
+        sendJson(response, 200, { ok: false, error: "bad_client_secret" })
+      } else {
+        sendInvalidClient(context)
+      }
       return true
     }
 
@@ -311,6 +355,16 @@ export async function handleOAuthRequest(context: OAuthRequestContext): Promise<
       const code = form.get("code") ?? ""
       const codeRecord = state.authorizationCodes.get(code)
       const verifier = form.get("code_verifier") ?? ""
+      if (faultApplies(context, "per-connector-redirect")) {
+        emitFault(context, "Rejected token exchange because the provider expected a per-connector redirect URI")
+        sendOAuthError(
+          response,
+          400,
+          "invalid_grant",
+          "External MCP connect callback token exchange failed: the provider expected a per-connector redirect URI.",
+        )
+        return true
+      }
       const invalidGrant =
         faultApplies(context, "reject-grant") ||
         !codeRecord ||
@@ -322,7 +376,13 @@ export async function handleOAuthRequest(context: OAuthRequestContext): Promise<
         !safeEqual(codeRecord.codeChallenge, pkceChallenge(verifier))
       if (invalidGrant) {
         if (context.activeFault?.effect === "reject-grant") emitFault(context, "Rejected the authorization grant during token exchange")
-        sendOAuthError(response, 400, "invalid_grant", "The authorization code or PKCE verifier was rejected")
+        sendTokenError(
+          context,
+          400,
+          "invalid_grant",
+          "The authorization code or PKCE verifier was rejected",
+          "invalid_code",
+        )
         return true
       }
       state.authorizationCodes.delete(code)
@@ -333,8 +393,25 @@ export async function handleOAuthRequest(context: OAuthRequestContext): Promise<
     if (grantType === "refresh_token") {
       const refreshToken = form.get("refresh_token") ?? ""
       const existing = state.refreshTokens.get(refreshToken)
+      if (faultApplies(context, "refresh-expired")) {
+        emitFault(context, "Rejected refresh-token continuity because the credential expired")
+        sendTokenError(
+          context,
+          400,
+          "invalid_grant",
+          "The refresh token expired; reconnect the provider account before retrying.",
+          "invalid_refresh_token",
+        )
+        return true
+      }
       if (!existing || existing.clientId !== clientId) {
-        sendOAuthError(response, 400, "invalid_grant", "The synthetic refresh token was rejected")
+        sendTokenError(
+          context,
+          400,
+          "invalid_grant",
+          "The synthetic refresh token was rejected",
+          "invalid_refresh_token",
+        )
         return true
       }
       revokeTokenFamily(state, existing.familyId)
@@ -380,9 +457,11 @@ function issueTokenResponse(
   scopes: readonly string[],
   existingFamilyId?: string,
 ): void {
-  const accessToken = context.state.issueOpaque("access-token")
-  const refreshToken = context.state.issueOpaque("refresh-token")
+  const slackStyle = context.profile.oauth.tokenResponseStyle === "slack-user"
+  const accessToken = context.state.issueOpaque(slackStyle ? "xoxp" : "access-token")
+  const refreshToken = context.state.issueOpaque(slackStyle ? "xoxe-1" : "refresh-token")
   const familyId = existingFamilyId ?? context.state.issueOpaque("token-family")
+  const expiresIn = slackStyle ? 43_200 : 3_600
   context.state.putToken({
     accessToken,
     familyId,
@@ -390,7 +469,7 @@ function issueTokenResponse(
     resource,
     scopes,
     subject: "synthetic-enterprise-user@example.invalid",
-    expiresAt: context.state.now() + 3_600_000,
+    expiresAt: context.state.now() + expiresIn * 1_000,
   })
   context.state.putRefreshToken({
     refreshToken,
@@ -401,13 +480,26 @@ function issueTokenResponse(
     subject: "synthetic-enterprise-user@example.invalid",
     expiresAt: context.state.now() + refreshTokenLifetimeMs,
   })
-  sendJson(context.response, 200, {
-    access_token: accessToken,
-    refresh_token: refreshToken,
-    token_type: "Bearer",
-    expires_in: 3600,
-    scope: scopes.join(" "),
-  })
+  sendJson(
+    context.response,
+    200,
+    slackStyle
+      ? {
+          ok: true,
+          access_token: accessToken,
+          refresh_token: refreshToken,
+          token_type: "user",
+          expires_in: expiresIn,
+          scope: scopes.join(" "),
+        }
+      : {
+          access_token: accessToken,
+          refresh_token: refreshToken,
+          token_type: "Bearer",
+          expires_in: expiresIn,
+          scope: scopes.join(" "),
+        },
+  )
   context.state.emit({
     correlationId: context.correlationId,
     scenario: context.scenario,

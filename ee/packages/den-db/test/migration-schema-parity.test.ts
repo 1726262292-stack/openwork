@@ -71,7 +71,7 @@ function stringField(row: Record<string, unknown>, field: string) {
 }
 
 function shortOutput(output: string) {
-  return output.slice(Math.max(0, output.length - 4_000))
+  return output.slice(Math.max(0, output.length - 2_000))
 }
 
 function sqlFromDrizzleKitExport(stdout: string) {
@@ -85,8 +85,20 @@ function sqlFromDrizzleKitExport(stdout: string) {
   return `${lines.slice(firstSqlLine).join("\n").trim()}\n`
 }
 
-function exportCurrentSchemaSql() {
-  const result = spawnSync(pnpmCommand, ["exec", "drizzle-kit", "export", "--config", "drizzle.config.ts"], {
+const drizzleKitExportArgs = ["exec", "drizzle-kit", "export", "--config", "drizzle.config.ts"]
+const drizzleKitExportCommand = [pnpmCommand, ...drizzleKitExportArgs].join(" ")
+
+type ExportResult = {
+  status: number | null
+  stdout: string
+  stderr: string
+  error?: Error
+}
+
+type ExportRunner = (command: string, args: string[]) => ExportResult
+
+const defaultExportRunner: ExportRunner = (command, args) =>
+  spawnSync(command, args, {
     cwd: packageDir,
     encoding: "utf8",
     env: {
@@ -99,13 +111,87 @@ function exportCurrentSchemaSql() {
     },
   })
 
-  assert.equal(
-    result.status,
-    0,
-    `drizzle-kit export failed\nstdout:\n${shortOutput(result.stdout)}\nstderr:\n${shortOutput(result.stderr)}`,
-  )
-  return sqlFromDrizzleKitExport(result.stdout)
+function exportFailureDiagnostics(result: ExportResult) {
+  const reasons: string[] = []
+  if (result.status !== 0) reasons.push(`exit status was ${result.status}`)
+  if (result.error) reasons.push(result.error.message)
+
+  try {
+    sqlFromDrizzleKitExport(result.stdout)
+  } catch (error) {
+    reasons.push(error instanceof Error ? error.message : String(error))
+  }
+
+  if (reasons.length === 0) return
+  return `${reasons.join("; ")}\ncommand: ${drizzleKitExportCommand}\nexit status: ${result.status}\nerror: ${result.error?.message ?? "(none)"}\nstderr:\n${shortOutput(result.stderr)}\nstdout:\n${shortOutput(result.stdout)}`
 }
+
+async function runDrizzleKitExport(runner: ExportRunner = defaultExportRunner, retryDelayMs = 2_000) {
+  const failures: string[] = []
+
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    const result = runner(pnpmCommand, drizzleKitExportArgs)
+    const diagnostics = exportFailureDiagnostics(result)
+    if (!diagnostics) return sqlFromDrizzleKitExport(result.stdout)
+
+    failures.push(`Attempt ${attempt}:\n${diagnostics}`)
+    if (attempt === 1) {
+      console.error(`drizzle-kit export first attempt failed; retrying once\n${diagnostics}`)
+      await new Promise((resolve) => setTimeout(resolve, retryDelayMs))
+    }
+  }
+
+  throw new Error(`drizzle-kit export failed after 2 attempts\n\n${failures.join("\n\n")}`)
+}
+
+async function exportCurrentSchemaSql() {
+  return runDrizzleKitExport()
+}
+
+test("drizzle-kit export retries empty SQL and returns the successful retry", async () => {
+  let attempts = 0
+  const sql = "CREATE TABLE `example` (`id` int);\n"
+  const runner: ExportRunner = (command, args) => {
+    assert.equal(command, pnpmCommand)
+    assert.deepEqual(args, drizzleKitExportArgs)
+    attempts += 1
+    return attempts === 1
+      ? { status: 0, stdout: "No SQL here", stderr: "temporary runner issue" }
+      : { status: 0, stdout: sql, stderr: "" }
+  }
+
+  assert.equal(await runDrizzleKitExport(runner, 0), sql)
+  assert.equal(attempts, 2)
+})
+
+test("drizzle-kit export reports diagnostics from both failed attempts", async () => {
+  let attempts = 0
+  const runner: ExportRunner = () => {
+    attempts += 1
+    return {
+      status: attempts === 1 ? 1 : 2,
+      stdout: `failed stdout ${attempts}`,
+      stderr: `failed stderr ${attempts}`,
+    }
+  }
+
+  await assert.rejects(runDrizzleKitExport(runner, 0), (error: unknown) => {
+    assert.ok(error instanceof Error)
+    assert.match(error.message, /exit status: 1/)
+    assert.match(error.message, /exit status: 2/)
+    assert.match(error.message, /failed stderr 1/)
+    assert.match(error.message, /failed stderr 2/)
+    assert.ok(error.message.includes(`command: ${drizzleKitExportCommand}`))
+    return true
+  })
+})
+
+test("drizzle-kit export returns successful SQL unchanged", async () => {
+  const sql = "CREATE TABLE `example` (`id` int);\nALTER TABLE `example` ADD `name` text;\n"
+  const runner: ExportRunner = () => ({ status: 0, stdout: sql, stderr: "" })
+
+  assert.equal(await runDrizzleKitExport(runner, 0), sql)
+})
 
 function splitSqlStatements(sql: string) {
   return sql
@@ -176,14 +262,50 @@ function exportTableNames(statements: string[]) {
     .sort()
 }
 
+// Columns that migrations ADD to tables the migration chain does not create
+// (those tables are seeded from the current export before replay, so the
+// seeded CREATE TABLE must not already contain the columns the replay adds).
+// worker: added by 0002. oauth*: added by 0056.
+const SEED_COLUMN_STRIPS: Record<string, string[]> = {
+  worker: ["last_heartbeat_at", "last_active_at"],
+  oauthClient: [
+    "backchannel_logout_uri",
+    "backchannel_logout_session_required",
+    "jwks",
+    "jwks_uri",
+    "dpop_bound_access_tokens",
+  ],
+  oauthAccessToken: [
+    "authorization_code_id",
+    "resources",
+    "requested_user_info_claims",
+    "revoked",
+    "confirmation",
+  ],
+  oauthRefreshToken: [
+    "authorization_code_id",
+    "resources",
+    "requested_user_info_claims",
+    "rotated_at",
+    "rotation_replay_response",
+    "rotation_replay_expires_at",
+    "confirmation",
+  ],
+  oauthConsent: ["resources", "requested_user_info_claims"],
+}
+
 function statementForSeed(statement: string) {
-  if (createTableName(statement) !== "worker") {
+  const tableName = createTableName(statement)
+  const strips = tableName ? SEED_COLUMN_STRIPS[tableName] : undefined
+  if (!strips) {
     return statement
   }
 
-  return statement
-    .replace(/\n\s*`last_heartbeat_at` timestamp\(3\),/i, "")
-    .replace(/\n\s*`last_active_at` timestamp\(3\),/i, "")
+  let seeded = statement
+  for (const column of strips) {
+    seeded = seeded.replace(new RegExp(`\\n\\s*\`${column}\` [^,\\n]+,`, "i"), "")
+  }
+  return seeded
 }
 
 function seedShouldSkipIndex(statement: string) {
@@ -354,7 +476,7 @@ test("migrations replay to exported schema and config object version inserts", {
     await root.query(`CREATE DATABASE ${quoteIdentifier(migratedDatabase)}`)
     await root.query(`CREATE DATABASE ${quoteIdentifier(exportedDatabase)}`)
 
-    const exportSql = exportCurrentSchemaSql()
+    const exportSql = await exportCurrentSchemaSql()
     const exportStatements = splitSqlStatements(exportSql)
     const ownedTables = await migrationOwnedTables()
     const ownedIndexes = await migrationOwnedIndexes()

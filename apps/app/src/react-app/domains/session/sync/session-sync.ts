@@ -4,10 +4,18 @@ import type { FilePart, Part, PermissionRequest, PermissionV2Request, QuestionRe
 import { getReactQueryClient } from "../../../infra/query-client";
 import { captureAnalyticsEvent, takeTaskRunStart } from "@/app/lib/analytics";
 import { trackTaskCompleted, trackTaskFailed } from "@/app/lib/den-telemetry";
-import { createClient } from "@/app/lib/opencode";
+import { createClient, unwrap } from "@/app/lib/opencode";
+import { isGeneratedSessionTitle } from "@/app/lib/session-title";
 import { normalizeEvent } from "@/app/utils";
 import { SYNTHETIC_SESSION_ERROR_MESSAGE_PREFIX, type OpencodeEvent, type PendingPermission, type PendingQuestion } from "@/app/types";
-import { createSessionErrorUIMessage, describeOpencodeSessionError, snapshotToUIMessages } from "./usechat-adapter";
+import {
+  createSessionErrorUIMessage,
+  snapshotToUIMessages,
+} from "./usechat-adapter";
+import {
+  describeOpencodeSessionError,
+  presentOpencodeSessionError,
+} from "./session-error";
 import {
   parseDynamicToolUIPart,
   parseStructuredOutputUIPart,
@@ -19,6 +27,12 @@ import {
   useSessionActivityStore,
 } from "../status/session-activity-store";
 import { notifyDesktopEvent } from "../../../shell/desktop-notifications";
+import { notifyAlert } from "../../../shell/notifications";
+import { t } from "@/i18n";
+import {
+  createSessionTitleRecovery,
+  type SessionTitleRecovery,
+} from "./session-title-recovery";
 
 type SyncOptions = {
   workspaceId: string;
@@ -40,6 +54,7 @@ type PendingDelta = {
 
 type SyncEntry = {
   input: SyncOptions;
+  openworkToken: string;
   refs: number;
   dispose: () => void;
   disposeTimer: ReturnType<typeof setTimeout> | null;
@@ -57,12 +72,47 @@ type SyncEntry = {
   // the user like the app "freezes after 2 words."
   deltaFlushBuffer: PendingDelta[];
   deltaFlushScheduled: boolean;
+  titleRecovery: SessionTitleRecovery | null;
 };
 
 const idleStatus: SessionStatus = { type: "idle" };
 const syncs = new Map<string, SyncEntry>();
+const sessionSnapshotFetchStarts = new WeakMap<OpenworkSessionSnapshot, number>();
+const workspaceSyncDisposeGraceMs = 2_000;
 const retainedSessionTtlMs = 10 * 60_000;
 const idleRetainedSessionTtlMs = 10_000;
+
+type SyncSubscriptionFactory = (
+  baseUrl: string,
+  openworkToken: string,
+  signal: AbortSignal,
+) => Promise<AsyncIterable<unknown>>;
+
+type SessionStatusFetcher = (
+  baseUrl: string,
+  openworkToken: string,
+  signal: AbortSignal,
+) => Promise<Record<string, SessionStatus>>;
+
+const defaultSyncSubscriptionFactory: SyncSubscriptionFactory = async (baseUrl, openworkToken, signal) => {
+  const client = createClient(baseUrl, undefined, { token: openworkToken, mode: "openwork" });
+  const subscription = await client.event.subscribe(undefined, { signal });
+  return subscription.stream;
+};
+
+const defaultSessionStatusFetcher: SessionStatusFetcher = async (baseUrl, openworkToken, signal) => {
+  const client = createClient(baseUrl, undefined, { token: openworkToken, mode: "openwork" });
+  const result = await client.session.status(undefined, { signal });
+  if (result.data !== undefined) return result.data;
+  throw result.error;
+};
+
+let syncSubscriptionFactory = defaultSyncSubscriptionFactory;
+let sessionStatusFetcher = defaultSessionStatusFetcher;
+
+export function markSessionSnapshotFetchStart(snapshot: OpenworkSessionSnapshot, startedAt: number) {
+  sessionSnapshotFetchStarts.set(snapshot, startedAt);
+}
 
 export const snapshotKey = (workspaceId: string, sessionId: string) =>
   ["react-session-snapshot", workspaceId, sessionId] as const;
@@ -78,7 +128,7 @@ export const questionKey = (workspaceId: string, sessionId: string) =>
   ["react-session-questions", workspaceId, sessionId] as const;
 
 function syncKey(input: SyncOptions) {
-  return `${input.workspaceId}:${input.baseUrl}:${input.openworkToken}`;
+  return `${input.workspaceId}:${input.baseUrl}`;
 }
 
 function getErrorStatus(error: unknown) {
@@ -227,6 +277,7 @@ function disposeWorkspaceSync(key: string, entry: SyncEntry) {
   }
   for (const timer of entry.retainedSessionTimers.values()) clearTimeout(timer);
   entry.retainedSessionTimers.clear();
+  entry.titleRecovery?.dispose();
   entry.dispose();
   if (syncs.get(key) === entry) syncs.delete(key);
 }
@@ -630,6 +681,8 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
   if (event.type === "session.updated") {
     const update = getSessionUpdatedInfo(event);
     if (!update) return;
+    const title = typeof update.info.title === "string" ? update.info.title : "";
+    if (title && !isGeneratedSessionTitle(title)) entry.titleRecovery?.resolve(update.sessionId);
     if (!isTrackedSession(entry, update.sessionId)) return;
     // Keep the cached snapshot's revert cursor in sync with the server. The
     // renderer derives the visible transcript from this cursor, so a revert
@@ -650,6 +703,7 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
   if (event.type === "session.deleted") {
     const props = (event.properties ?? {}) as { sessionID?: string; info?: { id?: string } };
     const sessionId = props.sessionID ?? props.info?.id ?? "";
+    if (sessionId) entry.titleRecovery?.resolve(sessionId);
     if (sessionId) useSessionActivityStore.getState().removeSession(workspaceId, sessionId);
     if (sessionId) {
       for (const listener of entry.sessionDeletedListeners) listener(sessionId);
@@ -660,7 +714,9 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
   if (event.type === "session.error") {
     const sessionId = sessionIdFromProperties(event.properties);
     if (sessionId) {
-      const errorText = describeOpencodeSessionError(sessionErrorFromProperties(event.properties));
+      const sessionError = sessionErrorFromProperties(event.properties);
+      const errorPresentation = presentOpencodeSessionError(sessionError);
+      const errorText = describeOpencodeSessionError(sessionError);
       const runStartedAt = takeTaskRunStart(sessionId);
       if (runStartedAt !== null) {
         captureAnalyticsEvent("task_run_errored", {
@@ -681,7 +737,15 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
           // assistant message id) so a reload reconciles instead of
           // duplicating; the sessionId fallback only applies when the run
           // errored before any assistant message existed.
-          return upsertMessage(current, createSessionErrorUIMessage(turnKey, errorText));
+          return upsertMessage(current, createSessionErrorUIMessage(turnKey, errorPresentation));
+        });
+        // Reconcile against the server snapshot immediately after a failed
+        // turn. The SSE stream can end before its final part/attachment events
+        // reach the renderer; the snapshot is the durable source for partial
+        // output and files that completed before the interruption.
+        void queryClient.invalidateQueries({
+          queryKey: snapshotKey(workspaceId, sessionId),
+          exact: true,
         });
       }
     }
@@ -953,6 +1017,7 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
       });
       trackTaskCompleted(props.sessionID, Date.now() - runStartedAt);
       notifyDesktopEvent({ type: "task.completed", sessionId: props.sessionID });
+      entry.titleRecovery?.observe(props.sessionID);
     }
     useSessionActivityStore.getState().setRunStatus(workspaceId, props.sessionID, idleStatus);
     const tracked = isTrackedSession(entry, props.sessionID);
@@ -1057,10 +1122,8 @@ function flushDeltas(entry: SyncEntry, workspaceId: string) {
   }
 }
 
-function startSync(input: SyncOptions) {
-  const client = createClient(input.baseUrl, undefined, { token: input.openworkToken, mode: "openwork" });
+function startSync(input: SyncOptions, entry: SyncEntry) {
   const controller = new AbortController();
-  const entry = syncs.get(syncKey(input));
   let disposed = false;
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
   let watchdogTimer: ReturnType<typeof setInterval> | null = null;
@@ -1083,15 +1146,15 @@ function startSync(input: SyncOptions) {
     const connectionController = new AbortController();
     activeConnectionController = connectionController;
     try {
-      const sub = await client.event.subscribe(undefined, { signal: connectionController.signal });
+      const stream = await syncSubscriptionFactory(input.baseUrl, entry.openworkToken, connectionController.signal);
       retryDelayMs = 1_000;
       lastEventAt = Date.now();
-      for await (const raw of sub.stream) {
+      void reconcileSessionRunStatuses(entry, input, connectionController.signal);
+      for await (const raw of stream) {
         if (controller.signal.aborted || connectionController.signal.aborted) return;
         lastEventAt = Date.now();
         const event = normalizeEvent(raw);
         if (!event) continue;
-        if (!entry) continue;
         applyEvent(entry, input.workspaceId, event);
       }
       if (!controller.signal.aborted && activeConnectionController === connectionController) scheduleRetry();
@@ -1126,10 +1189,34 @@ function startSync(input: SyncOptions) {
   };
 }
 
+async function reconcileSessionRunStatuses(entry: SyncEntry, input: SyncOptions, signal: AbortSignal) {
+  const startedAt = Date.now();
+  let statuses: Record<string, SessionStatus>;
+  try {
+    statuses = await sessionStatusFetcher(input.baseUrl, entry.openworkToken, signal);
+  } catch {
+    return;
+  }
+  if (signal.aborted) return;
+
+  const records = useSessionActivityStore.getState().recordsByWorkspaceId[input.workspaceId];
+  if (!records) return;
+  for (const sessionId of Object.keys(records)) {
+    useSessionActivityStore.getState().seedSessionRun(
+      input.workspaceId,
+      sessionId,
+      statuses[sessionId] ?? idleStatus,
+      undefined,
+      { snapshotStartedAt: startedAt },
+    );
+  }
+}
+
 export function ensureWorkspaceSessionSync(input: SyncOptions) {
   const key = syncKey(input);
   const existing = syncs.get(key);
   if (existing) {
+    existing.openworkToken = input.openworkToken;
     if (existing.disposeTimer) {
       clearTimeout(existing.disposeTimer);
       existing.disposeTimer = null;
@@ -1142,8 +1229,9 @@ export function ensureWorkspaceSessionSync(input: SyncOptions) {
     return () => releaseWorkspaceSessionSync(input);
   }
 
-  syncs.set(key, {
+  const created: SyncEntry = {
     input,
+    openworkToken: input.openworkToken,
     refs: 1,
     dispose: () => {},
     disposeTimer: null,
@@ -1156,10 +1244,47 @@ export function ensureWorkspaceSessionSync(input: SyncOptions) {
     pendingDeltas: new Map(),
     deltaFlushBuffer: [],
     deltaFlushScheduled: false,
+    titleRecovery: null,
+  };
+  created.titleRecovery = createSessionTitleRecovery({
+    fetch: async (sessionId) => {
+      const client = createClient(input.baseUrl, undefined, { token: created.openworkToken, mode: "openwork" });
+      const [session, messages] = await Promise.all([
+        client.session.get({ sessionID: sessionId }).then(unwrap),
+        client.session.messages({ sessionID: sessionId, limit: 20 }).then(unwrap),
+      ]);
+      return {
+        title: session.title,
+        messages: messages.map((message) => ({
+          role: message.info.role,
+          synthetic: Reflect.get(message.info, "synthetic") === true,
+          error: Reflect.get(message.info, "error"),
+        })),
+      };
+    },
+    onResolved: (sessionId, title) => {
+      getReactQueryClient().setQueryData<OpenworkSessionSnapshot>(
+        snapshotKey(input.workspaceId, sessionId),
+        (current) => current
+          ? { ...current, session: { ...current.session, title } }
+          : current,
+      );
+      for (const listener of created.sessionUpdatedListeners) {
+        listener({ sessionId, info: { title } });
+      }
+    },
+    onFailure: (sessionId) => {
+      notifyAlert({
+        kind: "system",
+        severity: "warning",
+        title: t("session.title_generation_failed_title"),
+        body: t("session.title_generation_failed_body"),
+        dedupeKey: `session-title-generation:${input.workspaceId}:${sessionId}`,
+      });
+    },
   });
-
-  const created = syncs.get(key)!;
-  created.dispose = startSync(input);
+  syncs.set(key, created);
+  created.dispose = startSync(input, created);
 
   return () => releaseWorkspaceSessionSync(input);
 }
@@ -1172,11 +1297,15 @@ function releaseWorkspaceSessionSync(input: SyncOptions) {
   if (input.onSessionUpdated) existing.sessionUpdatedListeners.delete(input.onSessionUpdated);
   if (input.onSessionDeleted) existing.sessionDeletedListeners.delete(input.onSessionDeleted);
   if (input.onSessionStatus) existing.sessionStatusListeners.delete(input.onSessionStatus);
-  existing.refs -= 1;
+  existing.refs = Math.max(0, existing.refs - 1);
   if (existing.refs > 0) return;
-  if (existing.retainedSessionTimers.size === 0) {
-    disposeWorkspaceSync(key, existing);
-  }
+  if (existing.retainedSessionTimers.size > 0 || existing.disposeTimer) return;
+  existing.disposeTimer = setTimeout(() => {
+    existing.disposeTimer = null;
+    if (existing.refs === 0 && existing.retainedSessionTimers.size === 0) {
+      disposeWorkspaceSync(key, existing);
+    }
+  }, workspaceSyncDisposeGraceMs);
 }
 
 export function seedSessionState(workspaceId: string, snapshot: OpenworkSessionSnapshot) {
@@ -1185,12 +1314,20 @@ export function seedSessionState(workspaceId: string, snapshot: OpenworkSessionS
   const incoming = snapshotToUIMessages(snapshot);
   const existing = queryClient.getQueryData<UIMessage[]>(key);
 
-  useSessionActivityStore.getState().seedSessionRun(
-    workspaceId,
-    snapshot.session.id,
-    snapshot.status,
-    assistantOutputAfterLatestUser(incoming),
-  );
+  const snapshotStartedAt = sessionSnapshotFetchStarts.get(snapshot);
+  if (typeof snapshotStartedAt === "number") {
+    const record = useSessionActivityStore.getState().recordsByWorkspaceId[workspaceId]?.[snapshot.session.id];
+    useSessionActivityStore.getState().seedSessionRun(
+      workspaceId,
+      snapshot.session.id,
+      snapshot.status,
+      assistantOutputAfterLatestUser(incoming),
+      { snapshotStartedAt },
+    );
+    if (snapshotStartedAt >= (record?.runStatusAt ?? 0)) {
+      queryClient.setQueryData(statusKey(workspaceId, snapshot.session.id), snapshot.status);
+    }
+  }
 
   // The snapshot's revert cursor is authoritative: messages at/after it are
   // reverted server-side, so the cache must not keep them alive (a later
@@ -1204,7 +1341,6 @@ export function seedSessionState(workspaceId: string, snapshot: OpenworkSessionS
     snapshot.session.revert?.messageID ?? null,
   ));
 
-  queryClient.setQueryData(statusKey(workspaceId, snapshot.session.id), snapshot.status);
   queryClient.setQueryData(todoKey(workspaceId, snapshot.session.id), snapshot.todos);
 }
 
@@ -1230,6 +1366,16 @@ export function applySessionRevert(workspaceId: string, session: Session) {
     (current = []) => applyRevertCursor(current, revertMessageId),
   );
   void queryClient.invalidateQueries({ queryKey: snapshotKey(workspaceId, session.id) });
+}
+
+/** Clear a server-confirmed revert cursor without discarding cached history. */
+export function applySessionUnrevert(workspaceId: string, sessionId: string) {
+  const queryClient = getReactQueryClient();
+  void queryClient.cancelQueries({ queryKey: snapshotKey(workspaceId, sessionId) });
+  queryClient.setQueryData<OpenworkSessionSnapshot>(
+    snapshotKey(workspaceId, sessionId),
+    (current) => (current ? { ...current, session: { ...current.session, revert: undefined } } : current),
+  );
 }
 
 export function trackWorkspaceSessionSync(input: SyncOptions, sessionId: string | null | undefined) {
@@ -1278,6 +1424,7 @@ export function __createWorkspaceSessionSyncForTest(input: SyncOptions) {
   const key = syncKey(input);
   syncs.set(key, {
     input,
+    openworkToken: input.openworkToken,
     refs: 1,
     dispose: () => {},
     disposeTimer: null,
@@ -1290,6 +1437,7 @@ export function __createWorkspaceSessionSyncForTest(input: SyncOptions) {
     pendingDeltas: new Map(),
     deltaFlushBuffer: [],
     deltaFlushScheduled: false,
+    titleRecovery: null,
   });
   return () => {
     const entry = syncs.get(key);
@@ -1316,4 +1464,12 @@ export function __applySessionSyncEventForTest(input: SyncOptions, event: Openco
   const entry = syncs.get(syncKey(input));
   if (!entry) return;
   applyEvent(entry, input.workspaceId, event);
+}
+
+export function __setWorkspaceSessionSyncSubscriptionFactoryForTest(factory: SyncSubscriptionFactory | null) {
+  syncSubscriptionFactory = factory ?? defaultSyncSubscriptionFactory;
+}
+
+export function __setWorkspaceSessionSyncStatusFetcherForTest(fetcher: SessionStatusFetcher | null) {
+  sessionStatusFetcher = fetcher ?? defaultSessionStatusFetcher;
 }

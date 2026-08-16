@@ -2,6 +2,19 @@ import { spawn, type ChildProcess } from "node:child_process";
 import net from "node:net";
 import { randomUUID } from "node:crypto";
 
+export type ManagedChildProcess = {
+  exitCode: number | null;
+  signalCode: NodeJS.Signals | null;
+  killed: boolean;
+  kill: (signal?: NodeJS.Signals | number) => boolean;
+  once: (event: "exit", listener: (code: number | null, signal: NodeJS.Signals | null) => void) => unknown;
+};
+
+export type ManagedProcessCloseOptions = {
+  termTimeoutMs?: number;
+  killTimeoutMs?: number;
+};
+
 export type ManagedOpencodeServer = {
   url: string;
   username: string;
@@ -24,6 +37,56 @@ export type OpencodeExecutionSnapshot = {
   cwd: string;
   env: OpencodeExecutionEnvEntry[];
 };
+
+export function createManagedProcessClose(
+  child: ManagedChildProcess,
+  options: ManagedProcessCloseOptions = {},
+): { isAlive: () => boolean; close: () => Promise<void> } {
+  let closePromise: Promise<void> | null = null;
+  let exited = child.exitCode !== null || child.signalCode !== null;
+  const exitedPromise = new Promise<void>((resolve) => {
+    if (exited) {
+      resolve();
+      return;
+    }
+    child.once("exit", () => {
+      exited = true;
+      resolve();
+    });
+  });
+  const waitForExit = async (timeoutMs: number): Promise<boolean> => {
+    if (exited) return true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timedOut = new Promise<false>((resolve) => {
+      timer = setTimeout(() => resolve(false), timeoutMs);
+    });
+    const didExit = await Promise.race([exitedPromise.then(() => true), timedOut]);
+    if (timer !== undefined) clearTimeout(timer);
+    return didExit;
+  };
+  const isAlive = () => !exited && child.exitCode === null && child.signalCode === null;
+  const close = (): Promise<void> => {
+    closePromise ??= (async () => {
+      if (!isAlive()) return;
+      try {
+        child.kill("SIGTERM");
+      } catch {
+        // Re-check through the exit event before escalating.
+      }
+      if (await waitForExit(options.termTimeoutMs ?? 1_000)) return;
+      try {
+        child.kill("SIGKILL");
+      } catch {
+        // Re-check below; kill can race a natural exit.
+      }
+      if (!await waitForExit(options.killTimeoutMs ?? 500)) {
+        throw new Error("Managed OpenCode process did not exit after SIGKILL");
+      }
+    })();
+    return closePromise;
+  };
+  return { isAlive, close };
+}
 
 const SECRET_ENV_PATTERN = /(TOKEN|PASSWORD|USERNAME|AUTH|SECRET|KEY|CREDENTIAL)/i;
 
@@ -71,12 +134,15 @@ export async function createManagedOpencodeServer(options: {
   const password = randomSecret();
   const args = ["serve", "--hostname", hostname, "--port", String(port), "--cors", "*"];
   const command = options.bin?.trim() || "opencode";
-  const env = {
+  const env: NodeJS.ProcessEnv = {
     ...process.env,
     ...options.env,
     OPENCODE_SERVER_USERNAME: username,
     OPENCODE_SERVER_PASSWORD: password,
   };
+  // The managed engine needs its own provider environment, but never the key
+  // that decrypts OpenWork-owned OAuth credentials.
+  delete env.OPENWORK_ENCRYPTION_KEY;
   const injectedEnv = Object.entries({
     ...(options.env ?? {}),
     OPENCODE_SERVER_USERNAME: username,
@@ -95,37 +161,40 @@ export async function createManagedOpencodeServer(options: {
     stdio: ["ignore", "pipe", "pipe"],
   });
 
-  let closePromise: Promise<void> | null = null;
-  const exited = new Promise<void>((resolve) => {
-    child.once("exit", () => resolve());
-  });
+  const processLifecycle = createManagedProcessClose(child);
 
-  const url = await new Promise<string>((resolve, reject) => {
-    const timeout = setTimeout(() => reject(new Error(`Timeout waiting for OpenCode server after ${options.timeoutMs ?? 15000}ms`)), options.timeoutMs ?? 15000);
-    let output = "";
-    const done = (value: string) => {
-      clearTimeout(timeout);
-      resolve(value);
-    };
-    const fail = (error: Error) => {
-      clearTimeout(timeout);
-      reject(error);
-    };
-    child.stdout?.on("data", (chunk) => {
-      output += chunk.toString();
-      for (const line of output.split("\n")) {
-        if (!line.startsWith("opencode server listening")) continue;
-        const match = line.match(/on\s+(https?:\/\/[^\s]+)/);
-        if (!match?.[1]) return fail(new Error(`Failed to parse OpenCode server URL from: ${line}`));
-        done(match[1]);
-      }
+  let url: string;
+  try {
+    url = await new Promise<string>((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error(`Timeout waiting for OpenCode server after ${options.timeoutMs ?? 15000}ms`)), options.timeoutMs ?? 15000);
+      let output = "";
+      const done = (value: string) => {
+        clearTimeout(timeout);
+        resolve(value);
+      };
+      const fail = (error: Error) => {
+        clearTimeout(timeout);
+        reject(error);
+      };
+      child.stdout?.on("data", (chunk) => {
+        output += chunk.toString();
+        for (const line of output.split("\n")) {
+          if (!line.startsWith("opencode server listening")) continue;
+          const match = line.match(/on\s+(https?:\/\/[^\s]+)/);
+          if (!match?.[1]) return fail(new Error(`Failed to parse OpenCode server URL from: ${line}`));
+          done(match[1]);
+        }
+      });
+      child.stderr?.on("data", (chunk) => {
+        output += chunk.toString();
+      });
+      child.once("error", fail);
+      child.once("exit", (code) => fail(new Error(`OpenCode server exited with code ${code}${output.trim() ? `\n${output}` : ""}`)));
     });
-    child.stderr?.on("data", (chunk) => {
-      output += chunk.toString();
-    });
-    child.once("error", fail);
-    child.once("exit", (code) => fail(new Error(`OpenCode server exited with code ${code}${output.trim() ? `\n${output}` : ""}`)));
-  });
+  } catch (error) {
+    await processLifecycle.close();
+    throw error;
+  }
 
   return {
     url,
@@ -138,27 +207,7 @@ export async function createManagedOpencodeServer(options: {
       cwd: options.cwd,
       env: injectedEnv,
     },
-    isAlive() {
-      return child.exitCode === null && child.signalCode === null && !child.killed;
-    },
-    close() {
-      closePromise ??= (async () => {
-        if (child.exitCode !== null) return;
-        if (!child.killed) child.kill("SIGTERM");
-        const timeout = new Promise<void>((resolve) => {
-          setTimeout(() => resolve(), 1000);
-        });
-        await Promise.race([exited, timeout]);
-        if (child.exitCode === null) {
-          try {
-            child.kill("SIGKILL");
-          } catch {
-            // Process already exited.
-          }
-          await Promise.race([exited, new Promise<void>((resolve) => setTimeout(() => resolve(), 500))]);
-        }
-      })();
-      return closePromise;
-    },
+    isAlive: processLifecycle.isAlive,
+    close: processLifecycle.close,
   };
 }

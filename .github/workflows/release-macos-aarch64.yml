@@ -6,8 +6,21 @@ on:
       - "v*"
   workflow_dispatch:
     inputs:
+      bump:
+        description: "Cut a fresh release: bump from the highest v* tag and tag origin/dev HEAD"
+        required: false
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+        default: patch
+      version:
+        description: "Explicit version for a fresh release (X.Y.Z, overrides bump)"
+        required: false
+        type: string
       tag:
-        description: "Tag to release (e.g., v0.1.2). Leave empty to use current ref."
+        description: "Existing tag to re-run for recovery (e.g., v0.1.2). Skips tag creation."
         required: false
         type: string
       release_name:
@@ -19,10 +32,10 @@ on:
         required: false
         type: string
       draft:
-        description: "Create the GitHub Release as a draft"
+        description: "Create the GitHub Release as a draft until assets are ready (publish-release flips it public)"
         required: false
         type: boolean
-        default: false
+        default: true
       prerelease:
         description: "Mark the GitHub Release as a prerelease"
         required: false
@@ -49,7 +62,7 @@ on:
         type: boolean
         default: true
       sign_windows:
-        description: "Sign Windows Electron installer with SignPath"
+        description: "Sign Windows Electron installers with Azure Artifact Signing"
         required: false
         type: boolean
         default: false
@@ -57,20 +70,21 @@ on:
 permissions:
   actions: read
   contents: write
-  pull-requests: write
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  # Tag pushes dedupe per tag ref; dispatches keyed on the recovery tag or the
+  # run id so cutting a fresh release never cancels another in-flight release.
+  group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.ref || inputs.tag || github.run_id }}
   cancel-in-progress: true
 
 jobs:
   resolve-release:
     name: Resolve Release Metadata
-    # SignPath trusted builds require every job leading to the Windows signing
-    # request to use GitHub-hosted runners.
     runs-on: ubuntu-latest
     outputs:
       release_tag: ${{ steps.resolve.outputs.release_tag }}
+      release_version: ${{ steps.resolve.outputs.release_version }}
+      release_mode: ${{ steps.tag.outputs.release_mode }}
       release_name: ${{ steps.resolve.outputs.release_name }}
       release_body: ${{ steps.resolve.outputs.release_body }}
       draft: ${{ steps.resolve.outputs.draft }}
@@ -81,11 +95,79 @@ jobs:
       publish_npm: ${{ steps.resolve.outputs.publish_npm }}
       publish_daytona_snapshot: ${{ steps.resolve.outputs.publish_daytona_snapshot }}
     steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          # Tag resolution compares against every v* tag, and fresh dispatch
+          # releases tag origin/dev HEAD — both need full history + tags.
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Resolve release tag
+        id: tag
+        shell: bash
+        env:
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+          INPUT_BUMP: ${{ github.event.inputs.bump }}
+        run: |
+          set -euo pipefail
+
+          if [ "${GITHUB_EVENT_NAME}" = "push" ]; then
+            # Manual tag-first push (admin expedited path). The tag already
+            # exists; the Expedited Release Audit workflow covers tags whose
+            # commit is not on dev.
+            TAG="${GITHUB_REF_NAME}"
+            MODE="fresh"
+          elif [ -n "${INPUT_TAG:-}" ]; then
+            TAG="${INPUT_TAG}"
+            if [[ "$TAG" != v* ]]; then
+              TAG="v${TAG}"
+            fi
+            if ! git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null; then
+              echo "Recovery dispatch requires an existing tag; ${TAG} was not found." >&2
+              exit 1
+            fi
+            MODE="recovery"
+          else
+            # Fresh release with no commits anywhere: versions live only in
+            # git tags, so compute the next one and tag origin/dev HEAD.
+            VERSION="${INPUT_VERSION:-}"
+            if [ -n "$VERSION" ]; then
+              VERSION="${VERSION#v}"
+            else
+              VERSION="$(node scripts/release/versions.mjs next --bump "${INPUT_BUMP:-patch}")"
+            fi
+            TAG="v${VERSION}"
+            MODE="fresh"
+            if git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null; then
+              echo "Tag ${TAG} already exists. Re-run with tag=${TAG} (recovery) instead." >&2
+              exit 1
+            fi
+            git fetch origin dev
+            git tag "$TAG" origin/dev
+            # A GITHUB_TOKEN tag push does not retrigger tag workflows, so
+            # this run continues as THE release run (no double-trigger). The
+            # v* tag ruleset must list GitHub Actions as a bypass actor.
+            if ! git push origin "refs/tags/${TAG}"; then
+              echo "::error::Pushing ${TAG} was rejected by the v* tag ruleset. Add the GitHub Actions principal to its bypass list (Settings → Rules → v* tags), or push the tag manually and rerun." >&2
+              exit 1
+            fi
+            echo "Created ${TAG} at $(git rev-parse "${TAG}^{commit}") (origin/dev HEAD)."
+          fi
+
+          echo "release_tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "release_mode=${MODE}" >> "$GITHUB_OUTPUT"
+
       - name: Resolve metadata
         id: resolve
         shell: bash
         env:
-          INPUT_TAG: ${{ github.event.inputs.tag }}
+          RESOLVED_TAG: ${{ steps.tag.outputs.release_tag }}
           INPUT_RELEASE_NAME: ${{ github.event.inputs.release_name }}
           INPUT_RELEASE_BODY: ${{ github.event.inputs.release_body }}
           INPUT_DRAFT: ${{ github.event.inputs.draft }}
@@ -103,19 +185,9 @@ jobs:
         run: |
           set -euo pipefail
 
-          TAG_INPUT="${INPUT_TAG:-}"
-          if [ -n "$TAG_INPUT" ]; then
-            if [[ "$TAG_INPUT" == v* ]]; then
-              TAG="$TAG_INPUT"
-            else
-              TAG="v$TAG_INPUT"
-            fi
-          else
-            TAG="${GITHUB_REF_NAME}"
-          fi
-
-          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
-            echo "Invalid release tag: $TAG (expected vX.Y.Z)" >&2
+          TAG="${RESOLVED_TAG}"
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid release tag: $TAG (expected stable vX.Y.Z)" >&2
             exit 1
           fi
 
@@ -139,15 +211,10 @@ jobs:
               "- Public, Cloud, and enterprise Electron builds use separate updater manifests on this release."
           fi
 
-          draft="${INPUT_DRAFT:-}"
-          if [ -z "$draft" ]; then
-            if [ "${GITHUB_EVENT_NAME}" = "push" ]; then
-              # Keep tag-triggered releases out of /releases/latest until assets + latest.json are ready.
-              draft="true"
-            else
-              draft="false"
-            fi
-          fi
+          # A release must never be public while its artifacts are still
+          # building: default to draft for every entry path (tag push AND
+          # fresh dispatch). publish-release flips it public at the end.
+          draft="${INPUT_DRAFT:-true}"
           prerelease="${INPUT_PRERELEASE:-false}"
           notarize="${INPUT_NOTARIZE:-}"
           if [ -z "$notarize" ]; then
@@ -165,8 +232,8 @@ jobs:
           fi
 
           if [ "$sign_windows" = "true" ]; then
-            SIGNPATH_RELEASE_NOTE='*Windows Build free code signing provided by [SignPath.io](https://about.signpath.io), certificate by [SignPath Foundation](https://signpath.org)*'
-            printf -v RELEASE_BODY '%s\n\n%s' "$RELEASE_BODY" "$SIGNPATH_RELEASE_NOTE"
+            WINDOWS_SIGNED_NOTE='*Windows installers are signed using Microsoft Artifact Signing.*'
+            printf -v RELEASE_BODY '%s\n\n%s' "$RELEASE_BODY" "$WINDOWS_SIGNED_NOTE"
           else
             WINDOWS_UNSIGNED_NOTE='*Windows installer is temporarily unsigned while production code signing is being finalized.*'
             printf -v RELEASE_BODY '%s\n\n%s' "$RELEASE_BODY" "$WINDOWS_UNSIGNED_NOTE"
@@ -188,6 +255,7 @@ jobs:
           RELEASE_NAME="${RELEASE_NAME//$'\r'/ }"
 
           echo "release_tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "release_version=${TAG#v}" >> "$GITHUB_OUTPUT"
           echo "release_name=$RELEASE_NAME" >> "$GITHUB_OUTPUT"
           echo "draft=$draft" >> "$GITHUB_OUTPUT"
           echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
@@ -234,11 +302,10 @@ jobs:
   verify-release:
     name: Verify Release Versions
     needs: resolve-release
-    # SignPath trusted builds require every job leading to the Windows signing
-    # request to use GitHub-hosted runners.
     runs-on: ubuntu-latest
     env:
       RELEASE_TAG: ${{ needs.resolve-release.outputs.release_tag }}
+      RELEASE_MODE: ${{ needs.resolve-release.outputs.release_mode }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -251,8 +318,8 @@ jobs:
         with:
           node-version: 24
 
-      - name: Verify tag matches app versions
-        run: node scripts/release/verify-tag.mjs --tag "$RELEASE_TAG"
+      - name: Verify release tag
+        run: node scripts/release/verify-tag.mjs --tag "$RELEASE_TAG" --mode "$RELEASE_MODE"
 
       - name: Release review (strict)
         run: node scripts/release/review.mjs --strict
@@ -265,12 +332,11 @@ jobs:
     timeout-minutes: 120
     env:
       RELEASE_TAG: ${{ needs.resolve-release.outputs.release_tag }}
+      RELEASE_VERSION: ${{ needs.resolve-release.outputs.release_version }}
       MACOS_NOTARIZE: ${{ needs.resolve-release.outputs.notarize }}
       SIGN_WINDOWS: ${{ needs.resolve-release.outputs.sign_windows }}
-      SIGNPATH_ORGANIZATION_ID: ${{ secrets.SIGNPATH_ORGANIZATION_ID || vars.SIGNPATH_ORGANIZATION_ID }}
-      SIGNPATH_PROJECT_SLUG: ${{ secrets.SIGNPATH_PROJECT_SLUG || vars.SIGNPATH_PROJECT_SLUG }}
-      SIGNPATH_SIGNING_POLICY_SLUG: ${{ secrets.SIGNPATH_SIGNING_POLICY_SLUG || vars.SIGNPATH_SIGNING_POLICY_SLUG }}
-      SIGNPATH_ARTIFACT_CONFIGURATION_SLUG: ${{ secrets.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG || vars.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG }}
+      OPENWORK_DESKTOP_SENTRY_DSN: ${{ secrets.OPENWORK_DESKTOP_SENTRY_DSN || vars.OPENWORK_DESKTOP_SENTRY_DSN }}
+      OPENWORK_DESKTOP_SENTRY_TRACES_SAMPLE_RATE: ${{ vars.OPENWORK_DESKTOP_SENTRY_TRACES_SAMPLE_RATE || '0.01' }}
 
     strategy:
       fail-fast: false
@@ -425,6 +491,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
+          # Source is always pinned to the tag. Recovery reruns pick up
+          # workflow-file fixes from the dispatched ref automatically (the
+          # workflow definition runs from github.ref), while the shipped code
+          # stays exactly what the tag names.
           ref: ${{ env.RELEASE_TAG }}
           fetch-depth: 0
 
@@ -465,6 +535,21 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      # The repo commits a permanent 0.0.0-dev placeholder; the release
+      # version exists only as the git tag. Stamp it into the workspace so
+      # electron-builder, app.getVersion(), and the Vite bundle carry it.
+      # Pre-redesign tags carry real committed versions and no stamp script —
+      # skipping is exactly the old behavior for them.
+      - name: Stamp release version
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -f scripts/release/stamp-version.mjs ]; then
+            node scripts/release/stamp-version.mjs --version "$RELEASE_VERSION"
+          else
+            echo "Pre-redesign tag: committed package.json versions are in effect."
+          fi
 
       - name: Write Electron notary API key (macOS)
         if: matrix.os_type == 'macos' && env.MACOS_NOTARIZE == 'true'
@@ -548,85 +633,22 @@ jobs:
             ${{ matrix.electron_args }} \
             --publish never
 
-      - name: Validate SignPath configuration (Windows)
-        if: matrix.os_type == 'windows' && env.SIGN_WINDOWS == 'true'
-        shell: bash
-        env:
-          SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
-        run: |
-          set -euo pipefail
-
-          missing=()
-          for name in \
-            SIGNPATH_API_TOKEN \
-            SIGNPATH_ORGANIZATION_ID \
-            SIGNPATH_PROJECT_SLUG \
-            SIGNPATH_SIGNING_POLICY_SLUG; do
-            if [ -z "${!name:-}" ]; then
-              missing+=("$name")
-            fi
-          done
-
-          if [ "${#missing[@]}" -gt 0 ]; then
-            printf 'Missing Windows SignPath configuration: %s\n' "${missing[*]}" >&2
-            exit 1
-          fi
-
-      - name: Stage unsigned Windows installer for SignPath
-        if: matrix.os_type == 'windows' && env.SIGN_WINDOWS == 'true'
+      # Belt-and-braces: a broken or skipped stamp would otherwise ship
+      # 0.0.0-dev artifacts silently. Every packaged build must produce at
+      # least one artifact carrying the release version (also holds for
+      # pre-redesign tags — their committed version equals the tag).
+      - name: Assert artifact versions match the tag
         shell: bash
         run: |
           set -euo pipefail
-
-          mkdir -p "$RUNNER_TEMP/signpath-unsigned"
           shopt -s nullglob
-          installers=(apps/desktop/dist-electron/${{ matrix.asset_prefix }}-win-*.exe)
-          if [ "${#installers[@]}" -ne 1 ]; then
-            printf 'Expected exactly one unsigned Windows installer, found %s.\n' "${#installers[@]}" >&2
-            printf '%s\n' "${installers[@]}" >&2
+          matches=(apps/desktop/dist-electron/*"$RELEASE_VERSION"*)
+          if [ ${#matches[@]} -eq 0 ]; then
+            echo "No packaged artifact carries version $RELEASE_VERSION — version stamping failed?" >&2
+            ls apps/desktop/dist-electron >&2 || true
             exit 1
           fi
-          cp "${installers[0]}" "$RUNNER_TEMP/signpath-unsigned/"
-
-      - name: Upload unsigned Windows installer for SignPath
-        if: matrix.os_type == 'windows' && env.SIGN_WINDOWS == 'true'
-        id: upload-unsigned-windows-installer
-        uses: actions/upload-artifact@v4
-        with:
-          name: unsigned-${{ matrix.artifact }}-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/signpath-unsigned/*.exe
-          if-no-files-found: error
-          retention-days: 1
-
-      - name: Submit Windows signing request to SignPath
-        if: matrix.os_type == 'windows' && env.SIGN_WINDOWS == 'true' && env.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG == ''
-        uses: signpath/github-action-submit-signing-request@v2
-        with:
-          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
-          organization-id: ${{ env.SIGNPATH_ORGANIZATION_ID }}
-          project-slug: ${{ env.SIGNPATH_PROJECT_SLUG }}
-          signing-policy-slug: ${{ env.SIGNPATH_SIGNING_POLICY_SLUG }}
-          github-artifact-id: ${{ steps.upload-unsigned-windows-installer.outputs.artifact-id }}
-          wait-for-completion: true
-          output-artifact-directory: ${{ runner.temp }}/signpath-signed
-
-      - name: Submit Windows signing request to SignPath (artifact configuration)
-        if: matrix.os_type == 'windows' && env.SIGN_WINDOWS == 'true' && env.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG != ''
-        uses: signpath/github-action-submit-signing-request@v2
-        with:
-          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
-          organization-id: ${{ env.SIGNPATH_ORGANIZATION_ID }}
-          project-slug: ${{ env.SIGNPATH_PROJECT_SLUG }}
-          signing-policy-slug: ${{ env.SIGNPATH_SIGNING_POLICY_SLUG }}
-          artifact-configuration-slug: ${{ env.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG }}
-          github-artifact-id: ${{ steps.upload-unsigned-windows-installer.outputs.artifact-id }}
-          wait-for-completion: true
-          output-artifact-directory: ${{ runner.temp }}/signpath-signed
-
-      - name: Apply signed Windows installer
-        if: matrix.os_type == 'windows' && env.SIGN_WINDOWS == 'true'
-        shell: bash
-        run: node scripts/release/apply-signpath-windows-artifact.mjs "$RUNNER_TEMP/signpath-signed" apps/desktop/dist-electron
+          printf 'Version-checked artifact: %s\n' "${matches[@]}"
 
       - name: Use unsigned Windows installer fallback
         if: matrix.os_type == 'windows' && env.SIGN_WINDOWS != 'true'
@@ -661,7 +683,19 @@ jobs:
           fi
           printf '%s\n' "${manifests[@]}"
 
+      - name: Upload unsigned Windows bundle for Azure signing
+        if: matrix.os_type == 'windows' && env.SIGN_WINDOWS == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: unsigned-${{ matrix.artifact }}
+          path: |
+            apps/desktop/dist-electron/${{ matrix.asset_prefix }}-*
+            apps/desktop/dist-electron/${{ matrix.manifest_pattern }}
+          if-no-files-found: error
+          retention-days: 1
+
       - name: Upload Electron release assets
+        if: matrix.os_type != 'windows' || env.SIGN_WINDOWS != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
@@ -676,21 +710,163 @@ jobs:
           gh release upload "$RELEASE_TAG" "${assets[@]}" --repo "$GITHUB_REPOSITORY" --clobber
 
       - name: Upload Electron updater manifest artifact
+        if: matrix.os_type != 'windows' || env.SIGN_WINDOWS != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
           path: apps/desktop/dist-electron/${{ matrix.manifest_pattern }}
           if-no-files-found: error
 
+  sign-and-publish-windows:
+    name: Sign + publish all Windows builds
+    needs: [resolve-release, verify-release, publish-electron]
+    if: |
+      always() &&
+      needs.resolve-release.outputs.build_electron == 'true' &&
+      needs.resolve-release.outputs.sign_windows == 'true' &&
+      needs.resolve-release.result == 'success' &&
+      needs.verify-release.result == 'success' &&
+      needs.publish-electron.result == 'success'
+    runs-on: windows-2022
+    environment: windows-signing
+    timeout-minutes: 30
+    permissions:
+      actions: read
+      contents: write
+      id-token: write
+    env:
+      RELEASE_TAG: ${{ needs.resolve-release.outputs.release_tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+          fetch-depth: 0
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.4.0
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Get pnpm store path
+        id: pnpm-store
+        shell: bash
+        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache pnpm store
+        uses: actions/cache@v5
+        continue-on-error: true
+        with:
+          path: ${{ steps.pnpm-store.outputs.path }}
+          key: windows-electron-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            windows-electron-pnpm-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Download all unsigned Windows bundles
+        uses: actions/download-artifact@v4
+        with:
+          pattern: unsigned-electron-*windows-*
+          path: ${{ runner.temp }}/windows-artifacts
+
+      - name: Validate Azure Artifact Signing configuration
+        shell: pwsh
+        env:
+          AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID || secrets.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID || secrets.AZURE_TENANT_ID }}
+          AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID || secrets.AZURE_SUBSCRIPTION_ID }}
+          AZURE_ARTIFACT_SIGNING_ENDPOINT: ${{ vars.AZURE_ARTIFACT_SIGNING_ENDPOINT || secrets.AZURE_ARTIFACT_SIGNING_ENDPOINT }}
+          AZURE_ARTIFACT_SIGNING_ACCOUNT: ${{ vars.AZURE_ARTIFACT_SIGNING_ACCOUNT || secrets.AZURE_ARTIFACT_SIGNING_ACCOUNT }}
+          AZURE_ARTIFACT_SIGNING_CERTIFICATE_PROFILE: ${{ vars.AZURE_ARTIFACT_SIGNING_CERTIFICATE_PROFILE || secrets.AZURE_ARTIFACT_SIGNING_CERTIFICATE_PROFILE }}
+        run: |
+          $required = @(
+            "AZURE_CLIENT_ID",
+            "AZURE_TENANT_ID",
+            "AZURE_SUBSCRIPTION_ID",
+            "AZURE_ARTIFACT_SIGNING_ENDPOINT",
+            "AZURE_ARTIFACT_SIGNING_ACCOUNT",
+            "AZURE_ARTIFACT_SIGNING_CERTIFICATE_PROFILE"
+          )
+          $missing = $required | Where-Object { -not [Environment]::GetEnvironmentVariable($_) }
+          if ($missing.Count -gt 0) {
+            throw "Missing windows-signing environment variables: $($missing -join ', ')"
+          }
+
+          $installers = Get-ChildItem "$env:RUNNER_TEMP/windows-artifacts" -Recurse -Filter "*.exe"
+          if ($installers.Count -ne 6) {
+            throw "Expected 6 unsigned Windows installers, found $($installers.Count)"
+          }
+
+      - name: Azure login with GitHub OIDC
+        uses: azure/login@f5d393ae46f8fde4be8b75f32e3fc50e654ad0ca # v3.0.1
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID || secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID || secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID || secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Sign all Windows installers
+        uses: azure/artifact-signing-action@c7ab2a863ab5f9a846ddb8265964877ef296ee82 # v2
+        with:
+          endpoint: ${{ vars.AZURE_ARTIFACT_SIGNING_ENDPOINT || secrets.AZURE_ARTIFACT_SIGNING_ENDPOINT }}
+          signing-account-name: ${{ vars.AZURE_ARTIFACT_SIGNING_ACCOUNT || secrets.AZURE_ARTIFACT_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ vars.AZURE_ARTIFACT_SIGNING_CERTIFICATE_PROFILE || secrets.AZURE_ARTIFACT_SIGNING_CERTIFICATE_PROFILE }}
+          files-folder: ${{ runner.temp }}\windows-artifacts
+          files-folder-filter: exe
+          files-folder-recurse: true
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+
+      - name: Verify every Windows signature
+        shell: pwsh
+        run: |
+          $installers = Get-ChildItem "$env:RUNNER_TEMP/windows-artifacts" -Recurse -Filter "*.exe"
+          if ($installers.Count -ne 6) {
+            throw "Expected 6 signed Windows installers, found $($installers.Count)"
+          }
+
+          foreach ($installer in $installers) {
+            $signature = Get-AuthenticodeSignature $installer.FullName
+            Write-Host "$($installer.Name): $($signature.Status) - $($signature.SignerCertificate.Subject)"
+            if ($signature.Status -ne "Valid") {
+              throw "$($installer.Name) signature is $($signature.Status)"
+            }
+          }
+
+      - name: Refresh signed installer blockmaps and manifests
+        shell: bash
+        run: node scripts/release/refresh-signed-windows-artifacts.mjs "$RUNNER_TEMP/windows-artifacts" 6
+
+      - name: Publish signed Windows assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: node scripts/release/publish-electron-assets.mjs "$RUNNER_TEMP/windows-artifacts" "$RELEASE_TAG"
+
+      - name: Upload signed Windows updater manifest artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: electron-windows-signed
+          path: ${{ runner.temp }}/windows-artifacts/**/*.yml
+          if-no-files-found: error
+
   publish-electron-assets:
     name: Publish Electron Assets
-    needs: [resolve-release, verify-release, publish-electron]
+    needs: [resolve-release, verify-release, publish-electron, sign-and-publish-windows]
     if: |
       always() &&
       needs.resolve-release.outputs.build_electron == 'true' &&
       needs.resolve-release.result == 'success' &&
       needs.verify-release.result == 'success' &&
-      needs.publish-electron.result == 'success'
+      needs.publish-electron.result == 'success' &&
+      (needs.resolve-release.outputs.sign_windows != 'true' || needs.sign-and-publish-windows.result == 'success')
     runs-on: blacksmith-4vcpu-ubuntu-2404
     env:
       RELEASE_TAG: ${{ needs.resolve-release.outputs.release_tag }}
@@ -698,9 +874,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
-          # Dispatch-based release recovery uses the workflow ref so fixes to
-          # release asset publishing can run without moving an already-shipped tag.
-          ref: ${{ github.event_name == 'workflow_dispatch' && github.ref_name || env.RELEASE_TAG }}
+          ref: ${{ env.RELEASE_TAG }}
           fetch-depth: 0
 
       - name: Setup Node
@@ -730,13 +904,12 @@ jobs:
     runs-on: blacksmith-4vcpu-ubuntu-2404
     env:
       RELEASE_TAG: ${{ needs.resolve-release.outputs.release_tag }}
+      RELEASE_VERSION: ${{ needs.resolve-release.outputs.release_version }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
         with:
-          # Dispatch-based release recovery uses the workflow ref so fixes to
-          # npm release automation can run without moving an already-shipped tag.
-          ref: ${{ github.event_name == 'workflow_dispatch' && github.ref_name || env.RELEASE_TAG }}
+          ref: ${{ env.RELEASE_TAG }}
           fetch-depth: 0
 
       - name: Setup Node
@@ -772,17 +945,24 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --prefer-offline
 
-      - name: Resolve package versions
-        id: package-versions
+      # openwork-server publishes with the tag-derived version; the committed
+      # package.json holds the permanent 0.0.0-dev placeholder. Pre-redesign
+      # tags carry real committed versions and no stamp script.
+      - name: Stamp release version
         shell: bash
         run: |
-          node -e "const fs=require('fs'); const server=JSON.parse(fs.readFileSync('apps/server/package.json','utf8')); console.log('server=' + server.version);" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+          if [ -f scripts/release/stamp-version.mjs ]; then
+            node scripts/release/stamp-version.mjs --version "$RELEASE_VERSION"
+          else
+            echo "Pre-redesign tag: committed package.json versions are in effect."
+          fi
 
       - name: Check npm versions
         id: npm-versions
         shell: bash
         env:
-          SERVER_VERSION: ${{ steps.package-versions.outputs.server }}
+          SERVER_VERSION: ${{ env.RELEASE_VERSION }}
         run: |
           set -euo pipefail
           # npm view exits non-zero for packages that don't exist yet (404).
@@ -846,9 +1026,13 @@ jobs:
       needs.resolve-release.result == 'success' &&
       needs.publish-electron.result == 'success' &&
       needs.publish-release.result == 'success'
+    # AUR is a community distribution channel hosted on aur.archlinux.org.
+    # Outages there (e.g. "The AUR is down due to maintenance", 2026-08-04)
+    # must not mark an otherwise-published release run as failed.
+    continue-on-error: true
     runs-on: blacksmith-4vcpu-ubuntu-2404
     permissions:
-      contents: write
+      contents: read
     env:
       RELEASE_TAG: ${{ needs.resolve-release.outputs.release_tag }}
     steps:
@@ -858,31 +1042,15 @@ jobs:
           ref: dev
           fetch-depth: 0
 
-      - name: Update AUR packaging files
-        run: scripts/aur/update-aur.sh "$RELEASE_TAG"
-
-      - name: Commit packaging update to dev
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          if ! git status --porcelain -- packaging/aur/PKGBUILD packaging/aur/.SRCINFO | grep -q .; then
-            echo "AUR packaging already up to date in dev."
-            exit 0
-          fi
-
-          version="${RELEASE_TAG#v}"
-          git add packaging/aur/PKGBUILD packaging/aur/.SRCINFO
-          git -c user.name="OpenWork Release Bot" \
-              -c user.email="release-bot@users.noreply.github.com" \
-              commit -m "chore(aur): update PKGBUILD for ${version}"
-          git push origin HEAD:dev
-
+      # packaging/aur holds a version-agnostic template (pkgver=0.0.0).
+      # publish-aur.sh renders the real version + checksums from the published
+      # release assets in the CI workspace and pushes ONLY to the AUR remote —
+      # the commit to aur.archlinux.org is AUR's publish protocol, and nothing
+      # is ever committed to this repo.
       - name: Publish to AUR
         env:
           AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
           AUR_REPO: ${{ vars.AUR_REPO || 'openwork' }}
-          AUR_SKIP_UPDATE: "1"
         run: |
           set -euo pipefail
           if [ -z "${AUR_SSH_PRIVATE_KEY:-}" ]; then
@@ -900,14 +1068,20 @@ jobs:
       - publish-electron-assets
       - publish-npm
       - publish-daytona-snapshot
+    # publish-daytona-snapshot is allowed to FAIL without blocking the release
+    # (result != 'cancelled' instead of == 'success'): the sandbox snapshot is
+    # rebuildable after the fact by re-running this workflow with the same tag,
+    # while desktop artifacts users install and update from should never be
+    # held back by it. v0.18.15 (2026-08-05) was fully built but never
+    # published solely because this job failed.
     if: |
       always() &&
       needs.resolve-release.result == 'success' &&
       needs.verify-release.result == 'success' &&
-      (needs.publish-electron.result == 'success' || needs.publish-electron.result == 'skipped') &&
-      (needs.publish-electron-assets.result == 'success' || needs.publish-electron-assets.result == 'skipped') &&
+      (needs.resolve-release.outputs.build_electron != 'true' || needs.publish-electron.result == 'success') &&
+      (needs.resolve-release.outputs.build_electron != 'true' || needs.publish-electron-assets.result == 'success') &&
       (needs.publish-npm.result == 'success' || needs.publish-npm.result == 'skipped') &&
-      (needs.publish-daytona-snapshot.result == 'success' || needs.publish-daytona-snapshot.result == 'skipped')
+      needs.publish-daytona-snapshot.result != 'cancelled'
     runs-on: blacksmith-4vcpu-ubuntu-2404
     env:
       RELEASE_TAG: ${{ needs.resolve-release.outputs.release_tag }}
