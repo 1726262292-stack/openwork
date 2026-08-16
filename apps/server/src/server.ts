@@ -1222,8 +1222,8 @@ function createOpencodeDirectoryFetch(directory: string, fetchImpl: typeof fetch
 }
 
 type OpencodeClientResult<T, E> =
-  | { data: T | undefined; error: undefined; response: Response }
-  | { data: undefined; error: E; response: Response };
+  | { data: T | undefined; error: undefined; response?: Response }
+  | { data: undefined; error: E; response?: Response };
 
 export function createWorkspaceOpencodeClient(
   config: ServerConfig,
@@ -1260,15 +1260,16 @@ export function createWorkspaceOpencodeClient(
   });
 }
 
-function unwrapOpencodeResult<T, E>(result: OpencodeClientResult<T, E>, path: string): NonNullable<T> {
+export function unwrapOpencodeResult<T, E>(result: OpencodeClientResult<T, E>, path: string): NonNullable<T> {
   if (result.data != null) {
     return result.data;
   }
   if (result.error === undefined) {
     throw new ApiError(502, "opencode_empty_response", "OpenCode returned an empty response", { path });
   }
+  const upstreamStatus = result.response?.status;
   throw new ApiError(502, "opencode_request_failed", "OpenCode request failed", {
-    status: result.response.status,
+    ...(upstreamStatus === undefined ? {} : { status: upstreamStatus }),
     body: result.error,
     path,
   });
