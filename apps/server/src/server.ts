@@ -1307,9 +1307,8 @@ export function unwrapOpencodeResult<T, E>(result: OpencodeClientResult<T, E>, p
       path,
     });
   }
-  const upstreamStatus = result.response.status;
   throw new ApiError(502, "opencode_request_failed", "OpenCode request failed", {
-    status: upstreamStatus,
+    status: result.response.status,
     body: result.error,
     path,
   });
