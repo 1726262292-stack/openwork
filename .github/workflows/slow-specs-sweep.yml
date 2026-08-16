@@ -133,15 +133,17 @@ jobs:
 
       # The eval harness shells out to the daytona CLI (testkit daytonaAvailable
       # gate and @openwork/hosts exec). The binary is pinned to a release tag
-      # and checksum-verified before it can run with CI secrets; bump both
-      # together when upgrading (shasum -a 256 of daytona-linux-amd64).
+      # and checksum-verified before it can run with CI secrets. When bumping,
+      # take the digest from GitHub's authoritative asset metadata, never from
+      # a local download (a truncating proxy once poisoned the pin):
+      #   gh api repos/daytona/clients/releases/tags/<tag> --jq '.assets[] | select(.name == "daytona-linux-amd64") | .digest'
       - name: Install Daytona CLI
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DAYTONA_API_KEY: ${{ secrets.DAYTONA_API_KEY }}
           DAYTONA_CLI_TAG: v0.204.0
-          DAYTONA_CLI_SHA256: 4f8cdccc3959d79767e1abe62c6c9010831bc0668509522cbdb046cd92206f97
+          DAYTONA_CLI_SHA256: 76701138c2ce93c14b30e7b10f51aa5ea2a9e156777bab933a4272237d81f14d
         run: |
           set -euo pipefail
           gh release download "$DAYTONA_CLI_TAG" --repo daytona/clients --pattern daytona-linux-amd64 --output /tmp/daytona --clobber
