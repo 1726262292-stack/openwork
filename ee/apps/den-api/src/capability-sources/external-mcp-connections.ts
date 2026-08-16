@@ -1359,7 +1359,7 @@ export async function listUsableExternalMcpConnections(input: {
 export async function externalMcpConnectionReadyForMember(
   connection: ExternalMcpConnectionRow,
   orgMembershipId: OrgMembershipId,
-  readAccount: typeof readConnectedAccountForExternalMcpIdentity = readConnectedAccountForExternalMcpIdentity,
+  readAccount: typeof readConnectedAccountForExternalMcpIdentity = readConnectedAccountForExternalMcpReadiness,
 ): Promise<boolean> {
   if (connection.oauthIssuerReviewRequiredAt) return false
   if (connection.authType === "none") return true
@@ -1391,7 +1391,7 @@ export async function listReadyExternalMcpConnections(input: {
 export async function readyExternalMcpConnectionsForMember(
   connections: ExternalMcpConnectionRow[],
   orgMembershipId: OrgMembershipId,
-  readAccount: typeof readConnectedAccountForExternalMcpIdentity = readConnectedAccountForExternalMcpIdentity,
+  readAccount: typeof readConnectedAccountForExternalMcpIdentity = readConnectedAccountForExternalMcpReadiness,
 ): Promise<ExternalMcpConnectionRow[]> {
   const readiness = await Promise.all(connections.map(async (connection) => ({
     connection,
@@ -1570,6 +1570,43 @@ function sameExternalMcpIdentity(
     && normalizeExternalMcpIdentityUrl(current.url) === normalizeExternalMcpIdentityUrl(expected.url)
     && current.authType === expected.authType
     && current.credentialMode === expected.credentialMode
+}
+
+async function readExternalMcpConnectionForIdentity(
+  connection: ExternalMcpConnectionRow,
+): Promise<ExternalMcpConnectionRow | null> {
+  const rows = await db
+    .select()
+    .from(ExternalMcpConnectionTable)
+    .where(and(
+      eq(ExternalMcpConnectionTable.organizationId, connection.organizationId),
+      eq(ExternalMcpConnectionTable.id, connection.id),
+    ))
+    .limit(1)
+  return rows[0] ?? null
+}
+
+async function readConnectedAccountForExternalMcpReadiness(input: {
+  connection: ExternalMcpConnectionRow
+  orgMembershipId: OrgMembershipId
+}): Promise<ExternalMcpIdentityRead<typeof ConnectedAccountTable.$inferSelect>> {
+  const beforeAccountRead = await readExternalMcpConnectionForIdentity(input.connection)
+  if (!beforeAccountRead || !sameExternalMcpIdentity(beforeAccountRead, input.connection)) return { current: false }
+  const rows = await db
+    .select()
+    .from(ConnectedAccountTable)
+    .where(and(
+      eq(ConnectedAccountTable.organizationId, input.connection.organizationId),
+      eq(ConnectedAccountTable.orgMembershipId, input.orgMembershipId),
+      eq(ConnectedAccountTable.providerId, input.connection.id),
+    ))
+    .limit(1)
+  const afterAccountRead = await readExternalMcpConnectionForIdentity(input.connection)
+  if (!afterAccountRead || !sameExternalMcpIdentity(afterAccountRead, input.connection)) return { current: false }
+  const value = rows[0]
+    ? { ...rows[0], scopes: normalizeConnectedAccountScopes(rows[0].scopes) }
+    : null
+  return { current: true, value }
 }
 
 async function lockExternalMcpIdentity(
