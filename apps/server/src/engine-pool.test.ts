@@ -7,6 +7,7 @@ import {
   clearEnginePoolForConfig,
   EnginePool,
   computeEngineConfigFingerprint,
+  isEngineConnectionFailure,
   setEnginePoolForConfig,
   type EnginePoolHooks,
   type EngineSpawnTemplate,
@@ -258,6 +259,14 @@ async function createPool(fixture: Fixture): Promise<{ pool: EnginePool; primary
 }
 
 describe("engine pool", () => {
+  test("classifies undici header timeouts as engine connection failures", () => {
+    const error = new TypeError("fetch failed", {
+      cause: { code: "UND_ERR_HEADERS_TIMEOUT", message: "Headers Timeout Error" },
+    });
+
+    expect(isEngineConnectionFailure(error)).toBe(true);
+  });
+
   test("skips entirely when nothing the engine reads at build time changed", async () => {
     const fixture = await createFixture();
     const { pool } = await createPool(fixture);

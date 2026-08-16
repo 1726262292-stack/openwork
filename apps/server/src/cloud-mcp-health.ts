@@ -1659,7 +1659,7 @@ async function readOpencodeVersion(opencode: WorkspaceOpencodeClient): Promise<C
       expectedVersion: null,
       actualVersion: null,
       probe: "unavailable",
-      error: sanitizeDiagnosticValue({ status: result.response.status, error: result.error }),
+      error: sanitizeDiagnosticValue({ status: result.response?.status, error: result.error }),
     };
   } catch (error) {
     return {
@@ -2394,7 +2394,7 @@ export async function refreshOpenworkCloudMcpEngine(input: {
       ok: result.error === undefined,
       latencyMs: Date.now() - disconnectStarted,
       ...(result.error !== undefined
-        ? { detail: sanitizeDiagnosticValue({ status: result.response.status, error: result.error }) }
+        ? { detail: sanitizeDiagnosticValue({ status: result.response?.status, error: result.error }) }
         : {}),
     });
   } catch (error) {
