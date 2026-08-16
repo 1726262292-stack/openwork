@@ -7,15 +7,13 @@ export function parseFrontmatter(content: string): { data: Record<string, unknow
   }
   const raw = match[1] ?? "";
   const body = content.slice(match[0].length);
-  try {
-    const parsed: unknown = parse(raw);
-    const data = typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
-      ? Object.fromEntries(Object.entries(parsed))
-      : {};
-    return { data, body };
-  } catch {
-    return { data: {}, body };
-  }
+  // Malformed YAML throws (callers like listSkills catch it to surface a
+  // visible per-item error); non-mapping YAML normalizes to an empty record.
+  const parsed: unknown = parse(raw);
+  const data = typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
+    ? Object.fromEntries(Object.entries(parsed))
+    : {};
+  return { data, body };
 }
 
 export function buildFrontmatter(data: Record<string, unknown>): string {
