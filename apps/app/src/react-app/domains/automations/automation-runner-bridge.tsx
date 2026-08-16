@@ -2,7 +2,7 @@
 import { useEffect } from "react"
 import { AUTOMATION_MODEL_ATTENTION_CAPABILITY } from "@openwork/types/automations"
 
-import { createDenClient, readDenSettings } from "@/app/lib/den"
+import { createDenClient, DenApiError, readDenSettings } from "@/app/lib/den"
 import { denSettingsChangedEvent } from "@/app/lib/den-session-events"
 import { isDesktopRuntime } from "@/app/utils"
 import { useDenAuth } from "@/react-app/domains/cloud/den-auth-provider"
@@ -16,6 +16,11 @@ function desktopRunnerId() {
   const created = crypto.randomUUID()
   localStorage.setItem(RUNNER_ID_KEY, created)
   return created
+}
+
+function resetDesktopRunnerId() {
+  localStorage.removeItem(RUNNER_ID_KEY)
+  return desktopRunnerId()
 }
 
 /** Keeps this signed-in, preview-enabled desktop registered as the owner's Automation runner. */
@@ -47,19 +52,36 @@ export function AutomationRunnerBridge({ enabled }: { enabled: boolean }) {
       }
       try {
         const client = createDenClient({ baseUrl: settings.baseUrl, token: authToken })
-        const runnerId = desktopRunnerId()
+        let runnerId = desktopRunnerId()
         const build = await window.__OPENWORK_ELECTRON__?.invokeDesktop?.("appBuildInfo")
         const agent = navigator.userAgent
         const platform = /Mac/i.test(agent) ? "darwin" : /Win/i.test(agent) ? "win32" : "linux"
-        const runner = await client.mintAutomationRunnerToken(organizationId, {
-          runnerId,
-          protocolVersion: 1,
-          supportedExecutionTargets: ["desktop"],
-          capabilities: [AUTOMATION_MODEL_ATTENTION_CAPABILITY],
-          appVersion: String(build?.version ?? "unknown"),
-          platform,
-          concurrency: 1,
-        })
+        let runner: Awaited<ReturnType<typeof client.mintAutomationRunnerToken>>
+        try {
+          runner = await client.mintAutomationRunnerToken(organizationId, {
+            runnerId,
+            protocolVersion: 1,
+            supportedExecutionTargets: ["desktop"],
+            capabilities: [AUTOMATION_MODEL_ATTENTION_CAPABILITY],
+            appVersion: String(build?.version ?? "unknown"),
+            platform,
+            concurrency: 1,
+          })
+        } catch (error) {
+          if (!(error instanceof DenApiError) || error.status !== 409 || error.code !== "automation_runner_identity_conflict") {
+            throw error
+          }
+          runnerId = resetDesktopRunnerId()
+          runner = await client.mintAutomationRunnerToken(organizationId, {
+            runnerId,
+            protocolVersion: 1,
+            supportedExecutionTargets: ["desktop"],
+            capabilities: [AUTOMATION_MODEL_ATTENTION_CAPABILITY],
+            appVersion: String(build?.version ?? "unknown"),
+            platform,
+            concurrency: 1,
+          })
+        }
         if (disposed) return
         await window.__OPENWORK_ELECTRON__?.invokeDesktop?.("automationRunnerConfigure", {
           baseUrl: client.baseUrls.apiBaseUrl,
