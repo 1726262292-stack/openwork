@@ -17,6 +17,9 @@ permissions:
 jobs:
   smoke:
     runs-on: ubuntu-latest
+    # WARDEN_PRIVATE_KEY is environment-scoped; the smoke branch is
+    # temporarily allowed on the environment's deployment policy.
+    environment: warden-clearance
     steps:
       - name: Checkout
         uses: actions/checkout@v6

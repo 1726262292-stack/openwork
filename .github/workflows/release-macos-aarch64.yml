@@ -81,6 +81,10 @@ jobs:
   resolve-release:
     name: Resolve Release Metadata
     runs-on: ubuntu-latest
+    # WARDEN_PRIVATE_KEY lives in this environment; its deployment policy
+    # (dev + v* tags) means the key is only reachable from reviewed code —
+    # a feature-branch workflow edit cannot mint the tag-push token.
+    environment: warden-clearance
     # Fresh dispatch cuts push their tag with the diff-warden app token, and
     # app-token pushes DO retrigger this workflow via push (unlike
     # GITHUB_TOKEN). The dispatch run that created the tag owns the release,
