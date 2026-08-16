@@ -79,6 +79,7 @@ import {
   initOpenworkSentry,
   setOpenworkSentrySession,
 } from "./sentry.mjs";
+import { installStdioErrorHandlers } from "./stdio-errors.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const APP_ROOT = path.resolve(__dirname, "../../..");
@@ -120,6 +121,7 @@ const BLANK_SLATE_LAUNCH = resolveBlankSlateLaunch({
 });
 const APP_NAME = BLANK_SLATE_LAUNCH.appName;
 let currentDisplayAppName = APP_NAME;
+installStdioErrorHandlers();
 await initOpenworkSentry({
   app,
   distribution: DESKTOP_DISTRIBUTION,
