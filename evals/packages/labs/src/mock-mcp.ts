@@ -48,6 +48,8 @@ export interface StartMockMcpOptions {
   port?: number;
   scriptPath?: string;
   publicUrl?: string;
+  /** Advertised OAuth/resource origin when the mock sits behind a proxy; defaults to the mock's own URL. */
+  issuer?: string;
   profileId?: EnterpriseMcpProfileId;
   oauthClientSecret?: string;
   allowUnauthenticatedMcp?: boolean;
@@ -263,7 +265,7 @@ export async function startMockMcp(options: StartMockMcpOptions = {}): Promise<M
         ...process.env,
         HOST: "0.0.0.0",
         PORT: String(port),
-        ISSUER: url,
+        ISSUER: options.issuer ?? url,
         AUTO_APPROVE: "1",
         ...(options.allowUnauthenticatedMcp ? { MOCK_ALLOW_UNAUTHENTICATED_MCP: "1" } : {}),
       },
