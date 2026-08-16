@@ -170,3 +170,21 @@ jobs:
 
       - name: Run e2e tests
         run: pnpm --filter @openwork/app test:e2e
+
+  # Single stable context for branch rulesets to require. Green only when
+  # every openwork-tests matrix leg succeeded; runs even when legs fail or
+  # are cancelled so the required check always reports instead of hanging.
+  openwork-tests-required:
+    needs: openwork-tests
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every openwork-tests matrix leg to pass
+        env:
+          RESULT: ${{ needs.openwork-tests.result }}
+        run: |
+          echo "openwork-tests result: $RESULT"
+          if [ "$RESULT" != "success" ]; then
+            echo "One or more OpenWork Tests matrix legs did not succeed; blocking merge." >&2
+            exit 1
+          fi
