@@ -47,6 +47,11 @@ import {
   resolveCodemodeConnectionNamespaceContext,
   type CodemodeConnectionNamespaceContext,
 } from "./codemode-namespaces.js"
+import {
+  getExternalToolsSearchCache,
+  setExternalToolsSearchCache,
+  type ExternalToolsSearchCacheKey,
+} from "./external-tools-search-cache.js"
 
 /**
  * Merges org-level External MCP Connections (capability-sources/) into the
@@ -68,8 +73,10 @@ import {
 
 const EXTERNAL_CAPABILITY_PREFIX = "mcp:"
 export const EXTERNAL_MCP_SEARCH_CONNECTION_LIMIT = CODEMODE_EXTERNAL_MCP_CONNECTION_LIMIT
-export const EXTERNAL_MCP_SEARCH_CONCURRENCY = 4
+export const EXTERNAL_MCP_SEARCH_CONCURRENCY = 8
 export const EXTERNAL_MCP_SEARCH_MATCH_LIMIT = 20
+const EXTERNAL_MCP_SEARCH_REQUEST_TIMEOUT_MS = 5_000
+const EXTERNAL_MCP_SEARCH_LIFECYCLE_TIMEOUT_MS = 8_000
 
 export function buildExternalCapabilityName(connectionId: string, toolName: string): string {
   return `${EXTERNAL_CAPABILITY_PREFIX}${connectionId}:${toolName}`
@@ -711,15 +718,31 @@ async function probeExternalMcpConnection(input: {
     ? { orgMembershipId: input.member.orgMembershipId }
     : undefined
   let tools: Awaited<ReturnType<typeof listExternalMcpTools>>
+  const cacheKey: ExternalToolsSearchCacheKey = {
+    organizationId: connection.organizationId,
+    connectionId: connection.id,
+    updatedAt: connection.updatedAt,
+    credentialMode: connection.credentialMode,
+    ...(connection.credentialMode === "per_member" ? { orgMembershipId: input.member.orgMembershipId } : {}),
+  }
+  const cachedProbe = getExternalToolsSearchCache(cacheKey)
   try {
-    tools = await listExternalMcpTools(
-      connection,
-      redirectUriFor(input.redirectUriBase, connection.id),
-      member,
-      undefined,
-      input.deadline,
-    )
+    if (cachedProbe?.outcome === "failure") throw cachedProbe.error
+    if (cachedProbe?.outcome === "success") {
+      tools = cachedProbe.tools
+    } else {
+      tools = await listExternalMcpTools(
+        connection,
+        redirectUriFor(input.redirectUriBase, connection.id),
+        member,
+        undefined,
+        input.deadline,
+        EXTERNAL_MCP_SEARCH_REQUEST_TIMEOUT_MS,
+      )
+      setExternalToolsSearchCache(cacheKey, { outcome: "success", tools })
+    }
   } catch (error) {
+    if (!cachedProbe) setExternalToolsSearchCache(cacheKey, { outcome: "failure", error })
     const message = upstreamErrorMessage(error)
     const diagnostic = error instanceof ExternalMcpDiagnosticError ? error.diagnostic : undefined
     const nameTokens = tokenize(connection.name)
@@ -800,7 +823,7 @@ export async function searchExternalCapabilities(input: {
   const requestedLimit = input.limit ?? 5
   if (!Number.isFinite(requestedLimit) || requestedLimit <= 0) return []
   const limit = Math.min(Math.max(1, Math.trunc(requestedLimit)), EXTERNAL_MCP_SEARCH_MATCH_LIMIT)
-  const deadline = createExternalMcpLifecycleDeadline()
+  const deadline = createExternalMcpLifecycleDeadline(EXTERNAL_MCP_SEARCH_LIFECYCLE_TIMEOUT_MS)
   const namespaceContext = input.includeScriptPaths
     ? input.namespaceContext ?? await resolveCodemodeConnectionNamespaceContext({
       organizationId: input.organizationId,
