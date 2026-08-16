@@ -1,0 +1,40 @@
+# TEMPORARY — deleted before merge. Proves the diff-warden app token can
+# create and delete v* tags through the ruleset, and that the duplicate
+# Release App run triggered by the app's tag push is skipped by the actor
+# guard (the smoke tag points at this branch's HEAD, so the triggered run
+# evaluates the guarded workflow).
+name: Release Tag Push Smoke
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Mint tag-push token
+        id: tag-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          app-id: ${{ secrets.WARDEN_APP_ID }}
+          private-key: ${{ secrets.WARDEN_PRIVATE_KEY }}
+
+      - name: Push and delete a v* smoke tag through the ruleset
+        shell: bash
+        env:
+          TAG_PUSH_TOKEN: ${{ steps.tag-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          TAG="v0.0.0-tagsmoke-${GITHUB_RUN_ID}"
+          REMOTE="https://x-access-token:${TAG_PUSH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git tag "$TAG" HEAD
+          git push "$REMOTE" "refs/tags/${TAG}"
+          echo "Created ${TAG} through the v* ruleset as diff-warden."
+          git push "$REMOTE" ":refs/tags/${TAG}"
+          echo "Deleted ${TAG} through the v* ruleset as diff-warden."

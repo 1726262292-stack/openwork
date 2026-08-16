@@ -81,6 +81,12 @@ jobs:
   resolve-release:
     name: Resolve Release Metadata
     runs-on: ubuntu-latest
+    # Fresh dispatch cuts push their tag with the diff-warden app token, and
+    # app-token pushes DO retrigger this workflow via push (unlike
+    # GITHUB_TOKEN). The dispatch run that created the tag owns the release,
+    # so the duplicate push run skips here — and with it every job that
+    # needs resolve-release.
+    if: github.event_name != 'push' || github.actor != 'diff-warden[bot]'
     outputs:
       release_tag: ${{ steps.resolve.outputs.release_tag }}
       release_version: ${{ steps.resolve.outputs.release_version }}
@@ -107,6 +113,18 @@ jobs:
         with:
           node-version: 24
 
+      # The built-in GitHub Actions app cannot be a ruleset bypass actor
+      # (GitHub rejects it), so fresh cuts push their tag as the org-owned
+      # diff-warden app, which is on the v* ruleset bypass list.
+      - name: Mint tag-push token
+        id: tag-token
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.tag == ''
+        continue-on-error: true
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          app-id: ${{ secrets.WARDEN_APP_ID }}
+          private-key: ${{ secrets.WARDEN_PRIVATE_KEY }}
+
       - name: Resolve release tag
         id: tag
         shell: bash
@@ -114,6 +132,7 @@ jobs:
           INPUT_TAG: ${{ github.event.inputs.tag }}
           INPUT_VERSION: ${{ github.event.inputs.version }}
           INPUT_BUMP: ${{ github.event.inputs.bump }}
+          TAG_PUSH_TOKEN: ${{ steps.tag-token.outputs.token }}
         run: |
           set -euo pipefail
 
@@ -150,11 +169,18 @@ jobs:
             fi
             git fetch origin dev
             git tag "$TAG" origin/dev
-            # A GITHUB_TOKEN tag push does not retrigger tag workflows, so
-            # this run continues as THE release run (no double-trigger). The
-            # v* tag ruleset must list GitHub Actions as a bypass actor.
-            if ! git push origin "refs/tags/${TAG}"; then
-              echo "::error::Pushing ${TAG} was rejected by the v* tag ruleset. Add the GitHub Actions principal to its bypass list (Settings → Rules → v* tags), or push the tag manually and rerun." >&2
+            # Push as the diff-warden app (v* ruleset bypass actor). The
+            # app-token push retriggers this workflow, but the duplicate run
+            # is skipped by the actor guard on this job. Falls back to
+            # GITHUB_TOKEN when the app secrets are unavailable.
+            if [ -n "${TAG_PUSH_TOKEN:-}" ]; then
+              PUSH_REMOTE="https://x-access-token:${TAG_PUSH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+            else
+              echo "::warning::diff-warden app token unavailable (WARDEN_APP_ID / WARDEN_PRIVATE_KEY); trying GITHUB_TOKEN."
+              PUSH_REMOTE="origin"
+            fi
+            if ! git push "$PUSH_REMOTE" "refs/tags/${TAG}"; then
+              echo "::error::Pushing ${TAG} was rejected by the v* tag ruleset. Ensure the diff-warden app is on its bypass list (Settings → Rules → Protect v* release tags), or push the tag manually as an admin and rerun." >&2
               exit 1
             fi
             echo "Created ${TAG} at $(git rev-parse "${TAG}^{commit}") (origin/dev HEAD)."
