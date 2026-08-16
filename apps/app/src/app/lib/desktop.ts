@@ -538,6 +538,7 @@ export function readDesktopDistributionInfo(): DesktopDistributionInfo {
 
 const {
   engineStart,
+  engineV2Preview,
   workspaceBootstrap,
   workspaceSetSelected,
   workspaceSetRuntimeActive,
@@ -593,6 +594,7 @@ const {
 
 export {
   engineStart,
+  engineV2Preview,
   workspaceBootstrap,
   workspaceSetSelected,
   workspaceSetRuntimeActive,

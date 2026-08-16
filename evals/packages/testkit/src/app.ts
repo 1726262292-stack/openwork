@@ -11,6 +11,8 @@ export interface AppOptions {
   place: Place;
   host?: Host;
   model?: string;
+  /** Extra Electron environment; testkit's built-in eval settings win on conflict. */
+  env?: Record<string, string>;
   /** Reuse this caller-owned local Electron profile root instead of creating one. */
   profileDir?: string;
   /** Eval-only delay before the desktop starts its embedded OpenWork server. */
@@ -30,7 +32,7 @@ export async function app(options: AppOptions): Promise<App> {
     const available = ["admin", ...Object.keys(options.den.members)].join(", ");
     throw new Error(`Unknown Den member ${JSON.stringify(options.as)}. Available: ${available}`);
   }
-  const env: Record<string, string> = {};
+  const env: Record<string, string> = { ...options.env };
   if (options.model) env.OPENWORK_EVAL_MODEL = options.model;
   if (options.localServerDelayMs !== undefined) {
     env.OPENWORK_EVAL_LOCAL_SERVER_DELAY_MS = String(options.localServerDelayMs);

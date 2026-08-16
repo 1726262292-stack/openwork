@@ -821,6 +821,7 @@ export function AdvancedDeveloperSection(props: AdvancedDeveloperSectionProps) {
           <LayoutSectionItemDescription>{t("settings.developer_mode_desc")}</LayoutSectionItemDescription>
           <LayoutSectionItemHeaderActions>
             <Switch
+              data-testid="developer-mode-toggle"
               aria-label={t("settings.developer_mode_title")}
               checked={props.developerMode}
               onCheckedChange={props.onToggleDeveloperMode}

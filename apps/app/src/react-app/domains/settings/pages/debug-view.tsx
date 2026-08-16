@@ -36,6 +36,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Switch } from "@/components/ui/switch";
 import {
   AgentContextDiagnosticsSection,
   type AgentContextDiagnosticsSectionProps,
@@ -103,6 +104,10 @@ export type DebugViewProps = {
   startupLabel: string;
   startupStatus: string | null;
   runtimeSummary: RuntimeSummary;
+  opencodeVersionLabel: string;
+  v2PreviewActive: boolean;
+  v2PreviewBusy: boolean;
+  onToggleV2Preview: (enabled: boolean) => void | Promise<void>;
   runtimeDebugReportJson: string;
   bootstrapConfigDebugJson: string;
   runtimeConfigStatus: OpenworkRuntimeConfigStatus | null;
@@ -938,6 +943,36 @@ export function DebugView(props: DebugViewProps) {
                 <div className="text-[11px] text-dls-secondary">{t("settings.custom_binary_hint")}</div>
               </div>
             ) : null}
+
+            <div className="flex items-center justify-between gap-4 rounded-xl border border-dls-border bg-dls-surface p-3">
+              <div className="min-w-0 space-y-1">
+                <div className="flex items-center gap-2 text-[12px] font-medium text-dls-text">
+                  <span>{t("settings.debug_opencode_version", { version: "" })}</span>
+                  <span data-testid="engine-version-label" className="font-mono">
+                    {props.opencodeVersionLabel}
+                  </span>
+                  {props.v2PreviewActive ? (
+                    <span className="rounded-full bg-indigo-7/10 px-2 py-0.5 text-[10px] font-medium text-indigo-11">
+                      {t("settings.engine_v2_preview_badge")}
+                    </span>
+                  ) : null}
+                </div>
+                <div className="text-[12px] font-medium text-dls-text">
+                  {t("settings.engine_v2_preview")}
+                </div>
+                <div className="text-[11px] text-dls-secondary">
+                  {t("settings.engine_v2_preview_desc")}
+                </div>
+              </div>
+              <Switch
+                data-testid="engine-v2-preview-toggle"
+                aria-label={t("settings.engine_v2_preview")}
+                aria-busy={props.v2PreviewBusy}
+                checked={props.v2PreviewActive}
+                disabled={props.busy || props.v2PreviewBusy}
+                onCheckedChange={(enabled) => void props.onToggleV2Preview(enabled)}
+              />
+            </div>
           </div>
         ) : null}
 

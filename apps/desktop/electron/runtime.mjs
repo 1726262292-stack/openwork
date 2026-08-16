@@ -1,7 +1,8 @@
 import { randomUUID, X509Certificate } from "node:crypto";
-import { spawnSync } from "node:child_process";
+import { execFile, spawnSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
-import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { access, chmod, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { constants as fsConstants } from "node:fs";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -234,6 +235,40 @@ export function embeddedServerImportUrl(embeddedPath) {
   return url.href;
 }
 
+export function v2PreviewDownloadSpec(platform, arch, version) {
+  const supported = new Set([
+    "darwin-arm64",
+    "darwin-x64",
+    "linux-x64",
+    "linux-arm64",
+    "win32-x64",
+  ]);
+  const key = `${platform}-${arch}`;
+  if (!supported.has(key)) {
+    throw new Error(`OpenCode v2 preview is not available for ${key}`);
+  }
+  const packagePlatform = platform === "win32" ? "windows" : platform;
+  const packageName = `opencode-${packagePlatform}-${arch}`;
+  return {
+    url: `https://registry.npmjs.org/${packageName}/-/${packageName}-${version}.tgz`,
+    packageName,
+    binRelPath: `package/bin/${platform === "win32" ? "opencode.exe" : "opencode"}`,
+  };
+}
+
+export function resolveV2PreviewBinPath({ envPath, cacheDir, version, platform }) {
+  const override = typeof envPath === "string" ? envPath.trim() : "";
+  if (override) return override;
+  return path.join(
+    cacheDir,
+    "opencode-v2-preview",
+    version,
+    "package",
+    "bin",
+    platform === "win32" ? "opencode.exe" : "opencode",
+  );
+}
+
 function nowMs() {
   return Date.now();
 }
@@ -251,6 +286,8 @@ function createEngineState() {
     opencodePassword: null,
     opencodeBinPath: null,
     opencodeBinSource: null,
+    opencodeVersion: null,
+    v2Preview: false,
     managedByServer: false,
     managedPid: null,
     managedIsAlive: null,
@@ -283,6 +320,8 @@ export function snapshotEngineState(state) {
     opencodePassword: state.opencodePassword,
     opencodeBinPath: state.opencodeBinPath,
     opencodeBinSource: state.opencodeBinSource,
+    opencodeVersion: state.opencodeVersion ?? null,
+    v2Preview: state.v2Preview === true,
     pid: state.managedByServer ? state.managedPid ?? null : child?.pid ?? null,
     lastStdout: state.lastStdout,
     lastStderr: state.lastStderr,
@@ -1616,6 +1655,71 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     };
   }
 
+  async function probeOpencodeVersion(program) {
+    if (!program) return null;
+    return new Promise((resolve) => {
+      execFile(program, ["--version"], { encoding: "utf8", timeout: 5000, windowsHide: true }, (error, stdout) => {
+        resolve(error ? null : stdout.trim() || null);
+      });
+    });
+  }
+
+  async function previewVersion() {
+    const constantsPath = path.resolve(desktopRoot, "../../constants.json");
+    const payload = JSON.parse(await readFile(constantsPath, "utf8"));
+    const version = String(payload?.opencodeV2PreviewVersion ?? "").trim();
+    if (!version) throw new Error("constants.json is missing opencodeV2PreviewVersion");
+    return version;
+  }
+
+  async function isExecutable(filePath) {
+    try {
+      await access(filePath, process.platform === "win32" ? fsConstants.F_OK : fsConstants.X_OK);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async function ensureV2PreviewBinary() {
+    const version = await previewVersion();
+    const envPath = process.env.OPENWORK_OPENCODE_V2_BIN;
+    const binPath = resolveV2PreviewBinPath({ envPath, cacheDir: userDataDir, version, platform: process.platform });
+    if (typeof envPath === "string" && envPath.trim()) {
+      if (!existsSync(binPath)) {
+        throw new Error(`OPENWORK_OPENCODE_V2_BIN does not exist: ${binPath}`);
+      }
+      return binPath;
+    }
+    if (await isExecutable(binPath)) return binPath;
+
+    const spec = v2PreviewDownloadSpec(process.platform, process.arch, version);
+    const installDir = path.dirname(path.dirname(path.dirname(binPath)));
+    const archivePath = path.join(installDir, `${spec.packageName}.tgz`);
+    await mkdir(installDir, { recursive: true });
+    console.info(`[runtime] downloading OpenCode v2 preview ${version}`);
+    try {
+      const download = await runShellCommand("curl", ["-fL", "--output", archivePath, spec.url], { timeoutMs: 180_000 });
+      if (download.status !== 0) {
+        throw new Error(download.stderr.trim() || `curl exited with status ${download.status}`);
+      }
+      const extract = await runShellCommand("tar", ["-xzf", archivePath, "-C", installDir], { timeoutMs: 180_000 });
+      if (extract.status !== 0) {
+        throw new Error(extract.stderr.trim() || `tar exited with status ${extract.status}`);
+      }
+      if (!existsSync(binPath)) throw new Error(`OpenCode v2 preview archive did not contain ${spec.binRelPath}`);
+      if (process.platform !== "win32") await chmod(binPath, 0o755);
+      if (process.platform === "darwin") {
+        const signed = await runShellCommand("codesign", ["--force", "-s", "-", binPath], { timeoutMs: 30_000 });
+        if (signed.status !== 0) console.warn(`[runtime] OpenCode v2 preview ad-hoc codesign failed: ${signed.stderr.trim()}`);
+      }
+    } finally {
+      await rm(archivePath, { force: true });
+    }
+    console.info(`[runtime] OpenCode v2 preview ready at ${binPath}`);
+    return binPath;
+  }
+
   function engineDoctor(options = {}) {
     const resolved = resolveOpencodeBinary(options?.opencodeBinPath);
     if (!resolved?.path) {
@@ -1799,6 +1903,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     if (options.manageOpencode) {
       engineState.opencodeBinPath = managedOpencode?.path ?? null;
       engineState.opencodeBinSource = managedOpencode?.source ?? null;
+      engineState.opencodeVersion = await probeOpencodeVersion(managedOpencode?.path);
     }
 
     // Inject user env vars so the server and managed OpenCode inherit them.
@@ -2012,6 +2117,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
       engineState.projectDir = safeProjectDir;
       engineState.child = null;
       engineState.childExited = true;
+      engineState.v2Preview = options.v2Preview === true;
 
       await ensureOpenwork({
         projectDir: safeProjectDir,
@@ -2045,16 +2151,52 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     const openworkRemoteAccess = typeof options.openworkRemoteAccess === "boolean"
       ? options.openworkRemoteAccess
       : openworkServerState.remoteAccessEnabled;
+    const v2Preview = engineState.v2Preview === true;
+    const opencodeBinPath = v2Preview ? engineState.opencodeBinPath : undefined;
     return engineStart(projectDir, {
       runtime: engineState.runtime,
       workspacePaths: [projectDir],
       opencodeEnableExa: options.opencodeEnableExa,
       openworkRemoteAccess,
+      opencodeBinPath,
+      v2Preview,
       ...(typeof options.engineRollover === "boolean"
         ? { engineRollover: options.engineRollover }
         : {}),
       forceRestart: true,
     });
+  }
+
+  async function engineV2Preview(projectDir, options = {}) {
+    const safeProjectDir = String(projectDir ?? "").trim();
+    if (!safeProjectDir) throw new Error("projectDir is required");
+    if (options.enabled === true) {
+      const opencodeBinPath = await ensureV2PreviewBinary();
+      return engineStart(safeProjectDir, {
+        workspacePaths: [safeProjectDir],
+        openworkRemoteAccess: openworkServerState.remoteAccessEnabled,
+        opencodeBinPath,
+        v2Preview: true,
+        forceRestart: true,
+      });
+    }
+
+    engineState.v2Preview = false;
+    engineState.opencodeBinPath = null;
+    engineState.opencodeBinSource = null;
+    openworkServerState.managedOpencodeBinPath = null;
+    openworkServerState.managedOpencodeBinSource = null;
+    await engineStart(safeProjectDir, {
+      workspacePaths: [safeProjectDir],
+      openworkRemoteAccess: openworkServerState.remoteAccessEnabled,
+      v2Preview: false,
+      forceRestart: true,
+    });
+    engineState.opencodeBinPath = null;
+    engineState.opencodeBinSource = null;
+    openworkServerState.managedOpencodeBinPath = null;
+    openworkServerState.managedOpencodeBinSource = null;
+    return snapshotEngineState(engineState);
   }
 
   async function engineInfo() {
@@ -2080,7 +2222,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
   async function openworkServerRestart(options = {}) {
     const workspacePaths = prioritizeWorkspacePaths(engineState.projectDir, await listLocalWorkspacePaths());
     const shouldManageOpencode = Boolean(
-      openworkServerState.managedOpencodeBinPath || engineState.opencodeBinPath || !engineState.baseUrl,
+      engineState.managedByServer || openworkServerState.managedOpencodeBinPath || engineState.opencodeBinPath || !engineState.baseUrl,
     );
     return startOpenworkServer({
       workspacePaths,
@@ -2174,6 +2316,7 @@ export function createRuntimeManager({ app, desktopRoot, listLocalWorkspacePaths
     engineStart: (projectDir, options) => withRuntimeLifecycle(() => engineStart(projectDir, options)),
     engineStop: () => withRuntimeLifecycle(() => engineStop()),
     engineRestart: (options) => withRuntimeLifecycle(() => engineRestart(options)),
+    engineV2Preview: (projectDir, options) => withRuntimeLifecycle(() => engineV2Preview(projectDir, options)),
     prepareFreshRuntime: () => withRuntimeLifecycle(() => prepareFreshRuntime()),
     dispose: () => withRuntimeLifecycle(() => stopAllRuntimeChildren()),
     runtimeStatus,

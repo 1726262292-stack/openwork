@@ -1741,6 +1741,11 @@ const desktopCommandHandlers = {
       const options = args[1] ?? {};
       return runtimeManager.engineStart(projectDir, options);
   },
+  "engineV2Preview": async (event, ...args) => {
+      const projectDir = String(args[0] ?? "").trim();
+      const options = args[1] ?? { enabled: false };
+      return runtimeManager.engineV2Preview(projectDir, options);
+  },
   "prepareFreshRuntime": async (event, ...args) => {
       return runtimeManager.prepareFreshRuntime();
   },

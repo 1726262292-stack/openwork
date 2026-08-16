@@ -10,6 +10,7 @@ import {
   embeddedServerImportUrl,
   prioritizeWorkspacePaths,
   resetRuntimeStatesAfterFailedServerStart,
+  resolveV2PreviewBinPath,
   resolveEngineRolloverPreference,
   resolveEvalLocalServerDelayMs,
   resolveOpenworkServerConfigPath,
@@ -17,6 +18,7 @@ import {
   selectStickyOpenworkPortWorkspace,
   snapshotEngineState,
   snapshotOpenworkServerState,
+  v2PreviewDownloadSpec,
 } from "./runtime.mjs";
 
 describe("bundled OpenCode runtime", () => {
@@ -27,6 +29,36 @@ describe("bundled OpenCode runtime", () => {
     // OpenCode #40990 stops old assistant messages with lexicographically
     // later IDs from short-circuiting a newly appended user turn.
     assert.equal(constants.opencodeVersion, "v1.18.18");
+  });
+});
+
+describe("OpenCode v2 preview binary", () => {
+  it("maps supported npm platform packages", () => {
+    const version = "0.0.0-beta-202608110357";
+    for (const [platform, arch, packageName] of [
+      ["darwin", "arm64", "opencode-darwin-arm64"],
+      ["darwin", "x64", "opencode-darwin-x64"],
+      ["linux", "x64", "opencode-linux-x64"],
+      ["linux", "arm64", "opencode-linux-arm64"],
+      ["win32", "x64", "opencode-windows-x64"],
+    ]) {
+      const spec = v2PreviewDownloadSpec(platform, arch, version);
+      assert.equal(spec.packageName, packageName);
+      assert.equal(spec.url, `https://registry.npmjs.org/${packageName}/-/${packageName}-${version}.tgz`);
+    }
+    assert.equal(v2PreviewDownloadSpec("win32", "x64", version).binRelPath, "package/bin/opencode.exe");
+    assert.throws(() => v2PreviewDownloadSpec("win32", "arm64", version), /not available/);
+  });
+
+  it("prefers a trimmed env override and otherwise uses the versioned cache", () => {
+    assert.equal(
+      resolveV2PreviewBinPath({ envPath: "  /custom/opencode  ", cacheDir: "/cache", version: "beta", platform: "linux" }),
+      "/custom/opencode",
+    );
+    assert.equal(
+      resolveV2PreviewBinPath({ envPath: " ", cacheDir: "/cache", version: "beta", platform: "win32" }),
+      path.join("/cache", "opencode-v2-preview", "beta", "package", "bin", "opencode.exe"),
+    );
   });
 });
 
@@ -214,6 +246,8 @@ describe("snapshotEngineState", () => {
     assert.equal(snapshot.running, true);
     assert.equal(snapshot.managedByServer, true);
     assert.equal(snapshot.pid, 12345);
+    assert.equal(snapshot.opencodeVersion, null);
+    assert.equal(snapshot.v2Preview, false);
   });
 });
 

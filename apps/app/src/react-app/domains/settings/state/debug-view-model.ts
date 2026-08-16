@@ -5,6 +5,7 @@ import {
   appBuildInfo as appBuildInfoCmd,
   engineInfo as engineInfoCmd,
   engineStart as engineStartCmd,
+  engineV2Preview,
   getDesktopBootstrapConfig,
   debugDesktopBootstrapConfig,
   nukeOpenworkAndOpencodeConfigPreview,
@@ -276,6 +277,8 @@ export function useDebugViewModel(options: UseDebugViewModelOptions) {
   const [runtimeConfigStatusError, setRuntimeConfigStatusError] = useState<string | null>(null);
   const [runtimeDebugStatus, setRuntimeDebugStatus] = useState<string | null>(null);
   const [opencodeRestarting, setOpencodeRestarting] = useState(false);
+  const [v2PreviewBusy, setV2PreviewBusy] = useState(false);
+  const v2PreviewBusyRef = useRef(false);
   const [openworkServerRestarting, setOpenworkServerRestarting] = useState(false);
   const [opencodeServiceStatus, setOpencodeServiceStatus] = useState<{
     tone: "success" | "error";
@@ -417,17 +420,21 @@ export function useDebugViewModel(options: UseDebugViewModelOptions) {
     });
   }, []);
 
+  const opencodeVersionLabel = engineInfoState?.opencodeVersion?.trim()
+    || (engineInfoState?.baseUrl ? "managed" : "—");
+  const v2PreviewActive = engineInfoState?.v2Preview === true;
+
   const runtimeSummary = useMemo(
     () => ({
       appVersionLabel: appBuild?.version ?? "—",
       appCommitLabel: appBuild?.gitSha ?? "—",
-      opencodeVersionLabel: engineInfoState?.baseUrl ? "managed" : "—",
+      opencodeVersionLabel,
       openworkServerVersionLabel: openworkServerSnapshot.openworkServerDiagnostics?.version ?? "—",
     }),
     [
       appBuild?.gitSha,
       appBuild?.version,
-      engineInfoState?.baseUrl,
+      opencodeVersionLabel,
       openworkServerSnapshot.openworkServerDiagnostics?.version,
     ],
   );
@@ -799,6 +806,37 @@ export function useDebugViewModel(options: UseDebugViewModelOptions) {
     }
   }, [bootFullEngineStack, pushDeveloperLog]);
 
+  const onToggleV2Preview = useCallback(async (enabled: boolean) => {
+    if (!isDesktopRuntime() || v2PreviewBusyRef.current) return;
+    v2PreviewBusyRef.current = true;
+    setV2PreviewBusy(true);
+    setOpencodeServiceStatus(null);
+    setServiceRestartError(null);
+    try {
+      const projectDir = optionsRef.current.selectedWorkspaceRoot.trim();
+      if (!projectDir) {
+        throw new Error("Select a local workspace before restarting the local engine.");
+      }
+      const info = await engineV2Preview(projectDir, { enabled });
+      setEngineInfoState(info);
+      setOpencodeServiceStatus({
+        tone: "success",
+        message: t("settings.restart_succeeded_template", { service: "OpenCode" }),
+      });
+      pushDeveloperLog(`Restarted OpenCode with v2 preview ${enabled ? "enabled" : "disabled"}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : safeStringify(error);
+      setOpencodeServiceStatus({
+        tone: "error",
+        message: `${t("settings.restart_failed_template", { service: "OpenCode" })} ${message}`,
+      });
+      setServiceRestartError(message);
+    } finally {
+      v2PreviewBusyRef.current = false;
+      setV2PreviewBusy(false);
+    }
+  }, [pushDeveloperLog]);
+
   const onRestartOpenworkServer = useCallback(async () => {
     if (!isDesktopRuntime()) return;
     setOpenworkServerRestarting(true);
@@ -1012,6 +1050,10 @@ export function useDebugViewModel(options: UseDebugViewModelOptions) {
           ? t("settings.openwork_server_label")
           : t("status.disconnected_label"),
       runtimeSummary,
+      opencodeVersionLabel,
+      v2PreviewActive,
+      v2PreviewBusy,
+      onToggleV2Preview,
       runtimeDebugReportJson,
       bootstrapConfigDebugJson,
       runtimeConfigStatus,
@@ -1148,6 +1190,7 @@ export function useDebugViewModel(options: UseDebugViewModelOptions) {
       onRevealElectronMigrationBackup,
       onResetStartupPreference,
       onRestartOpencode,
+      onToggleV2Preview,
       onRestartOpenworkServer,
       onSetElectronAlphaUpdaterChannel,
       onSetElectronMigrationSha512,
@@ -1183,6 +1226,9 @@ export function useDebugViewModel(options: UseDebugViewModelOptions) {
       runtimeSummary,
       runtimeWorkspaceId,
       serviceRestartError,
+      opencodeVersionLabel,
+      v2PreviewActive,
+      v2PreviewBusy,
     ],
   );
 

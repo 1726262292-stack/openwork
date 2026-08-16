@@ -45,6 +45,8 @@ export type EngineInfo = {
   opencodePassword: string | null;
   opencodeBinPath: string | null;
   opencodeBinSource: string | null;
+  opencodeVersion?: string | null;
+  v2Preview?: boolean;
   pid: number | null;
   lastStdout: string | null;
   lastStderr: string | null;
@@ -403,6 +405,7 @@ export type DesktopCommandMap = {
 
   // Engine / runtime lifecycle
   engineStart: { args: [projectDir: string, options?: Record<string, unknown>]; result: EngineInfo };
+  engineV2Preview: { args: [projectDir: string, options: { enabled: boolean }]; result: EngineInfo };
   prepareFreshRuntime: { args: []; result: unknown };
   runtimeBootstrap: { args: []; result: unknown };
   runtimeStatus: { args: []; result: unknown };
