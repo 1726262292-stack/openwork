@@ -177,6 +177,21 @@ describe("ensureWorkspaceFiles", () => {
 });
 
 describe("ensureLocalWorkspaceFiles", () => {
+  test("continues provisioning after an uncreatable workspace path", async () => {
+    await withWorkspace(async (root) => {
+      const blockingFile = join(root, "blocking-file");
+      const healthyRoot = join(root, "healthy");
+      await writeFile(blockingFile, "not a directory", "utf8");
+
+      await expect(ensureLocalWorkspaceFiles([
+        { path: join(blockingFile, "sub"), preset: "starter", workspaceType: "local" },
+        { path: healthyRoot, preset: "starter", workspaceType: "local" },
+      ])).resolves.toBeUndefined();
+
+      expect((await stat(healthyRoot)).isDirectory()).toBe(true);
+    });
+  });
+
   test("provisions local workspaces and skips remote ones", async () => {
     await withWorkspace(async (root) => {
       await ensureLocalWorkspaceFiles([

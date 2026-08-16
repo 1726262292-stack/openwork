@@ -20,7 +20,7 @@ type ParseOptionalNonNegativeInteger = (value: string | null, name: string) => n
 type ReadJsonBody = (request: Request) => Promise<Record<string, unknown>>;
 type WorkspaceOpencodeClient = ReturnType<typeof createOpencodeClient>;
 type OpencodeClientResult<T, E> =
-  | { data: T | undefined; error: undefined; response?: Response }
+  | { data: T | undefined; error: undefined; response: Response }
   | { data: undefined; error: E; response?: Response };
 type UnwrapOpencodeResult = <T, E>(result: OpencodeClientResult<T, E>, path: string) => NonNullable<T>;
 

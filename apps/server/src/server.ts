@@ -848,8 +848,23 @@ function logRequest(input: {
   proxyService?: "opencode";
   proxyBaseUrl?: string;
   error?: string;
+  errorCode?: string;
+  errorPath?: string;
+  errorCause?: string;
 }) {
-  const { logger, request, response, durationMs, authMode, proxyService, proxyBaseUrl, error } = input;
+  const {
+    logger,
+    request,
+    response,
+    durationMs,
+    authMode,
+    proxyService,
+    proxyBaseUrl,
+    error,
+    errorCode,
+    errorPath,
+    errorCause,
+  } = input;
   const status = response.status;
   const level: LogLevel = status >= 500 ? "error" : status >= 400 ? "warn" : "info";
   const url = new URL(request.url);
@@ -870,6 +885,9 @@ function logRequest(input: {
   if (error) {
     attributes.error = error;
   }
+  if (errorCode) attributes["error.code"] = errorCode;
+  if (errorPath) attributes["error.path"] = errorPath;
+  if (errorCause) attributes["error.cause"] = errorCause;
   logger.log(level, message, attributes);
 }
 
@@ -994,6 +1012,19 @@ export async function startServer(config: ServerConfig): Promise<ServeResult> {
       let proxyService: "opencode" | undefined;
       let proxyBaseUrl: string | undefined;
       let errorMessage: string | undefined;
+      let errorCode: string | undefined;
+      let errorPath: string | undefined;
+      let errorCause: string | undefined;
+
+      const recordApiError = (apiError: ApiError) => {
+        errorMessage = apiError.message;
+        errorCode = apiError.code;
+        if (!isRecord(apiError.details)) return;
+        const path = apiError.details.path;
+        if (typeof path === "string") errorPath = path;
+        const cause = apiError.details.cause;
+        if (typeof cause === "string") errorCause = cause;
+      };
 
       const finalize = (response: Response) => {
         const wrapped = withCors(response, request, config);
@@ -1007,6 +1038,9 @@ export async function startServer(config: ServerConfig): Promise<ServeResult> {
               proxyService,
               proxyBaseUrl,
               error: errorMessage,
+              errorCode,
+              errorPath,
+              errorCause,
             });
         }
         return wrapped;
@@ -1029,7 +1063,7 @@ export async function startServer(config: ServerConfig): Promise<ServeResult> {
           const apiError = error instanceof ApiError
             ? error
             : new ApiError(500, "internal_error", "Unexpected server error");
-          errorMessage = apiError.message;
+          recordApiError(apiError);
           return finalize(jsonResponse(formatError(apiError), apiError.status));
         }
       };
@@ -1081,7 +1115,7 @@ export async function startServer(config: ServerConfig): Promise<ServeResult> {
           const apiError = error instanceof ApiError
             ? error
             : new ApiError(500, "internal_error", "Unexpected server error");
-          errorMessage = apiError.message;
+          recordApiError(apiError);
           return finalize(jsonResponse(formatError(apiError), apiError.status));
         }
       }
@@ -1123,7 +1157,7 @@ export async function startServer(config: ServerConfig): Promise<ServeResult> {
         const apiError = error instanceof ApiError
           ? error
           : new ApiError(500, "internal_error", "Unexpected server error");
-        errorMessage = apiError.message;
+        recordApiError(apiError);
         const response = jsonResponse(formatError(apiError), apiError.status);
         const isAgentDiagnosticsRequest =
           request.method === "POST" && /^\/workspace\/[^/]+\/diagnostics\/agent-context$/.test(url.pathname);
@@ -1222,7 +1256,7 @@ function createOpencodeDirectoryFetch(directory: string, fetchImpl: typeof fetch
 }
 
 type OpencodeClientResult<T, E> =
-  | { data: T | undefined; error: undefined; response?: Response }
+  | { data: T | undefined; error: undefined; response: Response }
   | { data: undefined; error: E; response?: Response };
 
 export function createWorkspaceOpencodeClient(
@@ -1267,9 +1301,15 @@ export function unwrapOpencodeResult<T, E>(result: OpencodeClientResult<T, E>, p
   if (result.error === undefined) {
     throw new ApiError(502, "opencode_empty_response", "OpenCode returned an empty response", { path });
   }
-  const upstreamStatus = result.response?.status;
+  if (!result.response) {
+    throw new ApiError(502, "opencode_unreachable", "OpenCode request failed before a response was received", {
+      body: result.error,
+      path,
+    });
+  }
+  const upstreamStatus = result.response.status;
   throw new ApiError(502, "opencode_request_failed", "OpenCode request failed", {
-    ...(upstreamStatus === undefined ? {} : { status: upstreamStatus }),
+    status: upstreamStatus,
     body: result.error,
     path,
   });
