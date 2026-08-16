@@ -31,16 +31,15 @@ jobs:
           app-id: ${{ secrets.WARDEN_APP_ID }}
           private-key: ${{ secrets.WARDEN_PRIVATE_KEY }}
 
-      - name: Push and delete a v* smoke tag through the ruleset
+      - name: Create and delete a v* smoke tag through the ruleset
         shell: bash
         env:
-          TAG_PUSH_TOKEN: ${{ steps.tag-token.outputs.token }}
+          GH_TOKEN: ${{ steps.tag-token.outputs.token }}
         run: |
           set -euo pipefail
           TAG="v0.0.0-tagsmoke-${GITHUB_RUN_ID}"
-          REMOTE="https://x-access-token:${TAG_PUSH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-          git tag "$TAG" HEAD
-          git push "$REMOTE" "refs/tags/${TAG}"
-          echo "Created ${TAG} through the v* ruleset as diff-warden."
-          git push "$REMOTE" ":refs/tags/${TAG}"
-          echo "Deleted ${TAG} through the v* ruleset as diff-warden."
+          gh api -X POST "repos/${GITHUB_REPOSITORY}/git/refs" \
+            -f ref="refs/tags/${TAG}" -f sha="${GITHUB_SHA}"
+          echo "Created ${TAG} through the v* ruleset as diff-warden (REST)."
+          gh api -X DELETE "repos/${GITHUB_REPOSITORY}/git/refs/tags/${TAG}"
+          echo "Deleted ${TAG} through the v* ruleset as diff-warden (REST)."
