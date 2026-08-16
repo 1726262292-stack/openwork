@@ -93,7 +93,9 @@ export class EngineHttpClient implements EngineAdapter {
   private readonly fetchImpl: EngineFetch;
 
   constructor(options: EngineHttpClientOptions) {
-    this.baseUrl = options.baseUrl.replace(/\/+$/, "");
+    let baseUrl = options.baseUrl;
+    while (baseUrl.endsWith("/")) baseUrl = baseUrl.slice(0, -1);
+    this.baseUrl = baseUrl;
     this.token = options.token;
     this.fetchImpl = options.fetch ?? globalThis.fetch;
   }
