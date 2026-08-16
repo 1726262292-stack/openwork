@@ -32,6 +32,7 @@ import {
 } from "@openwork-ee/den-db/schema"
 import { createDenTypeId, normalizeDenTypeId } from "@openwork-ee/utils/typeid"
 import { db } from "../db.js"
+import { appLogger } from "../observability/logger.js"
 import { automationUpdateChangedRows } from "./update-result.js"
 import { cloudArtifactStateUpdate } from "./cloud-artifact-state.js"
 
@@ -41,6 +42,7 @@ type RunRow = typeof AutomationRunTable.$inferSelect
 type EventRow = typeof AutomationRunEventTable.$inferSelect
 type DesktopClaim = { automation: Automation; revision: AutomationRevision; run: AutomationRun }
 
+const logger = appLogger.child({ component: "automation_repository" })
 const emptyUsage: AutomationUsage = { inputTokens: null, outputTokens: null, costMicros: null }
 
 const normalizeAutomationId = (value: string) => normalizeDenTypeId("automation", value)
@@ -51,6 +53,7 @@ const normalizeMemberId = (value: string) => normalizeDenTypeId("member", value)
 
 const ms = (value: Date | null): number | null => value?.getTime() ?? null
 const date = (value: number | null): Date | null => value === null ? null : new Date(value)
+const idPrefix = (value: string) => value.slice(0, 8)
 
 function mapAutomation(row: AutomationRow): Automation {
   return {
@@ -847,27 +850,45 @@ export class DenAutomationRepository implements AutomationRepository {
       existing[0].organizationId !== normalizeOrganizationId(input.organizationId)
       || existing[0].ownerMemberId !== normalizeMemberId(input.ownerMemberId)
     )) throw new Error("automation_runner_identity_conflict")
-    await db.insert(AutomationRunnerTable).values({
-      id: input.runnerId,
-      organization_id: normalizeOrganizationId(input.organizationId),
-      owner_member_id: normalizeMemberId(input.ownerMemberId),
-      protocol_version: input.protocolVersion,
-      supported_execution_targets: input.supportedExecutionTargets,
-      app_version: input.appVersion,
-      platform: input.platform,
-      concurrency: input.concurrency,
-      last_seen_at: now,
-      created_at: now,
-      updated_at: now,
-    }).onDuplicateKeyUpdate({ set: {
-      protocol_version: input.protocolVersion,
-      supported_execution_targets: input.supportedExecutionTargets,
-      app_version: input.appVersion,
-      platform: input.platform,
-      concurrency: input.concurrency,
-      last_seen_at: now,
-      updated_at: now,
-    } })
+    try {
+      await db.insert(AutomationRunnerTable).values({
+        id: input.runnerId,
+        organization_id: normalizeOrganizationId(input.organizationId),
+        owner_member_id: normalizeMemberId(input.ownerMemberId),
+        protocol_version: input.protocolVersion,
+        supported_execution_targets: input.supportedExecutionTargets,
+        app_version: input.appVersion,
+        platform: input.platform,
+        concurrency: input.concurrency,
+        last_seen_at: now,
+        created_at: now,
+        updated_at: now,
+      }).onDuplicateKeyUpdate({ set: {
+        protocol_version: input.protocolVersion,
+        supported_execution_targets: input.supportedExecutionTargets,
+        app_version: input.appVersion,
+        platform: input.platform,
+        concurrency: input.concurrency,
+        last_seen_at: now,
+        updated_at: now,
+      } })
+    } catch (error) {
+      logger.error("automation runner registration upsert failed", {
+        error,
+        runner_id_prefix: idPrefix(input.runnerId),
+        runner_id_length: input.runnerId.length,
+        organization_id: normalizeOrganizationId(input.organizationId),
+        owner_member_id: normalizeMemberId(input.ownerMemberId),
+        existing_runner: existing[0] ? "same_owner" : "none",
+        protocol_version: input.protocolVersion,
+        supported_execution_targets: input.supportedExecutionTargets.join(","),
+        supported_execution_target_count: input.supportedExecutionTargets.length,
+        app_version_length: input.appVersion.length,
+        platform: input.platform,
+        concurrency: input.concurrency,
+      })
+      throw error
+    }
   }
 
   async touchDesktopRunner(input: { organizationId: string; ownerMemberId: string; runnerId: string; now: number }) {
