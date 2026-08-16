@@ -160,6 +160,17 @@ test("runner credential minting is never exposed as an MCP tool", () => {
   assert.match(routesSource, /await service\.registerDesktopRunner\(scope\(c\), registration\)[\s\S]*const mapped = failure\(error\)/)
 })
 
+test("runner registration upsert failures include non-secret diagnostics", () => {
+  const registration = repositorySource.slice(
+    repositorySource.indexOf("async registerDesktopRunner"),
+    repositorySource.indexOf("async touchDesktopRunner"),
+  )
+  assert.match(registration, /logger\.error\("automation runner registration upsert failed"/)
+  assert.match(registration, /runner_id_prefix/)
+  assert.match(registration, /runner_id_length/)
+  assert.doesNotMatch(registration, /token/)
+})
+
 test("every runner endpoint re-checks that the token owner is still an active member", () => {
   const routesSource = readFileSync(join(import.meta.dir, "../src/routes/automations/index.ts"), "utf8")
   assert.match(routesSource, /service\.isActiveRunnerOwner\(identity\)/)
