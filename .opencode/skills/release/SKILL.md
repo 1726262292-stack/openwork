@@ -37,9 +37,9 @@ format + strictly greater than every other stable tag), stamps the version
 into the CI workspace, builds all 18 electron matrix legs, publishes npm +
 Daytona + AUR, and flips the draft release public.
 
-The tag is pushed with the org-owned **diff-warden** app token (a `v*`
-ruleset bypass actor; secrets `WARDEN_APP_ID` / `WARDEN_PRIVATE_KEY`). The
-app's tag push retriggers the workflow; that duplicate run is skipped by an
+The tag ref is created via REST with the org-owned **diff-warden** app token
+(a `v*` ruleset bypass actor; `WARDEN_APP_ID` + `WARDEN_PRIVATE_KEY` in the
+`warden-clearance` environment). The app's tag retriggers the workflow; that duplicate run is skipped by an
 actor guard. If the tag push is rejected, the run fails with instructions —
 fix the ruleset bypass or fall back to a manual admin tag push.
 

@@ -20,7 +20,7 @@ pnpm release:review         # sanity: placeholders intact, opencode pin present
 1. `release:cut` dispatches `Release App` (or run it from the Actions tab).
 2. The `resolve-release` job computes the next version from the highest stable
    `v*` tag (`scripts/release/versions.mjs`), creates the tag on `origin/dev`
-   HEAD, and pushes it as the diff-warden app. The app's tag push retriggers
+   HEAD, and creates it via REST as the diff-warden app. The app's tag retriggers
    the workflow, but that duplicate run is skipped by an actor guard — the
    dispatch run *is* the release run.
 3. `verify-release` checks the tag (`scripts/release/verify-tag.mjs`): strict
@@ -43,8 +43,8 @@ pnpm release:review         # sanity: placeholders intact, opencode pin present
 - `gh` authenticated with permission to dispatch workflows.
 - **One-time repo setting (done)**: the org-owned **diff-warden** GitHub App
   is a bypass actor on the `v*` tag ruleset; `resolve-release` mints its
-  token (`WARDEN_APP_ID` / `WARDEN_PRIVATE_KEY` secrets) to push the tag it
-  creates. The built-in GitHub Actions app cannot be a bypass actor —
+  token (`WARDEN_APP_ID` + `WARDEN_PRIVATE_KEY` in the `warden-clearance`
+  environment) to create the tag ref via REST. The built-in GitHub Actions app cannot be a bypass actor —
   GitHub rejects it. Without the app token the run falls back to
   GITHUB_TOKEN and fails with instructions.
 - Manual tag pushes (expedited path below) additionally require repo/org
