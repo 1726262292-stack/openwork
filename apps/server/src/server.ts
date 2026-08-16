@@ -35,7 +35,7 @@ import {
   parseMcpAppSandboxCsp,
 } from "./mcp-app-sandbox.js";
 import { exportExtensions } from "./extensions-export.js";
-import { deleteSkill, listSkills, upsertSkill } from "./skills.js";
+import { deleteSkill, listSkills, renderSkillContentForResponse, upsertSkill } from "./skills.js";
 import { deleteCommand, listCommands, repairCommands, upsertCommand } from "./commands.js";
 import { ApiError, formatError } from "./errors.js";
 import { readJsoncFile, updateJsoncTopLevel, writeJsoncFile } from "./jsonc.js";
@@ -2833,7 +2833,8 @@ function createRoutes(
     if (!item) {
       throw new ApiError(404, "skill_not_found", `Skill not found: ${name}`);
     }
-    const content = await readFile(item.path, "utf8");
+    const rawContent = await readFile(item.path, "utf8");
+    const content = renderSkillContentForResponse(item, rawContent);
     return jsonResponse({ item, content });
   });
 
