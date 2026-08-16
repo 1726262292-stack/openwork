@@ -38,8 +38,12 @@ export function parseWorkspaceEngine(value: unknown): WorkspaceEngine | null {
   return null;
 }
 
+export function defaultWorkspaceEngine(): WorkspaceEngine {
+  return parseWorkspaceEngine(process.env.OPENWORK_WORKSPACE_ENGINE_DEFAULT) ?? DEFAULT_WORKSPACE_ENGINE;
+}
+
 export async function readWorkspaceEngine(config: ServerConfig, workspaceId: string): Promise<WorkspaceEngine> {
-  return (await workspaceEngineStore.get(config, workspaceId))?.engine ?? DEFAULT_WORKSPACE_ENGINE;
+  return (await workspaceEngineStore.get(config, workspaceId))?.engine ?? defaultWorkspaceEngine();
 }
 
 export async function writeWorkspaceEngine(
