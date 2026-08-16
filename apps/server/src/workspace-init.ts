@@ -99,15 +99,20 @@ export async function ensureWorkspaceFiles(workspaceRoot: string, presetInput: s
  * remote `directory`) and any workspace without a resolved local path. Either
  * would otherwise reach ensureWorkspaceFiles() — which throws
  * `invalid_workspace_path` on a blank path — and abort server startup. Local
- * workspaces are always created with a validated path, so they are unaffected.
- * Shared by the embedded-server and CLI boot paths.
+ * provisioning failures are logged and skipped so one stale path cannot abort
+ * startup. Shared by the embedded-server and CLI boot paths.
  */
 export async function ensureLocalWorkspaceFiles(
   workspaces: ReadonlyArray<Pick<WorkspaceInfo, "path" | "preset" | "workspaceType">>,
 ): Promise<void> {
   for (const workspace of workspaces) {
     if (workspace.workspaceType === "remote" || !workspace.path.trim()) continue;
-    await ensureWorkspaceFiles(workspace.path, workspace.preset);
+    try {
+      await ensureWorkspaceFiles(workspace.path, workspace.preset);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(`Failed to provision workspace files at ${workspace.path}: ${message}`);
+    }
   }
 }
 
