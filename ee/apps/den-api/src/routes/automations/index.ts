@@ -73,6 +73,9 @@ function scope(c: {
 
 function failure(error: unknown): { status: 400 | 403 | 404 | 409; body: { error: string; message?: string } } | null {
   if (!(error instanceof Error)) return null
+  if (error.message === "automation_runner_identity_conflict") {
+    return { status: 409, body: { error: error.message, message: "This desktop runner identity is already registered to a different organization member." } }
+  }
   if (error.message === "automation_not_found") return { status: 404, body: { error: "automation_not_found" } }
   if (error.message === "automation_action_target_mismatch") {
     return { status: 400, body: { error: "automation_action_target_mismatch", message: "Desktop creates local Automations; Web creates OpenWork Cloud Automations." } }
@@ -119,12 +122,21 @@ export function registerAutomationRoutes<T extends { Variables: RouteVariables }
       tags: ["Automations"], operationId: "mintAutomationRunnerToken", "x-mcp": false,
       summary: "Connect this desktop as an Automation runner",
       description: "Mints a time-limited runner-only credential for the desktop SSE connection and HTTP runner APIs.",
-      responses: { 200: jsonResponse("Runner credential minted.", automationRunnerTokenResponseSchema) },
+      responses: {
+        200: jsonResponse("Runner credential minted.", automationRunnerTokenResponseSchema),
+        409: jsonResponse("Runner identity conflict.", invalidRequestSchema),
+      },
     }),
     orgMemberRoute(), jsonValidator(automationDesktopRunnerRegistrationSchema),
     async (c) => {
       const registration = c.req.valid("json")
-      await service.registerDesktopRunner(scope(c), registration)
+      try {
+        await service.registerDesktopRunner(scope(c), registration)
+      } catch (error) {
+        const mapped = failure(error)
+        if (mapped) return c.json(mapped.body, mapped.status)
+        throw error
+      }
       return c.json(automationRunnerAuth.issue(
         {
           organizationId: scope(c).organizationId,
