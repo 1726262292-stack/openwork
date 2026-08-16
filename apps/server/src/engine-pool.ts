@@ -164,22 +164,26 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-export function isConnectionRefusedClassError(error: unknown): boolean {
+export function isEngineConnectionFailure(error: unknown): boolean {
   const visited = new Set<object>();
   let current: unknown = error;
   for (let depth = 0; depth < 6 && current !== null && current !== undefined; depth += 1) {
     if (typeof current === "string") {
-      return /ECONNREFUSED|ECONNRESET|socket hang up/i.test(current);
+      return /ECONNREFUSED|ECONNRESET|ETIMEDOUT|UND_ERR_CONNECT_TIMEOUT|socket hang up|Unable to connect/i.test(current);
     }
     if (!isRecord(current) || visited.has(current)) return false;
     visited.add(current);
     const code = current.code;
-    if (code === "ECONNREFUSED" || code === "ECONNRESET") return true;
+    if (code === "ECONNREFUSED" || code === "ECONNRESET" || code === "ETIMEDOUT" || code === "UND_ERR_CONNECT_TIMEOUT") return true;
     const message = current.message;
-    if (typeof message === "string" && /ECONNREFUSED|ECONNRESET|socket hang up/i.test(message)) return true;
+    if (typeof message === "string" && /ECONNREFUSED|ECONNRESET|ETIMEDOUT|UND_ERR_CONNECT_TIMEOUT|socket hang up|Unable to connect/i.test(message)) return true;
     current = current.cause;
   }
   return false;
+}
+
+export function isConnectionRefusedClassError(error: unknown): boolean {
+  return isEngineConnectionFailure(error);
 }
 
 function isRoutableGeneration(
@@ -347,7 +351,7 @@ export class EnginePool {
   }
 
   reportRequestFailure(baseUrl: string, error: unknown, workspace: WorkspaceInfo): void {
-    if (!this.isPrimaryEndpoint(baseUrl) || !isConnectionRefusedClassError(error)) return;
+    if (!this.isPrimaryEndpoint(baseUrl) || !isEngineConnectionFailure(error)) return;
     this.consecutiveConnectionFailures += 1;
     if (this.consecutiveConnectionFailures < 3) return;
     const now = this.now();
@@ -1020,11 +1024,35 @@ export class EnginePool {
   }
 
   private async abortSession(generation: Generation, sessionId: string): Promise<void> {
-    await loopbackFetch(new URL(`/session/${encodeURIComponent(sessionId)}/abort`, generation.handle.url).toString(), {
-      method: "POST",
-      headers: { Authorization: buildEngineAuthProbeHeader(generation.handle.username, generation.handle.password) },
-      signal: AbortSignal.timeout(5_000),
+    this.hooks.logger?.log("info", "Aborting OpenCode session from engine pool.", {
+      "abort.source": "engine_pool.drain_timeout",
+      "abort.initiator": "system",
+      "abort.reason": "draining engine exceeded grace period",
+      "session.id": sessionId,
+      "engine.generation_id": generation.id,
     });
+    try {
+      await loopbackFetch(new URL(`/session/${encodeURIComponent(sessionId)}/abort`, generation.handle.url).toString(), {
+        method: "POST",
+        headers: { Authorization: buildEngineAuthProbeHeader(generation.handle.username, generation.handle.password) },
+        signal: AbortSignal.timeout(5_000),
+      });
+      this.hooks.logger?.log("info", "OpenCode session abort from engine pool completed.", {
+        "abort.source": "engine_pool.drain_timeout",
+        "abort.initiator": "system",
+        "session.id": sessionId,
+        "engine.generation_id": generation.id,
+      });
+    } catch (error) {
+      this.hooks.logger?.log("error", "OpenCode session abort from engine pool failed.", {
+        "abort.source": "engine_pool.drain_timeout",
+        "abort.initiator": "system",
+        "session.id": sessionId,
+        "engine.generation_id": generation.id,
+        "error.message": error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    }
   }
 }
 

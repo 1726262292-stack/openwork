@@ -233,6 +233,7 @@ export type OpenworkSkillItem = {
   description: string;
   scope: "project" | "global";
   trigger?: string;
+  error?: string;
 };
 
 export type OpenworkSkillContent = {

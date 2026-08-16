@@ -156,6 +156,19 @@ test("runner credential minting is never exposed as an MCP tool", () => {
   assert.match(routesSource, /operationId: "mintAutomationRunnerToken", "x-mcp": false/)
   assert.match(routesSource, /capabilities: registration\.capabilities/)
   assert.match(routesSource, /AUTOMATION_MODEL_ATTENTION_CAPABILITY_HEADER/)
+  assert.match(routesSource, /automation_runner_identity_conflict/)
+  assert.match(routesSource, /await service\.registerDesktopRunner\(scope\(c\), registration\)[\s\S]*const mapped = failure\(error\)/)
+})
+
+test("runner registration upsert failures include non-secret diagnostics", () => {
+  const registration = repositorySource.slice(
+    repositorySource.indexOf("async registerDesktopRunner"),
+    repositorySource.indexOf("async touchDesktopRunner"),
+  )
+  assert.match(registration, /logger\.error\("automation runner registration upsert failed"/)
+  assert.match(registration, /runner_id_prefix/)
+  assert.match(registration, /runner_id_length/)
+  assert.doesNotMatch(registration, /token/)
 })
 
 test("every runner endpoint re-checks that the token owner is still an active member", () => {
@@ -213,6 +226,18 @@ test("idle runner keepalives do not persist liveness in the database", () => {
   assert.match(serviceSource, /claimDeadlineMs: env\.automations\.runnerClaimDeadlineMs/)
   assert.doesNotMatch(serviceSource, /hasRecentDesktopRunner/)
   assert.doesNotMatch(repositorySource, /AutomationRunnerTable\.last_seen_at, new Date\(input\.seenAfter\)/)
+})
+
+test("work polling tolerates non-critical runner presence touch failures", () => {
+  const serviceSource = readFileSync(join(import.meta.dir, "../src/automations/service.ts"), "utf8")
+  const discover = serviceSource.slice(
+    serviceSource.indexOf("async discoverDesktopRunnerWork"),
+    serviceSource.indexOf("async claimDesktopRunner"),
+  )
+
+  assert.match(discover, /try \{\s*await this\.touchDesktopRunner\(scope\)/)
+  assert.match(discover, /catch \(error\) \{[\s\S]*logger\.warn\("automation desktop runner touch failed"/)
+  assert.match(discover, /return automationRepository\.discoverDesktopWork/)
 })
 
 test("every dispatch path revalidates the owner's model access", () => {

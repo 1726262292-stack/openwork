@@ -1325,6 +1325,11 @@ export function SessionSurface(props: SessionSurfaceProps) {
       opencodeClient,
       props.sessionId,
       props.workspaceRoot.trim() || undefined,
+      {
+        source: "composer.stop",
+        initiator: "user",
+        reason: "stop active session run",
+      },
     );
     if (!aborted) {
       setError({ message: t("session.stop_failed") });

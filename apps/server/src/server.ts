@@ -9,6 +9,7 @@ import { ApprovalService } from "./approvals.js";
 import {
   EnginePool,
   enginePoolForConfig,
+  isEngineConnectionFailure,
   managedEnginePoolForConfig,
   setEnginePoolForConfig,
   type EnginePoolConnection,
@@ -34,7 +35,7 @@ import {
   parseMcpAppSandboxCsp,
 } from "./mcp-app-sandbox.js";
 import { exportExtensions } from "./extensions-export.js";
-import { deleteSkill, listSkills, upsertSkill } from "./skills.js";
+import { deleteSkill, listSkills, renderSkillContentForResponse, upsertSkill } from "./skills.js";
 import { deleteCommand, listCommands, repairCommands, upsertCommand } from "./commands.js";
 import { ApiError, formatError } from "./errors.js";
 import { readJsoncFile, updateJsoncTopLevel, writeJsoncFile } from "./jsonc.js";
@@ -737,6 +738,8 @@ type ServerLogger = {
   log: (level: LogLevel, message: string, attributes?: LogAttributes) => void;
 };
 
+type ServerLogWriter = (line: string) => void;
+
 /** Adapt the server logger to the warn/error shape helpers expect. */
 function toManagedProviderAuthLogger(logger: ServerLogger) {
   return {
@@ -757,7 +760,35 @@ function toUnixNano(): string {
   return (BigInt(Date.now()) * 1_000_000n).toString();
 }
 
-export function createServerLogger(config: ServerConfig): ServerLogger {
+function isBrokenLogPipeError(error: unknown): boolean {
+  if (!isRecord(error)) return false;
+  return error.code === "EPIPE" || error.code === "ERR_STREAM_DESTROYED";
+}
+
+let stdoutLogWritesDisabled = false;
+let stdoutErrorHandlerInstalled = false;
+
+function ensureStdoutErrorHandler() {
+  if (stdoutErrorHandlerInstalled) return;
+  stdoutErrorHandlerInstalled = true;
+  process.stdout.on("error", (error: unknown) => {
+    if (isBrokenLogPipeError(error)) {
+      stdoutLogWritesDisabled = true;
+      return;
+    }
+    process.nextTick(() => {
+      throw error;
+    });
+  });
+}
+
+function writeStdoutLogLine(line: string) {
+  ensureStdoutErrorHandler();
+  if (stdoutLogWritesDisabled) return;
+  process.stdout.write(`${line}\n`);
+}
+
+export function createServerLogger(config: ServerConfig, writeLine: ServerLogWriter = writeStdoutLogLine): ServerLogger {
   const runId = process.env.OPENWORK_RUN_ID ?? shortId();
   const host = hostname().trim();
   const resource: Record<string, string> = {
@@ -772,6 +803,23 @@ export function createServerLogger(config: ServerConfig): ServerLogger {
     "run.id": runId,
     "process.pid": process.pid,
   };
+  let logWritesDisabled = false;
+
+  const writeLogLine = (line: string) => {
+    if (logWritesDisabled) return;
+    try {
+      writeLine(line);
+    } catch (error) {
+      if (isBrokenLogPipeError(error)) {
+        logWritesDisabled = true;
+        if (writeLine === writeStdoutLogLine) {
+          stdoutLogWritesDisabled = true;
+        }
+        return;
+      }
+      throw error;
+    }
+  };
 
   const emit = (level: LogLevel, message: string, attributes?: LogAttributes) => {
     const merged = { ...baseAttributes, ...(attributes ?? {}) };
@@ -784,10 +832,10 @@ export function createServerLogger(config: ServerConfig): ServerLogger {
         attributes: merged,
         resource,
       };
-      process.stdout.write(`${JSON.stringify(record)}\n`);
+      writeLogLine(JSON.stringify(record));
       return;
     }
-    process.stdout.write(`${message}\n`);
+    writeLogLine(message);
   };
 
   return { log: emit };
@@ -1163,6 +1211,13 @@ function buildOpencodeProxyUrl(baseUrl: string, path: string, search: string) {
   return target.toString();
 }
 
+function opencodeUnreachableError(error: unknown, path: string): ApiError {
+  return new ApiError(502, "opencode_unreachable", "OpenCode engine is unavailable", {
+    path,
+    cause: error instanceof Error ? error.message : String(error),
+  });
+}
+
 function buildOpencodeDirectoryHeader(directory: string) {
   return /[^\x00-\x7F]/.test(directory) ? encodeURIComponent(directory) : directory;
 }
@@ -1197,6 +1252,13 @@ export function createWorkspaceOpencodeClient(
         authHeader: buildEngineAuthProbeHeader(poolRoute.target.username, poolRoute.target.password),
       }
     : resolveWorkspaceOpencodeConnection(config, workspace);
+  const baseUrl = connection.baseUrl?.trim();
+  if (!baseUrl) {
+    throw new ApiError(400, "opencode_unconfigured", "OpenCode base URL is missing for this workspace", {
+      workspaceId: workspace.id,
+      workspaceType: workspace.workspaceType,
+    });
+  }
   const directory = resolveOpencodeDirectory(workspace);
   const baseFetch = directory ? createOpencodeDirectoryFetch(directory) : globalThis.fetch;
   const clientFetch = options?.boundedDiagnosticsReads
@@ -1204,7 +1266,7 @@ export function createWorkspaceOpencodeClient(
     : directory ? baseFetch : undefined;
 
   return createOpencodeClient({
-    baseUrl: connection.baseUrl?.trim(),
+    baseUrl,
     ...(directory ? { directory } : {}),
     ...(clientFetch ? { fetch: clientFetch } : {}),
     ...(connection.authHeader ? { headers: { Authorization: connection.authHeader } } : {}),
@@ -1309,15 +1371,23 @@ export async function proxyOpencodeRequest(input: {
       managedEnginePoolForConfig(input.config)?.reportRequestSuccess(baseUrl);
     } catch (error) {
       if (workspace) managedEnginePoolForConfig(input.config)?.reportRequestFailure(baseUrl, error, workspace);
+      if (isEngineConnectionFailure(error)) throw opencodeUnreachableError(error, proxyPath);
       throw error;
     }
 
     if (response.status === 404 && route?.fallback) {
       const fallbackHeaders = headersForEngineConnection(headers, route.fallback);
-      const fallbackResponse = await loopbackFetch(
-        buildOpencodeProxyUrl(route.fallback.baseUrl, proxyPath, input.url.search),
-        { method, headers: fallbackHeaders, body },
-      );
+      let fallbackResponse: Response;
+      try {
+        fallbackResponse = await loopbackFetch(
+          buildOpencodeProxyUrl(route.fallback.baseUrl, proxyPath, input.url.search),
+          { method, headers: fallbackHeaders, body },
+        );
+      } catch (error) {
+        if (workspace) managedEnginePoolForConfig(input.config)?.reportRequestFailure(route.fallback.baseUrl, error, workspace);
+        if (isEngineConnectionFailure(error)) throw opencodeUnreachableError(error, proxyPath);
+        throw error;
+      }
       return sanitizeProxyResponse(fallbackResponse);
     }
 
@@ -2841,7 +2911,8 @@ function createRoutes(
     if (!item) {
       throw new ApiError(404, "skill_not_found", `Skill not found: ${name}`);
     }
-    const content = await readFile(item.path, "utf8");
+    const rawContent = await readFile(item.path, "utf8");
+    const content = renderSkillContentForResponse(item, rawContent);
     return jsonResponse({ item, content });
   });
 

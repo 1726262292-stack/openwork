@@ -1330,7 +1330,11 @@ export function SessionRoute() {
           send: async () => {
             await sendWithRevertRollback({
               revertMessageId: draft.revertMessageId,
-              abort: () => abortSessionSafe(opencodeClient, targetSessionId, selectedWorkspaceRoot || undefined),
+              abort: () => abortSessionSafe(opencodeClient, targetSessionId, selectedWorkspaceRoot || undefined, {
+                source: "session.edit_resend.before_revert",
+                initiator: "user",
+                reason: "abort active run before replacing a reverted message",
+              }),
               revert: async (messageId) => {
                 const reverted = await revertSession(opencodeClient, targetSessionId, messageId);
                 applySessionRevert(selectedWorkspaceId, reverted);
@@ -1460,7 +1464,11 @@ export function SessionRoute() {
         if (!targetSessionId) return false;
         try {
           // Abort any running generation first; OpenCode rejects revert on busy sessions.
-          await abortSessionSafe(opencodeClient, targetSessionId, selectedWorkspaceRoot || undefined);
+          await abortSessionSafe(opencodeClient, targetSessionId, selectedWorkspaceRoot || undefined, {
+            source: "session.revert_to_message.before_revert",
+            initiator: "user",
+            reason: "abort active run before reverting transcript",
+          });
           const reverted = await revertSession(opencodeClient, targetSessionId, messageId);
           // Stamp the revert cursor into the local caches so the transcript
           // rewinds immediately instead of waiting for a full reload.
