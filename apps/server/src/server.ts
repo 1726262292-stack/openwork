@@ -1192,6 +1192,13 @@ export function createWorkspaceOpencodeClient(
         authHeader: buildEngineAuthProbeHeader(poolRoute.target.username, poolRoute.target.password),
       }
     : resolveWorkspaceOpencodeConnection(config, workspace);
+  const baseUrl = connection.baseUrl?.trim();
+  if (!baseUrl) {
+    throw new ApiError(400, "opencode_unconfigured", "OpenCode base URL is missing for this workspace", {
+      workspaceId: workspace.id,
+      workspaceType: workspace.workspaceType,
+    });
+  }
   const directory = resolveOpencodeDirectory(workspace);
   const baseFetch = directory ? createOpencodeDirectoryFetch(directory) : globalThis.fetch;
   const clientFetch = options?.boundedDiagnosticsReads
@@ -1199,7 +1206,7 @@ export function createWorkspaceOpencodeClient(
     : directory ? baseFetch : undefined;
 
   return createOpencodeClient({
-    baseUrl: connection.baseUrl?.trim(),
+    baseUrl,
     ...(directory ? { directory } : {}),
     ...(clientFetch ? { fetch: clientFetch } : {}),
     ...(connection.authHeader ? { headers: { Authorization: connection.authHeader } } : {}),
