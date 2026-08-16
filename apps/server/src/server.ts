@@ -848,8 +848,23 @@ function logRequest(input: {
   proxyService?: "opencode";
   proxyBaseUrl?: string;
   error?: string;
+  errorCode?: string;
+  errorPath?: string;
+  errorCause?: string;
 }) {
-  const { logger, request, response, durationMs, authMode, proxyService, proxyBaseUrl, error } = input;
+  const {
+    logger,
+    request,
+    response,
+    durationMs,
+    authMode,
+    proxyService,
+    proxyBaseUrl,
+    error,
+    errorCode,
+    errorPath,
+    errorCause,
+  } = input;
   const status = response.status;
   const level: LogLevel = status >= 500 ? "error" : status >= 400 ? "warn" : "info";
   const url = new URL(request.url);
@@ -870,6 +885,9 @@ function logRequest(input: {
   if (error) {
     attributes.error = error;
   }
+  if (errorCode) attributes["error.code"] = errorCode;
+  if (errorPath) attributes["error.path"] = errorPath;
+  if (errorCause) attributes["error.cause"] = errorCause;
   logger.log(level, message, attributes);
 }
 
@@ -994,6 +1012,19 @@ export async function startServer(config: ServerConfig): Promise<ServeResult> {
       let proxyService: "opencode" | undefined;
       let proxyBaseUrl: string | undefined;
       let errorMessage: string | undefined;
+      let errorCode: string | undefined;
+      let errorPath: string | undefined;
+      let errorCause: string | undefined;
+
+      const recordApiError = (apiError: ApiError) => {
+        errorMessage = apiError.message;
+        errorCode = apiError.code;
+        if (!isRecord(apiError.details)) return;
+        const path = apiError.details.path;
+        if (typeof path === "string") errorPath = path;
+        const cause = apiError.details.cause;
+        if (typeof cause === "string") errorCause = cause;
+      };
 
       const finalize = (response: Response) => {
         const wrapped = withCors(response, request, config);
@@ -1007,6 +1038,9 @@ export async function startServer(config: ServerConfig): Promise<ServeResult> {
               proxyService,
               proxyBaseUrl,
               error: errorMessage,
+              errorCode,
+              errorPath,
+              errorCause,
             });
         }
         return wrapped;
@@ -1029,7 +1063,7 @@ export async function startServer(config: ServerConfig): Promise<ServeResult> {
           const apiError = error instanceof ApiError
             ? error
             : new ApiError(500, "internal_error", "Unexpected server error");
-          errorMessage = apiError.message;
+          recordApiError(apiError);
           return finalize(jsonResponse(formatError(apiError), apiError.status));
         }
       };
@@ -1081,7 +1115,7 @@ export async function startServer(config: ServerConfig): Promise<ServeResult> {
           const apiError = error instanceof ApiError
             ? error
             : new ApiError(500, "internal_error", "Unexpected server error");
-          errorMessage = apiError.message;
+          recordApiError(apiError);
           return finalize(jsonResponse(formatError(apiError), apiError.status));
         }
       }
@@ -1123,7 +1157,7 @@ export async function startServer(config: ServerConfig): Promise<ServeResult> {
         const apiError = error instanceof ApiError
           ? error
           : new ApiError(500, "internal_error", "Unexpected server error");
-        errorMessage = apiError.message;
+        recordApiError(apiError);
         const response = jsonResponse(formatError(apiError), apiError.status);
         const isAgentDiagnosticsRequest =
           request.method === "POST" && /^\/workspace\/[^/]+\/diagnostics\/agent-context$/.test(url.pathname);

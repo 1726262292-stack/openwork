@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 
-import { EnginePool, type EnginePoolHooks, type EngineSpawnTemplate } from "./engine-pool.js";
+import { EnginePool, isEngineConnectionFailure, type EnginePoolHooks, type EngineSpawnTemplate } from "./engine-pool.js";
 import { createManagedProcessClose, type ManagedChildProcess, type ManagedOpencodeServer } from "./managed-opencode.js";
 import type { ServerConfig, WorkspaceInfo } from "./types.js";
 
@@ -94,7 +94,17 @@ function timedOut(): Error {
   });
 }
 
+function connectionReset(): Error {
+  return Object.assign(new TypeError("fetch failed"), {
+    cause: Object.assign(new Error("read ECONNRESET"), { code: "ECONNRESET", syscall: "read" }),
+  });
+}
+
 describe("managed engine self-heal", () => {
+  test("classifies Node fetch reset causes as engine connection failures", () => {
+    expect(isEngineConnectionFailure(connectionReset())).toBe(true);
+  });
+
   test("requires three consecutive connection failures and throttles later bursts", async () => {
     process.env.OPENWORK_ENGINE_MIN_SPAWN_INTERVAL_MS = "30000";
     const old = managedHandle(41001);
