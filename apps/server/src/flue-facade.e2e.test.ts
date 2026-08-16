@@ -912,7 +912,7 @@ describe("Flue opencode-wire facade", () => {
     expect(messageBody).toContain('"modelID":"den-model"');
     expect(messageBody).not.toContain(rawKey);
 
-    const runtimeConfigPath = await writeOpenworkRuntimeConfigFile(config, "ws_1");
+    const { path: runtimeConfigPath } = await writeOpenworkRuntimeConfigFile(config, "ws_1");
     const runtimeConfigFileContent = await readFile(runtimeConfigPath, "utf8");
     const runtimeConfigResponse = await fetch(`${base}/workspace/ws_1/runtime-config`, {
       headers: auth(token),
