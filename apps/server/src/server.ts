@@ -736,6 +736,8 @@ type ServerLogger = {
   log: (level: LogLevel, message: string, attributes?: LogAttributes) => void;
 };
 
+type ServerLogWriter = (line: string) => void;
+
 /** Adapt the server logger to the warn/error shape helpers expect. */
 function toManagedProviderAuthLogger(logger: ServerLogger) {
   return {
@@ -756,7 +758,35 @@ function toUnixNano(): string {
   return (BigInt(Date.now()) * 1_000_000n).toString();
 }
 
-export function createServerLogger(config: ServerConfig): ServerLogger {
+function isBrokenLogPipeError(error: unknown): boolean {
+  if (!isRecord(error)) return false;
+  return error.code === "EPIPE" || error.code === "ERR_STREAM_DESTROYED";
+}
+
+let stdoutLogWritesDisabled = false;
+let stdoutErrorHandlerInstalled = false;
+
+function ensureStdoutErrorHandler() {
+  if (stdoutErrorHandlerInstalled) return;
+  stdoutErrorHandlerInstalled = true;
+  process.stdout.on("error", (error: unknown) => {
+    if (isBrokenLogPipeError(error)) {
+      stdoutLogWritesDisabled = true;
+      return;
+    }
+    process.nextTick(() => {
+      throw error;
+    });
+  });
+}
+
+function writeStdoutLogLine(line: string) {
+  ensureStdoutErrorHandler();
+  if (stdoutLogWritesDisabled) return;
+  process.stdout.write(`${line}\n`);
+}
+
+export function createServerLogger(config: ServerConfig, writeLine: ServerLogWriter = writeStdoutLogLine): ServerLogger {
   const runId = process.env.OPENWORK_RUN_ID ?? shortId();
   const host = hostname().trim();
   const resource: Record<string, string> = {
@@ -771,6 +801,23 @@ export function createServerLogger(config: ServerConfig): ServerLogger {
     "run.id": runId,
     "process.pid": process.pid,
   };
+  let logWritesDisabled = false;
+
+  const writeLogLine = (line: string) => {
+    if (logWritesDisabled) return;
+    try {
+      writeLine(line);
+    } catch (error) {
+      if (isBrokenLogPipeError(error)) {
+        logWritesDisabled = true;
+        if (writeLine === writeStdoutLogLine) {
+          stdoutLogWritesDisabled = true;
+        }
+        return;
+      }
+      throw error;
+    }
+  };
 
   const emit = (level: LogLevel, message: string, attributes?: LogAttributes) => {
     const merged = { ...baseAttributes, ...(attributes ?? {}) };
@@ -783,10 +830,10 @@ export function createServerLogger(config: ServerConfig): ServerLogger {
         attributes: merged,
         resource,
       };
-      process.stdout.write(`${JSON.stringify(record)}\n`);
+      writeLogLine(JSON.stringify(record));
       return;
     }
-    process.stdout.write(`${message}\n`);
+    writeLogLine(message);
   };
 
   return { log: emit };
