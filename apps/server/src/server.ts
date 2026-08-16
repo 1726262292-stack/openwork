@@ -9,6 +9,7 @@ import { ApprovalService } from "./approvals.js";
 import {
   EnginePool,
   enginePoolForConfig,
+  isEngineConnectionFailure,
   managedEnginePoolForConfig,
   setEnginePoolForConfig,
   type EnginePoolConnection,
@@ -1150,6 +1151,13 @@ function buildOpencodeProxyUrl(baseUrl: string, path: string, search: string) {
   return target.toString();
 }
 
+function opencodeUnreachableError(error: unknown, path: string): ApiError {
+  return new ApiError(502, "opencode_unreachable", "OpenCode engine is unavailable", {
+    path,
+    cause: error instanceof Error ? error.message : String(error),
+  });
+}
+
 function buildOpencodeDirectoryHeader(directory: string) {
   return /[^\x00-\x7F]/.test(directory) ? encodeURIComponent(directory) : directory;
 }
@@ -1296,15 +1304,23 @@ export async function proxyOpencodeRequest(input: {
       managedEnginePoolForConfig(input.config)?.reportRequestSuccess(baseUrl);
     } catch (error) {
       if (workspace) managedEnginePoolForConfig(input.config)?.reportRequestFailure(baseUrl, error, workspace);
+      if (isEngineConnectionFailure(error)) throw opencodeUnreachableError(error, proxyPath);
       throw error;
     }
 
     if (response.status === 404 && route?.fallback) {
       const fallbackHeaders = headersForEngineConnection(headers, route.fallback);
-      const fallbackResponse = await loopbackFetch(
-        buildOpencodeProxyUrl(route.fallback.baseUrl, proxyPath, input.url.search),
-        { method, headers: fallbackHeaders, body },
-      );
+      let fallbackResponse: Response;
+      try {
+        fallbackResponse = await loopbackFetch(
+          buildOpencodeProxyUrl(route.fallback.baseUrl, proxyPath, input.url.search),
+          { method, headers: fallbackHeaders, body },
+        );
+      } catch (error) {
+        if (workspace) managedEnginePoolForConfig(input.config)?.reportRequestFailure(route.fallback.baseUrl, error, workspace);
+        if (isEngineConnectionFailure(error)) throw opencodeUnreachableError(error, proxyPath);
+        throw error;
+      }
       return sanitizeProxyResponse(fallbackResponse);
     }
 

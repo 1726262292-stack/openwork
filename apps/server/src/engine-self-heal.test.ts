@@ -88,6 +88,12 @@ function refused(): Error {
   return Object.assign(new Error("connect ECONNREFUSED 127.0.0.1"), { code: "ECONNREFUSED" });
 }
 
+function timedOut(): Error {
+  return Object.assign(new TypeError("fetch failed"), {
+    cause: Object.assign(new Error("connect ETIMEDOUT 127.0.0.1"), { code: "ETIMEDOUT" }),
+  });
+}
+
 describe("managed engine self-heal", () => {
   test("requires three consecutive connection failures and throttles later bursts", async () => {
     process.env.OPENWORK_ENGINE_MIN_SPAWN_INTERVAL_MS = "30000";
@@ -143,6 +149,28 @@ describe("managed engine self-heal", () => {
     expect(old.handle.isAlive()).toBe(false);
     expect(testFixture.pool.primaryUrl()).toBeNull();
     expect(testFixture.scheduled).toHaveLength(1);
+    await testFixture.pool.disposeAll();
+  });
+
+  test("treats loopback connect timeouts as recoverable engine failures", async () => {
+    process.env.OPENWORK_ENGINE_MIN_SPAWN_INTERVAL_MS = "30000";
+    const old = managedHandle(43001);
+    const replacement = managedHandle(43002);
+    let spawnCalls = 0;
+    const testFixture = fixture(async () => {
+      spawnCalls += 1;
+      return replacement.handle;
+    });
+    testFixture.pool.adoptPrimary({ handle: old.handle, fingerprint: "one", registryId: null, trustedIdentity: null });
+
+    for (let failure = 0; failure < 3; failure += 1) {
+      testFixture.pool.reportRequestFailure(old.handle.url, timedOut(), testFixture.workspace);
+    }
+    await settle();
+
+    expect(spawnCalls).toBe(1);
+    expect(old.handle.isAlive()).toBe(false);
+    expect(testFixture.pool.primaryUrl()).toBe(replacement.handle.url);
     await testFixture.pool.disposeAll();
   });
 
