@@ -7,6 +7,9 @@ name: Release Tag Push Smoke
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - feat/release-tag-app-token
 
 permissions:
   contents: write
