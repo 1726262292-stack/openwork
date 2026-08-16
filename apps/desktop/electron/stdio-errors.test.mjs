@@ -4,6 +4,10 @@ import { EventEmitter } from "node:events";
 
 import { installStdioErrorHandlers, isBrokenPipeError } from "./stdio-errors.mjs";
 
+/**
+ * @param {string} code
+ * @returns {Error & { code: string }}
+ */
 function streamError(code) {
   return Object.assign(new Error(code === "EPIPE" ? "write EPIPE" : "stream failed"), { code });
 }
