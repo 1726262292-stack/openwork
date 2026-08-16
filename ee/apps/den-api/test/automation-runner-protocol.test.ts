@@ -217,6 +217,18 @@ test("idle runner keepalives do not persist liveness in the database", () => {
   assert.doesNotMatch(repositorySource, /AutomationRunnerTable\.last_seen_at, new Date\(input\.seenAfter\)/)
 })
 
+test("work polling tolerates non-critical runner presence touch failures", () => {
+  const serviceSource = readFileSync(join(import.meta.dir, "../src/automations/service.ts"), "utf8")
+  const discover = serviceSource.slice(
+    serviceSource.indexOf("async discoverDesktopRunnerWork"),
+    serviceSource.indexOf("async claimDesktopRunner"),
+  )
+
+  assert.match(discover, /try \{\s*await this\.touchDesktopRunner\(scope\)/)
+  assert.match(discover, /catch \(error\) \{[\s\S]*logger\.warn\("automation desktop runner touch failed"/)
+  assert.match(discover, /return automationRepository\.discoverDesktopWork/)
+})
+
 test("every dispatch path revalidates the owner's model access", () => {
   const serviceSource = readFileSync(join(import.meta.dir, "../src/automations/service.ts"), "utf8")
   const tick = serviceSource.slice(serviceSource.indexOf("async tick"), serviceSource.indexOf("async stop"))
