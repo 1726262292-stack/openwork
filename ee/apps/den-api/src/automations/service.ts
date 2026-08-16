@@ -19,6 +19,7 @@ import type { CloudAgentExecution, CloudAgentExecutorInput } from "./cloud-agent
 import { appLogger } from "../observability/logger.js"
 
 const schedulerOwner = `den:${process.pid}:${randomUUID()}`
+const logger = appLogger.child({ component: "automations" })
 
 type OwnerScope = {
   organizationId: string
@@ -332,7 +333,16 @@ export class AutomationService {
   }
 
   async discoverDesktopRunnerWork(scope: DesktopRunnerScope) {
-    await this.touchDesktopRunner(scope)
+    try {
+      await this.touchDesktopRunner(scope)
+    } catch (error) {
+      logger.warn("automation desktop runner touch failed", {
+        organization_id: scope.organizationId,
+        owner_member_id: scope.ownerMemberId,
+        runner_id: scope.runnerId,
+        error,
+      })
+    }
     return automationRepository.discoverDesktopWork({ ...scope, now: Date.now(), limit: 4 })
   }
 
