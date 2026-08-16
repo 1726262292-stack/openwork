@@ -10,11 +10,10 @@ describe("parseFrontmatter", () => {
     });
   });
 
-  test("returns empty data for malformed compact-mapping YAML", () => {
-    expect(parseFrontmatter("---\ndescription: foo: bar\n---\nbody text")).toEqual({
-      data: {},
-      body: "body text",
-    });
+  test("throws on malformed compact-mapping YAML so callers can surface it", () => {
+    expect(() => parseFrontmatter("---\ndescription: foo: bar\n---\nbody text")).toThrow(
+      "Nested mappings are not allowed",
+    );
   });
 
   test("returns empty data for non-object YAML frontmatter", () => {
