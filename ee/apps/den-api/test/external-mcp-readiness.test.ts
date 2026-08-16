@@ -22,7 +22,7 @@ function fakeQuery(rows: QueryRows): FakeQuery {
     where: () => query,
     limit: () => query,
     for: () => {
-      throw new Error("Readiness must not lock rows")
+      throw new Error("Read-only external MCP checks must not lock rows")
     },
     then: promise.then.bind(promise),
   }
@@ -69,26 +69,67 @@ const account = {
   createdAt: new Date("2026-01-01T00:00:00Z"),
   updatedAt: new Date("2026-01-01T00:00:00Z"),
 }
-const selectResults: QueryRows[] = [[connection], [account], [connection]]
+const orgClient = {
+  id: "ooc_01k28e8q8pf8r9sff9mhyqxved",
+  organizationId: connection.organizationId,
+  providerId: connection.id,
+  clientId: "mcp-client-id",
+  clientSecret: null,
+  extra: null,
+  createdByOrgMembershipId: connection.createdByOrgMembershipId,
+  createdAt: new Date("2026-01-01T00:00:00Z"),
+  updatedAt: new Date("2026-01-01T00:00:00Z"),
+}
+let selectResults: QueryRows[] = []
 let transactionCalls = 0
+
+function queueSelectResults(results: QueryRows[]): void {
+  selectResults = results
+  transactionCalls = 0
+}
 
 mock.module("../src/db.js", () => ({
   db: {
     select: () => fakeQuery(selectResults.shift() ?? []),
     transaction: () => {
       transactionCalls += 1
-      throw new Error("Readiness must not open a transaction")
+      throw new Error("Read-only external MCP checks must not open a transaction")
     },
   },
 }))
 
-const { readyExternalMcpConnectionsForMember } = await import("../src/capability-sources/external-mcp-connections.js")
+const {
+  readConnectedAccountForExternalMcpIdentity,
+  readOrgOAuthClientForExternalMcpIdentity,
+  readyExternalMcpConnectionsForMember,
+} = await import("../src/capability-sources/external-mcp-connections.js")
 
 test("per-member connection list readiness reads credentials without row locks", async () => {
+  queueSelectResults([[connection], [account], [connection]])
   await expect(readyExternalMcpConnectionsForMember(
     [connection] as never,
     account.orgMembershipId as never,
   )).resolves.toEqual([connection])
+  expect(transactionCalls).toBe(0)
+  expect(selectResults).toHaveLength(0)
+})
+
+test("per-member connected account reads do not lock the shared connection row", async () => {
+  queueSelectResults([[connection], [account], [connection]])
+  await expect(readConnectedAccountForExternalMcpIdentity({
+    connection: connection as never,
+    orgMembershipId: account.orgMembershipId as never,
+  })).resolves.toEqual({ current: true, value: account })
+  expect(transactionCalls).toBe(0)
+  expect(selectResults).toHaveLength(0)
+})
+
+test("org OAuth client reads do not lock the shared connection row", async () => {
+  queueSelectResults([[connection], [orgClient], [connection]])
+  await expect(readOrgOAuthClientForExternalMcpIdentity(connection as never)).resolves.toEqual({
+    current: true,
+    value: orgClient,
+  })
   expect(transactionCalls).toBe(0)
   expect(selectResults).toHaveLength(0)
 })
