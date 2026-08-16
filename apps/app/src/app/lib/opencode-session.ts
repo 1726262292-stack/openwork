@@ -11,6 +11,30 @@ import type { Session } from "@opencode-ai/sdk/v2/client";
 import type { Client, ModelRef } from "../types";
 import { unwrap } from "./opencode";
 
+export type AbortSessionLogContext = {
+  source: string;
+  initiator: "user" | "system" | "app";
+  reason?: string;
+};
+
+function logAbortSession(
+  phase: "start" | "done" | "error",
+  sessionID: string,
+  directory: string | undefined,
+  context: AbortSessionLogContext | undefined,
+  extra?: { aborted?: boolean; error?: string },
+) {
+  console.info("[opencode-session] abort", {
+    phase,
+    source: context?.source ?? "unknown",
+    initiator: context?.initiator ?? "app",
+    reason: context?.reason ?? null,
+    sessionID,
+    directoryScoped: Boolean(directory?.trim()),
+    ...(extra ?? {}),
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Session helpers
 // ---------------------------------------------------------------------------
@@ -30,8 +54,19 @@ export async function abortSession(
   client: Client,
   sessionID: string,
   directory?: string,
+  logContext?: AbortSessionLogContext,
 ): Promise<boolean> {
-  return unwrap(await client.session.abort({ sessionID, directory })) === true;
+  logAbortSession("start", sessionID, directory, logContext);
+  try {
+    const aborted = unwrap(await client.session.abort({ sessionID, directory })) === true;
+    logAbortSession("done", sessionID, directory, logContext, { aborted });
+    return aborted;
+  } catch (error) {
+    logAbortSession("error", sessionID, directory, logContext, {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
+  }
 }
 
 /**
@@ -43,9 +78,10 @@ export async function abortSessionSafe(
   client: Client,
   sessionID: string,
   directory?: string,
+  logContext?: AbortSessionLogContext,
 ): Promise<boolean> {
   try {
-    return await abortSession(client, sessionID, directory);
+    return await abortSession(client, sessionID, directory, logContext);
   } catch {
     // The session may already be idle or the server unreachable; callers
     // treat `false` as "nothing was aborted".

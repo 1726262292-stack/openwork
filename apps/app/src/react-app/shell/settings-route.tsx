@@ -1501,7 +1501,11 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
       activeSessions: () => activeReloadBlockingSessions,
       stopSession: async (sessionId) => {
         if (!activeClient) return;
-        await abortSessionSafe(activeClient, sessionId);
+        await abortSessionSafe(activeClient, sessionId, undefined, {
+          source: "settings.reload_workspace.stop_session",
+          initiator: "user",
+          reason: "stop active session before workspace engine reload",
+        });
       },
     });
   }, [
@@ -2701,7 +2705,11 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
         isRemoteWorkspace={selectedWorkspace?.workspaceType === "remote"}
         onForceStopSession={async (sessionId) => {
           if (!activeClient) return;
-          await abortSessionSafe(activeClient, sessionId);
+          await abortSessionSafe(activeClient, sessionId, undefined, {
+            source: "settings.connections.force_stop_session",
+            initiator: "user",
+            reason: "force stop active session from connections modal",
+          });
         }}
         onReloadEngine={reloadCoordinator.reloadWorkspaceEngine}
         modalState={{
