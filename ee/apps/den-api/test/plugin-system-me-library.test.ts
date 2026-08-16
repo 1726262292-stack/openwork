@@ -264,6 +264,7 @@ test("the member library unifies sorted plugin and connection items", async () =
         description: "A mixed component bundle",
         componentCount: 2,
         componentKinds: ["mcp", "skill"],
+        componentCounts: { mcp: 1, skill: 1 },
         sourceRepositoryUrl: null,
         edges: [{
           kind: "person",

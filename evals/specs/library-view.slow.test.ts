@@ -306,7 +306,7 @@ test.skipIf(!apiUrl || !webUrl)(title, async () => {
   })()`);
   expect(tokenStored).toBe(true);
 
-  await navigate(browser.client, `${webUrl}/dashboard/library`);
+  await navigate(browser.client, `${webUrl}/dashboard/library/details`);
   try {
     await waitFor(
       browser,
@@ -321,9 +321,9 @@ test.skipIf(!apiUrl || !webUrl)(title, async () => {
          return [...document.querySelectorAll("h1")].some((entry) => entry.textContent?.trim() === "Library")
            && text.includes(${JSON.stringify(pluginName)})
            && Boolean(connectionRow)
-           && tabs.some((label) => label.startsWith("Needs your sign-in"))
+           && tabs.some((label) => label.startsWith("Sign In to Use"))
            && tabs.some((label) => label.startsWith("Ready to use"))
-           && signInCaption?.textContent?.trim() === "NEEDS YOUR SIGN-IN"
+           && signInCaption?.textContent?.trim() === "SIGN IN TO USE"
            && fromFacet
            && [...document.querySelectorAll("[data-library-source]")].some((entry) =>
              (entry.textContent ?? "").replace(/\\s+/g, " ").includes("Shared by Casey")
@@ -361,7 +361,7 @@ test.skipIf(!apiUrl || !webUrl)(title, async () => {
       .map((entry) => (entry.textContent ?? "").trim());
     const filters = document.querySelector('[aria-label="Library filters"]');
     return tabs.some((label) => label === "All")
-      && tabs.some((label) => label.startsWith("Needs your sign-in"))
+      && tabs.some((label) => label.startsWith("Sign In to Use"))
       && tabs.some((label) => label.startsWith("Ready to use"))
       && !tabs.some((label) => label === "Mine" || label === "Shared with me")
       && Boolean(filters && (filters.textContent ?? "").includes("From ·"));
@@ -399,7 +399,7 @@ test.skipIf(!apiUrl || !webUrl)(title, async () => {
       .map((entry) => (entry.textContent ?? "").trim());
     const pluginChips = [...(pluginRow?.querySelectorAll('[data-library-chip]') ?? [])]
       .map((entry) => (entry.textContent ?? "").trim());
-    return caption?.textContent?.trim() === "NEEDS YOUR SIGN-IN"
+    return caption?.textContent?.trim() === "SIGN IN TO USE"
       && connectionChips.length > 0
       && connectionChips.length <= 3
       && connectionChips.includes("MCP")
@@ -424,7 +424,7 @@ test.skipIf(!apiUrl || !webUrl)(title, async () => {
 
   const needsSignInTabClicked = await evalIn(browser, `(() => {
     const tab = [...document.querySelectorAll('[role="tab"]')]
-      .find((entry) => (entry.textContent ?? "").trim().startsWith("Needs your sign-in"));
+      .find((entry) => (entry.textContent ?? "").trim().startsWith("Sign In to Use"));
     if (!(tab instanceof HTMLElement)) return false;
     tab.click();
     return true;
@@ -521,7 +521,7 @@ test.skipIf(!apiUrl || !webUrl)(title, async () => {
   const desktopShot = await screenshot(browser);
   const desktopSeen = await validate(desktopShot, [
     "Rows show a logo tile, a title with chips beside it, and one meta line inside a hairline-divided card",
-    "A white needs-sign-in row shows an amber Connect your account chip and a dark Sign in button under a NEEDS YOUR SIGN-IN caption",
+    "A white needs-sign-in row shows an amber Connect your account chip and a dark Sign in button under a SIGN IN TO USE caption",
   ]);
   await roll.add(desktopShot, desktopSeen);
   expect(desktopSeen.ok, desktopSeen.why).toBe(true);
@@ -544,7 +544,7 @@ test.skipIf(!apiUrl || !webUrl)(title, async () => {
   await roll.add(mobileShot, mobileSeen);
   expect(mobileSeen.ok, mobileSeen.why).toBe(true);
 
-  await navigate(browser.client, `${webUrl}/dashboard/library?focus=${encodeURIComponent(`connection-${connection.id}`)}`);
+  await navigate(browser.client, `${webUrl}/dashboard/library/details?focus=${encodeURIComponent(`connection-${connection.id}`)}`);
   await waitFor(browser, `(() => {
     const row = document.querySelector('[data-library-focused][data-library-item-type="connection"]');
     return Boolean(row && (row.textContent ?? "").includes(${JSON.stringify(connection.name)}));

@@ -534,6 +534,8 @@ export const libraryItemSchema = z.discriminatedUnion("type", [
     description: nullableStringSchema,
     componentCount: z.number().int().nonnegative(),
     componentKinds: z.array(z.string()),
+    /** Per-kind component counts, so a bundle reads differently from a single skill. */
+    componentCounts: z.record(z.string(), z.number().int().nonnegative()),
     sourceRepositoryUrl: z.string().trim().min(1).max(1024).nullable(),
     edges: z.array(effectiveAccessEdgeSchema),
     role: accessRoleSchema,

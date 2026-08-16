@@ -2220,11 +2220,13 @@ async function listMeEffectivePluginAccessWithComponentKinds(input: { context: P
   const pluginsById = new Map(activePlugins.map((plugin) => [plugin.id, plugin]))
   const teamsById = new Map(input.context.memberTeams.map((team) => [team.id, team]))
   const marketplaceGrantsById = new Map<MarketplaceId, typeof marketplaceGrants>()
-  const componentsByPlugin = new Map<PluginId, { count: number; kinds: Set<string> }>()
+  const componentsByPlugin = new Map<PluginId, { count: number; kinds: Set<string>; countsByKind: Map<string, number> }>()
   for (const row of componentRows) {
-    const components = componentsByPlugin.get(row.pluginId) ?? { count: 0, kinds: new Set<string>() }
+    const components = componentsByPlugin.get(row.pluginId)
+      ?? { count: 0, kinds: new Set<string>(), countsByKind: new Map<string, number>() }
     components.count += row.componentCount
     components.kinds.add(row.objectType)
+    components.countsByKind.set(row.objectType, (components.countsByKind.get(row.objectType) ?? 0) + row.componentCount)
     componentsByPlugin.set(row.pluginId, components)
   }
   const candidatesByPlugin = new Map<PluginId, Map<string, MePluginAccessCandidate>>()
@@ -2314,6 +2316,10 @@ async function listMeEffectivePluginAccessWithComponentKinds(input: { context: P
         description: plugin.description,
         componentCount: componentsByPlugin.get(plugin.id)?.count ?? 0,
         componentKinds: [...(componentsByPlugin.get(plugin.id)?.kinds ?? [])].sort(),
+        componentCounts: Object.fromEntries(
+          [...(componentsByPlugin.get(plugin.id)?.countsByKind ?? new Map<string, number>())]
+            .sort(([leftKind], [rightKind]) => leftKind.localeCompare(rightKind)),
+        ),
         sourceRepositoryUrl: plugin.sourceRepositoryUrl,
       },
       edges: candidates.map((candidate) => candidate.edge),
@@ -2353,6 +2359,7 @@ export async function listMeLibraryPluginItems(input: { context: PluginArchActor
     description: item.plugin.description,
     componentCount: item.plugin.componentCount,
     componentKinds: item.plugin.componentKinds,
+    componentCounts: item.plugin.componentCounts,
     sourceRepositoryUrl: item.plugin.sourceRepositoryUrl,
     edges: item.edges,
     role: item.role,

@@ -664,6 +664,12 @@ export function getLibraryRoute(orgSlug?: string | null): string {
   return `${getOrgDashboardRoute(orgSlug)}/library`;
 }
 
+/** Expanded library, optionally deep-linked to one of its tabs. */
+export function getLibraryDetailsRoute(orgSlug?: string | null, tab?: string): string {
+  const base = `${getLibraryRoute(orgSlug)}/details`;
+  return tab ? `${base}?tab=${encodeURIComponent(tab)}` : base;
+}
+
 export function getGithubIntegrationSetupRoute(orgSlug: string | null | undefined, connectorInstanceId: string): string {
   return `${getGithubIntegrationRoute(orgSlug)}?connectorInstanceId=${encodeURIComponent(connectorInstanceId)}`;
 }

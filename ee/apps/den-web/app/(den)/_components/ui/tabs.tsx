@@ -19,6 +19,8 @@ type UnderlineTabsProps<T extends string> = {
   className?: string;
   /** Keeps empty tabs honest: shows "0" instead of hiding the count. */
   showZeroCounts?: boolean;
+  /** Names the tablist. Required in practice when a page carries more than one. */
+  ariaLabel?: string;
 };
 
 export function UnderlineTabs<T extends string>({
@@ -27,10 +29,11 @@ export function UnderlineTabs<T extends string>({
   onChange,
   className = "",
   showZeroCounts = false,
+  ariaLabel,
 }: UnderlineTabsProps<T>) {
   return (
     <div className={`border-b border-gray-200 ${className}`}>
-      <nav className="-mb-px flex flex-wrap gap-6" role="tablist">
+      <nav className="-mb-px flex flex-wrap gap-6" role="tablist" aria-label={ariaLabel}>
         {tabs.map(({ value, label, icon: Icon, count, countTone = "neutral", countClassName }) => {
           const selected = activeTab === value;
           return (

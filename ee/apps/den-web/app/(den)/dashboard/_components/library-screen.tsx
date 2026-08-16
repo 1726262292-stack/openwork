@@ -2,9 +2,8 @@
 
 import { useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronRight, LibraryBig, Search } from "lucide-react";
+import { ChevronRight, Search } from "lucide-react";
 
-import { DashboardPageTemplate } from "../../_components/ui/dashboard-page-template";
 import { DenBrandMark } from "../../_components/ui/brand-mark";
 import { DenButton } from "../../_components/ui/button";
 import { DenChip } from "../../_components/ui/chip";
@@ -20,10 +19,18 @@ import {
   type LibraryPluginItem,
   useLibrary,
 } from "./library-data";
+import {
+  getReadinessState,
+  LIBRARY_READINESS_LABELS,
+  LIBRARY_READINESS_SECTION_TITLES,
+  type LibraryReadinessState,
+} from "./library-status";
 
-type LibraryStateTab = "all" | "needs_signin" | "needs_admin_setup" | "ready";
-type LibrarySectionState = Exclude<LibraryStateTab, "all">;
+type LibraryStateTab = "all" | LibraryReadinessState;
+type LibrarySectionState = LibraryReadinessState;
 type KindFilter = "all" | "connections" | "skills" | "mcps" | "plugins";
+/** Narrows the whole screen to one kind, for the tabbed detail page. */
+export type LibraryScopeFilter = "all" | "connections" | "plugins";
 type FromFilter = "anyone" | "mine" | "shared" | "team" | "everyone";
 type RowKind = "connection" | "skill" | "plugin";
 
@@ -42,12 +49,6 @@ const FROM_FILTERS: readonly { value: FromFilter; label: string }[] = [
   { value: "team", label: "My teams" },
   { value: "everyone", label: "Everyone" },
 ];
-
-const SECTION_TITLES: Record<LibrarySectionState, string> = {
-  needs_signin: "NEEDS YOUR SIGN-IN",
-  needs_admin_setup: "NEEDS ADMIN SETUP",
-  ready: "READY TO USE",
-};
 
 function matchesFrom(item: LibraryItem, from: FromFilter): boolean {
   if (from === "anyone") return true;
@@ -70,14 +71,13 @@ function matchesKind(item: LibraryItem, kind: KindFilter): boolean {
     || (item.type === "connection" && item.transport === "mcp");
 }
 
-function getSectionState(item: LibraryItem): LibrarySectionState {
-  if (item.type === "connection" && item.state === "needs_signin") return "needs_signin";
-  if (item.type === "connection" && item.state === "needs_admin_setup") return "needs_admin_setup";
-  return "ready";
+function matchesState(item: LibraryItem, state: LibraryStateTab): boolean {
+  return state === "all" || getReadinessState(item) === state;
 }
 
-function matchesState(item: LibraryItem, state: LibraryStateTab): boolean {
-  return state === "all" || getSectionState(item) === state;
+function matchesScope(item: LibraryItem, scope: LibraryScopeFilter): boolean {
+  if (scope === "all") return true;
+  return scope === "connections" ? item.type === "connection" : item.type === "plugin";
 }
 
 function getRowKind(item: LibraryItem): RowKind {
@@ -166,7 +166,7 @@ function getGitHubOwnerAvatar(sourceRepositoryUrl: string | null): string | unde
 }
 
 function LibraryRow({ item, isAdmin, isFocused, orgName, orgSlug }: { item: LibraryItem; isAdmin: boolean; isFocused: boolean; orgName: string; orgSlug: string | null }) {
-  const sectionState = getSectionState(item);
+  const sectionState = getReadinessState(item);
   const rowKind = getRowKind(item);
   const source = getSource(item, orgName);
   const rowKey = `${item.type}-${item.id}`;
@@ -288,7 +288,7 @@ function LibrarySection({
     <section data-library-section={state}>
       <div className="mb-3 flex min-w-0 items-baseline gap-2 overflow-hidden whitespace-nowrap">
         <h2 className="shrink-0 text-[11px] font-semibold uppercase tracking-[0.14em] text-gray-400">
-          {SECTION_TITLES[state]}
+          {LIBRARY_READINESS_SECTION_TITLES[state]}
         </h2>
         <span className="shrink-0 text-[11px] font-semibold text-gray-400">{items.length}</span>
         {caption ? <span className="min-w-0 truncate text-[12px] text-gray-400">— {caption}</span> : null}
@@ -320,9 +320,21 @@ function LibrarySection({
   );
 }
 
-export function LibraryScreen() {
+export type LibraryScreenProps = {
+  /** Narrows the list to one kind. The tabbed detail page sets this. */
+  scope?: LibraryScopeFilter;
+  /**
+   * Always true today: this list only ever renders inside the tabbed detail
+   * page, which owns the hero. Kept explicit so a future standalone mount has
+   * to opt out deliberately.
+   */
+  embedded: true;
+};
+
+export function LibraryScreen({ scope = "all" }: LibraryScreenProps) {
   const { orgContext, orgSlug } = useOrgDashboard();
-  const { data: items = [], isLoading, error } = useLibrary();
+  const { data: allItems = [], isLoading, error } = useLibrary();
+  const items = useMemo(() => allItems.filter((item) => matchesScope(item, scope)), [allItems, scope]);
   const searchParams = useSearchParams();
   const [activeState, setActiveState] = useState<LibraryStateTab>("all");
   const [activeKind, setActiveKind] = useState<KindFilter>("all");
@@ -353,7 +365,7 @@ export function LibraryScreen() {
     setActiveKind("all");
     setActiveFrom("anyone");
     setQuery("");
-    setExpandedSections((current) => ({ ...current, [getSectionState(item)]: true }));
+    setExpandedSections((current) => ({ ...current, [getReadinessState(item)]: true }));
     setFocusedKey(requestedFocus);
   }, [items, requestedFocus]);
 
@@ -388,7 +400,7 @@ export function LibraryScreen() {
       needs_admin_setup: 0,
       ready: 0,
     };
-    for (const item of items) counts[getSectionState(item)] += 1;
+    for (const item of items) counts[getReadinessState(item)] += 1;
     return counts;
   }, [items]);
   const stateTabs = useMemo(() => {
@@ -396,7 +408,7 @@ export function LibraryScreen() {
     if (stateCounts.needs_signin > 0) {
       tabs.push({
         value: "needs_signin",
-        label: "Needs your sign-in",
+        label: LIBRARY_READINESS_LABELS.needs_signin,
         count: stateCounts.needs_signin,
         countTone: "warning",
       });
@@ -404,7 +416,7 @@ export function LibraryScreen() {
     if (stateCounts.needs_admin_setup > 0) {
       tabs.push({
         value: "needs_admin_setup",
-        label: "Needs admin setup",
+        label: LIBRARY_READINESS_LABELS.needs_admin_setup,
         count: stateCounts.needs_admin_setup,
         countTone: "danger",
       });
@@ -412,7 +424,7 @@ export function LibraryScreen() {
     if (stateCounts.ready > 0) {
       tabs.push({
         value: "ready",
-        label: "Ready to use",
+        label: LIBRARY_READINESS_LABELS.ready,
         count: stateCounts.ready,
         countTone: "neutral",
       });
@@ -436,7 +448,7 @@ export function LibraryScreen() {
       needs_admin_setup: [],
       ready: [],
     };
-    for (const item of visibleItems) grouped[getSectionState(item)].push(item);
+    for (const item of visibleItems) grouped[getReadinessState(item)].push(item);
     return grouped;
   }, [visibleItems]);
   const filtersActive = normalizedQuery.length > 0
@@ -445,26 +457,14 @@ export function LibraryScreen() {
     || activeState !== "all";
 
   return (
-    <DashboardPageTemplate
-      icon={LibraryBig}
-      badgeLabel="Member library"
-      badgeCompanion={(
-        <DenChip tone="success">
-          {stateCounts.ready} ready to use
-        </DenChip>
-      )}
-      title="Library"
-      description="Everything you can use in chat — yours, shared with you, from your teams, and org-wide."
-      descriptionPlacement="hero"
-      colors={["#DBEAFE", "#1E3A8A", "#2563EB", "#A7F3D0"]}
-      size="responsive"
-    >
+    <>
       <div className="mb-5 overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         <UnderlineTabs
           className="min-w-max [&>nav]:flex-nowrap [&_[role=tab]]:!pb-2.5 [&_[role=tab]]:!text-[13px] [&_[role=tab]]:!font-medium [&_[role=tab]]:!text-gray-500 [&_[role=tab][aria-selected=true]]:!border-gray-900 [&_[role=tab][aria-selected=true]]:!font-semibold [&_[role=tab][aria-selected=true]]:!text-gray-900"
           tabs={stateTabs}
           activeTab={activeState}
           onChange={setActiveState}
+          ariaLabel="Library state"
         />
       </div>
 
@@ -479,7 +479,8 @@ export function LibraryScreen() {
             className="h-[34px] text-[12.5px]"
           />
         </div>
-        {KIND_FILTERS.map((filter) => {
+        {/* The tabbed detail page already narrows by kind, so the pills would repeat it. */}
+        {scope === "all" ? KIND_FILTERS.map((filter) => {
           const selected = activeKind === filter.value;
           return (
             <button
@@ -495,7 +496,7 @@ export function LibraryScreen() {
               {kindFilterLabel(filter, kindCounts)}
             </button>
           );
-        })}
+        }) : null}
         <label className="inline-flex h-[26px] items-center rounded-full border border-gray-200 bg-white pl-3 pr-2 text-[12px] font-medium text-gray-500">
           <span className="shrink-0">From ·</span>
           <select
@@ -555,6 +556,6 @@ export function LibraryScreen() {
           ))}
         </div>
       )}
-    </DashboardPageTemplate>
+    </>
   );
 }

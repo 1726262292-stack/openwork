@@ -29,6 +29,8 @@ export type LibraryPluginItem = {
   description: string | null;
   componentCount: number;
   componentKinds: string[];
+  /** Per-kind counts. Empty when the API has not reported them. */
+  componentCounts: Record<string, number>;
   sourceRepositoryUrl: string | null;
   edges: LibraryAccessEdge[];
   role: PluginAccessRole;
@@ -71,6 +73,21 @@ function readStringArray(value: unknown): string[] | null {
   const strings = value.map(readString);
   if (strings.some((item) => item === null)) return null;
   return strings.filter((item): item is string => item !== null);
+}
+
+/**
+ * Per-kind counts are optional on the wire so den-web can deploy ahead of the
+ * API. Absent means "not reported"; a malformed map is still a hard failure.
+ */
+function readCountsByKind(value: unknown): Record<string, number> | null {
+  if (value === undefined) return {};
+  if (!isRecord(value)) return null;
+  const counts: Record<string, number> = {};
+  for (const [kind, count] of Object.entries(value)) {
+    if (typeof count !== "number" || !Number.isInteger(count) || count < 0) return null;
+    counts[kind] = count;
+  }
+  return counts;
 }
 
 function readRole(value: unknown): PluginAccessRole | null {
@@ -139,6 +156,7 @@ function parsePlugin(value: Record<string, unknown>): LibraryPluginItem | null {
   const description = readNullableString(value.description);
   const sourceRepositoryUrl = readNullableString(value.sourceRepositoryUrl);
   const componentKinds = readStringArray(value.componentKinds);
+  const componentCounts = readCountsByKind(value.componentCounts);
   const role = readRole(value.role);
   const edges = parseEdges(value.edges);
   if (
@@ -150,6 +168,7 @@ function parsePlugin(value: Record<string, unknown>): LibraryPluginItem | null {
     || !Number.isInteger(value.componentCount)
     || value.componentCount < 0
     || !componentKinds
+    || !componentCounts
     || !role
     || !edges
   ) {
@@ -162,6 +181,7 @@ function parsePlugin(value: Record<string, unknown>): LibraryPluginItem | null {
     description,
     componentCount: value.componentCount,
     componentKinds,
+    componentCounts,
     sourceRepositoryUrl,
     edges,
     role,
@@ -238,6 +258,60 @@ export function useLibrary() {
         throw new Error(getErrorMessage(payload, `Failed to load library (${response.status}).`));
       }
       return parseLibraryPayload(payload);
+    },
+  });
+}
+
+export type LibrarySkillItem = {
+  id: string;
+  title: string;
+  description: string | null;
+};
+
+export const librarySkillsQueryKeys = {
+  items: ["me", "library", "skills"],
+};
+
+/**
+ * Individual skills the caller can use. The library endpoint is plugin-grouped,
+ * so skill-level rows come from the member-visible config-object projection,
+ * which inherits viewer access through plugin and marketplace grants.
+ */
+const SKILL_PAGE_LIMIT = 100;
+
+function parseSkill(value: unknown): LibrarySkillItem | null {
+  if (!isRecord(value)) return null;
+  const id = readString(value.id);
+  const title = readString(value.title);
+  const description = readNullableString(value.description);
+  if (!id || !title || description === undefined) return null;
+  return { id, title, description };
+}
+
+export function parseLibrarySkillsPayload(payload: unknown): LibrarySkillItem[] {
+  if (!isRecord(payload) || !Array.isArray(payload.items)) {
+    throw new Error("Skills response was incomplete.");
+  }
+  const skills = payload.items.map(parseSkill).filter((skill): skill is LibrarySkillItem => skill !== null);
+  if (skills.length !== payload.items.length) {
+    throw new Error("Skills response was incomplete.");
+  }
+  return skills;
+}
+
+export function useLibrarySkills() {
+  return useQuery({
+    queryKey: librarySkillsQueryKeys.items,
+    queryFn: async (): Promise<LibrarySkillItem[]> => {
+      const { response, payload } = await requestJson(
+        `/v1/config-objects?type=skill&status=active&limit=${SKILL_PAGE_LIMIT}`,
+        { method: "GET" },
+        15000,
+      );
+      if (!response.ok) {
+        throw new Error(getErrorMessage(payload, `Failed to load skills (${response.status}).`));
+      }
+      return parseLibrarySkillsPayload(payload);
     },
   });
 }
