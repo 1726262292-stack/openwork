@@ -8,6 +8,7 @@ import {
   ensureWorkspaceFiles,
   ensureLocalWorkspaceFiles,
 } from "./workspace-init.js";
+import { ApiError } from "./errors.js";
 import { openworkExtensionsPreviewPluginPath, openworkPluginPath } from "./openwork-extensions-plugin-path.js";
 
 async function withWorkspace(fn: (root: string) => Promise<void>) {
@@ -33,6 +34,32 @@ describe("ensureWorkspaceFiles", () => {
 
       const secondResult = await ensureWorkspaceFiles(root, "starter");
       expect(secondResult).toEqual({ changed: false, reloadReasons: [] });
+    });
+  });
+
+  test("reports inaccessible workspace paths as API errors", async () => {
+    await withWorkspace(async (root) => {
+      const blockedPath = join(root, "blocked");
+      await writeFile(blockedPath, "not a directory", "utf8");
+
+      await expect(ensureWorkspaceFiles(blockedPath, "starter")).rejects.toMatchObject({
+        status: 409,
+        code: "workspace_inaccessible",
+        message: "Workspace path is not accessible",
+      });
+
+      try {
+        await ensureWorkspaceFiles(blockedPath, "starter");
+      } catch (error) {
+        expect(error).toBeInstanceOf(ApiError);
+        if (!(error instanceof ApiError)) throw error;
+        expect(error.details).toMatchObject({
+          path: blockedPath,
+          fsPath: blockedPath,
+        });
+        return;
+      }
+      throw new Error("Expected workspace path bootstrap to fail");
     });
   });
 
