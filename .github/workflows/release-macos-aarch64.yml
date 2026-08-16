@@ -105,6 +105,37 @@ jobs:
       publish_npm: ${{ steps.resolve.outputs.publish_npm }}
       publish_daytona_snapshot: ${{ steps.resolve.outputs.publish_daytona_snapshot }}
     steps:
+      # Tag creation was admin-only before the app-token flow (the v* tag
+      # ruleset gated it at push time). The app token would let ANY dispatch
+      # release, so restore the old bar here: dispatching actor must be a
+      # repo admin, or explicitly listed in the RELEASE_MANAGERS repo
+      # variable (comma-separated GitHub logins). Tag pushes skip this —
+      # they are still gated by the ruleset itself. This check lives on a
+      # protected branch, and the token mint below is environment-gated to
+      # dev + v* refs, so a feature-branch copy of this workflow can neither
+      # drop the check nor reach the key.
+      - name: Require release permission
+        if: github.event_name == 'workflow_dispatch'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ACTOR: ${{ github.actor }}
+          RELEASE_MANAGERS: ${{ vars.RELEASE_MANAGERS }}
+        run: |
+          set -euo pipefail
+          for allowed in ${RELEASE_MANAGERS//,/ }; do
+            if [ "$allowed" = "$ACTOR" ]; then
+              echo "${ACTOR} is listed in RELEASE_MANAGERS."
+              exit 0
+            fi
+          done
+          permission="$(gh api "repos/${GITHUB_REPOSITORY}/collaborators/${ACTOR}/permission" --jq .permission)"
+          if [ "$permission" != "admin" ]; then
+            echo "::error::Release dispatch is restricted: ${ACTOR} has '${permission}' but needs repo admin (or a RELEASE_MANAGERS listing)." >&2
+            exit 1
+          fi
+          echo "${ACTOR} is a repo admin."
+
       - name: Checkout
         uses: actions/checkout@v6
         with:
