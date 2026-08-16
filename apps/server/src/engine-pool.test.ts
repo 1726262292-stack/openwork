@@ -403,6 +403,24 @@ describe("engine pool", () => {
     expect(events).toContain(`"sessionID":"ses_${newPort}"`);
   });
 
+  test("returns a controlled 502 when the selected engine is unreachable", async () => {
+    const fixture = await createFixture();
+    const { primary } = await createPool(fixture);
+    await primary.close();
+    const url = new URL("http://127.0.0.1/opencode/config");
+
+    await expect(proxyOpencodeRequest({
+      config: fixture.config,
+      request: new Request(url, { method: "GET" }),
+      url,
+      workspace: fixture.workspace,
+      proxyPath: "/config",
+    })).rejects.toMatchObject({
+      status: 502,
+      code: "opencode_unreachable",
+    });
+  });
+
   test("ends existing event fan-in leases when a generation flips", async () => {
     const fixture = await createFixture();
     const { pool, primary } = await createPool(fixture);
