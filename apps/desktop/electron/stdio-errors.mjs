@@ -4,6 +4,9 @@ export function isBrokenPipeError(error) {
   return Boolean(error && typeof error === "object" && error.code === "EPIPE");
 }
 
+/**
+ * @param {{ stdout?: import("node:events").EventEmitter, stderr?: import("node:events").EventEmitter }} streams
+ */
 export function installStdioErrorHandlers({ stdout = process.stdout, stderr = process.stderr } = {}) {
   for (const stream of [stdout, stderr]) {
     if (!stream || typeof stream.on !== "function" || guardedStreams.has(stream)) continue;
