@@ -1020,11 +1020,35 @@ export class EnginePool {
   }
 
   private async abortSession(generation: Generation, sessionId: string): Promise<void> {
-    await loopbackFetch(new URL(`/session/${encodeURIComponent(sessionId)}/abort`, generation.handle.url).toString(), {
-      method: "POST",
-      headers: { Authorization: buildEngineAuthProbeHeader(generation.handle.username, generation.handle.password) },
-      signal: AbortSignal.timeout(5_000),
+    this.hooks.logger?.log("info", "Aborting OpenCode session from engine pool.", {
+      "abort.source": "engine_pool.drain_timeout",
+      "abort.initiator": "system",
+      "abort.reason": "draining engine exceeded grace period",
+      "session.id": sessionId,
+      "engine.generation_id": generation.id,
     });
+    try {
+      await loopbackFetch(new URL(`/session/${encodeURIComponent(sessionId)}/abort`, generation.handle.url).toString(), {
+        method: "POST",
+        headers: { Authorization: buildEngineAuthProbeHeader(generation.handle.username, generation.handle.password) },
+        signal: AbortSignal.timeout(5_000),
+      });
+      this.hooks.logger?.log("info", "OpenCode session abort from engine pool completed.", {
+        "abort.source": "engine_pool.drain_timeout",
+        "abort.initiator": "system",
+        "session.id": sessionId,
+        "engine.generation_id": generation.id,
+      });
+    } catch (error) {
+      this.hooks.logger?.log("error", "OpenCode session abort from engine pool failed.", {
+        "abort.source": "engine_pool.drain_timeout",
+        "abort.initiator": "system",
+        "session.id": sessionId,
+        "engine.generation_id": generation.id,
+        "error.message": error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    }
   }
 }
 
