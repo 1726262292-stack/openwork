@@ -299,6 +299,110 @@ describe("engine pool", () => {
     expect(fixture.hookCalls.reloadInPlace).toBe(1);
   });
 
+  test("provider sync holds the serving primary until a standby is healthy and keeps it on spawn failure", async () => {
+    const fixture = await createFixture();
+    const { pool, primary } = await createPool(fixture);
+    const oldPort = portOf(primary.url);
+    let markStandbyHealthReached: () => void = () => undefined;
+    const standbyHealthReached = new Promise<void>((resolve) => {
+      markStandbyHealthReached = resolve;
+    });
+    let releaseStandbyHealth: () => void = () => undefined;
+    const standbyHealthReleased = new Promise<void>((resolve) => {
+      releaseStandbyHealth = resolve;
+    });
+    let standbyHealthChecks = 0;
+    fixture.hooks.waitForHealthy = async () => {
+      standbyHealthChecks += 1;
+      markStandbyHealthReached();
+      await standbyHealthReleased;
+    };
+    await fixture.setRuntimeConfig(JSON.stringify({ generation: 2 }));
+
+    const rollover = pool.requestRollover({
+      reason: "cloud_provider_sync",
+      workspace: fixture.workspace,
+      forceStandby: true,
+    });
+    await standbyHealthReached;
+
+    const url = new URL("http://127.0.0.1/opencode/config");
+    const oldPrimaryRead = await proxyOpencodeRequest({
+      config: fixture.config,
+      request: new Request(url),
+      url,
+      workspace: fixture.workspace,
+      proxyPath: "/config",
+    });
+    expect(await oldPrimaryRead.json()).toMatchObject({ port: oldPort });
+    expect(pool.primaryUrl()).toBe(primary.url);
+    expect(fixture.hookCalls.reloadInPlace).toBe(0);
+    expect((await fixture.logLines()).filter((line) => line === `${oldPort} POST /instance/dispose`)).toEqual([]);
+
+    releaseStandbyHealth();
+    expect((await rollover).action).toBe("rolled_over");
+    const replacementUrl = pool.primaryUrl();
+    expect(replacementUrl).not.toBe(primary.url);
+    expect(standbyHealthChecks).toBe(1);
+
+    expect(await pool.requestRollover({
+      reason: "cloud_provider_sync_unchanged",
+      workspace: fixture.workspace,
+      forceStandby: true,
+    })).toEqual({ action: "skipped", reason: "unchanged" });
+    expect(standbyHealthChecks).toBe(1);
+
+    expect(await waitUntil(() => pool.snapshot().generations.length === 1, 5_000)).toBe(true);
+    await fixture.setRuntimeConfig(JSON.stringify({ generation: 3 }));
+    fixture.hooks.spawn = async () => {
+      throw new Error("standby spawn failed");
+    };
+    await expect(pool.requestRollover({
+      reason: "cloud_provider_sync_failed",
+      workspace: fixture.workspace,
+      forceStandby: true,
+    })).rejects.toThrow("standby spawn failed");
+
+    expect(pool.primaryUrl()).toBe(replacementUrl);
+    expect(pool.snapshot().generations).toEqual([expect.objectContaining({ role: "primary" })]);
+    expect((await fixture.logLines()).some((line) => line.endsWith("POST /instance/dispose"))).toBe(false);
+  });
+
+  test("forwards detached post-refresh policy without returning before the in-place switch", async () => {
+    const fixture = await createFixture();
+    let markReloadStarted: () => void = () => undefined;
+    const reloadStarted = new Promise<void>((resolve) => {
+      markReloadStarted = resolve;
+    });
+    let releaseReload: () => void = () => undefined;
+    const reloadReleased = new Promise<void>((resolve) => {
+      releaseReload = resolve;
+    });
+    let awaitPostRefreshSync: boolean | undefined;
+    fixture.hooks.reloadInPlace = async (_config, _workspace, options) => {
+      awaitPostRefreshSync = options?.awaitPostRefreshSync;
+      markReloadStarted();
+      await reloadReleased;
+    };
+    const { pool } = await createPool(fixture);
+    await fixture.setRuntimeConfig(JSON.stringify({ generation: 2 }));
+
+    const rollover = pool.requestRollover({
+      reason: "workspace_activation",
+      workspace: fixture.workspace,
+      awaitPostRefreshSync: false,
+    });
+    await reloadStarted;
+    expect(await Promise.race([
+      rollover.then(() => true),
+      new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 25)),
+    ])).toBe(false);
+
+    releaseReload();
+    expect(await rollover).toEqual({ action: "reloaded_in_place" });
+    expect(awaitPostRefreshSync).toBe(false);
+  });
+
   test("rolls over to a standby when the engine is busy, then closes the drained engine", async () => {
     const fixture = await createFixture();
     const { pool, primary } = await createPool(fixture);

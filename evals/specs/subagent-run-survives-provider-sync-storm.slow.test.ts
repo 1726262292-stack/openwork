@@ -330,8 +330,9 @@ test.skipIf(missingRequirements.length > 0)(title, { timeout: 2_700_000 }, async
 
   // ── Convergence probe: an idle sync must settle to noop ────────────────
   // Three back-to-back passes through the same host-token route the product
-  // uses. Pass 1 may legitimately apply; repeated "applied" with no cloud
-  // change is the dispose/create-loop precondition (#2530's anatomy).
+  // uses. Initial materialization and its post-refresh runtime-file update may
+  // each apply once; failing to reach noop within the bound identifies the
+  // dispose/create-loop precondition (#2530's anatomy).
   const convergence: string[] = [];
   for (let pass = 1; pass <= 3; pass += 1) {
     const result = await evalIn(desktopApp, `(async () => {
@@ -347,9 +348,9 @@ test.skipIf(missingRequirements.length > 0)(title, { timeout: 2_700_000 }, async
     })()`, { awaitPromise: true, timeoutMs: 60_000 });
     convergence.push(String(result));
   }
-  const convergedToNoop = convergence.slice(1).every((entry) => entry.includes("noop"));
+  const convergedToNoop = convergence.at(-1)?.includes("noop") === true;
   evidence.fact(
-    "An idle cloud provider sync converges to noop after the first pass",
+    "An idle cloud provider sync converges to noop within three passes",
     `Three sequential POST /cloud-provider-sync/run results: ${JSON.stringify(convergence)}.`,
     convergedToNoop,
   );
