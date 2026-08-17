@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { expect } from "vitest";
 import { clickButton, denFetch, evalIn, fill, signIn, visibleText, waitFor } from "@openwork/behaviors";
 import { localMysqlIsRunning, localRedisIsRunning, queryDenDatabase, server, test } from "@openwork/testkit";
@@ -15,10 +14,6 @@ const title = !localPlacement
     : !redisOpen
       ? "Initial administrator bootstrap skipped — needs Redis on 127.0.0.1:6379"
       : "a private zero-user Den deployment can be claimed once by a configured administrator with an operator code";
-
-function codeDigest(value: string) {
-  return createHash("sha256").update(value, "utf8").digest("hex");
-}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -73,7 +68,7 @@ test.skipIf(!localPlacement || !mysqlOpen || !redisOpen)(title, { timeout: 600_0
       DEN_SINGLE_ORG_ALLOW_PUBLIC_SIGNUP: "false",
       DEN_SINGLE_ORG_OWNER_EMAILS: `${adminEmail},${otherAdminEmail}`,
       DEN_BOOTSTRAP_ADMIN_EMAILS: adminEmail,
-      DEN_INITIAL_ADMIN_BOOTSTRAP_CODE_SHA256: codeDigest(setupCode),
+      DEN_INITIAL_ADMIN_BOOTSTRAP_CODE: setupCode,
     },
   });
 
@@ -262,7 +257,7 @@ test.skipIf(!localPlacement || !mysqlOpen || !redisOpen)(title, { timeout: 600_0
       DEN_SINGLE_ORG_ALLOW_PUBLIC_SIGNUP: "true",
       DEN_SINGLE_ORG_OWNER_EMAILS: `existing.${runId}@example.com`,
       DEN_BOOTSTRAP_ADMIN_EMAILS: adminEmail,
-      DEN_INITIAL_ADMIN_BOOTSTRAP_CODE_SHA256: codeDigest(setupCode),
+      DEN_INITIAL_ADMIN_BOOTSTRAP_CODE: setupCode,
     },
   });
   const unavailable = await denFetch(existingUsersDen.ref, "/v1/auth/bootstrap/status");
@@ -285,7 +280,7 @@ test.skipIf(!localPlacement || !mysqlOpen || !redisOpen)(title, { timeout: 600_0
       DEN_SINGLE_ORG_ALLOW_PUBLIC_SIGNUP: "false",
       DEN_SINGLE_ORG_OWNER_EMAILS: `${adminEmail},${otherAdminEmail}`,
       DEN_BOOTSTRAP_ADMIN_EMAILS: `${adminEmail},${otherAdminEmail}`,
-      DEN_INITIAL_ADMIN_BOOTSTRAP_CODE_SHA256: codeDigest(concurrentCode),
+      DEN_INITIAL_ADMIN_BOOTSTRAP_CODE: concurrentCode,
     },
   });
   if (!raceDen.database?.url) throw new Error("concurrency Den needs database handle");

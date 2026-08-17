@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto"
 import { beforeAll, expect, test } from "bun:test"
 
 function seedRequiredEnv() {
@@ -9,34 +8,20 @@ function seedRequiredEnv() {
 }
 
 let bootstrap: typeof import("../src/initial-admin-bootstrap.js")
-let envModule: typeof import("../src/env.js")
-
 beforeAll(async () => {
   seedRequiredEnv()
   bootstrap = await import("../src/initial-admin-bootstrap.js")
-  envModule = await import("../src/env.js")
 })
-
-function digest(value: string) {
-  return createHash("sha256").update(value, "utf8").digest("hex")
-}
 
 test("initial admin bootstrap normalizes emails like auth login", () => {
   expect(bootstrap.normalizeInitialAdminBootstrapEmail(" Initial.Admin@Example.COM ")).toBe("initial.admin@example.com")
 })
 
-test("initial admin bootstrap compares one-time codes against sha256 digests", () => {
+test("initial admin bootstrap compares one-time setup code strings", () => {
   const code = "operator supplied one-time code"
-  expect(bootstrap.compareInitialAdminBootstrapCode({ submittedCode: code, expectedSha256Hex: digest(code) })).toBe(true)
-  expect(bootstrap.compareInitialAdminBootstrapCode({ submittedCode: `${code}!`, expectedSha256Hex: digest(code) })).toBe(false)
-  expect(bootstrap.compareInitialAdminBootstrapCode({ submittedCode: code, expectedSha256Hex: "not-a-digest" })).toBe(false)
-})
-
-test("initial admin bootstrap parses digest configuration fail-closed", () => {
-  expect(envModule.parseSha256Digest(undefined)).toEqual({ status: "missing", value: undefined })
-  expect(envModule.parseSha256Digest("  ")).toEqual({ status: "missing", value: undefined })
-  expect(envModule.parseSha256Digest("z".repeat(64))).toEqual({ status: "malformed", value: undefined })
-  expect(envModule.parseSha256Digest(digest("setup"))).toEqual({ status: "configured", value: digest("setup") })
+  expect(bootstrap.compareInitialAdminBootstrapCode(code, code)).toBe(true)
+  expect(bootstrap.compareInitialAdminBootstrapCode(`${code}!`, code)).toBe(false)
+  expect(bootstrap.compareInitialAdminBootstrapCode(code.toUpperCase(), code)).toBe(false)
 })
 
 test("initial admin bootstrap grant format is single-purpose", () => {

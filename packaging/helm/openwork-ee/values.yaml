@@ -168,7 +168,7 @@ secret:
     githubConnectorAppPrivateKey: GITHUB_CONNECTOR_APP_PRIVATE_KEY
     githubConnectorAppWebhookSecret: GITHUB_CONNECTOR_APP_WEBHOOK_SECRET
     connectLinkPrivateKey: DEN_CONNECT_LINK_PRIVATE_KEY
-    initialAdminBootstrapCodeSha256: DEN_INITIAL_ADMIN_BOOTSTRAP_CODE_SHA256
+    initialAdminBootstrapCode: DEN_INITIAL_ADMIN_BOOTSTRAP_CODE
   values:
     databaseUrl: mysql://openwork:change-me@mysql:3306/openwork_den
     databaseRedisUrl: ""
@@ -189,7 +189,7 @@ secret:
     githubConnectorAppPrivateKey: ""
     githubConnectorAppWebhookSecret: ""
     connectLinkPrivateKey: ""
-    initialAdminBootstrapCodeSha256: ""
+    initialAdminBootstrapCode: ""
 
 installerArtifacts:
   enabled: false

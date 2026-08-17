@@ -1,4 +1,4 @@
-import { createHmac, createHash, timingSafeEqual } from "node:crypto"
+import { createHmac, timingSafeEqual } from "node:crypto"
 import { eq, sql } from "@openwork-ee/den-db/drizzle"
 import { AdminAllowlistTable, AuthSessionTable, AuthUserTable } from "@openwork-ee/den-db/schema"
 import { createDenTypeId, normalizeDenTypeId } from "@openwork-ee/utils/typeid"
@@ -16,7 +16,7 @@ type BootstrapStatus = "available" | "complete" | "unavailable"
 
 export type InitialAdminBootstrapAvailability = {
   status: BootstrapStatus
-  reason: "ready" | "complete" | "not_configured" | "code_malformed" | "users_exist"
+  reason: "ready" | "complete" | "not_configured" | "users_exist"
 }
 
 type BootstrapGrant = {
@@ -39,15 +39,9 @@ export function isInitialAdminBootstrapEmailConfigured(email: string) {
   return normalized.length > 0 && configuredBootstrapEmails().includes(normalized)
 }
 
-export function compareInitialAdminBootstrapCode(input: {
-  submittedCode: string
-  expectedSha256Hex: string
-}) {
-  if (!/^[0-9a-f]{64}$/.test(input.expectedSha256Hex)) {
-    return false
-  }
-  const expected = new Uint8Array(Buffer.from(input.expectedSha256Hex, "hex"))
-  const actual = new Uint8Array(Buffer.from(createHash("sha256").update(input.submittedCode, "utf8").digest("hex"), "hex"))
+export function compareInitialAdminBootstrapCode(submittedCode: string, expectedCode: string) {
+  const expected = new Uint8Array(Buffer.from(expectedCode, "utf8"))
+  const actual = new Uint8Array(Buffer.from(submittedCode, "utf8"))
   return actual.length === expected.length && timingSafeEqual(actual, expected)
 }
 
@@ -55,13 +49,10 @@ function hasUsableBootstrapConfiguration() {
   if (configuredBootstrapEmails().length === 0) {
     return { ok: false as const, reason: "not_configured" as const }
   }
-  if (env.initialAdminBootstrapCodeSha256.status === "malformed") {
-    return { ok: false as const, reason: "code_malformed" as const }
-  }
-  if (env.initialAdminBootstrapCodeSha256.status !== "configured" || !env.initialAdminBootstrapCodeSha256.value) {
+  if (!env.initialAdminBootstrapCode) {
     return { ok: false as const, reason: "not_configured" as const }
   }
-  return { ok: true as const, digest: env.initialAdminBootstrapCodeSha256.value }
+  return { ok: true as const, code: env.initialAdminBootstrapCode }
 }
 
 async function anyAuthUserExists() {
@@ -134,7 +125,7 @@ export async function verifyInitialAdminBootstrap(input: {
     return { ok: false as const, status: 409, message: "Initial administrator setup is not available." }
   }
 
-  if (!compareInitialAdminBootstrapCode({ submittedCode: input.code, expectedSha256Hex: config.digest })) {
+  if (!compareInitialAdminBootstrapCode(input.code, config.code)) {
     return { ok: false as const, status: 403, message: GENERIC_BOOTSTRAP_REJECTION }
   }
 
