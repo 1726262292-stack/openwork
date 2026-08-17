@@ -70,20 +70,39 @@ aws sts get-caller-identity
 aws configure get region
 ```
 
-Install Helm and `eksctl` if they are missing:
+Install pinned Helm and `eksctl` releases if they are missing. Verify each
+archive against the checksum published for that exact release before installing
+the binary:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+HELM_VERSION=v3.18.4
+HELM_ARCHIVE="helm-${HELM_VERSION}-linux-amd64.tar.gz"
+curl -fsSL "https://get.helm.sh/${HELM_ARCHIVE}" -o "/tmp/${HELM_ARCHIVE}"
+printf '%s  %s\n' \
+  'f8180838c23d7c7d797b208861fecb591d9ce1690d8704ed1e4cb8e2add966c1' \
+  "/tmp/${HELM_ARCHIVE}" | sha256sum --check --strict
+tar -xzf "/tmp/${HELM_ARCHIVE}" -C /tmp
+sudo install -m 0755 /tmp/linux-amd64/helm /usr/local/bin/helm
 
-curl -fsSL "https://github.com/eksctl-io/eksctl/releases/latest/download/eksctl_Linux_amd64.tar.gz" \
-  -o /tmp/eksctl.tar.gz
-tar -xzf /tmp/eksctl.tar.gz -C /tmp
-sudo mv /tmp/eksctl /usr/local/bin/eksctl
+EKSCTL_VERSION=v0.195.0
+EKSCTL_ARCHIVE=eksctl_Linux_amd64.tar.gz
+curl -fsSL \
+  "https://github.com/eksctl-io/eksctl/releases/download/${EKSCTL_VERSION}/${EKSCTL_ARCHIVE}" \
+  -o "/tmp/${EKSCTL_ARCHIVE}"
+printf '%s  %s\n' \
+  '1cc86fd94da2378687f4db7c537da3c7316f2dca1347a4223a2ed86ad94dd818' \
+  "/tmp/${EKSCTL_ARCHIVE}" | sha256sum --check --strict
+tar -xzf "/tmp/${EKSCTL_ARCHIVE}" -C /tmp
+sudo install -m 0755 /tmp/eksctl /usr/local/bin/eksctl
 
 helm version
 eksctl version
 kubectl version --client
 ```
+
+The checksums above are the official Linux AMD64 values for Helm `v3.18.4` and
+`eksctl` `v0.195.0`. When updating either pin, replace its checksum from the
+corresponding official release rather than changing the version alone.
 
 ## 1. Create the EKS cluster
 
