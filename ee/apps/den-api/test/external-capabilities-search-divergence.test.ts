@@ -454,13 +454,14 @@ async function expectConnectionListed(seed: SeededOrganization, connectionId: De
   expect(connections.map((connection) => connection.id)).toContain(connectionId)
 }
 
-function search(seed: SeededOrganization, query: string) {
+function search(seed: SeededOrganization, query: string, mcpAppsEnabled = false) {
   return searchExternalCapabilities({
     organizationId: seed.organizationId,
     member: { orgMembershipId: seed.memberId, teamIds: [] },
     query,
     redirectUriBase,
     limit: 10,
+    mcpAppsEnabled,
   })
 }
 
@@ -530,7 +531,7 @@ afterAll(() => {
   mock.restore()
 })
 
-test("search and execute preserve a native MCP App launch binding", async () => {
+test("the rollout flag controls MCP App launch metadata without removing regular search and execute", async () => {
   if (!mcpAppServer) throw new Error("MCP App server missing")
   const seed = await seedOrganization("mcp-app-gateway")
   const connection = await createGrantedConnection(seed, {
@@ -540,7 +541,26 @@ test("search and execute preserve a native MCP App launch binding", async () => 
     credentialMode: "shared",
   })
 
-  const matches = await search(seed, "Project Atlas")
+  const disabledMatches = await search(seed, "Project Atlas")
+  const disabledMatch = disabledMatches.find((candidate) => candidate.name.endsWith(":open_project_atlas"))
+  expect(disabledMatch).toBeTruthy()
+  expect(disabledMatch?.kind).toBeUndefined()
+  expect(disabledMatch?.mcpApp).toBeUndefined()
+
+  const disabledExecution = await executeExternalCapability({
+    organizationId: seed.organizationId,
+    member: { orgMembershipId: seed.memberId, teamIds: [] },
+    connectionId: connection.id,
+    toolName: "open_project_atlas",
+    args: { text: "migration" },
+    redirectUriBase,
+  })
+  expect(disabledExecution.ok).toBe(true)
+  if (!disabledExecution.ok) throw new Error(disabledExecution.message)
+  expect(disabledExecution.mcpApp).toBeUndefined()
+  expect(externalCapabilitySuccessToolResult(disabledExecution)._meta).toBeUndefined()
+
+  const matches = await search(seed, "Project Atlas", true)
   const match = matches.find((candidate) => candidate.name.endsWith(":open_project_atlas"))
   expect(match).toMatchObject({
     kind: "mcp_app",
@@ -554,6 +574,7 @@ test("search and execute preserve a native MCP App launch binding", async () => 
     toolName: "open_project_atlas",
     args: { text: "migration" },
     redirectUriBase,
+    mcpAppsEnabled: true,
   })
   expect(executed).toMatchObject({
     ok: true,
@@ -565,7 +586,14 @@ test("search and execute preserve a native MCP App launch binding", async () => 
     },
   })
   if (!executed.ok) throw new Error(executed.message)
-  expect(externalCapabilitySuccessToolResult(executed)._meta).toMatchObject({
+  const launchResult = externalCapabilitySuccessToolResult(executed)
+  expect(launchResult.structuredContent).toMatchObject({
+    serverTools: {
+      searchCapabilities: "search_capabilities",
+      executeCapability: "execute_capability",
+    },
+  })
+  expect(launchResult._meta).toMatchObject({
     "openwork/mcpApp": {
       connectionId: connection.id,
       toolName: "open_project_atlas",

@@ -362,8 +362,8 @@ export async function resolveConnectMcpAppResource(input: {
     if (!tool) {
       throw new McpAppHostError("tool_not_found", "The originating MCP App tool is no longer advertised.");
     }
-    if (!toolVisibility(tool, "model")) {
-      throw new McpAppHostError("tool_not_visible", "The originating MCP App tool is not visible to the model.");
+    if (!toolVisibility(tool, "app")) {
+      throw new McpAppHostError("tool_not_visible", "The originating MCP App tool is not visible to apps.");
     }
     const resourceUri = toolUiResourceUri(tool);
     if (resourceUri !== input.launch.resourceUri) {

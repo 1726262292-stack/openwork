@@ -185,7 +185,7 @@ const programRunOutputSchema = z.object({
 
 export const AGENT_MCP_INSTRUCTIONS = [
   "This OpenWork Cloud MCP server uses standard MCP tools, resources, structured results, and list-changed notifications. OpenWork Programs and Remote MCP Apps add only durable identity, Plugin containment, access, retained resources and results, selection, and lifecycle around those MCP primitives.",
-  "MCP App UI is authored and bundled outside OpenWork. Agents do not author, generate, compile, revise, activate, or publish UI source in OpenWork. Active imported apps in the member's Library appear as individually named launch tools backed by immutable ui:// resources.",
+  "MCP App UI is authored and bundled outside OpenWork. Agents do not author, generate, compile, revise, activate, or publish UI source in OpenWork. Active imported apps in the member's Library are discovered through capability search and backed by immutable ui:// resources; their app-visible launch bindings are never model-visible tools.",
   "Standard MCP Apps supplied by connected MCP servers and approved URL-installed Apps are discovered through search_capabilities. A match with kind mcp_app must be executed through execute_capability like any other exact match; compatible OpenWork hosts preserve the current _meta.ui.resourceUri and render it without a generated direct-tool name.",
   "Use import_remote_mcp_app only after the user has selected an existing Plugin and approved installation of third-party executable content. Supply only the Plugin id and a public HTTPS URL for one self-contained index.html; never send inline HTML, React or JavaScript source, or build-project contents.",
   "An imported app receives the exact search_capabilities and execute_capability tool names in launch structuredContent. Through the standard same-server MCP Apps bridge it can search the member's authorized Connect tools and Programs, then execute an exact returned capability. The host retains workspace policy, user approval, and result-size enforcement; credentials never enter the app.",
@@ -449,6 +449,7 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
       generatedArtifactViewsEnabled: env.generatedArtifactViewsEnabled,
       organizationMetadata,
       mcpConnectionsGatingEnabled: env.mcpConnectionsGatingEnabled,
+      mcpAppsEnabled: remoteAppsEnabled,
     })
     const { externalMcpConnectionsEnabled } = capabilityContext
     let remoteSkills: RemoteSkillDescriptor[] = []

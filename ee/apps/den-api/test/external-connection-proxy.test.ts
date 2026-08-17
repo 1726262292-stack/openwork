@@ -96,7 +96,11 @@ test("tool-only downstream servers initialize and never register resource handle
     const initialized = client.getServerCapabilities()
     expect(initialized?.tools).toEqual({ listChanged: false })
     expect(initialized?.resources).toBeUndefined()
-    expect((await client.listTools()).tools.map((tool) => tool.name)).toEqual(["open_fixture"])
+    expect((await client.listTools()).tools.map((tool) => tool.name)).toEqual([
+      "search_capabilities",
+      "execute_capability",
+      "open_fixture",
+    ])
     const called = await client.callTool({ name: "open_fixture", arguments: {} })
     expect(called.structuredContent).toEqual({ status: "healthy" })
     expect(resourceCalls).toBe(0)
@@ -120,12 +124,85 @@ test("a healthy native MCP App preserves its resource and same-server app-visibl
     resources: {},
     extensions: { "io.modelcontextprotocol/ui": { mimeTypes: ["text/html;profile=mcp-app"] } },
   }, async (client) => {
-    const tool = (await client.listTools()).tools[0]
-    expect(tool?._meta).toMatchObject({ ui: { resourceUri, visibility: ["model", "app"] } })
+    const tool = (await client.listTools()).tools.find((candidate) => candidate.name === "open_fixture")
+    expect(tool?._meta).toMatchObject({ ui: { resourceUri, visibility: ["app"] } })
     const resource = await client.readResource({ uri: resourceUri })
     expect(resource.contents[0]).toMatchObject({ uri: resourceUri, text: html })
     const called = await client.callTool({ name: "open_fixture", arguments: {} })
     expect(called.structuredContent).toEqual({ status: "healthy" })
+  })
+})
+
+test("a regular MCP with an App keeps every model-visible tool behind search and execute", async () => {
+  let downstreamCalls = 0
+  let downstreamReads = 0
+  const privateResourceUri = "data://fixture/private.json"
+  await withClient({ tools: {}, resources: {} }, async (client) => {
+    const tools = (await client.listTools()).tools
+    expect(tools.map((tool) => tool.name)).toEqual([
+      "search_capabilities",
+      "execute_capability",
+      "open_fixture",
+    ])
+    for (const tool of tools) expect(tool._meta).toMatchObject({ ui: { visibility: ["app"] } })
+    expect(tools.find((tool) => tool.name === "open_fixture")?._meta).toMatchObject({
+      ui: { resourceUri, visibility: ["app"] },
+    })
+
+    const resources = (await client.listResources()).resources
+    expect(resources.map((resource) => resource.uri)).toEqual([resourceUri])
+    expect((await client.listResourceTemplates()).resourceTemplates).toEqual([])
+
+    await expect(client.callTool({ name: "search_fixture", arguments: { query: "private" } })).rejects.toThrow(
+      "Use search_capabilities and execute_capability",
+    )
+    await expect(client.readResource({ uri: privateResourceUri })).rejects.toThrow(
+      "not bound to an available MCP App tool",
+    )
+    expect(downstreamCalls).toBe(0)
+    expect(downstreamReads).toBe(0)
+
+    const searched = await client.callTool({
+      name: "search_capabilities",
+      arguments: { query: "private fixture records", limit: 5 },
+    })
+    expect(searched.structuredContent).toMatchObject({
+      matches: [{ name: "search_fixture", invocation: { argumentsField: "body" } }],
+    })
+    const executed = await client.callTool({
+      name: "execute_capability",
+      arguments: { name: "search_fixture", body: { query: "private" } },
+    })
+    expect(executed.structuredContent).toEqual({ status: "healthy" })
+    expect(downstreamCalls).toBe(1)
+
+    const opened = await client.callTool({ name: "open_fixture", arguments: {} })
+    expect(opened.structuredContent).toEqual({ status: "healthy" })
+    expect(downstreamCalls).toBe(2)
+  }, {
+    listTools: async () => [
+      ...(await runtime().listTools()),
+      {
+        name: "search_fixture",
+        description: "Search private fixture records.",
+        inputSchema: { type: "object" },
+      },
+    ],
+    callTool: async () => {
+      downstreamCalls += 1
+      return {
+        content: [{ type: "text" as const, text: "Healthy fixture opened." }],
+        structuredContent: { status: "healthy" },
+      }
+    },
+    listResources: async () => [
+      { uri: resourceUri, name: "Healthy fixture", mimeType: "text/html;profile=mcp-app" },
+      { uri: privateResourceUri, name: "Private fixture", mimeType: "application/json" },
+    ],
+    readResource: async () => {
+      downstreamReads += 1
+      return { contents: [] }
+    },
   })
 })
 

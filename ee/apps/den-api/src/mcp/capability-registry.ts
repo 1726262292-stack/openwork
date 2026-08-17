@@ -54,8 +54,10 @@ import {
 } from "./native-capabilities.js"
 import {
   compareCapabilityMatches,
+  EXECUTE_CAPABILITY_TOOL_NAME,
   searchCapabilities,
   searchCapabilitySourceFilter,
+  SEARCH_CAPABILITIES_TOOL_NAME,
   type CapabilityMatch,
   type SearchCapabilityType,
 } from "./search.js"
@@ -99,6 +101,7 @@ export type CapabilityRegistryContext = {
   codemodeEnabled: boolean
   generatedArtifactViewsEnabled: boolean
   externalMcpConnectionsEnabled: boolean
+  mcpAppsEnabled: boolean
   resolvePlatformAdmin: () => Promise<boolean>
   resolveNamespaceContext: () => Promise<CodemodeConnectionNamespaceContext>
 }
@@ -115,6 +118,7 @@ export type CapabilityRegistryContextInput = {
   generatedArtifactViewsEnabled: boolean
   organizationMetadata: Parameters<typeof memberFacingMcpConnectionsEnabled>[0]
   mcpConnectionsGatingEnabled: boolean
+  mcpAppsEnabled?: boolean
 }
 
 export function createCapabilityRegistryContext(input: CapabilityRegistryContextInput): CapabilityRegistryContext {
@@ -146,6 +150,7 @@ export function createCapabilityRegistryContext(input: CapabilityRegistryContext
     codemodeEnabled: input.codemodeEnabled,
     generatedArtifactViewsEnabled: input.generatedArtifactViewsEnabled,
     externalMcpConnectionsEnabled,
+    mcpAppsEnabled: input.mcpAppsEnabled === true,
     resolvePlatformAdmin,
     resolveNamespaceContext,
   }
@@ -270,10 +275,19 @@ export function externalCapabilitySuccessToolResult(
   result: Extract<ExternalCapabilityExecuteResult, { ok: true }>,
 ): ExecuteCapabilityToolResult {
   const content = externalToolContent(result.result)
-  const structuredContent = isRecord(result.result)
+  const providerStructuredContent = isRecord(result.result)
     && isRecord(result.result.structuredContent)
     ? result.result.structuredContent
     : undefined
+  const structuredContent = result.mcpApp
+    ? {
+        ...(providerStructuredContent ?? {}),
+        serverTools: {
+          searchCapabilities: SEARCH_CAPABILITIES_TOOL_NAME,
+          executeCapability: EXECUTE_CAPABILITY_TOOL_NAME,
+        },
+      }
+    : providerStructuredContent
   const providerMeta = isRecord(result.result) && isRecord(result.result._meta)
     ? result.result._meta
     : {}
@@ -499,6 +513,7 @@ const externalMcpSource: CapabilitySource = {
       limit,
       includeScriptPaths: ctx.codemodeEnabled,
       namespaceContext: ctx.codemodeEnabled ? await ctx.resolveNamespaceContext() : undefined,
+      mcpAppsEnabled: ctx.mcpAppsEnabled,
       reportCoverage: (coverage) => ctx.reportExternalCoverage(externalMcpSearchCoverageHint(coverage)),
     })
   },
@@ -530,6 +545,7 @@ const externalMcpSource: CapabilitySource = {
       args: normalizeToolBody(input.body),
       schemaDigest: input.schemaDigest,
       redirectUriBase: ctx.redirectUriBase,
+      mcpAppsEnabled: ctx.mcpAppsEnabled,
     })
     return result.ok
       ? externalCapabilitySuccessToolResult(result)

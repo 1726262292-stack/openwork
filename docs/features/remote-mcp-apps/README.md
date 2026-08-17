@@ -8,10 +8,12 @@ tool inputs and results move over the standard MCP Apps bridge.
 There are two distribution paths:
 
 1. A normal MCP server added through OpenWork Connect. This is the primary
-   path for an app that has tools. OpenWork exposes each authorized Connect
-   connection as its own MCP endpoint so tool names, JSON Schemas, resource
-   URIs, UI metadata, results, and same-server app calls keep their provider
-   meaning.
+   path for an app that has tools. Model-visible provider operations are
+   discovered and executed only through `search_capabilities` and
+   `execute_capability`. OpenWork exposes a separate endpoint containing only
+   UI-bound tools, forced to app-only visibility, and their exact resources so
+   rendering keeps the provider's same-server MCP Apps boundary without
+   projecting its full catalog into the client.
 2. A self-contained HTML file imported by URL. This is a convenience adapter
    for an externally authored app bundle. OpenWork caches the bytes, exposes
    one standard MCP launch tool and immutable `ui://` resources, and exposes
@@ -41,11 +43,16 @@ connection is proxied at:
 /mcp/agent/connections/{connectionId}
 ```
 
-The proxy preserves:
+The proxy exposes only tools with a valid `_meta.ui.resourceUri` that pass the
+member's access grant and tool policy. It forces their visibility to `app`,
+rejects direct calls to every other provider tool, and adds app-only
+`search_capabilities` and `execute_capability` tools scoped to that originating
+server. A regular MCP App can therefore discover and use its server's ordinary
+tools without receiving the full catalog. The proxy preserves:
 
-- exact `tools/list` names, input/output schemas, annotations, and `_meta`;
-- exact resource descriptors from `resources/list` and
-  `resources/templates/list`, plus exact `resources/read` content;
+- the App tool's exact name, input/output schemas, annotations, and UI binding;
+- concrete resource descriptors and `resources/read` content only for
+  resources bound by the exposed App tools;
 - `content`, `structuredContent`, `_meta`, and `isError` from `tools/call`;
 - the stable MCP Apps extension, `ui://` URIs, and
   `text/html;profile=mcp-app` resources;
@@ -53,7 +60,9 @@ The proxy preserves:
   preserving the MCP Apps same-server tool-call boundary.
 
 OpenWork access grants and disabled-tool policy still apply at the proxy
-boundary. The proxy deliberately advertises `listChanged: false` because the
+boundary. Ordinary tools from the same connected MCP remain available through
+capability search and execution but never appear on this endpoint. The proxy
+deliberately advertises `listChanged: false` because the
 current enterprise connector opens bounded request sessions rather than a
 durable downstream notification stream. Catalog refresh therefore happens on
 Connect reconciliation, Desktop startup, engine refresh, or an explicit Cloud
@@ -92,7 +101,8 @@ media, frames, CSS URLs/imports, embedded CSP, and base-URI changes. It stores:
 - an explicitly selected active revision plus retained rollback revisions.
 
 For each visible active installation, OpenWork registers one deterministic
-launch tool with nested `_meta.ui.resourceUri` and every retained revision at:
+app-only launch binding with nested `_meta.ui.resourceUri`, discovers it
+through capability search, and exposes every retained revision at:
 
 ```text
 ui://openwork/library-apps/{appId}/revisions/{revisionId}/index.html
@@ -182,8 +192,10 @@ while it is off, generated-view creation, source submission, React compilation,
 revision activation, resources, and launch tools are absent or rejected even
 if records already exist. This flag is independent from `codemodeScripts`:
 Programs remain usable by imported apps according to organization policy.
-Normal MCP Apps delivered by an existing Connect server use the standard
-Connect and Desktop MCP host paths rather than this static-adapter flag.
+When either gate is off, a normal connected MCP's tools remain usable through
+ordinary `search_capabilities` and `execute_capability`, but OpenWork removes
+their MCP App classification and launch metadata, publishes no provider App
+endpoint in the member index, and renders no App UI.
 
 ## Host security and compatibility
 
