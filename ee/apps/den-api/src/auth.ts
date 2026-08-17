@@ -862,6 +862,14 @@ export const auth = betterAuth({
             return createDenTypeId("organizationRole");
           case "scimProvider":
             return createDenTypeId("scimProvider");
+          case "scimGroup":
+            return createDenTypeId("scimGroup");
+          case "scimGroupMember":
+            return createDenTypeId("scimGroupMember");
+          case "scimGroupRole":
+            return createDenTypeId("scimGroupRole");
+          case "scimGroupRoleGrant":
+            return createDenTypeId("scimGroupRoleGrant");
           case "ssoProvider":
             return createDenTypeId("ssoProvider");
           case "ssoConnection":
