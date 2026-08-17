@@ -1627,6 +1627,9 @@ async function listOrganizationTeams(organizationId: OrgId) {
 
   const memberIdsByTeamId = new Map<typeof TeamTable.$inferSelect.id, MemberId[]>()
   for (const membership of memberships) {
+    if (!membership.orgMembershipId) {
+      continue
+    }
     const existing = memberIdsByTeamId.get(membership.teamId) ?? []
     existing.push(membership.orgMembershipId)
     memberIdsByTeamId.set(membership.teamId, existing)

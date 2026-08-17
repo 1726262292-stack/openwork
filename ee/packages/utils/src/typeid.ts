@@ -50,6 +50,8 @@ export const idTypesMapNameToPrefix = {
   scimProvider: "scp",
   scimGroup: "scg",
   scimGroupMember: "sgm",
+  scimGroupRole: "sgr",
+  scimGroupRoleGrant: "sgg",
   scimUserTombstone: "sut",
   ssoConnection: "ssc",
   ssoProvider: "ssp",

@@ -477,6 +477,34 @@
       "when": 1786805740962,
       "tag": "0068_glamorous_virginia_dare",
       "breakpoints": true
+    },
+    {
+      "idx": 69,
+      "version": "5",
+      "when": 1786982272166,
+      "tag": "0069_wooden_shotgun",
+      "breakpoints": true
+    },
+    {
+      "idx": 70,
+      "version": "5",
+      "when": 1786982448445,
+      "tag": "0070_white_madelyne_pryor",
+      "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "5",
+      "when": 1786982612757,
+      "tag": "0071_shocking_namorita",
+      "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "5",
+      "when": 1786982678233,
+      "tag": "0072_old_leper_queen",
+      "breakpoints": true
     }
   ]
 }
