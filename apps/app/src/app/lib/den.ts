@@ -292,7 +292,9 @@ export type DenMemory = {
 
 export type DenMcpToken = {
   token: string;
+  appHostToken?: string;
   expiresAt: string;
+  appHostExpiresAt?: string;
   organizationId: string;
   scopes: string[];
   resource: string;
@@ -1564,7 +1566,7 @@ function parseCloudInstanceUpdateResult(payload: unknown): DenCloudInstanceUpdat
   return null;
 }
 
-function getMcpToken(payload: unknown): DenMcpToken | null {
+export function parseDenMcpToken(payload: unknown): DenMcpToken | null {
   if (
     !isRecord(payload) ||
     typeof payload.token !== "string" ||
@@ -1582,6 +1584,9 @@ function getMcpToken(payload: unknown): DenMcpToken | null {
       ? payload.scopes.filter((entry): entry is string => typeof entry === "string")
       : [],
     resource: payload.resource,
+    ...(typeof payload.appHostToken === "string" && typeof payload.appHostExpiresAt === "string"
+      ? { appHostToken: payload.appHostToken, appHostExpiresAt: payload.appHostExpiresAt }
+      : {}),
   };
 }
 
@@ -2573,7 +2578,7 @@ export function createDenClient(options: { baseUrl: string; token?: string | nul
         organizationId: orgId,
         body: { scopes: ["mcp:read", "mcp:write"] },
       });
-      const minted = getMcpToken(payload);
+      const minted = parseDenMcpToken(payload);
       if (!minted) {
         throw new DenApiError(500, "invalid_mcp_token_payload", "MCP token response was missing required values.");
       }
