@@ -65,7 +65,7 @@ on:
         description: "Sign Windows Electron installers with Azure Artifact Signing"
         required: false
         type: boolean
-        default: false
+        default: true
 
 permissions:
   actions: read

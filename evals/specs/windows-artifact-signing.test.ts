@@ -40,6 +40,7 @@ test("one Azure OIDC job signs and publishes every Windows installer", async ({ 
   expect(workflow).toContain("id-token: write");
   expect(workflow).toContain("files-folder-recurse: true");
   expect(workflow).toContain("Expected 6 signed Windows installers");
+  expect(workflow).toMatch(/sign_windows:\n(?: {8}.+\n)* {8}default: true/);
   expect(workflow).toContain("needs.sign-and-publish-windows.result == 'success'");
   expect(workflow).toContain("needs.resolve-release.outputs.build_electron != 'true' || needs.publish-electron-assets.result == 'success'");
   expect(workflow).toContain("vars.AZURE_CLIENT_ID || secrets.AZURE_CLIENT_ID");
