@@ -81,6 +81,16 @@ jobs:
   resolve-release:
     name: Resolve Release Metadata
     runs-on: ubuntu-latest
+    # WARDEN_PRIVATE_KEY lives in this environment; its deployment policy
+    # (dev + v* tags) means the key is only reachable from reviewed code —
+    # a feature-branch workflow edit cannot mint the tag-push token.
+    environment: warden-clearance
+    # Fresh dispatch cuts push their tag with the diff-warden app token, and
+    # app-token pushes DO retrigger this workflow via push (unlike
+    # GITHUB_TOKEN). The dispatch run that created the tag owns the release,
+    # so the duplicate push run skips here — and with it every job that
+    # needs resolve-release.
+    if: github.event_name != 'push' || github.actor != 'diff-warden[bot]'
     outputs:
       release_tag: ${{ steps.resolve.outputs.release_tag }}
       release_version: ${{ steps.resolve.outputs.release_version }}
@@ -95,6 +105,37 @@ jobs:
       publish_npm: ${{ steps.resolve.outputs.publish_npm }}
       publish_daytona_snapshot: ${{ steps.resolve.outputs.publish_daytona_snapshot }}
     steps:
+      # Tag creation was admin-only before the app-token flow (the v* tag
+      # ruleset gated it at push time). The app token would let ANY dispatch
+      # release, so restore the old bar here: dispatching actor must be a
+      # repo admin, or explicitly listed in the RELEASE_MANAGERS repo
+      # variable (comma-separated GitHub logins). Tag pushes skip this —
+      # they are still gated by the ruleset itself. This check lives on a
+      # protected branch, and the token mint below is environment-gated to
+      # dev + v* refs, so a feature-branch copy of this workflow can neither
+      # drop the check nor reach the key.
+      - name: Require release permission
+        if: github.event_name == 'workflow_dispatch'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ACTOR: ${{ github.actor }}
+          RELEASE_MANAGERS: ${{ vars.RELEASE_MANAGERS }}
+        run: |
+          set -euo pipefail
+          for allowed in ${RELEASE_MANAGERS//,/ }; do
+            if [ "$allowed" = "$ACTOR" ]; then
+              echo "${ACTOR} is listed in RELEASE_MANAGERS."
+              exit 0
+            fi
+          done
+          permission="$(gh api "repos/${GITHUB_REPOSITORY}/collaborators/${ACTOR}/permission" --jq .permission)"
+          if [ "$permission" != "admin" ]; then
+            echo "::error::Release dispatch is restricted: ${ACTOR} has '${permission}' but needs repo admin (or a RELEASE_MANAGERS listing)." >&2
+            exit 1
+          fi
+          echo "${ACTOR} is a repo admin."
+
       - name: Checkout
         uses: actions/checkout@v6
         with:
@@ -107,6 +148,18 @@ jobs:
         with:
           node-version: 24
 
+      # The built-in GitHub Actions app cannot be a ruleset bypass actor
+      # (GitHub rejects it), so fresh cuts push their tag as the org-owned
+      # diff-warden app, which is on the v* ruleset bypass list.
+      - name: Mint tag-push token
+        id: tag-token
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.tag == ''
+        continue-on-error: true
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          app-id: ${{ secrets.WARDEN_APP_ID }}
+          private-key: ${{ secrets.WARDEN_PRIVATE_KEY }}
+
       - name: Resolve release tag
         id: tag
         shell: bash
@@ -114,6 +167,7 @@ jobs:
           INPUT_TAG: ${{ github.event.inputs.tag }}
           INPUT_VERSION: ${{ github.event.inputs.version }}
           INPUT_BUMP: ${{ github.event.inputs.bump }}
+          TAG_PUSH_TOKEN: ${{ steps.tag-token.outputs.token }}
         run: |
           set -euo pipefail
 
@@ -149,15 +203,29 @@ jobs:
               exit 1
             fi
             git fetch origin dev
-            git tag "$TAG" origin/dev
-            # A GITHUB_TOKEN tag push does not retrigger tag workflows, so
-            # this run continues as THE release run (no double-trigger). The
-            # v* tag ruleset must list GitHub Actions as a bypass actor.
-            if ! git push origin "refs/tags/${TAG}"; then
-              echo "::error::Pushing ${TAG} was rejected by the v* tag ruleset. Add the GitHub Actions principal to its bypass list (Settings → Rules → v* tags), or push the tag manually and rerun." >&2
-              exit 1
+            SHA="$(git rev-parse origin/dev)"
+            # Create the tag ref via REST as the diff-warden app (a v* tag
+            # ruleset bypass actor). Ruleset bypass attributes REST ref
+            # creation to the app; a git-over-https push with the same
+            # installation token is NOT attributed and gets rejected —
+            # proven by the tag-push smoke — so keep this a REST call. The
+            # app-created tag retriggers this workflow, but the duplicate
+            # run is skipped by the actor guard on this job.
+            if [ -n "${TAG_PUSH_TOKEN:-}" ]; then
+              if ! GH_TOKEN="${TAG_PUSH_TOKEN}" gh api -X POST "repos/${GITHUB_REPOSITORY}/git/refs" \
+                  -f ref="refs/tags/${TAG}" -f sha="${SHA}"; then
+                echo "::error::Creating ${TAG} was rejected by the v* tag ruleset. Ensure the diff-warden app is on its bypass list (Settings → Rules → Protect v* release tags), or push the tag manually as an admin and rerun." >&2
+                exit 1
+              fi
+            else
+              echo "::warning::diff-warden app token unavailable (WARDEN_APP_ID / WARDEN_PRIVATE_KEY in the warden-clearance environment); trying GITHUB_TOKEN."
+              git tag "$TAG" "$SHA"
+              if ! git push origin "refs/tags/${TAG}"; then
+                echo "::error::Pushing ${TAG} was rejected by the v* tag ruleset. Push the tag manually as an admin and rerun." >&2
+                exit 1
+              fi
             fi
-            echo "Created ${TAG} at $(git rev-parse "${TAG}^{commit}") (origin/dev HEAD)."
+            echo "Created ${TAG} at ${SHA} (origin/dev HEAD)."
           fi
 
           echo "release_tag=${TAG}" >> "$GITHUB_OUTPUT"
