@@ -669,6 +669,10 @@ export function getLibraryRoute(orgSlug?: string | null): string {
   return `${getOrgDashboardRoute(orgSlug)}/library`;
 }
 
+export function getLibraryPluginRoute(orgSlug: string | null | undefined, pluginId: string): string {
+  return `${getLibraryRoute(orgSlug)}/plugins/${encodeURIComponent(pluginId)}`;
+}
+
 export function getGithubIntegrationSetupRoute(orgSlug: string | null | undefined, connectorInstanceId: string): string {
   return `${getGithubIntegrationRoute(orgSlug)}?connectorInstanceId=${encodeURIComponent(connectorInstanceId)}`;
 }

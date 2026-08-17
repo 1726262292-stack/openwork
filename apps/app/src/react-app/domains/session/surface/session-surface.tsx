@@ -10,7 +10,8 @@ import { captureAnalyticsEvent } from "@/app/lib/analytics";
 import { createClient, unwrap } from "@/app/lib/opencode";
 import { abortSessionSafe } from "@/app/lib/opencode-session";
 import { t } from "@/i18n";
-import { readWorkspaceCloudImports, type CloudImportedPlugin } from "@/app/cloud/import-state";
+import type { ComposerSettingsSection } from "@/react-app/domains/settings/library";
+import { type CloudImportedPlugin } from "@/app/cloud/import-state";
 import { createDenClient, readDenSettings } from "@/app/lib/den";
 import { denSettingsChangedEvent } from "@/app/lib/den-session-events";
 import type {
@@ -105,11 +106,12 @@ import {
 } from "@/react-app/domains/settings/pages/environment-variable-provider";
 import {
   clearCloudInventoryCache,
+  CLOUD_INVENTORY_CHANGED_EVENT,
   loadSessionConnectCapabilities,
   readCachedConnectCapabilities,
   readCloudInventoryScope,
 } from "@/react-app/domains/connections/cloud-inventory-cache";
-import { EMPTY_CONNECT_CAPABILITY_INVENTORY } from "@/react-app/domains/session/surface/connect-capability-inventory";
+import { connectPluginsForComposer, EMPTY_CONNECT_CAPABILITY_INVENTORY } from "@/react-app/domains/session/surface/connect-capability-inventory";
 import { consumeComposerAutoSend } from "./composer-auto-send";
 
 const EMPTY_TRANSCRIPT: UIMessage[] = [];
@@ -348,7 +350,7 @@ export type SessionSurfaceProps = {
   onChangeModel?: (model: { providerID: string; modelID: string }) => void;
   onUploadInboxFiles?: ((files: File[], options?: { notify?: boolean }) => void | Promise<unknown>) | null;
   providerConnectedCount?: number;
-  onOpenSettingsSection?: ((section: "commands" | "skills" | "mcps" | "plugins" | "extensions" | "providers") => void) | undefined;
+  onOpenSettingsSection?: ((section: ComposerSettingsSection) => void) | undefined;
   onRevertToMessage?: (messageId: string, sessionId: string) => Promise<boolean>;
   onRestoreRevertedSession?: (sessionId: string) => Promise<boolean>;
   onForkAtMessage?: (messageId: string | null, sessionId: string) => void;
@@ -754,6 +756,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
   const [toolImportedPlugins, setToolImportedPlugins] = useState<CloudImportedPlugin[]>([]);
   const skillsConnectPushRef = useRef(0);
   const mcpConnectPushRef = useRef(0);
+  const pluginConnectPushRef = useRef(0);
   const [steering, setSteering] = useState(false);
   const [verifiedOpenTargets, setVerifiedOpenTargets] = useState<OpenTarget[]>([]);
   const [cloudQueueRetryVersion, setCloudQueueRetryVersion] = useState(0);
@@ -1651,9 +1654,15 @@ export function SessionSurface(props: SessionSurfaceProps) {
   };
 
   const listImportedPlugins = async (): Promise<CloudImportedPlugin[]> => {
-    const response = await props.client.getConfig(props.workspaceId);
-    const plugins = Object.values(readWorkspaceCloudImports(response.openwork).plugins)
-      .sort((left, right) => left.name.localeCompare(right.name));
+    const pushId = ++pluginConnectPushRef.current;
+    const scope = readCloudInventoryScope();
+    const cachedConnect = (scope ? readCachedConnectCapabilities(scope) : null) ?? EMPTY_CONNECT_CAPABILITY_INVENTORY;
+    const connectPromise = loadSessionConnectCapabilities();
+    void connectPromise.then((connect) => {
+      if (pluginConnectPushRef.current !== pushId) return;
+      setToolImportedPlugins(connectPluginsForComposer(connect.plugins));
+    });
+    const plugins = connectPluginsForComposer(cachedConnect.plugins);
     setToolImportedPlugins(plugins);
     return plugins;
   };
@@ -1742,8 +1751,15 @@ export function SessionSurface(props: SessionSurfaceProps) {
         Object.entries(current).filter(([key]) => !key.startsWith("openwork-connect:")),
       ));
     };
+    const refreshImportedPlugins = () => {
+      void listImportedPlugins();
+    };
     window.addEventListener(denSettingsChangedEvent, resetReconnectState);
-    return () => window.removeEventListener(denSettingsChangedEvent, resetReconnectState);
+    window.addEventListener(CLOUD_INVENTORY_CHANGED_EVENT, refreshImportedPlugins);
+    return () => {
+      window.removeEventListener(denSettingsChangedEvent, resetReconnectState);
+      window.removeEventListener(CLOUD_INVENTORY_CHANGED_EVENT, refreshImportedPlugins);
+    };
   }, []);
 
   const handleMcpReconnect = useCallback(async (

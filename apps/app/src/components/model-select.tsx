@@ -2,7 +2,6 @@
 
 import * as React from "react";
 import { ChevronDown, Settings2 } from "lucide-react";
-import { useNavigate } from "react-router";
 
 import type { ModelOption, ModelRef } from "@/app/types";
 import { ProviderIcon } from "@/react-app/design-system/provider-icon";
@@ -17,19 +16,11 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useWorkspace } from "@/react-app/shell/workspace-provider";
-import { usePlatform } from "@/react-app/kernel/platform";
 import { useCheckDesktopRestriction } from "@/react-app/domains/cloud/desktop-config-provider";
 import { useDenAuth } from "@/react-app/domains/cloud/den-auth-provider";
 import {
-  getOpenWorkModelsActionUrl,
-  hasOpenWorkModelsProvider,
-  hideOpenWorkModelsPromo,
-  useOpenWorkModelsPromoEligibility,
-  isOpenWorkModelsPromoHidden,
-  OPENWORK_MODEL_PREVIEWS,
   OPENWORK_MODELS_PROVIDER_ID,
   OPENWORK_MODELS_PROVIDER_NAME,
-  openWorkModelsPromoChangedEvent,
 } from "@/react-app/domains/cloud/openwork-models-promo";
 import { getConnectedProviderItems, useProviderListQuery } from "@/react-app/infra/provider-list-query";
 import { filterEntitledModelOptions } from "@/react-app/domains/connections/provider-auth/provider-policy";
@@ -130,34 +121,22 @@ function useModelOptions(
   }, [checkDesktopRestriction, cloudProvidersEnabled, data, fallbackOptions]);
 }
 
-type ModelSelectModelItem = {
-  kind: "model";
+type ModelSelectItem = {
   id: string;
   option: ModelOption;
 };
 
-type ModelSelectOpenWorkItem = {
-  kind: "openwork";
-  id: string;
-  title: string;
-  subtitle: string;
-};
-
-type ModelSelectItem = ModelSelectModelItem | ModelSelectOpenWorkItem;
-
 type ModelSelectGroup = {
   value: string;
   items: ModelSelectItem[];
-  promo: boolean;
 };
 
 function groupByProvider(modelOptions: ModelOption[]): ModelSelectGroup[] {
-  const groups = new Map<string, ModelSelectModelItem[]>();
+  const groups = new Map<string, ModelSelectItem[]>();
 
   for (const option of modelOptions) {
     const providerLabel = option.description ?? getProviderDisplayName(option.providerID);
-    const item: ModelSelectModelItem = {
-      kind: "model",
+    const item: ModelSelectItem = {
       id: `${option.providerID}:${option.modelID}`,
       option,
     };
@@ -175,22 +154,8 @@ function groupByProvider(modelOptions: ModelOption[]): ModelSelectGroup[] {
     .map(([providerLabel, options]) => ({
       value: providerLabel,
       items: [...options].sort((a, b) => a.option.title.localeCompare(b.option.title)),
-      promo: false,
     }))
     .sort((a, b) => a.value.localeCompare(b.value));
-}
-
-function openWorkModelsGroup(): ModelSelectGroup {
-  return {
-    value: OPENWORK_MODELS_PROVIDER_NAME,
-    promo: true,
-    items: OPENWORK_MODEL_PREVIEWS.map((model) => ({
-      kind: "openwork",
-      id: model.id,
-      title: model.title,
-      subtitle: model.subtitle,
-    })),
-  };
 }
 
 function isSameModel(a: ModelRef, b: ModelRef) {
@@ -206,7 +171,7 @@ interface ModelSelectProps {
   disabled?: boolean;
   /** When set, "All models" opens the full picker scoped to this session. */
   sessionId?: string;
-  /** Den/import includes OpenWork Models — never show Subscribe while true. */
+  /** Den/import includes OpenWork Models. Kept for callers; picker no longer upsells here. */
   openWorkModelsEntitled?: boolean;
   /** The server is waiting to reload this workspace with OpenWork Models. */
   openWorkModelsSyncing?: boolean;
@@ -222,26 +187,15 @@ export function ModelSelect({
   onChange,
   disabled = false,
   sessionId,
-  openWorkModelsEntitled = false,
   openWorkModelsSyncing = false,
   fallbackOptions = [],
 }: ModelSelectProps) {
   const [search, setSearch] = React.useState("");
-  const [promoHidden, setPromoHidden] = React.useState(isOpenWorkModelsPromoHidden);
   const searchInputRef = React.useRef<HTMLInputElement>(null);
   const denAuth = useDenAuth();
   const modelOptions = useModelOptions(open, fallbackOptions, denAuth.isSignedIn);
-  const navigate = useNavigate();
-  const platform = usePlatform();
-  const openWorkModelsPromoEligible = useOpenWorkModelsPromoEligibility();
   const checkDesktopRestriction = useCheckDesktopRestriction();
   const canAddProviders = !checkDesktopRestriction({ restriction: "allowCustomProviders" });
-
-  React.useEffect(() => {
-    const handlePromoChanged = () => setPromoHidden(isOpenWorkModelsPromoHidden());
-    window.addEventListener(openWorkModelsPromoChangedEvent, handlePromoChanged);
-    return () => window.removeEventListener(openWorkModelsPromoChangedEvent, handlePromoChanged);
-  }, []);
 
   const focusSearchInput = React.useCallback(() => {
     window.requestAnimationFrame(() => {
@@ -271,47 +225,13 @@ export function ModelSelect({
     }),
   );
 
-  const openWorkModelsAvailable = React.useMemo(
-    () => hasOpenWorkModelsProvider(modelOptions.map((option) => option.providerID)),
-    [modelOptions],
-  );
-  const showOpenWorkModelsPromo = React.useMemo(
-    () =>
-      openWorkModelsPromoEligible &&
-      !promoHidden &&
-      !openWorkModelsAvailable &&
-      !openWorkModelsEntitled,
-    [openWorkModelsAvailable, openWorkModelsEntitled, openWorkModelsPromoEligible, promoHidden],
-  );
-
-  const groups = React.useMemo(() => {
-    const providerGroups = groupByProvider(modelOptions);
-    return showOpenWorkModelsPromo
-      ? [openWorkModelsGroup(), ...providerGroups]
-      : providerGroups;
-  }, [modelOptions, showOpenWorkModelsPromo]);
+  const groups = React.useMemo(() => groupByProvider(modelOptions), [modelOptions]);
 
   const handleSelect = (option: ModelOption) => {
     onChange({ providerID: option.providerID, modelID: option.modelID });
     setSearch("");
     onOpenChange(false);
   };
-
-  const handleOpenWorkModels = React.useCallback(() => {
-    onOpenChange(false);
-    setSearch("");
-    if (!denAuth.isSignedIn) {
-      navigate("/settings/cloud-account");
-    }
-    window.setTimeout(() => {
-      platform.openLink(getOpenWorkModelsActionUrl(denAuth.isSignedIn));
-    }, 0);
-  }, [denAuth.isSignedIn, navigate, onOpenChange, platform]);
-
-  const handleHideOpenWorkModels = React.useCallback(() => {
-    hideOpenWorkModelsPromo();
-    setPromoHidden(true);
-  }, []);
 
   // Providers the user connected with their own key — OpenCode Zen and
   // OpenWork Models are managed for them, so they never count as "your keys".
@@ -408,41 +328,11 @@ export function ModelSelect({
                 key={group.value}
                 items={group.items}
               >
-                <CommandGroupLabel className={group.promo ? "flex items-baseline justify-between gap-2" : undefined}>
-                  {group.promo ? (
-                    <>
-                      <span>{group.value}</span>
-                      <span className="shrink-0 font-normal text-muted-foreground">hosted · no API keys</span>
-                    </>
-                  ) : (
-                    group.value
-                  )}
+                <CommandGroupLabel>
+                  {group.value}
                 </CommandGroupLabel>
                 <CommandCollection>
                   {(item: ModelSelectItem) => {
-                    if (item.kind === "openwork") {
-                      return (
-                        <CommandItem
-                          className="gap-2"
-                          key={item.id}
-                          value={`${OPENWORK_MODELS_PROVIDER_NAME} ${item.title} ${item.id} sign in subscribe`}
-                          onClick={handleOpenWorkModels}
-                        >
-                          <ProviderIcon
-                            providerId={OPENWORK_MODELS_PROVIDER_ID}
-                            providerName={OPENWORK_MODELS_PROVIDER_NAME}
-                            className="size-3.5 opacity-70"
-                            size={14}
-                          />
-                          <span className="min-w-0 flex-1">
-                            <span className="block truncate text-foreground">
-                              {item.title}
-                            </span>
-                          </span>
-                        </CommandItem>
-                      );
-                    }
-
                     const option = item.option;
                     return (
                       <CommandItem
@@ -471,20 +361,6 @@ export function ModelSelect({
                     );
                   }}
                 </CommandCollection>
-                {group.promo ? (
-                  <button
-                    type="button"
-                    className="mx-1 mb-1.5 mt-1 flex w-[calc(100%-0.5rem)] items-center gap-2 rounded-md bg-blue-2 px-3 py-2 text-left transition-colors hover:bg-blue-3"
-                    onClick={handleOpenWorkModels}
-                  >
-                    <span className="min-w-0 flex-1 text-xs leading-4 text-foreground">
-                      One subscription unlocks these in every workspace.
-                    </span>
-                    <span className="shrink-0 text-xs font-semibold text-blue-11">
-                      {denAuth.isSignedIn ? "Enable →" : "Sign in →"}
-                    </span>
-                  </button>
-                ) : null}
               </CommandGroup>
             )}
           </CommandList>
@@ -523,29 +399,18 @@ export function ModelSelect({
           ) : null}
           {/* Link to full model picker */}
           <div className="border-t border-border px-2 py-1.5">
-            <div className="flex items-center gap-1">
-              <button
-                type="button"
-                className="flex flex-1 items-center gap-2 rounded-md px-2 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
-                onClick={() => {
-                  onOpenChange(false);
-                  setSearch("");
-                  window.dispatchEvent(new CustomEvent(openModelPickerEvent, sessionId ? { detail: { sessionId } } : undefined));
-                }}
-              >
-                <Settings2 className="size-3.5" />
-                All models
-              </button>
-              {showOpenWorkModelsPromo ? (
-                <button
-                  type="button"
-                  className="shrink-0 rounded-md px-2 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
-                  onClick={handleHideOpenWorkModels}
-                >
-                  Hide
-                </button>
-              ) : null}
-            </div>
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+              onClick={() => {
+                onOpenChange(false);
+                setSearch("");
+                window.dispatchEvent(new CustomEvent(openModelPickerEvent, sessionId ? { detail: { sessionId } } : undefined));
+              }}
+            >
+              <Settings2 className="size-3.5" />
+              All models
+            </button>
           </div>
         </Command>
       </PopoverContent>

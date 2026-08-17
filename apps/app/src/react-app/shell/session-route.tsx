@@ -207,6 +207,7 @@ import {
 } from "./cloud-workspace-status";
 import { getReactQueryClient } from "@/react-app/infra/query-client";
 import { useSessionControlActions } from "@/react-app/domains/session/control/session-control-actions";
+import { openComposerConfigure, isLibraryAgent, type ComposerSettingsSection } from "@/react-app/domains/settings/library";
 import {
   globalExtensionsRoute,
   legacySessionRoute,
@@ -1205,7 +1206,7 @@ export function SessionRoute() {
     void engineReloadVersion;
     if (!opencodeClient) return [];
     const list = unwrap(await opencodeClient.app.agents());
-    return list.filter((agent) => !agent.hidden && agent.mode !== "subagent");
+    return list.filter(isLibraryAgent);
   }, [engineReloadVersion, opencodeClient]);
 
   const handleOpenSettings = useCallback((route = "/settings/general", workspaceId = sidebarActiveWorkspaceId) => {
@@ -1297,12 +1298,11 @@ export function SessionRoute() {
         modelPicker.setCompactOpen(false);
       },
       providerConnectedCount: hasUsableModel ? 1 : providerConnectedIds.length,
-      onOpenSettingsSection: (section: "commands" | "skills" | "mcps" | "plugins" | "extensions" | "providers") => {
-        if (section === "providers") {
-          handleOpenSettings("/settings/ai");
-          return;
-        }
-        handleOpenExtensions(section === "skills" ? "skills" : section === "mcps" ? "mcps" : section === "plugins" ? "plugins" : "");
+      onOpenSettingsSection: (section: ComposerSettingsSection) => {
+        openComposerConfigure(section, {
+          openLibrary: handleOpenExtensions,
+          openSettings: handleOpenSettings,
+        });
       },
       onSendDraft: async (draft: ComposerDraft, sessionId: string): Promise<CloudMcpSubmissionResult> => {
         const targetSessionId = sessionId.trim() || selectedSessionId;
@@ -1634,8 +1634,11 @@ export function SessionRoute() {
       },
       isRemoteWorkspace: selectedWorkspace?.workspaceType === "remote",
       isSandboxWorkspace: selectedWorkspace ? isSandboxWorkspace(selectedWorkspace) : false,
-      onOpenSettingsSection: (section: "commands" | "skills" | "mcps" | "plugins" | "extensions") => {
-        handleOpenExtensions(section === "skills" ? "skills" : section === "mcps" ? "mcps" : section === "plugins" ? "plugins" : "");
+      onOpenSettingsSection: (section: ComposerSettingsSection) => {
+        openComposerConfigure(section, {
+          openLibrary: handleOpenExtensions,
+          openSettings: handleOpenSettings,
+        });
       },
     };
   }, [
