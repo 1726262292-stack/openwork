@@ -649,13 +649,13 @@ async function handleAuthRequest(c: Context) {
     return breachedPasswordResponse
   }
 
-  const initialAdminBootstrapReservation = initialAdminBootstrapGrant
+  const initialAdminBootstrapAuthorization = initialAdminBootstrapGrant
     ? await authorizeInitialAdminBootstrapSignup({
         body: await authRequest.clone().json().catch(() => null),
         email: await getAuthRequestEmail(authRequest),
       })
     : null
-  if (initialAdminBootstrapGrant && !initialAdminBootstrapReservation) {
+  if (initialAdminBootstrapGrant && !initialAdminBootstrapAuthorization) {
     return initialAdminBootstrapSignupRejectedResponse()
   }
 
@@ -676,17 +676,11 @@ async function handleAuthRequest(c: Context) {
   try {
     response = await auth.handler(authRequest)
   } catch (error) {
-    if (initialAdminBootstrapReservation) {
-      await completeInitialAdminBootstrapSignup({
-        reservation: initialAdminBootstrapReservation,
-        response: Response.json({ error: "auth_failed" }, { status: 400 }),
-      })
-    }
     throw error
   }
-  if (initialAdminBootstrapReservation) {
+  if (initialAdminBootstrapAuthorization) {
     response = await completeInitialAdminBootstrapSignup({
-      reservation: initialAdminBootstrapReservation,
+      grant: initialAdminBootstrapAuthorization,
       response,
     })
   }

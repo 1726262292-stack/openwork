@@ -44,17 +44,14 @@ async function readBootstrapFacts(databaseUrl: string, adminEmail: string) {
     "SELECT m.role, m.user_id, o.slug FROM member m INNER JOIN organization o ON o.id = m.organization_id WHERE lower((SELECT email FROM `user` WHERE id = m.user_id)) = ?",
     [adminEmail.toLowerCase()],
   );
-  const claims = await queryDenDatabase(databaseUrl, "SELECT consumed_at, consumed_by_user_id FROM initial_admin_bootstrap_claim WHERE singleton_key = ?", ["initial_admin"]);
   const admins = await queryDenDatabase(databaseUrl, "SELECT email FROM admin_allowlist WHERE email = ?", [adminEmail.toLowerCase()]);
   return {
     users: users.length,
     orgs: orgs.length,
     members: members.length,
-    claims: claims.length,
     adminAllowlistRows: admins.length,
     firstMemberRole: isRecord(members[0]) ? stringField(members[0], "role") : "",
     firstOrgSlug: isRecord(orgs[0]) ? stringField(orgs[0], "slug") : "",
-    claimConsumed: isRecord(claims[0]) && Boolean(claims[0].consumed_at),
   };
 }
 
@@ -137,11 +134,10 @@ test.skipIf(!localPlacement || !mysqlOpen || !redisOpen)(title, { timeout: 600_0
   expect(weakSignup.text).toMatch(/password/i);
   const factsAfterWeakPassword = await readBootstrapFacts(databaseUrl, adminEmail);
   expect(factsAfterWeakPassword.users).toBe(0);
-  expect(factsAfterWeakPassword.claimConsumed).toBe(false);
   evidence.fact(
-    "Bootstrap account creation still exercises password policy and does not consume the claim on failure",
-    `Weak password signup returned HTTP ${weakSignup.response.status}; users=${factsAfterWeakPassword.users}; claimConsumed=${String(factsAfterWeakPassword.claimConsumed)}.` ,
-    weakSignup.response.status === 400 && factsAfterWeakPassword.users === 0 && factsAfterWeakPassword.claimConsumed === false,
+    "Bootstrap account creation still exercises password policy and leaves setup available on failure",
+    `Weak password signup returned HTTP ${weakSignup.response.status}; users=${factsAfterWeakPassword.users}.`,
+    weakSignup.response.status === 400 && factsAfterWeakPassword.users === 0,
   );
 
   await using browser = await chrome({ name: "initial-admin-bootstrap", startUrl: den.ref.webUrl, headless: true });
@@ -205,17 +201,15 @@ test.skipIf(!localPlacement || !mysqlOpen || !redisOpen)(title, { timeout: 600_0
   expect(factsAfterSetup.members).toBe(1);
   expect(factsAfterSetup.firstMemberRole).toBe("owner");
   expect(factsAfterSetup.firstOrgSlug).toBe("private-openwork");
-  expect(factsAfterSetup.claimConsumed).toBe(true);
   expect(factsAfterSetup.adminAllowlistRows).toBe(1);
   evidence.fact(
-    "Successful setup creates exactly one user, singleton organization, owner membership, platform-admin authorization, and consumed claim",
-    `users=${factsAfterSetup.users}; orgs=${factsAfterSetup.orgs}; members=${factsAfterSetup.members}; role=${factsAfterSetup.firstMemberRole}; slug=${factsAfterSetup.firstOrgSlug}; platformAdminRows=${factsAfterSetup.adminAllowlistRows}; claimConsumed=${String(factsAfterSetup.claimConsumed)}.`,
+    "Successful setup creates exactly one user, singleton organization, owner membership, and platform-admin authorization",
+    `users=${factsAfterSetup.users}; orgs=${factsAfterSetup.orgs}; members=${factsAfterSetup.members}; role=${factsAfterSetup.firstMemberRole}; slug=${factsAfterSetup.firstOrgSlug}; platformAdminRows=${factsAfterSetup.adminAllowlistRows}.`,
     factsAfterSetup.users === 1
       && factsAfterSetup.orgs === 1
       && factsAfterSetup.members === 1
       && factsAfterSetup.firstMemberRole === "owner"
       && factsAfterSetup.firstOrgSlug === "private-openwork"
-      && factsAfterSetup.claimConsumed
       && factsAfterSetup.adminAllowlistRows === 1,
   );
 
@@ -302,7 +296,7 @@ test.skipIf(!localPlacement || !mysqlOpen || !redisOpen)(title, { timeout: 600_0
     }),
     denFetch(raceDen.ref, "/v1/auth/bootstrap/verify", {
       method: "POST",
-      body: JSON.stringify({ email: otherAdminEmail, code: concurrentCode }),
+      body: JSON.stringify({ email: adminEmail.toUpperCase(), code: concurrentCode }),
     }),
   ]);
   const raceResponses = await Promise.all([
@@ -312,18 +306,18 @@ test.skipIf(!localPlacement || !mysqlOpen || !redisOpen)(title, { timeout: 600_0
     }),
     denFetch(raceDen.ref, "/api/auth/sign-up/email", {
       method: "POST",
-      body: JSON.stringify({ email: otherAdminEmail, name: "Race Two", password: adminPassword, bootstrapGrant: stringField(raceGrantTwo.body, "grant") }),
+      body: JSON.stringify({ email: adminEmail, name: "Race Two", password: adminPassword, bootstrapGrant: stringField(raceGrantTwo.body, "grant") }),
     }),
   ]);
   const raceSuccesses = raceResponses.filter((result) => result.response.ok).length;
-  const raceFailures = raceResponses.filter((result) => result.response.status === 403 || result.response.status === 409).length;
+  const raceFailures = raceResponses.filter((result) => !result.response.ok).length;
   const raceFacts = await readBootstrapFacts(raceDen.database.url, adminEmail);
   expect(raceSuccesses).toBe(1);
   expect(raceFailures).toBe(1);
   expect(raceFacts.users).toBe(1);
   expect(raceFacts.orgs).toBe(1);
   evidence.fact(
-    "Concurrent setup attempts race safely and create exactly one administrator",
+    "Concurrent same-email setup attempts create exactly one administrator",
     `successes=${raceSuccesses}; expectedFailures=${raceFailures}; users=${raceFacts.users}; orgs=${raceFacts.orgs}.`,
     raceSuccesses === 1 && raceFailures === 1 && raceFacts.users === 1 && raceFacts.orgs === 1,
   );

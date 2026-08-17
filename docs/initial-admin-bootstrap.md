@@ -7,14 +7,14 @@ Use the initial-administrator bootstrap flow to create the first account without
 ## How It Works
 
 1. The deployment must have zero Better Auth users.
-2. The initial-admin claim must not already be consumed.
+2. The Better Auth user table must still be empty.
 3. The submitted email must be eligible.
 4. The submitted one-time setup code must match the server-side SHA-256 digest.
 5. The server issues a short-lived, email-bound bootstrap grant.
 6. The final account creation goes through Better Auth email/password signup.
-7. OpenWork creates or reuses the singleton organization, grants owner membership, adds platform-admin authorization, signs the admin in, and consumes the claim.
+7. OpenWork creates or reuses the singleton organization, grants owner membership, adds platform-admin authorization, and signs the admin in.
 
-After consumption, rotating or re-adding the setup-code digest cannot reopen bootstrap. Existing users are never deleted or mutated to recover setup.
+After the first user exists, rotating or re-adding the setup-code digest cannot reopen bootstrap. Existing users are never deleted or mutated to recover setup.
 
 ## Eligible Emails
 
@@ -122,13 +122,13 @@ Possible statuses are `available`, `complete`, and `unavailable`. The response n
 
 ## Rotation And Recovery
 
-Before setup is consumed, rotate by generating a new raw code and replacing `DEN_INITIAL_ADMIN_BOOTSTRAP_CODE_SHA256` or the digest file. Restart or roll the Den API pods so they read the new secret.
+Before the first user is created, rotate by generating a new raw code and replacing `DEN_INITIAL_ADMIN_BOOTSTRAP_CODE_SHA256` or the digest file. Restart or roll the Den API pods so they read the new secret.
 
-After setup is consumed, rotating the digest cannot re-enable bootstrap. Use normal administrator account recovery, database backups, or an explicitly reviewed operational recovery procedure.
+After the first user is created, rotating the digest cannot re-enable bootstrap. Use normal administrator account recovery, database backups, or an explicitly reviewed operational recovery procedure.
 
 If the digest is missing or malformed, bootstrap fails closed and `/setup` reports that setup is unavailable. Fix the secret and restart the API. Do not delete users or organizations to recover a malformed bootstrap configuration.
 
-Multiple Den API replicas are supported. Bootstrap grant reservation and claim consumption are stored in MySQL with row locks and a singleton primary key, so concurrent setup attempts can create at most one initial administrator.
+Bootstrap availability is checked with an existence query against the Better Auth `user` table (`SELECT id ... LIMIT 1`) instead of a full user count. Once any user exists, setup is permanently unavailable unless an operator deliberately changes the database outside OpenWork.
 
 ## Security Warnings
 
