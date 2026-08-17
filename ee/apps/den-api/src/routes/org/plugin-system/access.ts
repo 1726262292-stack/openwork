@@ -375,9 +375,9 @@ export async function resolvePluginArchResourceRole(input: ResourceLookupInput) 
   return resolved
 }
 
-export async function requirePluginArchCapability(context: PluginArchActorContext, capability: PluginArchCapability) {
+export async function requirePluginArchCapability(context: PluginArchActorContext, capability: PluginArchCapability, requireFreshSession?: boolean) {
   if (hasPluginArchCapability(context, capability)) {
-    ensureFreshPluginArchAdmin(context)
+    if (requireFreshSession !== false) ensureFreshPluginArchAdmin(context)
     return
   }
 

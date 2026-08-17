@@ -1757,7 +1757,7 @@ export async function createConfigObjectVersion(input: { context: PluginArchActo
   if (!row) {
     throw new PluginArchRouteFailure(404, "config_object_not_found", "Config object not found.")
   }
-  await requirePluginArchResourceRole({ context: input.context, resourceId: row.id, resourceKind: "config_object", role: "editor" })
+  await requirePluginArchResourceRole({ context: input.context, requireFreshSession: false, resourceId: row.id, resourceKind: "config_object", role: "editor" })
 
   const now = new Date()
   const projection = deriveProjection({ objectType: row.objectType, value: input.value })

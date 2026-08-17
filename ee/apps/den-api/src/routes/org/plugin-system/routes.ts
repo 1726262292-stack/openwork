@@ -390,12 +390,13 @@ export function registerPluginArchRoutes<T extends { Variables: OrgRouteVariable
     async (c: OrgContext) => {
       try {
         const context = actorContext(c)
-        await requirePluginArchCapability(context, "config_object.create")
+        await requirePluginArchCapability(context, "config_object.create", false)
         const body = validJson<any>(c)
         const item = await createConfigObject({
           context,
           objectType: body.type,
           pluginIds: body.pluginIds,
+          requireFreshSession: false,
           sourceMode: body.sourceMode,
           value: body.input,
         })
