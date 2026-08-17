@@ -32,16 +32,20 @@ function probeRemoteMcpApps(value?: string) {
   `, value)
 }
 
-function probeNativeMcpAppIndex(value: string | undefined, organizationEnabled: boolean) {
+function probeNativeMcpAppIndex(
+  value: string | undefined,
+  organizationEnabled: boolean,
+  clientCapabilities?: string,
+) {
   return probe(`
     const { env } = await import("./src/env.ts")
     const { remoteMcpAppsEnabled } = await import("./src/capability-sources/remote-mcp-apps-rollout.ts")
-    const { buildConnectMcpServerIndex } = await import("./src/mcp/connect-mcp-server-index.ts")
+    const { buildConnectMcpServerIndex, supportsConnectMcpAppHost } = await import("./src/mcp/connect-mcp-server-index.ts")
     const index = buildConnectMcpServerIndex({
       enabled: remoteMcpAppsEnabled(
         { capabilities: { remoteMcpApps: ${JSON.stringify(organizationEnabled)} } },
         { deploymentEnabled: env.remoteMcpAppsEnabled },
-      ),
+      ) && supportsConnectMcpAppHost(${JSON.stringify(clientCapabilities)}),
       connections: [{ id: "emc_fixture", name: "Fixture MCP" }],
       publicOrigin: "https://openwork.example",
     })
@@ -62,11 +66,12 @@ test("Remote MCP Apps deployment gate defaults off and requires an explicit true
   expect(enabled.stdout.trim()).toBe("true")
 })
 
-test("native provider publication requires both deployment and organization opt-ins", () => {
-  const absentDeployment = probeNativeMcpAppIndex(undefined, true)
-  const disabledDeployment = probeNativeMcpAppIndex("false", true)
-  const disabledOrganization = probeNativeMcpAppIndex("true", false)
-  const enabled = probeNativeMcpAppIndex("true", true)
+test("native provider publication requires both rollout gates and explicit client support", () => {
+  const absentDeployment = probeNativeMcpAppIndex(undefined, true, "mcp-app-host-v1")
+  const disabledDeployment = probeNativeMcpAppIndex("false", true, "mcp-app-host-v1")
+  const disabledOrganization = probeNativeMcpAppIndex("true", false, "mcp-app-host-v1")
+  const legacyClient = probeNativeMcpAppIndex("true", true)
+  const enabled = probeNativeMcpAppIndex("true", true, "future-v2, mcp-app-host-v1")
 
   expect(absentDeployment.status).toBe(0)
   expect(absentDeployment.stdout.trim()).toBe("[]")
@@ -74,6 +79,8 @@ test("native provider publication requires both deployment and organization opt-
   expect(disabledDeployment.stdout.trim()).toBe("[]")
   expect(disabledOrganization.status).toBe(0)
   expect(disabledOrganization.stdout.trim()).toBe("[]")
+  expect(legacyClient.status).toBe(0)
+  expect(legacyClient.stdout.trim()).toBe("[]")
   expect(enabled.status).toBe(0)
   expect(enabled.stdout.trim()).toBe('["Fixture MCP"]')
 })
