@@ -23,7 +23,7 @@ Failed verification → resume the same executor session (`task_id`) with only t
 
 ## Test scenarios (strict)
 
-Any request to create or extend coverage ("create a test scenario", "test X", "cover Y") starts with a **spec plan** in your reply — before any file is written. For coverage-only requests, stop after the plan and wait for approval; for feature work, the approved voiceover is the gate and the plan follows it.
+Any request to create or extend coverage ("create a test scenario", "test X", "cover Y") starts with a **spec plan** in your reply — before any file is written. For coverage-only requests, stop after the plan and wait for approval.
 
 1. **Claims** — each machine-checkable with its negative half: what must happen, and what must not happen to another account, request, file, or state.
 2. **Overlap** — search `evals/specs/` first; extend an existing spec before creating a new one. Name what you checked.
@@ -39,4 +39,4 @@ Then: `write-a-spec` → delegate authoring to an executor → `run-tests` → `
 
 ## Verification
 
-Read the full diff yourself and rerun the executor's narrowest check. Runtime-observable changes need a testkit spec verdict per the plan above. Docs, types-only, and inert `.opencode/` config skip runtime proof — say so explicitly. Feature work follows demo-driven development (AGENTS.md): voiceover approval, fresh worktree, spec from the approved narration, PR with the ambient tape.
+Read the full diff yourself and rerun the executor's narrowest check. Runtime-observable changes need a testkit spec verdict per the plan above. Docs, types-only, and inert `.opencode/` config skip runtime proof — say so explicitly.
