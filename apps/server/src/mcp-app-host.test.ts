@@ -105,8 +105,8 @@ async function startFixtureMcp(resourceContent: { text?: string; blob?: string }
         _meta: { ui: { resourceUri: RESOURCE_URI, visibility: ["app"] } },
       },
       {
-        name: "import_remote_mcp_app",
-        description: "Install a model-only remote MCP App fixture",
+        name: "model_only_fixture",
+        description: "A model-only fixture tool",
         inputSchema: { type: "object", properties: {} },
         annotations: { readOnlyHint: true, destructiveHint: false },
         _meta: { ui: { visibility: ["model"] } },
@@ -264,13 +264,13 @@ describe("MCP Apps host transport", () => {
     });
   });
 
-  test("resolves an installed URL App through its same-server capability gateway", async () => {
+  test("resolves a same-server MCP App through its capability gateway", async () => {
     const { config, root } = await configuredFixture("openwork-mcp-app-host-same-server-");
     const app = await resolveSameServerMcpAppResource({
       serverConfig: config,
       workspaceId: WORKSPACE_ID,
       workspaceRoot: root,
-      projectedToolName: "fixture_import_remote_mcp_app",
+      projectedToolName: "fixture_model_only_fixture",
       launch: {
         toolName: "read_bound_detail",
         resourceUri: RESOURCE_URI,
@@ -434,14 +434,14 @@ describe("MCP Apps host transport", () => {
     })).rejects.toMatchObject({ code: "tool_resource_mismatch" });
   });
 
-  test("prevents sandboxed Apps from calling the model-only remote App installer", async () => {
+  test("prevents sandboxed Apps from calling model-only tools", async () => {
     const { config, root } = await configuredFixture("openwork-mcp-app-model-only-");
     await expect(callMcpAppTool({
       serverConfig: config,
       workspaceId: WORKSPACE_ID,
       workspaceRoot: root,
       serverName: "fixture",
-      name: "import_remote_mcp_app",
+      name: "model_only_fixture",
     })).rejects.toMatchObject({ code: "tool_not_visible" });
   });
 

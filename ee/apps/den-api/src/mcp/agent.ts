@@ -43,7 +43,6 @@ import {
 } from "./builtin-skills.js"
 import {
   buildCapabilityToolTree,
-  catalogOperationChangesRemoteMcpAppDiscovery,
   createCapabilityRegistryContext,
   executeCapability,
   externalCapabilityErrorToolResult,
@@ -70,14 +69,6 @@ import { requirePluginArchResourceRole, type PluginArchActorContext } from "../r
 import { clearProgramAgentSelection, getProgramAgentSelection, selectProgramForAgent } from "../program-agent-selection.js"
 import { getProgramDetail, listProgramLibraryItems } from "../program-library.js"
 import { parseArtifactViewResourceUri } from "../artifact-view-resource.js"
-import { importRemoteMcpApp, listActiveRemoteMcpApps, loadRemoteMcpAppRevision } from "../remote-mcp-apps.js"
-import {
-  registerAgentRemoteMcpApps,
-  remoteMcpAppCapabilityName,
-  remoteMcpAppLaunchResult,
-  remoteMcpAppLaunchToolName,
-  searchRemoteMcpApps,
-} from "./remote-mcp-apps.js"
 import { listReadyExternalMcpConnections } from "../capability-sources/external-mcp-connections.js"
 import {
   CONNECT_MCP_APP_HOST_CAPABILITY_HEADER,
@@ -188,11 +179,9 @@ const programRunOutputSchema = z.object({
 })
 
 export const AGENT_MCP_INSTRUCTIONS = [
-  "This OpenWork Cloud MCP server uses standard MCP tools, resources, structured results, and list-changed notifications. OpenWork Programs and Remote MCP Apps add only durable identity, Plugin containment, access, retained resources and results, selection, and lifecycle around those MCP primitives.",
-  "MCP App UI is authored and bundled outside OpenWork. Agents do not author, generate, compile, revise, activate, or publish UI source in OpenWork. Active imported apps in the member's Library are discovered through capability search and backed by immutable ui:// resources; their app-visible launch bindings are never model-visible tools.",
-  "Standard MCP Apps supplied by connected MCP servers and approved URL-installed Apps are discovered through search_capabilities. A match with kind mcp_app must be executed through execute_capability like any other exact match; compatible OpenWork hosts preserve the current _meta.ui.resourceUri and render it without a generated direct-tool name.",
-  "Use import_remote_mcp_app only after the user has selected an existing Plugin and approved installation of third-party executable content. Supply only the Plugin id and a public HTTPS URL for one self-contained index.html; never send inline HTML, React or JavaScript source, or build-project contents.",
-  "An imported app receives the exact search_capabilities and execute_capability tool names in launch structuredContent. Through the standard same-server MCP Apps bridge it can search the member's authorized Connect tools and Programs, then execute an exact returned capability. The host retains workspace policy, user approval, and result-size enforcement; credentials never enter the app.",
+  "This OpenWork Cloud MCP server uses standard MCP tools, resources, structured results, and list-changed notifications.",
+  "Standard MCP Apps supplied by connected MCP servers are discovered through search_capabilities. A match with kind mcp_app must be executed through execute_capability like any other exact match; compatible OpenWork hosts preserve the current _meta.ui.resourceUri and render it without a generated direct-tool name.",
+  "Standalone URL-imported Apps are deferred future work and are not part of this release. Do not offer, search for, import, or launch them.",
   "A Program is an immutable-versioned Code Mode Script config object inside an OpenWork Connect Plugin. Organizations with Code Mode scripts enabled receive execute_capability_script, the backwards-compatible render_dynamic_artifact MCP App tool, and a constant-size Program catalog: search_programs, select_program, and clear_program_selection.",
   "To use a Program, search by Library metadata, select one exact accessible Program, then refresh the tool catalog. The selected context exposes run_selected_program and a standard renderer for its retained Artifact data; Program execution remains server-mediated and returns structuredContent.",
   "When a member asks to keep a successful Code Mode result, save it as a Program inside the existing OpenWork Connect Plugin they name by passing that pluginId to the Code Mode save operation. Omit pluginId only for a private Program in the member's My Programs Plugin. A Program inherits discovery and sharing from its Plugin and any Marketplace containing that Plugin; do not create a separate Program package or marketplace entry.",
@@ -438,7 +427,6 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
     const remoteAppsEnabled = remoteMcpAppsEnabled(organizationMetadata, {
       deploymentEnabled: env.remoteMcpAppsEnabled,
     })
-    const appHostClient = c.req.header("x-openwork-mcp-client-audience") === "app-host"
     const connectMcpAppHostSupported = supportsConnectMcpAppHost(
       c.req.header(CONNECT_MCP_APP_HOST_CAPABILITY_HEADER),
     )
@@ -496,30 +484,6 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
         .sort((a, b) => a.name.localeCompare(b.name) || a.capability.localeCompare(b.capability))
     }
     const server = createAgentMcpServer()
-    let activeRemoteMcpApps: Awaited<ReturnType<typeof listActiveRemoteMcpApps>> = []
-    if (remoteAppsEnabled && libraryContext && memberIdentity && appCatalogMethod) {
-      activeRemoteMcpApps = await listActiveRemoteMcpApps({ context: libraryContext })
-      registerAgentRemoteMcpApps({
-        server,
-        apps: activeRemoteMcpApps,
-        exposeLaunchTools: appHostClient,
-        loadResource: async ({ configObjectId, versionId }) => {
-          const loaded = await loadRemoteMcpAppRevision({
-            context: libraryContext,
-            configObjectId,
-            versionId,
-          })
-          return { html: loaded.html, payload: loaded.payload }
-        },
-        importApp: async ({ pluginId, sourceUrl, activate }) => importRemoteMcpApp({
-          context: libraryContext,
-          pluginId,
-          sourceUrl,
-          activate,
-          requireFreshSession: false,
-        }),
-      })
-    }
     if (method === "initialize" || method === "resources/list" || method === "resources/read") {
       if (memberIdentity) {
         registerConnectMcpServerIndex({
@@ -570,7 +534,7 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
           "Search covers native Google Workspace capabilities (Gmail, Calendar, Drive, Gmail drafts), org-connected external MCPs, and namespaced OpenWork Admin tools for allowlisted platform admins.",
           "When Code Mode is enabled, accessible Programs appear as marketplace matches with kind script and execute through execute_capability like every other exact search result.",
           "Try 2-4 keyword variants before deciding a capability is unavailable.",
-          "Native API matches include a connector-namespaced name, pathParams, queryParams, hasBody, and bodySchema. External MCP matches include argumentsSchema, schemaDigest, and invocation.argumentsField. A match with kind mcp_app is a standard MCP App launch capability from either a connected server or an approved URL installation; execute it normally and the OpenWork host will render its advertised ui:// resource.",
+          "Native API matches include a connector-namespaced name, pathParams, queryParams, hasBody, and bodySchema. External MCP matches include argumentsSchema, schemaDigest, and invocation.argumentsField. A match with kind mcp_app is a standard MCP App launch capability from a connected MCP server; execute it normally and the OpenWork host will render its advertised ui:// resource.",
           "Built-in and marketplace skill matches return SKILL.md content when executed.",
         ].join(" "),
         annotations: SEARCH_CAPABILITIES_ANNOTATIONS,
@@ -585,10 +549,7 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
       async ({ query, limit, type }) => {
         const boundedLimit = limit ?? 5
         const result = await searchCapabilityRegistry(capabilityContext, { query, limit: boundedLimit, type })
-        const matches = [
-          ...result.matches,
-          ...searchRemoteMcpApps(activeRemoteMcpApps, query, boundedLimit, type),
-        ].sort(compareCapabilityMatches).slice(0, boundedLimit)
+        const matches = result.matches.sort(compareCapabilityMatches).slice(0, boundedLimit)
         return capabilitySearchToolResult(matches, result.externalCoverageHint)
       },
     )
@@ -615,33 +576,13 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
           body: z.unknown().optional().describe("For native API capabilities, the JSON body. For external MCP capabilities, the arguments object matching argumentsSchema."),
         }),
       },
-      async ({ name, schemaDigest, path, query, body }, extra) => {
-        const remoteApp = activeRemoteMcpApps.find((app) => remoteMcpAppCapabilityName(app.app.configObjectId) === name)
+      async ({ name, schemaDigest, path, query, body }) => {
         const result = await executeCapabilityWithBudget({
           capability: name,
-          invoke: async (): Promise<ExecuteCapabilityToolResult> => {
-            if (!remoteApp) return executeCapability(capabilityContext, { name, schemaDigest, path, query, body })
-            const launchInput = body && typeof body === "object" && !Array.isArray(body) && "input" in body
-              ? (body as { input?: unknown }).input
-              : undefined
-            const launched = remoteMcpAppLaunchResult(remoteApp, launchInput)
-            return {
-              ...launched,
-              _meta: {
-                "openwork/mcpApp": {
-                  toolName: remoteMcpAppLaunchToolName(remoteApp.app.configObjectId),
-                  resourceUri: remoteApp.resourceUri,
-                  arguments: launchInput === undefined ? {} : { input: launchInput },
-                },
-              },
-            }
-          },
+          invoke: async (): Promise<ExecuteCapabilityToolResult> => (
+            executeCapability(capabilityContext, { name, schemaDigest, path, query, body })
+          ),
         })
-        const catalogOperation = catalog.find((operation) => operation.name === name)
-        if (!result.isError && catalogOperation && catalogOperationChangesRemoteMcpAppDiscovery(catalogOperation)) {
-          await extra.sendNotification({ method: "notifications/tools/list_changed" })
-          await extra.sendNotification({ method: "notifications/resources/list_changed" })
-        }
         return result
       },
     )

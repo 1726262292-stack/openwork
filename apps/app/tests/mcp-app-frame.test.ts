@@ -56,16 +56,16 @@ describe("MCP App iframe policy", () => {
     })).toBeNull()
   })
 
-  test("accepts a same-server installed App launch without a connection reference", () => {
+  test("accepts a same-server generated App launch without a connection reference", () => {
     expect(gatewayMcpAppLaunch({
       "openwork/mcpApp": {
-        toolName: "launch_remote_app_atlas",
-        resourceUri: "ui://openwork/remote-apps/atlas/1/index.html",
+        toolName: "render_artifact_view",
+        resourceUri: "ui://openwork/artifacts/atlas/views/1/index.html",
         arguments: { input: { query: "migration" } },
       },
     })).toEqual({
-      toolName: "launch_remote_app_atlas",
-      resourceUri: "ui://openwork/remote-apps/atlas/1/index.html",
+      toolName: "render_artifact_view",
+      resourceUri: "ui://openwork/artifacts/atlas/views/1/index.html",
       arguments: { input: { query: "migration" } },
     })
   })
