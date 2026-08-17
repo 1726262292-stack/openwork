@@ -3,7 +3,6 @@ import { expect } from "vitest";
 import { clickButton, denFetch, evalIn, fill, signIn, visibleText, waitFor } from "@openwork/behaviors";
 import { localMysqlIsRunning, localRedisIsRunning, queryDenDatabase, server, test } from "@openwork/testkit";
 import { navigate } from "@openwork/cdp";
-import { screenshot } from "@openwork/fraimz";
 import { chrome } from "@openwork/hosts";
 
 const localPlacement = process.env.OPENWORK_EVAL_DAYTONA !== "1" && !process.env.OPENWORK_EVAL_DEN_API_URL?.trim();
@@ -167,7 +166,6 @@ test.skipIf(!localPlacement || !mysqlOpen || !redisOpen)(title, { timeout: 600_0
   expect(setupText).toMatch(/one-time setup code/i);
   expect(setupText).not.toContain(normalizedAdminEmail);
   expect(await evalIn(browser, `document.querySelector('input[name="setupCode"]')?.getAttribute("type")`)).toBe("password");
-  await screenshot(browser);
   evidence.fact(
     "The setup page explains first-admin setup without displaying configured privileged emails",
     `The setup page text includes the administrator title and one-time setup code prompt, and omits the configured email.`,
