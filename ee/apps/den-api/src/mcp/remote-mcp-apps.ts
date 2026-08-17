@@ -105,6 +105,7 @@ function resourceMeta(revision: Pick<ActiveRemoteMcpApp, "payload">): { ui: McpU
 export function registerAgentRemoteMcpApps(input: {
   server: McpServer
   apps: ActiveRemoteMcpApp[]
+  exposeLaunchTools?: boolean
   loadResource: (request: { configObjectId: string; versionId: string }) => Promise<{
     html: string
     payload: ActiveRemoteMcpApp["payload"]
@@ -195,6 +196,7 @@ export function registerAgentRemoteMcpApps(input: {
       )
     }
 
+    if (input.exposeLaunchTools === false) continue
     registerAppTool(
       input.server,
       remoteMcpAppLaunchToolName(app.app.configObjectId),

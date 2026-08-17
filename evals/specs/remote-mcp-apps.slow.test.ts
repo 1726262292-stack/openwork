@@ -90,7 +90,7 @@ function requestHeader(request: IncomingMessage, name: string): string | undefin
 
 function forwardedMcpHeaders(request: IncomingMessage): Record<string, string> {
   const headers: Record<string, string> = {};
-  for (const name of ["content-type", "mcp-protocol-version", "mcp-session-id"]) {
+  for (const name of ["content-type", "mcp-protocol-version", "mcp-session-id", "x-openwork-mcp-client-audience"]) {
     const value = requestHeader(request, name);
     if (value) headers[name] = value;
   }
@@ -428,6 +428,7 @@ async function agentRpc(
   method: string,
   params: Record<string, unknown>,
   endpoint = "/mcp/agent",
+  extraHeaders: Record<string, string> = {},
 ) {
   const id = ++agentRequestId;
   const response = await fetch(`${apiUrl}${endpoint}`, {
@@ -436,6 +437,7 @@ async function agentRpc(
       authorization: `Bearer ${token}`,
       accept: "application/json, text/event-stream",
       "content-type": "application/json",
+      ...extraHeaders,
     },
     body: JSON.stringify({ jsonrpc: "2.0", id, method, params }),
     signal: AbortSignal.timeout(90_000),
@@ -671,6 +673,7 @@ test.skipIf(!appSpecsEnabled || !localPlacement || !mysqlOpen)(title, { timeout:
   expect(tokenResult.response.ok, tokenResult.text).toBe(true);
   const mcpToken = String(requireRecord(tokenResult.body, "MCP token response").token ?? "");
   const connectedEndpoint = `/mcp/agent/connections/${encodeURIComponent(connection.id)}`;
+  const appHostHeaders = { "x-openwork-mcp-client-audience": "app-host" };
   agentMcpUpstream = {
     token: mcpToken,
     staticUrl: `${den.ref.apiUrl}/mcp/agent`,
@@ -794,7 +797,11 @@ test.skipIf(!appSpecsEnabled || !localPlacement || !mysqlOpen)(title, { timeout:
   const programId = String(savedProgram.configObjectId ?? "");
   expect(programId).toMatch(/^cob_/);
 
-  const listed = await agentRpc(den.ref.apiUrl, mcpToken, "tools/list", {});
+  const modelListed = await agentRpc(den.ref.apiUrl, mcpToken, "tools/list", {});
+  expect(toolsFrom(modelListed).some((tool) => tool.title === "Open Project Atlas")).toBe(false);
+  const listed = await agentRpc(den.ref.apiUrl, mcpToken, "tools/list", {}, "/mcp/agent", {
+    "x-openwork-mcp-client-audience": "app-host",
+  });
   expect(toolsFrom(listed).some((tool) => tool.name === "save_artifact_view")).toBe(false);
   expect(toolsFrom(listed).some((tool) => typeof tool.name === "string" && tool.name.startsWith("run_program_"))).toBe(false);
   const launchTool = toolsFrom(listed).find((tool) => tool.title === "Open Project Atlas");
@@ -892,7 +899,7 @@ test.skipIf(!appSpecsEnabled || !localPlacement || !mysqlOpen)(title, { timeout:
     protocolVersion: "2025-11-25",
     capabilities: { extensions: { "io.modelcontextprotocol/ui": { mimeTypes: ["text/html;profile=mcp-app"] } } },
     clientInfo: { name: "remote-mcp-app-connect-eval", version: "1.0.0" },
-  }, connectedEndpoint);
+  }, connectedEndpoint, appHostHeaders);
   expect(requireRecord(connectedInitialized.capabilities, "connected capabilities").extensions).toBeTruthy();
   expect(requireRecord(connectedInitialized.serverInfo, "connected server info")).toEqual({
     name: "project-atlas-connect-fixture",
@@ -903,7 +910,9 @@ test.skipIf(!appSpecsEnabled || !localPlacement || !mysqlOpen)(title, { timeout:
     icons: [{ src: "https://example.test/project-atlas.png", mimeType: "image/png", sizes: ["64x64"] }],
   });
 
-  const connectedToolsResult = await agentRpc(den.ref.apiUrl, mcpToken, "tools/list", {}, connectedEndpoint);
+  const modelConnectedTools = await agentRpc(den.ref.apiUrl, mcpToken, "tools/list", {}, connectedEndpoint);
+  expect(toolsFrom(modelConnectedTools)).toEqual([]);
+  const connectedToolsResult = await agentRpc(den.ref.apiUrl, mcpToken, "tools/list", {}, connectedEndpoint, appHostHeaders);
   const connectedTools = toolsFrom(connectedToolsResult);
   expect(connectedTools.map((tool) => tool.name)).toEqual([
     "search_capabilities",
@@ -921,7 +930,16 @@ test.skipIf(!appSpecsEnabled || !localPlacement || !mysqlOpen)(title, { timeout:
 
   const connectedResources = await agentRpc(den.ref.apiUrl, mcpToken, "resources/list", {}, connectedEndpoint);
   expect(connectedResources.resources).toEqual([]);
-  const connectedRead = await agentRpc(den.ref.apiUrl, mcpToken, "resources/read", { uri: connectedResourceUri }, connectedEndpoint);
+  await expect(agentRpc(den.ref.apiUrl, mcpToken, "resources/read", { uri: connectedResourceUri }, connectedEndpoint))
+    .rejects.toThrow("only through the OpenWork App host");
+  const connectedRead = await agentRpc(
+    den.ref.apiUrl,
+    mcpToken,
+    "resources/read",
+    { uri: connectedResourceUri },
+    connectedEndpoint,
+    appHostHeaders,
+  );
   const connectedContent = requireRecord(contentsFrom(connectedRead)[0], "connected resource");
   expect(connectedContent.mimeType).toBe("text/html;profile=mcp-app");
   expect(String(connectedContent.text ?? "")).toContain("Project Atlas");
@@ -931,11 +949,15 @@ test.skipIf(!appSpecsEnabled || !localPlacement || !mysqlOpen)(title, { timeout:
   await expect(agentRpc(den.ref.apiUrl, mcpToken, "tools/call", {
     name: "search_projects",
     arguments: { query: "migration" },
-  }, connectedEndpoint)).rejects.toThrow("Use search_capabilities and execute_capability");
+  }, connectedEndpoint)).rejects.toThrow("only through the OpenWork App host");
+  await expect(agentRpc(den.ref.apiUrl, mcpToken, "tools/call", {
+    name: "search_projects",
+    arguments: { query: "migration" },
+  }, connectedEndpoint, appHostHeaders)).rejects.toThrow("Use search_capabilities and execute_capability");
   const providerAppSearch = await agentRpc(den.ref.apiUrl, mcpToken, "tools/call", {
     name: "search_capabilities",
     arguments: { query: "Atlas project catalog", limit: 5 },
-  }, connectedEndpoint);
+  }, connectedEndpoint, appHostHeaders);
   const providerAppMatches = Array.isArray(requireRecord(providerAppSearch.structuredContent, "provider App search").matches)
     ? (requireRecord(providerAppSearch.structuredContent, "provider App search").matches as unknown[]).filter(isRecord)
     : [];
@@ -943,7 +965,7 @@ test.skipIf(!appSpecsEnabled || !localPlacement || !mysqlOpen)(title, { timeout:
   const providerAppRun = await agentRpc(den.ref.apiUrl, mcpToken, "tools/call", {
     name: "execute_capability",
     arguments: { name: "search_projects", body: { query: "migration" } },
-  }, connectedEndpoint);
+  }, connectedEndpoint, appHostHeaders);
   expect(JSON.stringify(providerAppRun.structuredContent)).toContain("Atlas migration");
   expect(standardMcpCalls).toBe(4);
 
@@ -1279,7 +1301,7 @@ test.skipIf(!appSpecsEnabled || !localPlacement || !mysqlOpen)(title, { timeout:
     timeoutMs: 30_000,
     label: "retired Remote MCP App",
   });
-  const retiredTools = await agentRpc(den.ref.apiUrl, mcpToken, "tools/list", {});
+  const retiredTools = await agentRpc(den.ref.apiUrl, mcpToken, "tools/list", {}, "/mcp/agent", appHostHeaders);
   expect(toolsFrom(retiredTools).some((tool) => tool.name === launchToolName)).toBe(false);
 
   await clickButton(browser, "Restore app");
@@ -1287,7 +1309,7 @@ test.skipIf(!appSpecsEnabled || !localPlacement || !mysqlOpen)(title, { timeout:
     timeoutMs: 30_000,
     label: "restored Remote MCP App",
   });
-  const restoredTools = await agentRpc(den.ref.apiUrl, mcpToken, "tools/list", {});
+  const restoredTools = await agentRpc(den.ref.apiUrl, mcpToken, "tools/list", {}, "/mcp/agent", appHostHeaders);
   expect(toolsFrom(restoredTools).some((tool) => tool.name === launchToolName)).toBe(true);
 
   const disabled = await denFetch(den.admin, `/v1/admin/organizations/${organizationId}/capabilities`, {
@@ -1321,7 +1343,7 @@ test.skipIf(!appSpecsEnabled || !localPlacement || !mysqlOpen)(title, { timeout:
   expect(JSON.stringify(flagOffRun.structuredContent)).toContain("Connected through OpenWork Connect");
   expect(requireRecord(flagOffRun._meta, "flag-off provider metadata")["openwork/mcpApp"]).toBeUndefined();
 
-  const flagOffProviderTools = await agentRpc(den.ref.apiUrl, mcpToken, "tools/list", {}, connectedEndpoint);
+  const flagOffProviderTools = await agentRpc(den.ref.apiUrl, mcpToken, "tools/list", {}, connectedEndpoint, appHostHeaders);
   expect(toolsFrom(flagOffProviderTools)).toEqual([]);
   const flagOffIndexRead = await agentRpc(den.ref.apiUrl, mcpToken, "resources/read", { uri: "openwork://connect/mcp-servers/index.json" });
   const flagOffIndex = requireRecord(JSON.parse(String(contentsFrom(flagOffIndexRead)[0]?.text ?? "{}")), "flag-off Connect MCP server index");

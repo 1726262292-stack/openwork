@@ -14,6 +14,7 @@ import { diagnoseMcpToolDenies, listMcp } from "./mcp.js";
 const MCP_APP_EXTENSION = "io.modelcontextprotocol/ui";
 const MCP_APP_MIME_TYPE = "text/html;profile=mcp-app";
 const MCP_PROTOCOL_VERSION = "2025-06-18";
+const MCP_APP_HOST_AUDIENCE_HEADER = "x-openwork-mcp-client-audience";
 const MAX_TOOL_PAGES = 32;
 const MAX_TOOLS = 2_048;
 const MAX_RESOURCE_BYTES = 768 * 1024;
@@ -170,9 +171,12 @@ async function withRemoteClient<T>(
     throw error;
   }
   const guardedFetch = createLocalManagedMcpGuardedFetch();
-  const requestInit = Object.keys(stringHeaders(config.headers)).length
-    ? { headers: stringHeaders(config.headers) }
-    : undefined;
+  const requestInit = {
+    headers: {
+      ...stringHeaders(config.headers),
+      [MCP_APP_HOST_AUDIENCE_HEADER]: "app-host",
+    },
+  };
   const attempts = [
     () => new StreamableHTTPClientTransport(url, { requestInit, fetch: guardedFetch }),
     () => new SSEClientTransport(url, { requestInit, fetch: guardedFetch }),

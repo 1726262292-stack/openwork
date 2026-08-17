@@ -434,6 +434,7 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
     const remoteAppsEnabled = remoteMcpAppsEnabled(organizationMetadata, {
       deploymentEnabled: env.remoteMcpAppsEnabled,
     })
+    const appHostClient = c.req.header("x-openwork-mcp-client-audience") === "app-host"
     const requestInfo = await mcpRequestInfo(c.req.raw)
     const method = requestInfo.method
     const redirectUriBase = resolvePublicOrigin(c.req.raw, env.apiPublicUrl)
@@ -494,6 +495,7 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
       registerAgentRemoteMcpApps({
         server,
         apps: activeRemoteMcpApps,
+        exposeLaunchTools: appHostClient,
         loadResource: async ({ configObjectId, versionId }) => {
           const loaded = await loadRemoteMcpAppRevision({
             context: libraryContext,

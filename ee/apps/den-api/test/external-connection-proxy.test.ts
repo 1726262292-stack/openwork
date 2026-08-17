@@ -69,6 +69,7 @@ async function withClient<T>(
   capabilities: Record<string, unknown>,
   run: (client: Client) => Promise<T>,
   runtimeOverrides: Record<string, unknown> = {},
+  appHostClient = true,
 ) {
   const server = createExternalConnectionProxyServer({
     descriptor: {
@@ -77,6 +78,7 @@ async function withClient<T>(
     } as never,
     operation,
     runtime: runtime(runtimeOverrides),
+    appHostClient,
   })
   const client = new Client({ name: "proxy-test", version: "1.0.0" }, { capabilities: {} })
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
@@ -89,6 +91,17 @@ async function withClient<T>(
     await server.close()
   }
 }
+
+test("ordinary MCP clients cannot list or call the per-provider App surface", async () => {
+  await withClient({ tools: {}, resources: {} }, async (client) => {
+    expect((await client.listTools()).tools).toEqual([])
+    expect((await client.listResources()).resources).toEqual([])
+    await expect(client.callTool({ name: "search_capabilities", arguments: { query: "fixture" } }))
+      .rejects.toThrow("only through the OpenWork App host")
+    await expect(client.readResource({ uri: resourceUri }))
+      .rejects.toThrow("only through the OpenWork App host")
+  }, {}, false)
+})
 
 test("tool-only downstream servers initialize and never register resource handlers", async () => {
   let resourceCalls = 0

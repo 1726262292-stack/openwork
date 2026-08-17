@@ -76,6 +76,7 @@ async function withClient<T>(
   run: (client: Client) => Promise<T>,
   options: {
     importApp?: (request: { activate: boolean; pluginId: string; sourceUrl: string }) => Promise<Record<string, unknown>>
+    exposeLaunchTools?: boolean
   } = {},
 ) {
   const server = new McpServer(
@@ -86,6 +87,7 @@ async function withClient<T>(
     server,
     apps: [activeApp as never],
     loadResource: async () => ({ html, payload: activePayload as never }),
+    ...(options.exposeLaunchTools === undefined ? {} : { exposeLaunchTools: options.exposeLaunchTools }),
     ...(options.importApp ? { importApp: options.importApp } : {}),
   })
   const client = new Client({ name: "desktop-host", version: "1.0.0" }, { capabilities: {} })
@@ -99,6 +101,13 @@ async function withClient<T>(
     await server.close()
   }
 }
+
+test("keeps installed App launch bindings out of ordinary model catalogs", async () => {
+  await withClient(async (client) => {
+    await expect(client.listTools()).rejects.toThrow("Method not found")
+    expect((await client.listResources()).resources).toContainEqual(expect.objectContaining({ uri: resourceUri }))
+  }, { exposeLaunchTools: false })
+})
 
 test("advertises one standard tool with the exact immutable ui resource", async () => {
   await withClient(async (client) => {

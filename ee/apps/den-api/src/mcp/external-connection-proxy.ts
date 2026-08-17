@@ -156,6 +156,7 @@ export function createExternalConnectionProxyServer(input: {
   descriptor: ExternalMcpProxyDescriptor
   operation: ExternalMcpProxyOperation
   runtime?: ExternalMcpProxyRuntime
+  appHostClient?: boolean
 }) {
   const { connection } = input.operation
   const runtime = input.runtime ?? externalMcpProxyRuntime
@@ -195,9 +196,12 @@ export function createExternalConnectionProxyServer(input: {
 
   if (input.descriptor.capabilities.tools) {
     server.server.setRequestHandler(ListToolsRequestSchema, async () => ({
-      tools: [...appGatewayTools, ...await listAppTools()],
+      tools: input.appHostClient ? [...appGatewayTools, ...await listAppTools()] : [],
     }))
     server.server.setRequestHandler(CallToolRequestSchema, async (request) => {
+      if (!input.appHostClient) {
+        throw new McpError(ErrorCode.InvalidRequest, "Provider MCP App tools are available only through the OpenWork App host.")
+      }
       const args = toolArguments(request.params.arguments)
       if (request.params.name === SEARCH_CAPABILITIES_TOOL_NAME) {
         const query = typeof args.query === "string" ? args.query.trim() : ""
@@ -257,11 +261,15 @@ export function createExternalConnectionProxyServer(input: {
 
   if (input.descriptor.capabilities.resources) {
     server.server.setRequestHandler(ListResourcesRequestSchema, async () => {
+      if (!input.appHostClient) return { resources: [] }
       const allowedUris = await appResourceUris()
       return { resources: (await runtime.listResources(input.operation)).filter((resource) => allowedUris.has(resource.uri)) }
     })
     server.server.setRequestHandler(ListResourceTemplatesRequestSchema, async () => ({ resourceTemplates: [] }))
     server.server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
+      if (!input.appHostClient) {
+        throw new McpError(ErrorCode.InvalidRequest, "Provider MCP App resources are available only through the OpenWork App host.")
+      }
       if (!(await appResourceUris()).has(request.params.uri)) {
         throw new McpError(ErrorCode.InvalidRequest, "The resource is not bound to an available MCP App tool.")
       }
@@ -346,7 +354,11 @@ export async function handleExternalConnectionProxyRequest(input: {
   const dependencies = { ...externalMcpProxyRequestDependencies, ...input.dependencies }
   try {
     const descriptor = await dependencies.describe(input.operation)
-    const server = createExternalConnectionProxyServer({ descriptor, operation: input.operation })
+    const server = createExternalConnectionProxyServer({
+      descriptor,
+      operation: input.operation,
+      appHostClient: input.context.req.header("x-openwork-mcp-client-audience") === "app-host",
+    })
     const response = await dependencies.serve(server, input.context)
     return response ?? new Response(null, { status: 204 })
   } catch (error) {

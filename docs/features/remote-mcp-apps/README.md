@@ -11,9 +11,10 @@ There are two distribution paths:
    path for an app that has tools. Model-visible provider operations are
    discovered and executed only through `search_capabilities` and
    `execute_capability`. OpenWork exposes a separate endpoint containing only
-   UI-bound tools, forced to app-only visibility, and their exact resources so
-   rendering keeps the provider's same-server MCP Apps boundary without
-   projecting its full catalog into the client.
+   UI-bound tools, forced to app-only visibility, and their exact resources
+   only to the local App-host transport. Ordinary MCP clients receive an empty
+   per-provider catalog, so rendering keeps the provider's same-server MCP Apps
+   boundary without projecting its catalog into the model request.
 2. A self-contained HTML file imported by URL. This is a convenience adapter
    for an externally authored app bundle. OpenWork caches the bytes, exposes
    one standard MCP launch tool and immutable `ui://` resources, and exposes
@@ -43,12 +44,14 @@ connection is proxied at:
 /mcp/agent/connections/{connectionId}
 ```
 
-The proxy exposes only tools with a valid `_meta.ui.resourceUri` that pass the
-member's access grant and tool policy. It forces their visibility to `app`,
-rejects direct calls to every other provider tool, and adds app-only
-`search_capabilities` and `execute_capability` tools scoped to that originating
+For an ordinary MCP client, the proxy returns no tools or resources and rejects
+direct calls. Desktop's local App host marks its transport as the app-host
+audience; only that transport receives tools with a valid
+`_meta.ui.resourceUri`, forced to `app` visibility, plus app-only
+`search_capabilities` and `execute_capability` scoped to the originating
 server. A regular MCP App can therefore discover and use its server's ordinary
-tools without receiving the full catalog. The proxy preserves:
+tools without placing either ordinary or launch tools in the model request.
+The app-host view preserves:
 
 - the App tool's exact name, input/output schemas, annotations, and UI binding;
 - concrete resource descriptors and `resources/read` content only for
@@ -158,8 +161,9 @@ The execution contract is intentionally portable:
 
 For a standard server, add or install the MCP through OpenWork Connect and
 grant the intended members or teams access. Desktop reconciles the authorized
-server endpoint, agents discover its native tool definitions, and UI tools
-render without an OpenWork-specific import step.
+server endpoint, agents discover its capabilities through the central search
+and execute gateway, and UI tools render without an OpenWork-specific import
+step or a model-visible provider catalog.
 
 For a static bundle, an agent can install it through OpenWork Connect:
 
