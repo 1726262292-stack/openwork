@@ -271,6 +271,8 @@ export type DenCloudInstanceUpdateResult =
   | { ok: true; status: "update_requested" }
   | { ok: false; error: "already_current" | "flush_failed" };
 
+export type DenCloudInstanceRecoveryResult = { ok: true; status: "recovery_requested" };
+
 export type DenMemoryContext = {
   id: string;
   snippet: string;
@@ -1564,6 +1566,14 @@ function parseCloudInstanceUpdateResult(payload: unknown): DenCloudInstanceUpdat
   return null;
 }
 
+function parseCloudInstanceRecoveryResult(payload: unknown): DenCloudInstanceRecoveryResult | null {
+  if (!isRecord(payload) || payload.ok !== true || payload.status !== "recovery_requested") {
+    return null;
+  }
+
+  return { ok: true, status: "recovery_requested" };
+}
+
 function getMcpToken(payload: unknown): DenMcpToken | null {
   if (
     !isRecord(payload) ||
@@ -2617,6 +2627,20 @@ export function createDenClient(options: { baseUrl: string; token?: string | nul
       const result = parseCloudInstanceUpdateResult(payload);
       if (!result) {
         throw new DenApiError(500, "invalid_cloud_update_payload", "Cloud update response was invalid.");
+      }
+      return result;
+    },
+
+    async recoverCloudInstance(orgId: string): Promise<DenCloudInstanceRecoveryResult> {
+      const payload = await requestJson<unknown>(baseUrls, "/v1/cloud/instance/recover", {
+        method: "POST",
+        token,
+        organizationId: orgId,
+        body: {},
+      });
+      const result = parseCloudInstanceRecoveryResult(payload);
+      if (!result) {
+        throw new DenApiError(500, "invalid_cloud_recovery_payload", "Cloud recovery response was invalid.");
       }
       return result;
     },

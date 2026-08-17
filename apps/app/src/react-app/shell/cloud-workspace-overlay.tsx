@@ -14,6 +14,7 @@ import { useSessionActivityStore } from "@/react-app/domains/session/status/sess
 import { softCardClass } from "@/react-app/domains/workspace/modal-styles";
 import {
   cloudWorkspaceBootIsSlow,
+  cloudWorkspaceBootTimedOut,
   cloudWorkspaceBootStages,
   cloudWorkspaceTakeoverCopy,
   formatCloudWorkspaceElapsed,
@@ -34,8 +35,11 @@ type CloudWorkspaceStatusContextValue = {
   instance: DenCloudInstance | null;
   requestFailed: boolean;
   updating: boolean;
+  recovering: boolean;
+  recoverySequence: number;
   viewModel: CloudWorkspaceViewModel;
   refresh: () => Promise<void>;
+  recover: () => void;
   signOut: () => void;
   updateNow: () => void;
   /**
@@ -58,8 +62,11 @@ const fallbackCloudWorkspaceStatus: CloudWorkspaceStatusContextValue = {
   instance: null,
   requestFailed: false,
   updating: false,
+  recovering: false,
+  recoverySequence: 0,
   viewModel: fallbackViewModel,
   refresh: noopRefresh,
+  recover: noopAction,
   signOut: noopAction,
   updateNow: noopAction,
   takeoverActive: false,
@@ -93,6 +100,8 @@ export function CloudWorkspaceStatusProvider(props: { children: ReactNode }) {
   const [instance, setInstance] = useState<DenCloudInstance | null>(null);
   const [requestFailed, setRequestFailed] = useState(false);
   const [updating, setUpdating] = useState(false);
+  const [recovering, setRecovering] = useState(false);
+  const [recoverySequence, setRecoverySequence] = useState(0);
   const [takeoverActive, setTakeoverActive] = useState(false);
   const lastAttemptedVersion = useRef<string | null>(null);
   const gatewayMode = isOpenworkGatewayRuntime();
@@ -179,6 +188,25 @@ export function CloudWorkspaceStatusProvider(props: { children: ReactNode }) {
       });
   }, [denClient, gatewayMode, orgId, refresh, updating]);
 
+  const recover = useCallback(() => {
+    if (!gatewayMode || !orgId || recovering) return;
+    setRecovering(true);
+    setRequestFailed(false);
+    void denClient
+      .recoverCloudInstance(orgId)
+      .then(() => {
+        setInstance((current) => current ? { ...current, status: "waking", url: null } : null);
+        setRecoverySequence((current) => current + 1);
+        void refresh();
+      })
+      .catch(() => {
+        setRequestFailed(true);
+      })
+      .finally(() => {
+        setRecovering(false);
+      });
+  }, [denClient, gatewayMode, orgId, recovering, refresh]);
+
   useEffect(() => {
     const hasActiveRun = Object.values(useSessionActivityStore.getState().recordsByWorkspaceId)
       .some((records) => Object.values(records).some((record) => record.runActive));
@@ -204,13 +232,16 @@ export function CloudWorkspaceStatusProvider(props: { children: ReactNode }) {
     instance,
     requestFailed,
     updating,
+    recovering,
+    recoverySequence,
     viewModel,
     refresh,
+    recover,
     signOut,
     updateNow,
     takeoverActive,
     setTakeoverActive,
-  }), [gatewayMode, instance, refresh, requestFailed, signOut, takeoverActive, updateNow, updating, viewModel, visible]);
+  }), [gatewayMode, instance, recover, recovering, recoverySequence, refresh, requestFailed, signOut, takeoverActive, updateNow, updating, viewModel, visible]);
 
   return (
     <CloudWorkspaceStatusContext.Provider value={value}>
@@ -277,6 +308,7 @@ export function CloudWorkspaceBootTakeover(props: { decision: CloudWorkspaceMain
   const { setTakeoverActive } = cloudWorkspace;
   const reduceMotion = useReducedMotion() ?? false;
   const [elapsedMs, setElapsedMs] = useState(0);
+  const [retrySequence, setRetrySequence] = useState(0);
   const active = cloudWorkspace.gatewayMode && cloudWorkspace.visible && props.decision === "takeover";
 
   useEffect(() => {
@@ -290,25 +322,27 @@ export function CloudWorkspaceBootTakeover(props: { decision: CloudWorkspaceMain
     setElapsedMs(0);
     const intervalId = window.setInterval(() => setElapsedMs(Date.now() - startedAt), 1_000);
     return () => window.clearInterval(intervalId);
-  }, [active]);
+  }, [active, cloudWorkspace.recoverySequence, retrySequence]);
 
   if (!active) return null;
 
   const { viewModel } = cloudWorkspace;
   const failed = viewModel.variant === "failed";
+  const timedOut = !failed && cloudWorkspaceBootTimedOut(elapsedMs);
   const slow = !failed && cloudWorkspaceBootIsSlow(elapsedMs);
-  const copy = cloudWorkspaceTakeoverCopy({ variant: viewModel.variant, slow });
+  const attention = failed || timedOut;
+  const copy = cloudWorkspaceTakeoverCopy({ variant: viewModel.variant, slow, timedOut });
   const stages = cloudWorkspaceBootStages(viewModel.variant);
 
   return (
     <LazyMotion features={domMax}>
       <div
         className="flex h-full min-h-[420px] items-center justify-center px-6 py-16"
-        role={failed ? "alert" : "status"}
+        role={attention ? "alert" : "status"}
         aria-live="polite"
         data-testid="cloud-workspace-takeover"
         data-cloud-workspace-state={viewModel.variant}
-        data-cloud-workspace-wait={slow ? "slow" : "normal"}
+        data-cloud-workspace-wait={timedOut ? "timed-out" : slow ? "slow" : "normal"}
       >
         <m.div
           layout
@@ -317,7 +351,7 @@ export function CloudWorkspaceBootTakeover(props: { decision: CloudWorkspaceMain
           transition={{ duration: 0.32, ease: "easeOut" }}
           className={cn(
             "w-full max-w-md rounded-[20px] border p-6 shadow-[var(--dls-card-shadow)]",
-            failed
+            attention
               ? "border-amber-7/35 bg-amber-3/30"
               : "border-dls-border bg-dls-surface",
           )}
@@ -326,12 +360,12 @@ export function CloudWorkspaceBootTakeover(props: { decision: CloudWorkspaceMain
             <div
               className={cn(
                 "flex size-12 shrink-0 items-center justify-center rounded-2xl border",
-                failed
+                attention
                   ? "border-amber-7/35 bg-amber-3/60 text-amber-11"
                   : "border-dls-border bg-dls-hover text-dls-accent",
               )}
             >
-              {failed ? (
+              {attention ? (
                 <AlertTriangle className="size-5" aria-hidden="true" />
               ) : (
                 <m.span layoutId={gatewayIndicatorLayoutId} className="flex items-center justify-center">
@@ -360,7 +394,7 @@ export function CloudWorkspaceBootTakeover(props: { decision: CloudWorkspaceMain
             </div>
           </div>
 
-          {stages.length ? (
+          {!attention && stages.length ? (
             <m.ul layout className={cn("mt-6 space-y-3.5", softCardClass)} data-testid="cloud-workspace-boot-stages">
               {stages.map((stage) => (
                 <BootStageRow key={stage.id} stage={stage} reduceMotion={reduceMotion} />
@@ -368,10 +402,28 @@ export function CloudWorkspaceBootTakeover(props: { decision: CloudWorkspaceMain
             </m.ul>
           ) : null}
 
-          {failed || slow ? (
-            <m.div layout className="mt-5 flex items-center gap-2">
-              <Button type="button" size="sm" variant="outline" onClick={() => void cloudWorkspace.refresh()}>
-                Retry
+          {attention || slow ? (
+            <m.div layout className="mt-5 flex flex-wrap items-center gap-2">
+              {attention ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={cloudWorkspace.recover}
+                  disabled={cloudWorkspace.recovering}
+                >
+                  {cloudWorkspace.recovering ? "Starting…" : "Start a new sandbox"}
+                </Button>
+              ) : null}
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  setRetrySequence((current) => current + 1);
+                  void cloudWorkspace.refresh();
+                }}
+              >
+                {attention ? "Try again" : "Check again"}
               </Button>
               <Button type="button" size="sm" variant="ghost" onClick={cloudWorkspace.signOut}>
                 Sign out
@@ -396,7 +448,9 @@ export function CloudWorkspaceBootTakeover(props: { decision: CloudWorkspaceMain
 export function CloudWorkspaceStatusPanel(props: {
   viewModel: CloudWorkspaceViewModel;
   updating: boolean;
+  recovering: boolean;
   onRefresh: () => void;
+  onRecover: () => void;
   onSignOut: () => void;
   onUpdateNow: () => void;
 }) {
@@ -431,6 +485,11 @@ export function CloudWorkspaceStatusPanel(props: {
         </div>
       ) : null}
       <div className="flex items-center justify-end gap-2">
+        {viewModel.variant === "failed" ? (
+          <Button type="button" size="sm" onClick={props.onRecover} disabled={props.recovering}>
+            {props.recovering ? "Starting…" : "Start a new sandbox"}
+          </Button>
+        ) : null}
         {viewModel.showRetry ? (
           <Button type="button" size="sm" variant="outline" onClick={props.onRefresh}>
             Retry
@@ -505,7 +564,9 @@ function CloudWorkspaceOverlayInner() {
             <CloudWorkspaceStatusPanel
               viewModel={viewModel}
               updating={cloudWorkspace.updating}
+              recovering={cloudWorkspace.recovering}
               onRefresh={() => void cloudWorkspace.refresh()}
+              onRecover={cloudWorkspace.recover}
               onUpdateNow={cloudWorkspace.updateNow}
               onSignOut={() => {
                 cloudWorkspace.signOut();

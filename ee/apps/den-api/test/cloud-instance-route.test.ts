@@ -177,7 +177,10 @@ function makeCloudWorkerStore(input: {
   const deletedWorkerIds: StoredCloudWorker["id"][] = []
   const deletedTokenWorkerIds: StoredCloudWorker["id"][] = []
   let claimAttempts = 0
+  let wakeClaimAttempts = 0
   let recycleClaimAttempts = 0
+  let recoveryPrepareAttempts = 0
+  let recoveryFailures = 0
   let healthyFailures = 0
   let provisioningFailures = 0
   const store: CloudWorkerStore = {
@@ -226,15 +229,33 @@ function makeCloudWorkerStore(input: {
       worker.status = "provisioning"
       return true
     },
-    async claimRecycleWorker(workerId) {
-      recycleClaimAttempts += 1
+    async claimFailedWorkerForWake(workerId) {
+      wakeClaimAttempts += 1
       const worker = workers.find((entry) => entry.id === workerId)
-      if (!worker || (worker.status !== "healthy" && worker.status !== "stopped")) {
+      if (!worker || worker.status !== "failed") {
         return false
       }
 
-      worker.status = "provisioning"
+      worker.status = "stopped"
       return true
+    },
+    async claimRecycleWorker(workerId) {
+      recycleClaimAttempts += 1
+      const worker = workers.find((entry) => entry.id === workerId)
+      if (!worker || worker.status !== "healthy") {
+        return false
+      }
+
+      worker.status = "stopped"
+      return true
+    },
+    async prepareRecoveryWorker(workerId) {
+      recoveryPrepareAttempts += 1
+      const worker = workers.find((entry) => entry.id === workerId)
+      if (worker) {
+        worker.status = "stopped"
+        worker.image_version = null
+      }
     },
     async getActiveTokens(workerId) {
       return tokens.filter((entry) => entry.workerId === workerId)
@@ -253,6 +274,13 @@ function makeCloudWorkerStore(input: {
         worker.status = "failed"
       }
     },
+    async markRecoveryWorkerFailed(workerId) {
+      recoveryFailures += 1
+      const worker = workers.find((entry) => entry.id === workerId)
+      if (worker && worker.status !== "failed") {
+        worker.status = "failed"
+      }
+    },
   }
 
   return {
@@ -264,8 +292,17 @@ function makeCloudWorkerStore(input: {
     get claimAttempts() {
       return claimAttempts
     },
+    get wakeClaimAttempts() {
+      return wakeClaimAttempts
+    },
     get recycleClaimAttempts() {
       return recycleClaimAttempts
+    },
+    get recoveryPrepareAttempts() {
+      return recoveryPrepareAttempts
+    },
+    get recoveryFailures() {
+      return recoveryFailures
     },
     get healthyFailures() {
       return healthyFailures
@@ -763,7 +800,7 @@ describe("Cloud instance route lifecycle states", () => {
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toEqual(expectedCloudInstance({ status: "waking", url: null, imageVersion: "openwork-0.18.7" }))
     expect(store.recycleClaimAttempts).toBe(1)
-    expect(worker.status).toBe("provisioning")
+    expect(worker.status).toBe("stopped")
     expect(wakeCalls).toBe(1)
     expect(probes).toBe(0)
   })
@@ -956,6 +993,80 @@ describe("Cloud instance update route", () => {
   })
 })
 
+describe("Cloud instance recovery route", () => {
+  test("stops a wedged worker and hands a fresh-sandbox wake the stopped state", async () => {
+    const orgId = createDenTypeId("organization")
+    const userId = createDenTypeId("user")
+    const worker = { ...storedWorker({ orgId, userId, status: "provisioning" }), image_version: "openwork-0.18.8" }
+    const store = makeCloudWorkerStore({ initialWorkers: [worker] })
+    const app = new Hono<{ Variables: OrgRouteVariables }>()
+    const stopCalls: StoredCloudWorker["id"][] = []
+    let wakeCalls = 0
+    let statusAtWake: CloudWorkerStatus | null = null
+    let imageVersionAtWake: string | null | undefined
+
+    routes.registerCloudRoutes(app, {
+      memberRoute: contextMiddleware(organizationContext(JSON.stringify({ capabilities: { cloud: true } }), { orgId, userId })),
+      orgMode: "multi_org",
+      provisionerMode: "daytona",
+      daytonaApiKey: "daytona-test-key",
+      cloudWorkerStore: store.store,
+      stopCloudWorker: async (workerId) => {
+        stopCalls.push(workerId)
+      },
+      wakeCloudWorker: async () => {
+        wakeCalls += 1
+        statusAtWake = worker.status
+        imageVersionAtWake = worker.image_version
+      },
+    })
+
+    const response = await app.request("http://den.local/v1/cloud/instance/recover", { method: "POST" })
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({ ok: true, status: "recovery_requested" })
+    await flushMicrotasks()
+    expect(stopCalls).toEqual([worker.id])
+    expect(store.recoveryPrepareAttempts).toBe(1)
+    expect(statusAtWake).toBe("stopped")
+    expect(imageVersionAtWake).toBeNull()
+    expect(wakeCalls).toBe(1)
+    expect(store.recoveryFailures).toBe(0)
+  })
+
+  test("surfaces a provider stop failure as a failed worker instead of another endless wake", async () => {
+    const orgId = createDenTypeId("organization")
+    const userId = createDenTypeId("user")
+    const worker = storedWorker({ orgId, userId, status: "provisioning" })
+    const store = makeCloudWorkerStore({ initialWorkers: [worker] })
+    const app = new Hono<{ Variables: OrgRouteVariables }>()
+    let wakeCalls = 0
+
+    routes.registerCloudRoutes(app, {
+      memberRoute: contextMiddleware(organizationContext(JSON.stringify({ capabilities: { cloud: true } }), { orgId, userId })),
+      orgMode: "multi_org",
+      provisionerMode: "daytona",
+      daytonaApiKey: "daytona-test-key",
+      cloudWorkerStore: store.store,
+      stopCloudWorker: async () => {
+        throw new Error("sandbox stop timed out")
+      },
+      wakeCloudWorker: async () => {
+        wakeCalls += 1
+      },
+    })
+
+    const response = await app.request("http://den.local/v1/cloud/instance/recover", { method: "POST" })
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({ ok: true, status: "recovery_requested" })
+    await flushMicrotasks()
+    expect(worker.status).toBe("failed")
+    expect(store.recoveryFailures).toBe(1)
+    expect(wakeCalls).toBe(0)
+  })
+})
+
 describe("Cloud instance per-user workers", () => {
   test("creates one worker per user and reuses the same user's canonical worker", async () => {
     const orgId = createDenTypeId("organization")
@@ -1100,7 +1211,7 @@ describe("Cloud instance failed self-heal", () => {
     await expect(first.json()).resolves.toEqual(expectedCloudInstance({ status: "waking", url: null }))
     await flushMicrotasks()
 
-    expect(store.claimAttempts).toBe(1)
+    expect(store.wakeClaimAttempts).toBe(1)
     expect(provisionCalls).toBe(0)
     expect(wakeCalls).toBe(1)
     expect(worker.status).not.toBe("failed")
@@ -1189,7 +1300,8 @@ describe("Cloud instance failed self-heal", () => {
 
 describe("Cloud instance ready liveness", () => {
   test("returns waking and starts wake when the preview is dead and the sandbox is stopped", async () => {
-    const worker = fakeWorker("healthy")
+    const worker = storedWorker({ status: "healthy" })
+    const store = makeCloudWorkerStore({ initialWorkers: [worker] })
     const app = new Hono<{ Variables: OrgRouteVariables }>()
     let probes = 0
     let wakeCalls = 0
@@ -1200,6 +1312,7 @@ describe("Cloud instance ready liveness", () => {
       provisionerMode: "daytona",
       daytonaApiKey: "daytona-test-key",
       ensureCloudWorker: async () => worker,
+      cloudWorkerStore: store.store,
       getSandboxRecord: async () => fakeSandbox(),
       refreshSignedPreview: async () => null,
       probeSignedPreview: async () => {
@@ -1217,6 +1330,8 @@ describe("Cloud instance ready liveness", () => {
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toEqual(expectedCloudInstance({ status: "waking", url: null }))
     expect(probes).toBe(1)
+    expect(store.recycleClaimAttempts).toBe(1)
+    expect(worker.status).toBe("stopped")
     expect(wakeCalls).toBe(1)
   })
 

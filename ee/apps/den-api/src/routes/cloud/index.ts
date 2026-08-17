@@ -72,16 +72,20 @@ type CloudGatewayInstanceResponse = CloudInstanceResponse & {
 type CloudInstanceUpdateResponse =
   | { ok: true; status: "update_requested" }
   | { ok: false; error: "already_current" | "flush_failed" }
+type CloudInstanceRecoveryResponse = { ok: true; status: "recovery_requested" }
 type CloudWorkerStore = {
   getCloudWorker: (input: { orgId: OrgId; userId: UserId }) => Promise<CloudWorker | null>
   insertCloudWorker: (input: { workerId: WorkerId; orgId: OrgId; userId: UserId; name: string }) => Promise<void>
   insertWorkerTokens: (input: { workerId: WorkerId; hostToken: string; clientToken: string; activityToken: string }) => Promise<void>
   deleteCreateRaceLoser: (workerId: WorkerId) => Promise<void>
   claimFailedWorker: (workerId: WorkerId) => Promise<boolean>
+  claimFailedWorkerForWake: (workerId: WorkerId) => Promise<boolean>
   claimRecycleWorker: (workerId: WorkerId) => Promise<boolean>
+  prepareRecoveryWorker: (workerId: WorkerId) => Promise<void>
   getActiveTokens: (workerId: WorkerId) => Promise<WorkerToken[]>
   markProvisioningWorkerFailed: (workerId: WorkerId) => Promise<void>
   markHealthyWorkerFailed: (workerId: WorkerId) => Promise<void>
+  markRecoveryWorkerFailed: (workerId: WorkerId) => Promise<void>
 }
 type EnsureCloudWorker = (input: {
   orgId: OrgId
@@ -120,6 +124,11 @@ const cloudInstanceUpdateResponseSchema = z.union([
     error: z.enum(["already_current", "flush_failed"]),
   }),
 ]).meta({ ref: "CloudInstanceUpdateResponse" })
+
+const cloudInstanceRecoveryResponseSchema = z.object({
+  ok: z.literal(true),
+  status: z.literal("recovery_requested"),
+}).meta({ ref: "CloudInstanceRecoveryResponse" })
 
 const cloudGatewayInstanceResponseSchema = z.object({
   status: z.enum(["provisioning", "waking", "ready", "failed"]),
@@ -310,13 +319,30 @@ const databaseCloudWorkerStore: CloudWorkerStore = {
 
     return hasChangedRows(result)
   },
+  async claimFailedWorkerForWake(workerId) {
+    const result: unknown = await db
+      .update(WorkerTable)
+      .set({ status: "stopped" })
+      .where(and(eq(WorkerTable.id, workerId), eq(WorkerTable.status, "failed")))
+
+    return hasChangedRows(result)
+  },
   async claimRecycleWorker(workerId) {
     const result: unknown = await db
       .update(WorkerTable)
-      .set({ status: "provisioning" })
-      .where(and(eq(WorkerTable.id, workerId), inArray(WorkerTable.status, ["healthy", "stopped"])))
+      .set({ status: "stopped" })
+      .where(and(eq(WorkerTable.id, workerId), eq(WorkerTable.status, "healthy")))
 
     return hasChangedRows(result)
+  },
+  async prepareRecoveryWorker(workerId) {
+    await db
+      .update(WorkerTable)
+      .set({ status: "stopped", image_version: null })
+      .where(and(
+        eq(WorkerTable.id, workerId),
+        inArray(WorkerTable.status, ["provisioning", "healthy", "failed", "stopped"]),
+      ))
   },
   async getActiveTokens(workerId) {
     return db
@@ -335,6 +361,15 @@ const databaseCloudWorkerStore: CloudWorkerStore = {
       .update(WorkerTable)
       .set({ status: "failed" })
       .where(and(eq(WorkerTable.id, workerId), eq(WorkerTable.status, "healthy")))
+  },
+  async markRecoveryWorkerFailed(workerId) {
+    await db
+      .update(WorkerTable)
+      .set({ status: "failed" })
+      .where(and(
+        eq(WorkerTable.id, workerId),
+        inArray(WorkerTable.status, ["provisioning", "healthy", "stopped"]),
+      ))
   },
 }
 
@@ -538,7 +573,10 @@ async function resolveFailedCloudInstance(input: {
   failedHealAttempts.set(input.worker.id, now)
   const sandbox = await input.getSandboxRecord(input.worker.id)
   if (sandbox) {
-    const claimed = await input.store.claimFailedWorker(input.worker.id)
+    // The wake lifecycle owns the stopped -> provisioning reservation. Moving
+    // straight to provisioning here makes the wake routine reject its own
+    // handoff and leaves the member polling "waking" forever.
+    const claimed = await input.store.claimFailedWorkerForWake(input.worker.id)
     if (!claimed) {
       return { status: "failed", url: null }
     }
@@ -658,6 +696,13 @@ async function startStaleStoppedRecycle(input: {
     return false
   }
 
+  if (input.worker.status === "stopped") {
+    input.startWake(input.worker.id)
+    return true
+  }
+
+  // Hand the worker to the wake lifecycle in its accepted durable state. The
+  // lifecycle then atomically reserves stopped -> provisioning across replicas.
   const claimed = await input.store.claimRecycleWorker(input.worker.id)
   if (claimed) {
     input.startWake(input.worker.id)
@@ -681,7 +726,10 @@ async function recoverUnhealthyCloudSandbox(input: {
   }
 
   if (inspection?.state === "stopped") {
-    input.startWake(input.worker.id)
+    const claimed = await input.store.claimRecycleWorker(input.worker.id)
+    if (claimed || input.worker.status === "stopped") {
+      input.startWake(input.worker.id)
+    }
     return { status: "waking", url: null }
   }
 
@@ -931,6 +979,7 @@ export function registerCloudRoutes<T extends { Variables: OrgRouteVariables }>(
   const now = options.now ?? Date.now
   const gatewayKey = options.gatewayKey !== undefined ? options.gatewayKey : env.gatewayKey
   const wakingWorkers = new Set<CloudWorker["id"]>()
+  const recoveringWorkers = new Set<CloudWorker["id"]>()
 
   function startWake(workerId: CloudWorker["id"]) {
     if (wakingWorkers.has(workerId)) {
@@ -942,6 +991,29 @@ export function registerCloudRoutes<T extends { Variables: OrgRouteVariables }>(
       .catch(() => undefined)
       .finally(() => {
         wakingWorkers.delete(workerId)
+      })
+  }
+
+  function startRecovery(workerId: CloudWorker["id"]) {
+    if (recoveringWorkers.has(workerId)) {
+      return
+    }
+
+    recoveringWorkers.add(workerId)
+    void (async () => {
+      // Stopping is intentionally the only provider action before the durable
+      // handoff. It preserves the shared customer volume and lets the normal
+      // wake path recycle onto a fresh sandbox from the last checkpoint.
+      await stopCloudWorker(workerId)
+      await store.prepareRecoveryWorker(workerId)
+      startWake(workerId)
+    })()
+      .catch(async (error) => {
+        await store.markRecoveryWorkerFailed(workerId).catch(() => undefined)
+        logger.error("cloud workspace recovery failed", { worker_id: workerId, error })
+      })
+      .finally(() => {
+        recoveringWorkers.delete(workerId)
       })
   }
 
@@ -1022,6 +1094,39 @@ export function registerCloudRoutes<T extends { Variables: OrgRouteVariables }>(
       })
 
       return c.json(result)
+    },
+  )
+
+  app.post(
+    "/v1/cloud/instance/recover",
+    describeRoute({
+      tags: ["Cloud"],
+      summary: "Recover the active organization's Cloud instance",
+      description: "Stops an unresponsive sandbox and starts a replacement from the member's retained workspace checkpoint.",
+      responses: {
+        200: jsonResponse("Cloud instance recovery request accepted.", cloudInstanceRecoveryResponseSchema),
+        401: jsonResponse("The caller must be signed in to recover Cloud.", unauthorizedSchema),
+        404: jsonResponse("Cloud is not available for this organization.", notFoundSchema),
+      },
+    }),
+    orgMemberRouteMiddleware,
+    async (c) => {
+      const payload = c.get("organizationContext")
+      if (!cloudAvailable(payload, options)) {
+        return c.json(cloudNotFound(), 404)
+      }
+
+      const user = c.get("user")
+      if (!hasCloudUserId(user)) {
+        return c.json({ error: "unauthorized" }, 401)
+      }
+
+      const worker = await getCloudWorker(payload.organization.id, user.id, store)
+      if (worker) {
+        startRecovery(worker.id)
+      }
+
+      return c.json({ ok: true, status: "recovery_requested" } satisfies CloudInstanceRecoveryResponse)
     },
   )
 

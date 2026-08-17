@@ -10,7 +10,9 @@ import {
 } from "../src/react-app/shell/cloud-workspace-overlay";
 import {
   CLOUD_WORKSPACE_SLOW_BOOT_MS,
+  CLOUD_WORKSPACE_BOOT_TIMEOUT_MS,
   cloudWorkspaceBootIsSlow,
+  cloudWorkspaceBootTimedOut,
   cloudWorkspaceBootStages,
   cloudWorkspaceStatusHasReadyContent,
   cloudWorkspaceTakeoverCopy,
@@ -230,19 +232,33 @@ describe("cloud workspace slow boot escalation", () => {
     expect(cloudWorkspaceBootIsSlow(0)).toBe(false);
     expect(cloudWorkspaceBootIsSlow(CLOUD_WORKSPACE_SLOW_BOOT_MS - 1)).toBe(false);
     expect(cloudWorkspaceBootIsSlow(CLOUD_WORKSPACE_SLOW_BOOT_MS)).toBe(true);
+    expect(cloudWorkspaceBootTimedOut(CLOUD_WORKSPACE_BOOT_TIMEOUT_MS - 1)).toBe(false);
+    expect(cloudWorkspaceBootTimedOut(CLOUD_WORKSPACE_BOOT_TIMEOUT_MS)).toBe(true);
 
     const early = cloudWorkspaceTakeoverCopy({ variant: "provisioning", slow: false });
     const late = cloudWorkspaceTakeoverCopy({ variant: "provisioning", slow: true });
 
     expect(early.title).toBe("Starting your workspace…");
     expect(late.title).toBe("Still working on it…");
-    expect(late.body).toContain("Nothing is broken");
+    expect(late.body).toContain("keep waiting");
+  });
+
+  test("turns a boot with no progress into a clear terminal error", () => {
+    const timedOut = cloudWorkspaceTakeoverCopy({
+      variant: "waking",
+      slow: true,
+      timedOut: true,
+    });
+
+    expect(timedOut.title).toBe("Workspace couldn’t start");
+    expect(timedOut.body).toContain("didn’t come online in time");
+    expect(timedOut.body).toContain("start a new sandbox");
   });
 
   test("keeps the failure message even when the wait has gone long", () => {
     const failed = cloudWorkspaceTakeoverCopy({ variant: "failed", slow: true });
 
-    expect(failed.title).toBe("Workspace needs attention");
+    expect(failed.title).toBe("Workspace couldn’t start");
   });
 
   test("formats elapsed time for both short and long waits", () => {
@@ -263,8 +279,11 @@ function renderTakeover(status: DenCloudInstance["status"]) {
         instance: instance({ status }),
         requestFailed: false,
         updating: false,
+        recovering: false,
+        recoverySequence: 0,
         viewModel,
         refresh: async () => {},
+        recover: () => {},
         signOut: () => {},
         updateNow: () => {},
         takeoverActive: true,
@@ -343,8 +362,9 @@ describe("cloud workspace boot takeover", () => {
     const html = renderTakeover("failed");
 
     expect(html).not.toContain("cloud-workspace-boot-stages");
-    expect(html).toContain("Workspace needs attention");
-    expect(html).toContain("Retry");
+    expect(html).toContain("Workspace couldn’t start");
+    expect(html).toContain("Start a new sandbox");
+    expect(html).toContain("Try again");
     expect(html).toContain("Sign out");
   });
 });
@@ -382,7 +402,9 @@ describe("cloud workspace overlay diagnostics", () => {
       <CloudWorkspaceStatusPanel
         viewModel={viewModel}
         updating={false}
+        recovering={false}
         onRefresh={() => {}}
+        onRecover={() => {}}
         onSignOut={() => {}}
         onUpdateNow={() => {}}
       />,
@@ -399,7 +421,9 @@ describe("cloud workspace overlay diagnostics", () => {
       <CloudWorkspaceStatusPanel
         viewModel={viewModel}
         updating={false}
+        recovering={false}
         onRefresh={() => {}}
+        onRecover={() => {}}
         onSignOut={() => {}}
         onUpdateNow={() => {}}
       />,

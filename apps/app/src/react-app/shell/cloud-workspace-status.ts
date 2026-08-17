@@ -69,9 +69,15 @@ export function cloudWorkspaceBootStages(variant: CloudWorkspacePillVariant): Cl
 
 /** Past this point "usually under a minute" stops being true, so the copy and the actions change. */
 export const CLOUD_WORKSPACE_SLOW_BOOT_MS = 45_000;
+/** A boot that has made no observable progress by this point becomes an actionable error. */
+export const CLOUD_WORKSPACE_BOOT_TIMEOUT_MS = 120_000;
 
 export function cloudWorkspaceBootIsSlow(elapsedMs: number): boolean {
   return elapsedMs >= CLOUD_WORKSPACE_SLOW_BOOT_MS;
+}
+
+export function cloudWorkspaceBootTimedOut(elapsedMs: number): boolean {
+  return elapsedMs >= CLOUD_WORKSPACE_BOOT_TIMEOUT_MS;
 }
 
 export function formatCloudWorkspaceElapsed(elapsedMs: number): string {
@@ -85,17 +91,24 @@ export function formatCloudWorkspaceElapsed(elapsedMs: number): string {
 export function cloudWorkspaceTakeoverCopy(input: {
   variant: CloudWorkspacePillVariant;
   slow: boolean;
+  timedOut?: boolean;
 }): { title: string; body: string } {
   if (input.variant === "failed") {
     return {
-      title: "Workspace needs attention",
-      body: "We couldn’t start the sandbox. Retry, or sign out and reconnect.",
+      title: "Workspace couldn’t start",
+      body: "We couldn’t bring this sandbox online. Try again, or start a new sandbox from your saved files.",
+    };
+  }
+  if (input.timedOut) {
+    return {
+      title: "Workspace couldn’t start",
+      body: "The sandbox didn’t come online in time. Try again, or start a new sandbox from your saved files.",
     };
   }
   if (input.slow) {
     return {
       title: "Still working on it…",
-      body: "This is taking longer than usual. Nothing is broken — wait it out, or retry.",
+      body: "This is taking longer than usual. You can keep waiting or check again.",
     };
   }
   if (input.variant === "provisioning") {
