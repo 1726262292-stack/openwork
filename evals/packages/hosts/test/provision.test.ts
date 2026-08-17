@@ -6,6 +6,7 @@ import {
   parseConnectorSpecEnv,
   provisionDesktopSandbox,
   renderConnectorSpecEnv,
+  startFaultProxyOnSandbox,
   startMockOnSandbox,
 } from "../src/provision.ts";
 import type { ConnectorSpecEnv } from "../src/provision.ts";
@@ -173,6 +174,56 @@ test("startMockOnSandbox rejects a health response with the wrong issuer", async
     /https:\/\/wrong-issuer\.example\.test.*https:\/\/mock\.example\.test/,
   );
   assertRemoteCommandsAreSingleArgument(calls);
+});
+
+test("startFaultProxyOnSandbox uploads and detaches the proxy after resolving its preview URL", async () => {
+  const calls: ExecCall[] = [];
+  const exec: DaytonaExec = async (args, opts) => {
+    calls.push({ args: [...args], opts });
+    if (args[0] === "preview-url") {
+      return { stdout: "Preview URL: https://fault.example.test\n", stderr: "", code: 0 };
+    }
+    return { stdout: "", stderr: "", code: 0 };
+  };
+  const fetchImpl: typeof fetch = async () => new Response(
+    JSON.stringify({ ok: true, issuer: "https://fault.example.test" }),
+    { status: 200, headers: { "content-type": "application/json" } },
+  );
+
+  const proxy = await startFaultProxyOnSandbox({ sandbox: "den-1", exec, fetchImpl, log: () => undefined });
+
+  assert.equal(proxy.url, "https://fault.example.test");
+  assert.match(proxy.token, /^[0-9a-f]{32}$/);
+  assert.deepEqual(calls[0]?.args, ["preview-url", "den-1", "-p", "3985"]);
+  const scripts = calls.filter((call) => call.args[0] === "exec").map((call) => call.args[3]?.slice(10, -1) ?? "");
+  assert.match(scripts[0] ?? "", /pkill -f openwork-fault-proxy/);
+  assert.match(scripts[1] ?? "", /^printf %s [A-Za-z0-9+/=]+ \| base64 -d > \/tmp\/openwork-fault-proxy\.mjs$/);
+  assert(!scripts[1]?.includes("'"));
+  assert.match(scripts[2] ?? "", /start_new_session=True/);
+  assert.match(scripts[2] ?? "", /UPSTREAM=http:\/\/127\.0\.0\.1:3005/);
+  assert.match(scripts[2] ?? "", /node \/tmp\/openwork-fault-proxy\.mjs/);
+  assertRemoteCommandsAreSingleArgument(calls);
+
+  await proxy.stop();
+  assert.match(calls.at(-1)?.args[3] ?? "", /pkill -f openwork-fault-proxy\.mjs/);
+});
+
+test("startFaultProxyOnSandbox rejects a health response with the wrong issuer", async () => {
+  const exec: DaytonaExec = async (args) => {
+    if (args[0] === "preview-url") {
+      return { stdout: "Preview URL: https://fault.example.test\n", stderr: "", code: 0 };
+    }
+    return { stdout: "", stderr: "", code: 0 };
+  };
+  const fetchImpl: typeof fetch = async () => new Response(
+    JSON.stringify({ ok: true, issuer: "https://wrong-issuer.example.test" }),
+    { status: 200, headers: { "content-type": "application/json" } },
+  );
+
+  await assert.rejects(
+    startFaultProxyOnSandbox({ sandbox: "den-1", exec, fetchImpl, log: () => undefined }),
+    /https:\/\/wrong-issuer\.example\.test.*https:\/\/fault\.example\.test/,
+  );
 });
 
 test("deleteSandboxes answers the confirmation prompt and tolerates a missing sandbox", async () => {

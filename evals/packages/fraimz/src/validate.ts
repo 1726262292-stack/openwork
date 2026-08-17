@@ -2,6 +2,7 @@ import { timed } from "@openwork/timeline";
 import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { currentTape } from "./ambient.ts";
 import type { Shot } from "./screenshot.ts";
@@ -125,6 +126,11 @@ function providerJson(raw: string, provider: string): unknown {
   }
 }
 
+function isTimeoutError(error: unknown): boolean {
+  if (error instanceof Error && error.name === "TimeoutError") return true;
+  return error instanceof DOMException && (error.name === "TimeoutError" || error.name === "AbortError");
+}
+
 async function askOpenAi(req: VisionRequest, key: string): Promise<string> {
   const response = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
@@ -226,6 +232,21 @@ export async function judgeVision(
       );
     }
   }
+  const askOnce = ask;
+  ask = async (req) => {
+    try {
+      return await askOnce(req);
+    } catch (error) {
+      if (!isTimeoutError(error)) throw error;
+      await delay(10_000);
+      try {
+        return await askOnce(req);
+      } catch (retryError) {
+        if (!isTimeoutError(retryError)) throw retryError;
+        throw new Error("Vision request timed out on both attempts.", { cause: retryError });
+      }
+    }
+  };
 
   const key = createHash("sha256")
     .update(shot.hash + JSON.stringify(expectations) + model)
