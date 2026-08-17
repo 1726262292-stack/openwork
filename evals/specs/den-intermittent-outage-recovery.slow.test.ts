@@ -43,6 +43,7 @@ interface DiagnosticsState {
   overallFailed: boolean;
   firstFailure: string;
   running: boolean;
+  errorText: string;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -116,12 +117,14 @@ async function readDiagnosticsState(desktopApp: DesktopHandle): Promise<Diagnost
     const overall = document.querySelector('[data-testid="agent-diagnostics-overall"]');
     const firstFailure = document.querySelector('[data-testid="agent-diagnostics-first-failure"]');
     const run = document.querySelector('[data-testid="run-agent-diagnostics"]');
+    const error = document.querySelector('[data-testid="agent-diagnostics-error"]');
     return {
       reportText: report?.textContent ?? "",
       overallText: overall?.textContent?.trim() ?? "",
       overallFailed: Boolean(overall?.querySelector(".text-red-11")),
       firstFailure: firstFailure?.textContent?.trim() ?? "",
       running: run instanceof HTMLButtonElement && run.disabled,
+      errorText: error?.textContent?.trim() ?? "",
     };
   })()`);
   if (!isRecord(value)) throw new Error("agent diagnostics returned no report state");
@@ -131,34 +134,49 @@ async function readDiagnosticsState(desktopApp: DesktopHandle): Promise<Diagnost
     overallFailed: value.overallFailed === true,
     firstFailure: typeof value.firstFailure === "string" ? value.firstFailure : "",
     running: value.running === true,
+    errorText: typeof value.errorText === "string" ? value.errorText : "",
   };
 }
 
 async function runDiagnostics(desktopApp: DesktopHandle, label: string): Promise<DiagnosticsState> {
   const before = await readDiagnosticsState(desktopApp);
-  await waitFor(
-    desktopApp,
-    `(() => {
+  // During the 503 storm a diagnostics run can occasionally fail outright and
+  // render the error notice instead of a report; the claim is about a
+  // completed live run, not first-click luck, so one bounded retry is allowed.
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    await waitFor(
+      desktopApp,
+      `(() => {
+        const run = document.querySelector('[data-testid="run-agent-diagnostics"]');
+        return run instanceof HTMLButtonElement && !run.disabled;
+      })()`,
+      { timeoutMs: 120_000, label: `${label} run control (attempt ${attempt})` },
+    );
+    const clicked = await evalIn(desktopApp, `(() => {
       const run = document.querySelector('[data-testid="run-agent-diagnostics"]');
-      return run instanceof HTMLButtonElement && !run.disabled;
-    })()`,
-    { timeoutMs: 120_000, label: `${label} run control` },
-  );
-  const clicked = await evalIn(desktopApp, `(() => {
-    const run = document.querySelector('[data-testid="run-agent-diagnostics"]');
-    if (!(run instanceof HTMLButtonElement) || run.disabled) return false;
-    run.click();
-    return true;
-  })()`);
-  expect(clicked).toBe(true);
-  return eventually(() => readDiagnosticsState(desktopApp), {
-    within: 120_000,
-    intervalMs: 1_000,
-    label: `${label} completed report`,
-    until: (state) => !state.running
-      && state.reportText.length > 0
-      && state.reportText !== before.reportText,
-  });
+      if (!(run instanceof HTMLButtonElement) || run.disabled) return false;
+      run.click();
+      return true;
+    })()`);
+    expect(clicked).toBe(true);
+    try {
+      return await eventually(() => readDiagnosticsState(desktopApp), {
+        within: 120_000,
+        intervalMs: 1_000,
+        label: `${label} completed report (attempt ${attempt})`,
+        until: (state) => !state.running
+          && state.reportText.length > 0
+          && state.reportText !== before.reportText,
+      });
+    } catch (error) {
+      const lastState = await readDiagnosticsState(desktopApp);
+      console.log(
+        `[den-outage-spec] ${label} attempt ${attempt} produced no report; error notice: ${JSON.stringify(lastState.errorText)}`,
+      );
+      if (attempt === 2) throw error;
+    }
+  }
+  throw new Error(`${label} produced no diagnostics report.`);
 }
 
 async function openDiagnostics(desktopApp: App): Promise<void> {
