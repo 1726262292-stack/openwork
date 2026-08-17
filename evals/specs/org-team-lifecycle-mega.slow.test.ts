@@ -56,6 +56,12 @@ import type { NeedsSpec } from "@openwork/testkit";
  * (ee/apps/den-api/src/mcp/builtin-skills.ts:15-68). Therefore this spec asks
  * the admin's real chat agent to use `skill:create-skill`; Den plugin state is
  * the witness. The API-publish fallback is intentionally not used.
+ *
+ * Since #3703 (2026-08-12), org providers reach desktops, so the picker lists
+ * this model twice. The org `mega-eval-openai` copy uses
+ * `@ai-sdk/openai-compatible`, which sends `max_tokens`; current OpenAI reasoning
+ * models require `max_completion_tokens`. This journey therefore pins the native
+ * workspace-config "OpenAI" group, resolving the ambiguity tracked in #3813.
  */
 
 // 2026-08-10: the Den-hosted Automation phase was removed after Den never materialized a run row
@@ -245,12 +251,14 @@ async function configureWorkspaceOpenAi(appSurface: Surface, workspaceId: string
 async function selectableWorkspaceModel(appSurface: Surface, target: ProviderTarget): Promise<string> {
   const facts = await eventually(async () => {
     const models = await readAvailableModels(appSurface);
-    const match = models.find((model) => model.selectable && model.id === target.requestedModelId);
+    const match = models.find((model) => (
+      model.selectable && model.id === target.requestedModelId && model.providerName === "OpenAI"
+    ));
     return { match, models };
   }, {
     within: 180_000,
     intervalMs: 5_000,
-    label: `${target.requestedModelId} selectable through workspace config`,
+    label: `${target.requestedModelId} selectable in workspace-config OpenAI provider group`,
     until: (value) => Boolean(value.match),
   });
   if (!facts.match) throw new Error(`${target.requestedModelId} did not become selectable through workspace config.`);
@@ -361,7 +369,8 @@ test.skipIf(missingRequirements.length > 0)(title, { timeout: 45 * 60_000 }, asy
   const teammateEmail = `taylor.mega.${stamp}@acme.test`;
   const outsiderEmail = `riley.mega.${stamp}@acme.test`;
   const password = "OpenWorkEval123!";
-  const skillNonce = `mega-${stamp}`;
+  // The authored skill's marker must survive verbatim model reproduction, so keep it short (base36), like llmNonce below.
+  const skillNonce = `mega-${stamp.toString(36)}`;
   const skillName = `mega-echo-${stamp}`;
   const pluginName = `Mega Echo Plugin ${stamp}`;
   const skillMarker = `SKILL-USED-${skillNonce}`;
@@ -418,11 +427,9 @@ test.skipIf(missingRequirements.length > 0)(title, { timeout: 45 * 60_000 }, asy
     providerAbsentBeforePublish,
   );
 
-  // 2026-08-09: org-published providers do not currently materialize on desktops
-  // (regression on dev; see cloud-provider-auto-import failing and the pinned
-  // 2026-07-31 defect in models-available). Desktop-side org-provider claims stay
-  // owned by those specs; this journey runs its real model through workspace-scoped
-  // config below.
+  // Since #3703 (2026-08-12), org providers reach desktops and duplicate this model.
+  // The org openai-compatible copy sends rejected max_tokens, so #3813 is avoided by
+  // pinning this journey to the native workspace-config "OpenAI" group below.
   const providerId = await createProvider(den.admin, orgId, providerName, target);
   onTestFinished(async () => {
     await deleteProvider(den.admin, orgId, providerId).catch(() => undefined);
@@ -449,7 +456,7 @@ test.skipIf(missingRequirements.length > 0)(title, { timeout: 45 * 60_000 }, asy
     await configureWorkspaceOpenAi(appAdmin, appAdmin.workspaceId, target.apiKey);
     await go(appAdmin, `/workspace/${appAdmin.workspaceId}/session`);
     const adminModelId = await selectableWorkspaceModel(appAdmin, target);
-    const selectedAdminModel = await selectModel(appAdmin, adminModelId);
+    const selectedAdminModel = await selectModel(appAdmin, adminModelId, { provider: "OpenAI" });
     expect(selectedAdminModel.selected).toBe(true);
     evidence.fact(
       "The admin's real OpenAI model is selectable through workspace config",
@@ -680,7 +687,7 @@ test.skipIf(missingRequirements.length > 0)(title, { timeout: 45 * 60_000 }, asy
     await configureWorkspaceOpenAi(appMate, appMate.workspaceId, target.apiKey);
     await go(appMate, `/workspace/${appMate.workspaceId}/session`);
     const teammateModelId = await selectableWorkspaceModel(appMate, target);
-    const selectedTeammateModel = await selectModel(appMate, teammateModelId);
+    const selectedTeammateModel = await selectModel(appMate, teammateModelId, { provider: "OpenAI" });
     expect(selectedTeammateModel.selected).toBe(true);
     evidence.fact(
       "The teammate's real OpenAI model is selectable through workspace config",
