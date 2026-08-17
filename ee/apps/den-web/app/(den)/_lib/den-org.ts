@@ -241,6 +241,7 @@ export type DenOrgCapabilities = {
   installLinks: boolean;
   mcpConnections: boolean;
   codemodeScripts: boolean;
+  remoteMcpApps: boolean;
   cloud: boolean;
 };
 
@@ -936,13 +937,14 @@ function parseOrgAuthMethods(value: unknown): DenOrgAuthMethods {
 
 function parseOrgCapabilities(value: unknown): DenOrgCapabilities {
   if (!isRecord(value)) {
-    return { installLinks: false, mcpConnections: false, codemodeScripts: false, cloud: false };
+    return { installLinks: false, mcpConnections: false, codemodeScripts: false, remoteMcpApps: false, cloud: false };
   }
 
   return {
     installLinks: value.installLinks === true,
     mcpConnections: value.mcpConnections === true,
     codemodeScripts: value.codemodeScripts === true,
+    remoteMcpApps: value.remoteMcpApps === true,
     cloud: value.cloud === true,
   };
 }

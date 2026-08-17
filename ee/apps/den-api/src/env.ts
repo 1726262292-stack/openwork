@@ -439,11 +439,10 @@ const mcpConnectionsGatingEnabled =
 const generatedArtifactViewsEnabled =
   (parsed.DEN_GENERATED_ARTIFACT_VIEWS_ENABLED ?? "false").trim().toLowerCase() === "true"
 
-// Native Connect and imported apps use the released stable Desktop MCP Apps
-// bridge and remain independently disableable without enabling agent-authored
-// generated views.
+// Native and imported MCP Apps require an explicit deployment opt-in plus an
+// explicit organization capability. Missing configuration always fails closed.
 const remoteMcpAppsEnabled =
-  (parsed.DEN_REMOTE_MCP_APPS_ENABLED ?? "true").trim().toLowerCase() === "true"
+  (parsed.DEN_REMOTE_MCP_APPS_ENABLED ?? "false").trim().toLowerCase() === "true"
 
 const devMode = (parsed.OPENWORK_DEV_MODE ?? "0").trim() === "1"
 const botIdProtectionEnabled = (parsed.DEN_BOTID_PROTECTION_ENABLED ?? "0").trim() === "1"

@@ -9,6 +9,7 @@ import type { Hono } from "hono"
 import type { RequestIdVariables } from "hono/request-id"
 import { z } from "zod"
 import { codemodeScriptsEnabled } from "../capability-sources/codemode-rollout.js"
+import { remoteMcpAppsEnabled } from "../capability-sources/remote-mcp-apps-rollout.js"
 import { publicRoute, tokenRoute } from "../middleware/index.js"
 import { db } from "../db.js"
 import { getMcpResourceContext, verifyMcpRequest } from "./auth.js"
@@ -418,7 +419,11 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
       .from(OrganizationTable)
       .where(eq(OrganizationTable.id, organizationId))
       .limit(1)
-    const codemodeEnabled = codemodeScriptsEnabled(organizationRows[0]?.metadata)
+    const organizationMetadata = organizationRows[0]?.metadata
+    const codemodeEnabled = codemodeScriptsEnabled(organizationMetadata)
+    const remoteAppsEnabled = remoteMcpAppsEnabled(organizationMetadata, {
+      deploymentEnabled: env.remoteMcpAppsEnabled,
+    })
     const requestInfo = await mcpRequestInfo(c.req.raw)
     const method = requestInfo.method
     const redirectUriBase = resolvePublicOrigin(c.req.raw, env.apiPublicUrl)
@@ -432,7 +437,7 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
       redirectUriBase,
       codemodeEnabled,
       generatedArtifactViewsEnabled: env.generatedArtifactViewsEnabled,
-      organizationMetadata: organizationRows[0]?.metadata,
+      organizationMetadata,
       mcpConnectionsGatingEnabled: env.mcpConnectionsGatingEnabled,
     })
     const { externalMcpConnectionsEnabled } = capabilityContext
@@ -472,7 +477,7 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
         .sort((a, b) => a.name.localeCompare(b.name) || a.capability.localeCompare(b.capability))
     }
     const server = createAgentMcpServer()
-    if (env.remoteMcpAppsEnabled && libraryContext && memberIdentity && appCatalogMethod) {
+    if (remoteAppsEnabled && libraryContext && memberIdentity && appCatalogMethod) {
       registerAgentRemoteMcpApps({
         server,
         apps: await listActiveRemoteMcpApps({ context: libraryContext }),
@@ -497,8 +502,8 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
       if (memberIdentity) {
         registerConnectMcpServerIndex({
           server,
-          enabled: env.remoteMcpAppsEnabled,
-          connections: env.remoteMcpAppsEnabled
+          enabled: remoteAppsEnabled,
+          connections: remoteAppsEnabled
             ? await listReadyExternalMcpConnections({
                 organizationId,
                 orgMembershipId: memberIdentity.orgMembershipId,

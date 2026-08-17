@@ -32,12 +32,16 @@ function probeRemoteMcpApps(value?: string) {
   `, value)
 }
 
-function probeNativeMcpAppIndex(value: string) {
+function probeNativeMcpAppIndex(value: string | undefined, organizationEnabled: boolean) {
   return probe(`
     const { env } = await import("./src/env.ts")
+    const { remoteMcpAppsEnabled } = await import("./src/capability-sources/remote-mcp-apps-rollout.ts")
     const { buildConnectMcpServerIndex } = await import("./src/mcp/connect-mcp-server-index.ts")
     const index = buildConnectMcpServerIndex({
-      enabled: env.remoteMcpAppsEnabled,
+      enabled: remoteMcpAppsEnabled(
+        { capabilities: { remoteMcpApps: ${JSON.stringify(organizationEnabled)} } },
+        { deploymentEnabled: env.remoteMcpAppsEnabled },
+      ),
       connections: [{ id: "emc_fixture", name: "Fixture MCP" }],
       publicOrigin: "https://openwork.example",
     })
@@ -45,25 +49,31 @@ function probeNativeMcpAppIndex(value: string) {
   `, value)
 }
 
-test("Remote MCP Apps default on after the compatible Desktop rollout and remain disableable", () => {
+test("Remote MCP Apps deployment gate defaults off and requires an explicit true", () => {
   const unset = probeRemoteMcpApps()
   const disabled = probeRemoteMcpApps("false")
   const enabled = probeRemoteMcpApps("true")
 
   expect(unset.status).toBe(0)
-  expect(unset.stdout.trim()).toBe("true")
+  expect(unset.stdout.trim()).toBe("false")
   expect(disabled.status).toBe(0)
   expect(disabled.stdout.trim()).toBe("false")
   expect(enabled.status).toBe(0)
   expect(enabled.stdout.trim()).toBe("true")
 })
 
-test("the Remote MCP Apps flag controls native provider publication", () => {
-  const disabled = probeNativeMcpAppIndex("false")
-  const enabled = probeNativeMcpAppIndex("true")
+test("native provider publication requires both deployment and organization opt-ins", () => {
+  const absentDeployment = probeNativeMcpAppIndex(undefined, true)
+  const disabledDeployment = probeNativeMcpAppIndex("false", true)
+  const disabledOrganization = probeNativeMcpAppIndex("true", false)
+  const enabled = probeNativeMcpAppIndex("true", true)
 
-  expect(disabled.status).toBe(0)
-  expect(disabled.stdout.trim()).toBe("[]")
+  expect(absentDeployment.status).toBe(0)
+  expect(absentDeployment.stdout.trim()).toBe("[]")
+  expect(disabledDeployment.status).toBe(0)
+  expect(disabledDeployment.stdout.trim()).toBe("[]")
+  expect(disabledOrganization.status).toBe(0)
+  expect(disabledOrganization.stdout.trim()).toBe("[]")
   expect(enabled.status).toBe(0)
   expect(enabled.stdout.trim()).toBe('["Fixture MCP"]')
 })
