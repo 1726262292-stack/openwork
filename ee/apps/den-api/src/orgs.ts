@@ -1128,7 +1128,7 @@ async function countActiveOwners(organizationId: OrgId) {
   return rows.filter((row) => roleIncludesOwner(row.role)).length
 }
 
-export async function ensureSingletonOrganizationForUser(userId: UserId) {
+export async function ensureSingletonOrganizationForUser(userId: UserId, options?: { forceOwner?: boolean }) {
   const userRows = await db
     .select({
       email: AuthUserTable.email,
@@ -1140,7 +1140,7 @@ export async function ensureSingletonOrganizationForUser(userId: UserId) {
 
   let organization = await getSingletonOrganization()
   if (!organization) {
-    if (!isSingleOrgOwnerEmailEligible({
+    if (!options?.forceOwner && !isSingleOrgOwnerEmailEligible({
       email: userEmail,
       ownerEmails: env.singleOrg.ownerEmails,
     })) {
@@ -1163,11 +1163,13 @@ export async function ensureSingletonOrganizationForUser(userId: UserId) {
   }
 
   const activeOwnerCount = await countActiveOwners(organization.id)
-  const role = resolveSingleOrgMembershipRole({
-    activeOwnerCount,
-    email: userEmail,
-    ownerEmails: env.singleOrg.ownerEmails,
-  })
+  const role = options?.forceOwner && activeOwnerCount === 0
+    ? "owner"
+    : resolveSingleOrgMembershipRole({
+        activeOwnerCount,
+        email: userEmail,
+        ownerEmails: env.singleOrg.ownerEmails,
+      })
   if (!role) {
     return null
   }

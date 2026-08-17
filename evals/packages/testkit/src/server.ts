@@ -46,6 +46,9 @@ export interface ServerOptions {
   place: Place;
   mocks?: Record<string, MockBoot>;
   org?: OrgShape;
+  provision?: boolean;
+  web?: boolean;
+  env?: Record<string, string | undefined>;
   reuse?: DenRef;
   reuseMembers?: Record<string, PersonShape>;
   /**
@@ -131,6 +134,10 @@ function defaultReuseAdmin(): Required<PersonShape> {
     name: "Alex Eval",
     password: process.env.OPENWORK_EVAL_DEMO_PASSWORD || "OpenWorkDemo123!",
   };
+}
+
+function emptySession(ref: DenRef): DenSession {
+  return { ...ref, token: "", email: "", password: "" };
 }
 
 export function trustedOrigins(apiPort: number, webPort: number): string[] {
@@ -302,6 +309,16 @@ export async function inviteMember(den: Den, key: string, person?: PersonShape):
   return member;
 }
 
+export async function queryDenDatabase(databaseUrl: string, statement: string, values: readonly unknown[] = []): Promise<unknown[]> {
+  const connection = await createConnection(databaseUrl);
+  try {
+    const [rows] = await connection.execute(statement, [...values]);
+    return Array.isArray(rows) ? rows : [];
+  } finally {
+    await connection.end();
+  }
+}
+
 async function provisionOrganization(
   ref: DenRef,
   shape: OrgShape,
@@ -441,15 +458,17 @@ export async function server(options: ServerOptions): Promise<Den> {
   if (reuse) {
     const bootedMocks = await bootLocalMocks(options.place, options.mocks ?? {});
     try {
-      const organization = await provisionOrganization(
-        reuse,
-        options.org ?? {},
-        runId,
-        {
-          createOrg: Boolean(options.org),
-          fallbackAdmin: options.org?.admin ? undefined : defaultReuseAdmin(),
-        },
-      );
+      const organization = options.provision === false
+        ? { admin: emptySession(reuse), members: {}, createdOrg: false }
+        : await provisionOrganization(
+            reuse,
+            options.org ?? {},
+            runId,
+            {
+              createOrg: Boolean(options.org),
+              fallbackAdmin: options.org?.admin ? undefined : defaultReuseAdmin(),
+            },
+          );
       const reusedMembers = await provisionReusedMembers(reuse, organization.admin, options.reuseMembers ?? {}, runId);
       let disposed = false;
       return {
@@ -493,15 +512,17 @@ export async function server(options: ServerOptions): Promise<Den> {
     try {
       bootedMocks = await bootDaytonaMocks(provisioned.sandbox, options.mocks ?? {});
       const ref = { apiUrl: cleanUrl(provisioned.apiUrl), webUrl: cleanUrl(provisioned.webUrl) };
-      const organization = await provisionOrganization(
-        ref,
-        options.org ?? {},
-        runId,
-        {
-          createOrg: Boolean(options.org),
-          fallbackAdmin: options.org?.admin ? undefined : defaultReuseAdmin(),
-        },
-      );
+      const organization = options.provision === false
+        ? { admin: emptySession(ref), members: {}, createdOrg: false }
+        : await provisionOrganization(
+            ref,
+            options.org ?? {},
+            runId,
+            {
+              createOrg: Boolean(options.org),
+              fallbackAdmin: options.org?.admin ? undefined : defaultReuseAdmin(),
+            },
+          );
       let disposed = false;
       return {
         ref,
@@ -566,9 +587,9 @@ export async function server(options: ServerOptions): Promise<Den> {
     await mkdir(logsDir, { recursive: true });
     const orgShape = options.org ?? defaultLocalOrg(runId);
     const bootstrapAdmin = personDefaults("admin", orgShape.admin, runId);
-    const commonEnv: NodeJS.ProcessEnv = {
-      ...process.env,
-      ...bootedMocks.env,
+      const commonEnv: NodeJS.ProcessEnv = {
+        ...process.env,
+        ...bootedMocks.env,
       DATABASE_URL: database.url,
       DEN_DB_ENCRYPTION_KEY: DATABASE_ENCRYPTION_KEY,
       BETTER_AUTH_SECRET,
@@ -583,29 +604,34 @@ export async function server(options: ServerOptions): Promise<Den> {
       DEN_PASSWORD_BREACH_SCREENING_ENABLED: "false",
       OPENWORK_DEV_MODE: "1",
       PROVISIONER_MODE: "stub",
-      // The locally booted Den seeds this admin into the platform-admin
-      // allowlist so specs can exercise /v1/admin/* capability toggles.
-      DEN_BOOTSTRAP_ADMIN_EMAILS: bootstrapAdmin.email,
-    };
+        // The locally booted Den seeds this admin into the platform-admin
+        // allowlist so specs can exercise /v1/admin/* capability toggles.
+        DEN_BOOTSTRAP_ADMIN_EMAILS: bootstrapAdmin.email,
+        ...options.env,
+      };
     const api = spawnService("den-api", "dev:den:api", apiPort, { ...commonEnv, DEN_BIND_HOST: "127.0.0.1" }, join(logsDir, "api.log"));
     services.push(api);
-    const web = spawnService("den-web", "dev:den:web", webPort, {
-      DEN_WEB_HOST: "127.0.0.1",
-      ...commonEnv,
-      DEN_API_BASE: `http://127.0.0.1:${apiPort}`,
-      DEN_AUTH_ORIGIN: `http://localhost:${webPort}`,
-      DEN_AUTH_FALLBACK_BASE: `http://127.0.0.1:${apiPort}`,
-    }, join(logsDir, "web.log"));
-    services.push(web);
+    const web = options.web === false
+      ? null
+      : spawnService("den-web", "dev:den:web", webPort, {
+          DEN_WEB_HOST: "127.0.0.1",
+          ...commonEnv,
+          DEN_API_BASE: `http://127.0.0.1:${apiPort}`,
+          DEN_AUTH_ORIGIN: `http://localhost:${webPort}`,
+          DEN_AUTH_FALLBACK_BASE: `http://127.0.0.1:${apiPort}`,
+        }, join(logsDir, "web.log"));
+    if (web) services.push(web);
     await waitForHttp(`${ref.apiUrl}/health`, api, (response) => response.ok);
-    await waitForHttp(`${ref.webUrl}/api/ready`, web, (response) => response.ok);
+    if (web) await waitForHttp(`${ref.webUrl}/api/ready`, web, (response) => response.ok);
     await waitForAuthProbe(ref, api);
-    const organization = await provisionOrganization(
-      ref,
-      orgShape,
-      runId,
-      { databaseUrl: database.url, createOrg: true },
-    );
+    const organization = options.provision === false
+      ? { admin: emptySession(ref), members: {}, createdOrg: false }
+      : await provisionOrganization(
+          ref,
+          orgShape,
+          runId,
+          { databaseUrl: database.url, createOrg: true },
+        );
     let disposed = false;
     return {
       ref,
@@ -621,9 +647,11 @@ export async function server(options: ServerOptions): Promise<Den> {
       async [Symbol.asyncDispose](): Promise<void> {
         if (disposed) return;
         disposed = true;
-        await deleteCreatedOrganization(organization.admin).catch((error: unknown) => {
-          console.error(`[openwork/testkit] local Den org cleanup failed: ${messageText(error)}`);
-        });
+        if (organization.createdOrg) {
+          await deleteCreatedOrganization(organization.admin).catch((error: unknown) => {
+            console.error(`[openwork/testkit] local Den org cleanup failed: ${messageText(error)}`);
+          });
+        }
         await stopServices(services);
         await database?.drop().catch((error: unknown) => {
           console.error(`[openwork/testkit] ephemeral database cleanup failed: ${messageText(error)}`);
