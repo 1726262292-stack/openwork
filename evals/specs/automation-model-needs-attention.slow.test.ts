@@ -124,6 +124,10 @@ async function createDueAutomation(input: {
   if (result.response.status !== 201 || !automationId) {
     throw new Error(`Creating the Automation failed: HTTP ${result.response.status} ${result.text.slice(0, 500)}`);
   }
+  const nextDueAt = automation && typeof automation.nextDueAt === "number" ? automation.nextDueAt : 0;
+  if (nextDueAt <= Date.now() || nextDueAt > Date.now() + SCHEDULE_TIMEOUT_MS) {
+    throw new Error(`The Automation was not scheduled within the test window: ${result.text.slice(0, 1_000)}`);
+  }
   return automationId;
 }
 
@@ -138,11 +142,13 @@ async function deleteProvider(admin: DenSession, orgId: string, providerId: stri
 
 async function skippedModelReceipt(admin: DenSession, orgId: string, automationId: string): Promise<Record<string, unknown>> {
   const deadline = Date.now() + SCHEDULE_TIMEOUT_MS;
+  let lastResponse = "not requested";
   while (Date.now() < deadline) {
     const result = await denFetch(admin, `/v1/automations/${encodeURIComponent(automationId)}/runs`, {
       headers: { ...auth(admin), "x-openwork-org-id": orgId },
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
+    lastResponse = `HTTP ${result.response.status} ${result.text.slice(0, 1_000)}`;
     const items = isRecord(result.body) && Array.isArray(result.body.items)
       ? result.body.items.filter(isRecord)
       : [];
@@ -154,7 +160,7 @@ async function skippedModelReceipt(admin: DenSession, orgId: string, automationI
     if (skipped) return skipped;
     await new Promise((resolve) => setTimeout(resolve, 1_000));
   }
-  throw new Error("The due occurrence was not recorded as skipped after its model disappeared.");
+  throw new Error(`The due occurrence was not recorded as skipped after its model disappeared. Last response: ${lastResponse}`);
 }
 
 async function clickAutomationCard(surface: Surface, name: string): Promise<void> {

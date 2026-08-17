@@ -44,6 +44,7 @@ export interface DenSandboxOptions {
   ref: string;
   reuse?: string;
   repoRoot?: string;
+  bootstrapAdminEmail?: string;
   log?: (line: string) => void;
 }
 
@@ -171,6 +172,10 @@ function snapshotId(output: string, name: string): string | null {
 
 function sandboxTimestamp(): string {
   return new Date().toISOString().replace(/[-:]/g, "").replace("T", "-").slice(0, 15);
+}
+
+export function serverSandboxName(): string {
+  return `openwork-server-${sandboxTimestamp()}-${process.pid}-${randomBytes(4).toString("hex")}`;
 }
 
 async function waitForExecReady(exec: DaytonaExec, sandbox: string): Promise<void> {
@@ -446,10 +451,11 @@ function lineWriter(log: (line: string) => void): LineWriter {
   };
 }
 
-function runDenProvisionScript(ref: string, repoRoot: string, log: (line: string) => void): Promise<LocalProcessResult> {
+function runDenProvisionScript(ref: string, repoRoot: string, bootstrapAdminEmail: string | undefined, log: (line: string) => void): Promise<LocalProcessResult> {
   return new Promise((resolve, reject) => {
-    const child = spawn("bash", [".devcontainer/test-server-on-daytona.sh", ref, "--seed"], {
+    const child = spawn("bash", [".devcontainer/test-server-on-daytona.sh", ref, "--seed", "--name", serverSandboxName()], {
       cwd: repoRoot,
+      env: bootstrapAdminEmail ? { ...process.env, DEN_BOOTSTRAP_ADMIN_EMAILS: bootstrapAdminEmail } : process.env,
       stdio: ["ignore", "pipe", "pipe"],
     });
     const stdoutLines = lineWriter(log);
@@ -565,7 +571,12 @@ export async function provisionDenSandbox(options: DenSandboxOptions & Provision
       previewUrl(exec, sandbox, DEN_API_PORT),
     ]));
   } else {
-    const result = await timedStep(log, "Den provisioning script", () => runDenProvisionScript(ref, options.repoRoot ?? REPO_ROOT, log));
+    const result = await timedStep(log, "Den provisioning script", () => runDenProvisionScript(
+      ref,
+      options.repoRoot ?? REPO_ROOT,
+      options.bootstrapAdminEmail,
+      log,
+    ));
     if (result.code !== 0) {
       throw new Error(`Den provisioning script gate failed with exit ${result.code}. Output tail:\n${textTail(result.output)}`);
     }

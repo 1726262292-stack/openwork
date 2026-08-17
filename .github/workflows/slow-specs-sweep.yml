@@ -67,12 +67,26 @@ jobs:
           # Raw desktop() specs spawn Electron on the vitest host itself; on a
           # headless runner that dies before CDP. Exclude them until the
           # in-sandbox vitest lane exists, and surface the list in the summary.
+          raw_desktop="$(
+             grep -l '"@openwork/hosts"' evals/specs/*.slow.test.ts 2>/dev/null \
+               | xargs grep -l '\bdesktop(' 2>/dev/null \
+               | sed 's#^evals/specs/##' \
+               | sort \
+               || true
+           )"
+          # This Daytona-only sweep must not select specs whose placement is
+          # local-only or whose mock cannot pass the Daytona Den validator.
           excluded="$(
-            grep -l '"@openwork/hosts"' evals/specs/*.slow.test.ts 2>/dev/null \
-              | xargs grep -l '\bdesktop(' 2>/dev/null \
-              | sed 's#^evals/specs/##' \
-              | sort \
-              || true
+            printf '%s\n' \
+              "$raw_desktop" \
+              'org-model-analytics-e2e.slow.test.ts' \
+              'library-mcp-connect-error.slow.test.ts' \
+              'slack-style-mcp-connector.slow.test.ts' \
+              'capability-search-latency.slow.test.ts' \
+              'capability-search-scale.slow.test.ts' \
+              'tool-tester-page.slow.test.ts' \
+              | sed '/^$/d' \
+              | sort -u
           )"
           excluded_json="$(printf '%s\n' "$excluded" | jq -Rsc 'split("\n") | map(select(length > 0))')"
 
@@ -93,7 +107,7 @@ jobs:
             echo
             echo "Matrix specs: $(echo "$specs" | jq 'length')"
             echo
-            echo "Excluded (raw desktop(); need the in-sandbox lane): $(echo "$excluded_json" | jq 'length')"
+            echo "Excluded (local-only placement, incompatible Daytona mock, or raw desktop()): $(echo "$excluded_json" | jq 'length')"
             echo "$excluded_json" | jq -r '.[] | "- `\(.)`"'
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -169,7 +183,7 @@ jobs:
           OPENWORK_EVAL_AUTOMATIONS_SPEC=1 OPENWORK_EVAL_CONNECTOR_SPEC=1 \
           OPENWORK_EVAL_LOCAL_MANAGED_MCP=1 OPENWORK_EVAL_GENERATED_ARTIFACT_VIEWS_SPEC=1 \
           OPENWORK_EVAL_SAVED_SCRIPT_AUTOMATIONS_SPEC=1 OPENWORK_EVAL_ENGINE_ROLLOVER_SPEC=1 \
-          OPENWORK_EVAL_MODEL=gpt-5.6-luna OPENWORK_EVAL_VISION=defer \
+          OPENWORK_EVAL_MODEL=big-pickle OPENWORK_EVAL_VISION=defer \
           pnpm --dir evals exec vitest run --config vitest.config.ts --project stack "specs/${SPEC}" \
             2>&1 | tee /tmp/spec-run.log
           vitest_status="${PIPESTATUS[0]}"
@@ -177,9 +191,9 @@ jobs:
 
           sed -E 's/\x1B\[[0-9;]*m//g' /tmp/spec-run.log > /tmp/spec-run-plain.log
           detail=""
-          if grep -Eq "Tests[[:space:]]+1 passed" /tmp/spec-run-plain.log; then
+          if [ "$vitest_status" -eq 0 ] && grep -Eq "Tests[[:space:]]+1 passed" /tmp/spec-run-plain.log; then
             result="passed"
-          elif grep -Eq "1 skipped" /tmp/spec-run-plain.log; then
+          elif [ "$vitest_status" -eq 0 ] && grep -Eq "Tests[[:space:]]+[0-9]+ skipped" /tmp/spec-run-plain.log; then
             result="skipped"
             needs_tag="$(grep -om1 '\[needs:[^]]*\]' /tmp/spec-run-plain.log || true)"
             needs_reason="${needs_tag#\[needs:}"
