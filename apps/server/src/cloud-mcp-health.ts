@@ -2218,17 +2218,6 @@ export async function reconcileOpenworkCloudMcp(input: {
   await persistDesiredConfig(input.config, input.workspace.id, desiredConfig);
   cloudMcpDeliveryState.markDesired(input.workspace, input.directory, desiredRevision, metadata);
 
-  // Provider descriptors are private App-host state. Reconcile them before
-  // touching OpenCode so stale model-runtime entries are purged even when the
-  // engine is unavailable. Projection filters independently keep stale rows
-  // from ever reaching an engine during this cleanup.
-  const { reconcileOpenWorkConnectMcpServers } = await import("./connect-mcp-server-catalog.js");
-  const connectServers = await reconcileOpenWorkConnectMcpServers({
-    config: input.config,
-    workspace: input.workspace,
-    cloudMcp: desiredConfig,
-  }).catch(() => ({ status: "unavailable" as const, appHostNames: [], removedNames: [] }));
-
   if (!input.directory) {
     const directoryFailure = failure({
       code: "workspace_directory_ambiguous",
@@ -2252,6 +2241,17 @@ export async function reconcileOpenworkCloudMcp(input: {
     cloudMcpDeliveryState.markFailed(input.workspace, input.directory, desiredRevision, unconfiguredFailure);
     return healthWithFailure(await readHealth(), unconfiguredFailure);
   }
+
+  // Provider descriptors are private App-host state. Fetch them only after
+  // the normal engine prerequisites pass, then purge stale model-runtime
+  // entries before registration. Independent projection filters keep stale
+  // rows from ever reaching an engine while prerequisites are unavailable.
+  const { reconcileOpenWorkConnectMcpServers } = await import("./connect-mcp-server-catalog.js");
+  const connectServers = await reconcileOpenWorkConnectMcpServers({
+    config: input.config,
+    workspace: input.workspace,
+    cloudMcp: desiredConfig,
+  }).catch(() => ({ status: "unavailable" as const, appHostNames: [], removedNames: [] }));
 
   const opencode = input.createWorkspaceOpencodeClient(input.config, input.workspace);
   for (const name of connectServers.removedNames) {

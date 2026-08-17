@@ -568,10 +568,16 @@ describe("openwork-cloud MCP strict reconcile", () => {
     expect((await responseRecord(ready)).phase).toBe("ready");
     expectDirectoryQuery(mock.requests.find((request) => request.method === "POST" && request.pathname === "/mcp")?.search, explicitDirectory);
 
+    const catalogReadsBeforeAmbiguous = mock.requests.filter((request) => (
+      isRecord(request.body) && request.body.method === "resources/read"
+    )).length;
     const ambiguous = await reconcile(openwork.base, "ws_ambiguous");
     const body = await responseRecord(ambiguous);
     expect(firstFailure(body).code).toBe("workspace_directory_ambiguous");
     expect(delivery(body).appliedRevision).toBeNull();
+    expect(mock.requests.filter((request) => (
+      isRecord(request.body) && request.body.method === "resources/read"
+    )).length).toBe(catalogReadsBeforeAmbiguous);
   });
 
   test("connected engine with direct Cloud endpoint missing a tool reports cloud_tools_missing without re-registering", async () => {
