@@ -396,7 +396,6 @@ export function registerPluginArchRoutes<T extends { Variables: OrgRouteVariable
           context,
           objectType: body.type,
           pluginIds: body.pluginIds,
-          requireFreshSession: false,
           sourceMode: body.sourceMode,
           value: body.input,
         })

@@ -50,6 +50,41 @@ test.skipIf(!appSpecsEnabled || !localPlacement || !mysqlOpen)(title, async ({ e
   const orgId = organization && typeof organization.id === "string" ? organization.id : "";
   expect(orgId).toMatch(/^org_/);
 
+  const exposedSkillName = `exposed-session-skill-${unique}`;
+  const exposedInitialSource = `---\nname: ${exposedSkillName}\ndescription: Proves exposed authoring requires freshness.\n---\n\nReturn the initial exposed skill source.`;
+  const exposedPluginResult = await denFetch(den.admin, "/v1/plugins", {
+    method: "POST",
+    headers: auth(den.admin, orgId),
+    body: JSON.stringify({
+      name: `Exposed Session Plugin ${unique}`,
+      orgWide: true,
+    }),
+  });
+  expect(exposedPluginResult.response.status).toBe(201);
+  const exposedPlugin = requireItem(exposedPluginResult.body, "Exposed plugin creation");
+  const exposedPluginId = typeof exposedPlugin.id === "string" ? exposedPlugin.id : "";
+  expect(exposedPluginId).toMatch(/^plg_/);
+
+  const exposedSkillResult = await denFetch(den.admin, "/v1/config-objects", {
+    method: "POST",
+    headers: auth(den.admin, orgId),
+    body: JSON.stringify({
+      type: "skill",
+      pluginIds: [exposedPluginId],
+      sourceMode: "cloud",
+      input: { rawSourceText: exposedInitialSource },
+    }),
+  });
+  expect(exposedSkillResult.response.status).toBe(201);
+  const exposedSkill = requireItem(exposedSkillResult.body, "Exposed skill creation");
+  const exposedConfigObjectId = typeof exposedSkill.id === "string" ? exposedSkill.id : "";
+  expect(exposedConfigObjectId).toMatch(/^cob_/);
+  evidence.fact(
+    "The freshness boundary has an exposed plugin and existing skill",
+    `Fresh setup created org-wide plugin ${exposedPluginId} with skill ${exposedConfigObjectId}.`,
+    exposedPluginId.startsWith("plg_") && exposedConfigObjectId.startsWith("cob_"),
+  );
+
   await queryDenDatabase(
     databaseUrl,
     "UPDATE `session` SET created_at = DATE_SUB(NOW(3), INTERVAL 20 MINUTE) WHERE token = ?",
@@ -133,6 +168,25 @@ test.skipIf(!appSpecsEnabled || !localPlacement || !mysqlOpen)(title, async ({ e
     created.response.status === 201 && configObjectId.startsWith("cob_"),
   );
 
+  const renamedPluginName = `Renamed Private Plugin ${unique}`;
+  const renamedPlugin = await denFetch(den.admin, `/v1/plugins/${encodeURIComponent(pluginId)}`, {
+    method: "PATCH",
+    headers: auth(den.admin, orgId),
+    body: JSON.stringify({ name: renamedPluginName }),
+  });
+  expect(renamedPlugin.response.status).toBe(200);
+  const renamedPluginDetail = await denFetch(den.admin, `/v1/plugins/${encodeURIComponent(pluginId)}`, {
+    headers: auth(den.admin, orgId),
+  });
+  expect(renamedPluginDetail.response.status).toBe(200);
+  const observedRenamedPlugin = requireItem(renamedPluginDetail.body, "Renamed private plugin");
+  expect(observedRenamedPlugin.name).toBe(renamedPluginName);
+  evidence.fact(
+    "The stale credential can rename a private plugin",
+    `A subsequent plugin detail read returned the exact name ${renamedPluginName}.`,
+    renamedPlugin.response.status === 200 && observedRenamedPlugin.name === renamedPluginName,
+  );
+
   const updatedSource = `---\nname: ${skillName}\ndescription: Proves stale-session private authoring.\n---\n\nReturn the updated private skill source: ${unique}.`;
   const versioned = await denFetch(den.admin, `/v1/config-objects/${encodeURIComponent(configObjectId)}/versions`, {
     method: "POST",
@@ -156,6 +210,101 @@ test.skipIf(!appSpecsEnabled || !localPlacement || !mysqlOpen)(title, async ({ e
     "The stale credential can save and read a new private skill version",
     "The config object's latest immutable version exposes the exact updated SKILL.md source rather than the initial source.",
     versioned.response.status === 201 && observedSource === updatedSource && observedSource !== initialSource,
+  );
+
+  const deletedSkill = await denFetch(den.admin, `/v1/config-objects/${encodeURIComponent(configObjectId)}/delete`, {
+    method: "POST",
+    headers: auth(den.admin, orgId),
+  });
+  expect(deletedSkill.response.status).toBe(200);
+  expect(requireItem(deletedSkill.body, "Deleted private skill").status).toBe("deleted");
+  const restoredSkill = await denFetch(den.admin, `/v1/config-objects/${encodeURIComponent(configObjectId)}/restore`, {
+    method: "POST",
+    headers: auth(den.admin, orgId),
+  });
+  expect(restoredSkill.response.status).toBe(200);
+  expect(requireItem(restoredSkill.body, "Restored private skill").status).toBe("active");
+  evidence.fact(
+    "The stale credential can delete and restore a private skill",
+    "The lifecycle responses exposed deleted and then active status for the same private config object.",
+    requireItem(deletedSkill.body, "Deleted private skill evidence").status === "deleted"
+      && requireItem(restoredSkill.body, "Restored private skill evidence").status === "active",
+  );
+
+  const archivedPlugin = await denFetch(den.admin, `/v1/plugins/${encodeURIComponent(pluginId)}/archive`, {
+    method: "POST",
+    headers: auth(den.admin, orgId),
+  });
+  expect(archivedPlugin.response.status).toBe(200);
+  expect(requireItem(archivedPlugin.body, "Archived private plugin").status).toBe("archived");
+  const restoredPlugin = await denFetch(den.admin, `/v1/plugins/${encodeURIComponent(pluginId)}/restore`, {
+    method: "POST",
+    headers: auth(den.admin, orgId),
+  });
+  expect(restoredPlugin.response.status).toBe(200);
+  expect(requireItem(restoredPlugin.body, "Restored private plugin").status).toBe("active");
+  evidence.fact(
+    "The stale credential can archive and restore a private plugin",
+    "The lifecycle responses exposed archived and then active status for the same private plugin.",
+    requireItem(archivedPlugin.body, "Archived private plugin evidence").status === "archived"
+      && requireItem(restoredPlugin.body, "Restored private plugin evidence").status === "active",
+  );
+
+  const blockedSkillName = `blocked-exposed-skill-${unique}`;
+  const blockedCreate = await denFetch(den.admin, "/v1/config-objects", {
+    method: "POST",
+    headers: auth(den.admin, orgId),
+    body: JSON.stringify({
+      type: "skill",
+      pluginIds: [exposedPluginId],
+      sourceMode: "cloud",
+      input: {
+        rawSourceText: `---\nname: ${blockedSkillName}\ndescription: Must not be written.\n---\n\nBlocked exposed content.`,
+      },
+    }),
+  });
+  expect(blockedCreate.response.status).toBe(403);
+  expect(blockedCreate.body).toEqual({
+    error: "reauth",
+    reason: "fresh_auth_required",
+    message: "For security, confirm it's you before changing workspace settings.",
+  });
+  const blockedRows = await queryDenDatabase(
+    databaseUrl,
+    "SELECT id FROM config_object WHERE organization_id = ? AND title = ?",
+    [orgId, blockedSkillName],
+  );
+  expect(blockedRows).toHaveLength(0);
+  evidence.fact(
+    "Stale authentication is rejected before writing content to an exposed plugin",
+    "POST returned exact HTTP 403 reauth/fresh_auth_required and the isolated database contains no config_object with the requested title.",
+    blockedCreate.response.status === 403
+      && isRecord(blockedCreate.body)
+      && blockedCreate.body.reason === "fresh_auth_required"
+      && blockedRows.length === 0,
+  );
+
+  const blockedRevision = await denFetch(den.admin, `/v1/config-objects/${encodeURIComponent(exposedConfigObjectId)}/versions`, {
+    method: "POST",
+    headers: auth(den.admin, orgId),
+    body: JSON.stringify({
+      input: { rawSourceText: `${exposedInitialSource}\n\nBlocked revision ${unique}.` },
+      reason: "spec: stale-session exposed skill edit",
+    }),
+  });
+  expect(blockedRevision.response.status).toBe(403);
+  expect(blockedRevision.body).toEqual({
+    error: "reauth",
+    reason: "fresh_auth_required",
+    message: "For security, confirm it's you before changing workspace settings.",
+  });
+  evidence.fact(
+    "Revising an existing exposed skill requires fresh authentication",
+    "The stale credential received exact HTTP 403 reauth/fresh_auth_required when creating a version for the org-wide plugin's skill.",
+    blockedRevision.response.status === 403
+      && isRecord(blockedRevision.body)
+      && blockedRevision.body.error === "reauth"
+      && blockedRevision.body.reason === "fresh_auth_required",
   );
 
   const audienceChange = await denFetch(den.admin, `/v1/plugins/${encodeURIComponent(pluginId)}/access`, {
