@@ -112,9 +112,18 @@ const appGatewayTools: ExternalMcpProxyTool[] = [
   },
 ]
 
+function toolVisibleToApp(tool: ExternalMcpProxyTool): boolean {
+  const meta = isRecord(tool._meta) ? tool._meta : {}
+  const ui = isRecord(meta.ui) ? meta.ui : {}
+  if (ui.visibility === undefined) return true
+  return Array.isArray(ui.visibility)
+    && ui.visibility.every((entry) => entry === "model" || entry === "app")
+    && ui.visibility.includes("app")
+}
+
 function appOnlyProxyTool(tool: ExternalMcpProxyTool): ExternalMcpProxyTool | null {
   const resourceUri = externalMcpAppResourceUri(tool)
-  if (!resourceUri) return null
+  if (!resourceUri || !toolVisibleToApp(tool)) return null
   const meta = isRecord(tool._meta) ? tool._meta : {}
   const ui = isRecord(meta.ui) ? meta.ui : {}
   return {

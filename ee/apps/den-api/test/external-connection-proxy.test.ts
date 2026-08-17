@@ -163,6 +163,7 @@ test("a regular MCP with an App keeps every model-visible tool behind search and
   let downstreamCalls = 0
   let downstreamReads = 0
   const privateResourceUri = "data://fixture/private.json"
+  const modelOnlyResourceUri = "ui://fixture/model-only.html"
   await withClient({ tools: {}, resources: {} }, async (client) => {
     const tools = (await client.listTools()).tools
     expect(tools.map((tool) => tool.name)).toEqual([
@@ -182,7 +183,13 @@ test("a regular MCP with an App keeps every model-visible tool behind search and
     await expect(client.callTool({ name: "search_fixture", arguments: { query: "private" } })).rejects.toThrow(
       "Use search_capabilities and execute_capability",
     )
+    await expect(client.callTool({ name: "model_only_fixture", arguments: {} })).rejects.toThrow(
+      "Use search_capabilities and execute_capability",
+    )
     await expect(client.readResource({ uri: privateResourceUri })).rejects.toThrow(
+      "not bound to an available MCP App tool",
+    )
+    await expect(client.readResource({ uri: modelOnlyResourceUri })).rejects.toThrow(
       "not bound to an available MCP App tool",
     )
     expect(downstreamCalls).toBe(0)
@@ -215,6 +222,12 @@ test("a regular MCP with an App keeps every model-visible tool behind search and
         description: "Search private fixture records.",
         inputSchema: { type: "object" },
       },
+      {
+        name: "model_only_fixture",
+        description: "A model-only UI tool that must not be projected into the App host.",
+        inputSchema: { type: "object" },
+        _meta: { ui: { resourceUri: modelOnlyResourceUri, visibility: ["model"] } },
+      },
     ],
     callTool: async () => {
       downstreamCalls += 1
@@ -225,6 +238,7 @@ test("a regular MCP with an App keeps every model-visible tool behind search and
     },
     listResources: async () => [
       { uri: resourceUri, name: "Healthy fixture", mimeType: "text/html;profile=mcp-app" },
+      { uri: modelOnlyResourceUri, name: "Model-only fixture", mimeType: "text/html;profile=mcp-app" },
       { uri: privateResourceUri, name: "Private fixture", mimeType: "application/json" },
     ],
     readResource: async () => {
