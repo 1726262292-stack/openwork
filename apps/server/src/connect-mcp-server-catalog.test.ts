@@ -7,8 +7,9 @@ import {
   CONNECT_MCP_APP_HOST_CAPABILITY,
   CONNECT_MCP_APP_HOST_CAPABILITY_HEADER,
   CONNECT_MCP_SERVER_INDEX_URI,
-  connectMcpRuntimeName,
+  connectMcpAppHostName,
   type OpenWorkConnectMcpServerIndex,
+  readOpenWorkConnectMcpAppHostCatalog,
   readOpenWorkConnectMcpServerIndex,
   reconcileOpenWorkConnectMcpServers,
 } from "./connect-mcp-server-catalog.js";
@@ -104,6 +105,7 @@ describe("OpenWork Connect MCP server catalog", () => {
     const config = await fixtureConfig();
     await writeRuntimeOpencodeConfig(config, "ws_1", () => ({
       mcp: {
+        "openwork-cloud": { type: "remote", url: "https://cloud.example/mcp/agent" },
         "user-server": { type: "remote", url: "https://user.example/mcp" },
         "openwork-connect-stale": { type: "remote", url: "https://cloud.example/stale" },
       },
@@ -123,23 +125,25 @@ describe("OpenWork Connect MCP server catalog", () => {
     const runtime = await readRuntimeOpencodeConfig(config, "ws_1");
     expect(result).toEqual({
       status: "synced",
-      names: [connectMcpRuntimeName(connectionId)],
+      appHostNames: [connectMcpAppHostName(connectionId)],
       removedNames: ["openwork-connect-stale"],
     });
+    expect(runtime.mcp?.["openwork-cloud"]).toEqual({ type: "remote", url: "https://cloud.example/mcp/agent" });
     expect(runtime.mcp?.["user-server"]).toEqual({ type: "remote", url: "https://user.example/mcp" });
     expect(runtime.mcp?.["openwork-connect-stale"]).toBeUndefined();
-    expect(runtime.mcp?.[connectMcpRuntimeName(connectionId)]).toEqual({
-      type: "remote",
-      url: `https://cloud.example/mcp/agent/connections/${connectionId}`,
-      enabled: true,
-      headers: {
-        Authorization: "Bearer member-token",
-        [CONNECT_MCP_APP_HOST_CAPABILITY_HEADER]: CONNECT_MCP_APP_HOST_CAPABILITY,
-      },
+    expect(Object.keys(runtime.mcp ?? {}).some((name) => name.startsWith("openwork-connect-"))).toBe(false);
+    expect(await readOpenWorkConnectMcpAppHostCatalog(config, "ws_1")).toEqual({
+      schemaVersion: "openwork.connect/mcp-servers/1",
+      servers: [{
+        connectionId,
+        name: "Project Atlas",
+        description: null,
+        url: `https://cloud.example/mcp/agent/connections/${connectionId}`,
+      }],
     });
   });
 
-  test("leaves prior entries untouched when an older Cloud server has no index", async () => {
+  test("fails closed and purges prior runtime entries when Cloud has no index", async () => {
     const config = await fixtureConfig();
     await writeRuntimeOpencodeConfig(config, "ws_1", () => ({
       mcp: { "openwork-connect-existing": { type: "remote", url: "https://cloud.example/existing" } },
@@ -150,8 +154,13 @@ describe("OpenWork Connect MCP server catalog", () => {
       cloudMcp: { type: "remote", url: "https://cloud.example/mcp/agent" },
       fetcher: async () => new Response(null, { status: 404 }),
     });
-    expect(result).toEqual({ status: "unavailable", names: [], removedNames: [] });
-    expect((await readRuntimeOpencodeConfig(config, "ws_1")).mcp?.["openwork-connect-existing"]).toBeTruthy();
+    expect(result).toEqual({
+      status: "unavailable",
+      appHostNames: [],
+      removedNames: ["openwork-connect-existing"],
+    });
+    expect((await readRuntimeOpencodeConfig(config, "ws_1")).mcp?.["openwork-connect-existing"]).toBeUndefined();
+    expect((await readOpenWorkConnectMcpAppHostCatalog(config, "ws_1")).servers).toEqual([]);
   });
 
   test("an empty index removes prior OpenWork-owned provider servers", async () => {
@@ -171,7 +180,7 @@ describe("OpenWork Connect MCP server catalog", () => {
 
     expect(result).toEqual({
       status: "synced",
-      names: [],
+      appHostNames: [],
       removedNames: ["openwork-connect-existing"],
     });
     const runtime = await readRuntimeOpencodeConfig(config, "ws_1");

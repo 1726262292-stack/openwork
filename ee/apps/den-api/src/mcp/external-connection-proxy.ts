@@ -40,7 +40,6 @@ import { externalMcpAppResourceUri, resolveMcpMemberIdentity } from "./external-
 import { externalMcpToolSchemaDigest } from "./external-mcp-tool-arguments.js"
 import { preflightMcpJsonRpcRequest } from "./json-rpc-preflight.js"
 import { EXECUTE_CAPABILITY_TOOL_NAME, scoreText, SEARCH_CAPABILITIES_TOOL_NAME, tokenize } from "./search.js"
-import { CONNECT_MCP_APP_HOST_CAPABILITY_HEADER, supportsConnectMcpAppHost } from "./connect-mcp-server-index.js"
 
 function toolArguments(value: unknown): Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : {}
@@ -161,7 +160,6 @@ export function createExternalConnectionProxyServer(input: {
   operation: ExternalMcpProxyOperation
   runtime?: ExternalMcpProxyRuntime
   appHostClient?: boolean
-  boundedClient?: boolean
 }) {
   const { connection } = input.operation
   const runtime = input.runtime ?? externalMcpProxyRuntime
@@ -196,30 +194,16 @@ export function createExternalConnectionProxyServer(input: {
       ...(input.descriptor.capabilities.resources ? { resources: { listChanged: false, subscribe: false } } : {}),
       ...(downstreamUi ? { extensions: { [EXTENSION_ID]: downstreamUi } } : {}),
     },
-    instructions: input.boundedClient
-      ? `This member-authorized OpenWork Connect endpoint exposes only app-visible MCP App tools and their bound resources for ${connection.name}. Model-visible provider capabilities remain available exclusively through search_capabilities and execute_capability on the OpenWork Cloud MCP server.`
-      : input.descriptor.instructions
-        ?? `This is the member-authorized OpenWork Connect proxy for ${connection.name}. Tool names and resources are provided by that MCP server.`,
+    instructions: input.appHostClient
+      ? `This member-authorized OpenWork Connect endpoint exposes only app-visible MCP App tools and their bound resources for ${connection.name}. Ordinary provider capabilities remain available exclusively through search_capabilities and execute_capability.`
+      : "Provider MCP surfaces are not exposed to model or legacy clients. Use search_capabilities and execute_capability on the central OpenWork Cloud MCP server.",
   })
 
   if (input.descriptor.capabilities.tools) {
     server.server.setRequestHandler(ListToolsRequestSchema, async () => ({
-      tools: input.boundedClient
-        ? input.appHostClient ? [...appGatewayTools, ...await listAppTools()] : []
-        : await listProviderTools(),
+      tools: input.appHostClient ? [...appGatewayTools, ...await listAppTools()] : [],
     }))
     server.server.setRequestHandler(CallToolRequestSchema, async (request) => {
-      if (!input.boundedClient) {
-        const policy = evaluateToolPolicy(connection.toolPolicy, request.params.name)
-        if (policy.blocked) {
-          throw new McpError(ErrorCode.InvalidRequest, `Tool ${request.params.name} is disabled by OpenWork Connect policy.`)
-        }
-        return runtime.callTool({
-          ...input.operation,
-          toolName: request.params.name,
-          args: toolArguments(request.params.arguments),
-        })
-      }
       if (!input.appHostClient) {
         throw new McpError(ErrorCode.InvalidRequest, "Provider MCP App tools are available only through the OpenWork App host.")
       }
@@ -282,16 +266,12 @@ export function createExternalConnectionProxyServer(input: {
 
   if (input.descriptor.capabilities.resources) {
     server.server.setRequestHandler(ListResourcesRequestSchema, async () => {
-      if (!input.boundedClient) return { resources: await runtime.listResources(input.operation) }
       if (!input.appHostClient) return { resources: [] }
       const allowedUris = await appResourceUris()
       return { resources: (await runtime.listResources(input.operation)).filter((resource) => allowedUris.has(resource.uri)) }
     })
-    server.server.setRequestHandler(ListResourceTemplatesRequestSchema, async () => ({
-      resourceTemplates: input.boundedClient ? [] : await runtime.listResourceTemplates(input.operation),
-    }))
+    server.server.setRequestHandler(ListResourceTemplatesRequestSchema, async () => ({ resourceTemplates: [] }))
     server.server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
-      if (!input.boundedClient) return runtime.readResource({ ...input.operation, uri: request.params.uri })
       if (!input.appHostClient) {
         throw new McpError(ErrorCode.InvalidRequest, "Provider MCP App resources are available only through the OpenWork App host.")
       }
@@ -383,8 +363,6 @@ export async function handleExternalConnectionProxyRequest(input: {
       descriptor,
       operation: input.operation,
       appHostClient: input.context.req.header("x-openwork-mcp-client-audience") === "app-host",
-      boundedClient: input.context.req.header("x-openwork-mcp-client-audience") === "app-host"
-        || supportsConnectMcpAppHost(input.context.req.header(CONNECT_MCP_APP_HOST_CAPABILITY_HEADER)),
     })
     const response = await dependencies.serve(server, input.context)
     return response ?? new Response(null, { status: 204 })
@@ -398,11 +376,9 @@ export async function handleExternalConnectionProxyRequest(input: {
 }
 
 /**
- * Exposes one member-authorized connection. Capability-aware Desktop clients
- * get only the app-visible MCP App slice; their model-visible provider tools
- * stay on the bounded agent search/execute gateway. The legacy surface remains
- * only for already-published clients until they upgrade, preventing a Den-first
- * rollout from removing their existing tools without negotiation.
+ * Exposes one member-authorized connection only to Desktop's private App host.
+ * Model-facing and legacy clients receive an empty protocol-valid surface;
+ * ordinary provider capabilities stay on the central search/execute gateway.
  */
 export function registerExternalConnectionProxyRoutes<T extends { Variables: RequestIdVariables & Record<string, unknown> }>(
   app: Hono<T>,

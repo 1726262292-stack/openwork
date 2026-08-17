@@ -4,6 +4,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { OPENWORK_CLOUD_EXPECTED_TOOLS, OPENWORK_CLOUD_PLUGIN_CANARIES, cloudMcpDeliveryState } from "./cloud-mcp-health.js";
+import {
+  CONNECT_MCP_SERVER_INDEX_SCHEMA_VERSION,
+  CONNECT_MCP_SERVER_INDEX_URI,
+  readOpenWorkConnectMcpAppHostCatalog,
+  type OpenWorkConnectMcpServerIndex,
+} from "./connect-mcp-server-catalog.js";
 import { readRuntimeOpencodeConfig, writeRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
 import { inspectEngineMcpRegistration, registerTrustedOpencodeProcess, startServer } from "./server.js";
 import type { ServerConfig, WorkspaceInfo } from "./types.js";
@@ -29,6 +35,7 @@ type MockOpencodeOptions = {
   delayMcpStatusMs?: number;
   postFailure?: { status: number; body: unknown };
   cloudFailedError?: string;
+  connectServers?: OpenWorkConnectMcpServerIndex["servers"];
 };
 
 type CloudConfig = {
@@ -101,10 +108,10 @@ function startMockOpencode(options: MockOpencodeOptions = {}) {
         registerCount += 1;
         return Response.json({});
       }
-      if (url.pathname === "/mcp/openwork-cloud/disconnect" && request.method === "POST") {
+      if (url.pathname.startsWith("/mcp/") && url.pathname.endsWith("/disconnect") && request.method === "POST") {
         // OpenCode closes the client and keeps the config; status is no longer
         // connected until a later POST /mcp re-registers it.
-        registerCount = 0;
+        if (url.pathname === "/mcp/openwork-cloud/disconnect") registerCount = 0;
         return Response.json(true);
       }
       if (url.pathname === "/mcp" && request.method === "GET") {
@@ -152,9 +159,24 @@ function startMockOpencode(options: MockOpencodeOptions = {}) {
         if (rpc.method === "notifications/initialized") return new Response(null, { status: 202 });
         const id = rpc.id ?? 1;
         const result = rpc.method === "initialize"
-          ? { protocolVersion: "2025-06-18", capabilities: { tools: {} }, serverInfo: { name: "openwork-cloud-test", version: "1.0.0" } }
+          ? {
+              protocolVersion: "2025-06-18",
+              capabilities: { tools: {}, resources: {} },
+              serverInfo: { name: "openwork-cloud-test", version: "1.0.0" },
+            }
           : rpc.method === "tools/list"
             ? { tools: (options.cloudToolNames ?? ["search_capabilities", "execute_capability"]).map((name) => ({ name, description: name, inputSchema: {} })) }
+            : rpc.method === "resources/read" && isRecord(rpc.params) && rpc.params.uri === CONNECT_MCP_SERVER_INDEX_URI
+              ? {
+                  contents: [{
+                    uri: CONNECT_MCP_SERVER_INDEX_URI,
+                    mimeType: "application/json",
+                    text: JSON.stringify({
+                      schemaVersion: CONNECT_MCP_SERVER_INDEX_SCHEMA_VERSION,
+                      servers: options.connectServers ?? [],
+                    }),
+                  }],
+                }
             : {};
         const payload = { jsonrpc: "2.0", id, result };
         if (options.cloudToolsAsSse && rpc.method === "tools/list") {
@@ -327,6 +349,41 @@ describe("openwork-cloud MCP strict reconcile", () => {
     const mcpPosts = mock.requests.filter((request) => request.method === "POST" && request.pathname === "/mcp");
     expect(mcpPosts.length).toBe(1);
     expectDirectoryQuery(mcpPosts[0]?.search, root);
+  });
+
+  test("keeps provider descriptors private while purging stale runtime endpoints", async () => {
+    const root = await createRoot();
+    const connectionId = "emc_01privateapphostcatalog";
+    const mock = startMockOpencode({
+      connectServers: [{
+        connectionId,
+        name: "Private fixture provider",
+        description: "Native MCP App fixture",
+        url: "https://api.openworklabs.com/mcp/agent/connections/emc_01privateapphostcatalog",
+      }],
+    });
+    const openwork = await startOpenwork([workspace("ws_1", root, `http://127.0.0.1:${mock.server.port}`)]);
+    await writeRuntimeOpencodeConfig(openwork.config, "ws_1", () => ({
+      mcp: {
+        "user-server": { type: "remote", url: "https://user.example/mcp" },
+        "openwork-connect-stale": { type: "remote", url: "https://cloud.example/stale" },
+      },
+    }));
+
+    const response = await reconcile(openwork.base);
+    expect((await responseRecord(response)).phase).toBe("ready");
+
+    const runtime = await readRuntimeOpencodeConfig(openwork.config, "ws_1");
+    expect(runtime.mcp?.["user-server"]).toEqual({ type: "remote", url: "https://user.example/mcp" });
+    expect(runtime.mcp?.["openwork-cloud"]).toBeTruthy();
+    expect(Object.keys(runtime.mcp ?? {}).filter((name) => name.startsWith("openwork-connect-"))).toEqual([]);
+    expect((await readOpenWorkConnectMcpAppHostCatalog(openwork.config, "ws_1")).servers).toEqual([
+      expect.objectContaining({ connectionId, name: "Private fixture provider" }),
+    ]);
+
+    const registrations = mock.requests.filter((request) => request.method === "POST" && request.pathname === "/mcp");
+    expect(registrations.map((request) => requireRecord(request.body, "registration").name)).toEqual(["openwork-cloud"]);
+    expect(mock.requests.some((request) => request.pathname === "/mcp/openwork-connect-stale/disconnect")).toBe(true);
   });
 
   test("live status read heals a failed registration record after reconcile returns early", async () => {

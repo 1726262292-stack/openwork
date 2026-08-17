@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { expect, onTestFinished } from "vitest";
 import { clickButton, control, createAndSelectWorkspace, createOrgConnection, denFetch, evalIn, waitFor } from "@openwork/behaviors";
@@ -403,11 +402,16 @@ test.skipIf(!appSpecsEnabled || !localPlacement || !mysqlOpen)(title, { timeout:
         ]);
         return;
       }
-      if (url.pathname === "/agent-mcp" || url.pathname === "/connected-mcp") {
+      if (url.pathname === "/agent-mcp"
+        || url.pathname === "/connected-mcp"
+        || url.pathname === "/mcp/agent"
+        || url.pathname.startsWith("/mcp/agent/connections/")) {
         if (!agentMcpUpstream) throw new Error("The Den agent MCP proxy was not configured.");
         const raw = request.method === "GET" || request.method === "HEAD" ? "" : await readBody(request);
         const upstream = await fetch(
-          url.pathname === "/connected-mcp" ? agentMcpUpstream.connectedUrl : agentMcpUpstream.staticUrl,
+          url.pathname === "/connected-mcp" || url.pathname.startsWith("/mcp/agent/connections/")
+            ? agentMcpUpstream.connectedUrl
+            : agentMcpUpstream.staticUrl,
           {
           method: request.method,
           headers: {
@@ -682,6 +686,12 @@ test.skipIf(!appSpecsEnabled || !localPlacement || !mysqlOpen)(title, { timeout:
     appHostCapabilityHeaders,
   );
   expect(toolsFrom(modelConnectedTools)).toEqual([]);
+  const legacyConnectedTools = await agentRpc(den.ref.apiUrl, mcpToken, "tools/list", {}, connectedEndpoint);
+  expect(toolsFrom(legacyConnectedTools)).toEqual([]);
+  const legacyConnectedResources = await agentRpc(den.ref.apiUrl, mcpToken, "resources/list", {}, connectedEndpoint);
+  expect(legacyConnectedResources.resources).toEqual([]);
+  const legacyConnectedTemplates = await agentRpc(den.ref.apiUrl, mcpToken, "resources/templates/list", {}, connectedEndpoint);
+  expect(legacyConnectedTemplates.resourceTemplates).toEqual([]);
   const connectedToolsResult = await agentRpc(den.ref.apiUrl, mcpToken, "tools/list", {}, connectedEndpoint, appHostHeaders);
   const connectedTools = toolsFrom(connectedToolsResult);
   expect(connectedTools.map((tool) => tool.name)).toEqual([
@@ -793,27 +803,36 @@ test.skipIf(!appSpecsEnabled || !localPlacement || !mysqlOpen)(title, { timeout:
               models: { [${JSON.stringify(modelId)}]: { name: "Remote MCP Apps model", tool_call: true } },
             },
           },
-          mcp: {
-            "openwork-cloud-apps": {
-              type: "remote",
-              url: ${JSON.stringify(`${fixtureUrl}/agent-mcp`)},
-              enabled: true,
-              oauth: false,
-            },
-            [${JSON.stringify(`openwork-connect-${createHash("sha256").update(connection.id).digest("hex").slice(0, 12)}`)}]: {
-              type: "remote",
-              url: ${JSON.stringify(`${fixtureUrl}/connected-mcp`)},
-              enabled: true,
-              oauth: false,
-              headers: ${JSON.stringify(appHostCapabilityHeaders)},
-            },
-          },
         },
       }),
     });
     if (patched !== "ok") return patched;
     const reloaded = await request("/workspace/" + encodeURIComponent(workspaceId) + "/engine/reload", { method: "POST" });
     if (reloaded !== "ok" && !reloaded.includes("opencode_reload_timeout")) return reloaded;
+    const reconciled = await request("/workspace/" + encodeURIComponent(workspaceId) + "/mcp/openwork-cloud/reconcile", {
+      method: "POST",
+      body: JSON.stringify({
+        config: {
+          type: "remote",
+          url: ${JSON.stringify(`${fixtureUrl}/mcp/agent`)},
+          enabled: true,
+          headers: { Authorization: ${JSON.stringify(`Bearer ${mcpToken}`)} },
+          oauth: false,
+        },
+        provider: ${JSON.stringify(providerId)},
+        model: ${JSON.stringify(modelId)},
+        trigger: "exact-head-tape",
+      }),
+    });
+    if (reconciled !== "ok") return reconciled;
+    const listedResponse = await fetch("http://127.0.0.1:" + port + "/workspace/" + encodeURIComponent(workspaceId) + "/mcp", {
+      headers: { Authorization: "Bearer " + token },
+    });
+    if (!listedResponse.ok) return "runtime MCP list failed: " + listedResponse.status;
+    const listed = await listedResponse.json();
+    const names = (Array.isArray(listed?.items) ? listed.items : []).map((item) => item?.name).filter((name) => typeof name === "string");
+    if (!names.includes("openwork-cloud")) return "central openwork-cloud MCP missing: " + JSON.stringify(names);
+    if (names.some((name) => name.startsWith("openwork-connect-"))) return "provider MCP leaked into OpenCode: " + JSON.stringify(names);
     const raw = localStorage.getItem("openwork.preferences");
     let preferences = {};
     try { preferences = raw ? JSON.parse(raw) : {}; } catch { preferences = {}; }
@@ -901,7 +920,7 @@ test.skipIf(!appSpecsEnabled || !localPlacement || !mysqlOpen)(title, { timeout:
     return JSON.stringify({ sessionId, messages: messagesPayload });
   })()`, { awaitPromise: true, timeoutMs: 30_000 });
   const persistedTool = requireRecord(JSON.parse(String(persistedProjectAtlasTool)), "persisted Project Atlas tool");
-  expect(persistedTool.tool).toBe("openwork-cloud-apps_execute_capability");
+  expect(persistedTool.tool).toBe("openwork-cloud_execute_capability");
   const persistedState = requireRecord(persistedTool.state, "persisted Project Atlas state");
   expect(persistedState.status).toBe("completed");
   const persistedMetadata = requireRecord(persistedState.metadata, "persisted Project Atlas metadata");

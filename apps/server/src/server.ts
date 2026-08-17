@@ -29,6 +29,7 @@ import {
   resolveMcpAppResource,
   resolveSameServerMcpAppResource,
 } from "./mcp-app-host.js";
+import { CONNECT_MCP_SERVER_NAME_PREFIX } from "./connect-mcp-server-catalog.js";
 import {
   buildMcpAppSandboxCsp,
   MCP_APP_SANDBOX_PROXY_CSS,
@@ -4217,7 +4218,8 @@ async function syncRuntimeMcpToOpencodeEngine(
 
   const runtimeConfig = await readRuntimeOpencodeConfig(config, workspace.id);
   const entries = Object.entries(runtimeMcpMap(runtimeConfig)).filter(
-    ([name]) => !onlyNames || onlyNames.includes(name),
+    ([name]) => !name.startsWith(CONNECT_MCP_SERVER_NAME_PREFIX)
+      && (!onlyNames || onlyNames.includes(name)),
   );
   if (entries.length === 0) {
     if (!onlyNames) {

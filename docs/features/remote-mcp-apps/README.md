@@ -27,18 +27,18 @@ openwork://connect/mcp-servers/index.json
 Desktop reads that resource with the member's existing Cloud MCP bearer
 configuration and advertises the `mcp-app-host-v1` client capability. Den
 returns a non-empty provider index only when that client capability and both
-rollout gates are present. Desktop persists the capability on each reconciled
-provider entry, which lets Den distinguish the bounded model/App-host split
-from a previously released client. A connection is proxied at:
+rollout gates are present. Desktop stores those endpoint descriptors in a
+private App-host catalog. It never writes `openwork-connect-*` entries to the
+OpenCode runtime or any model-visible MCP registry. A connection is proxied at:
 
 ```text
 /mcp/agent/connections/{connectionId}
 ```
 
-For a capable model client, the proxy returns no provider tools or resources
-and rejects direct provider calls. The model discovers and invokes ordinary
-provider operations only through the central `search_capabilities` and
-`execute_capability` tools.
+For capable model clients and legacy clients alike, the proxy returns no
+provider tools, resources, or templates and rejects direct provider calls.
+The model discovers and invokes ordinary provider operations only through the
+central `openwork-cloud` `search_capabilities` and `execute_capability` tools.
 
 Desktop's local App host marks its transport as the app-host audience. Only
 that transport receives tools with a valid `_meta.ui.resourceUri`, forced to
@@ -72,13 +72,10 @@ Both default off. No additional user-facing flag controls standalone URL Apps.
 When either native-App gate is off, ordinary connected MCP tools remain
 available through `search_capabilities` and `execute_capability`, but OpenWork
 removes MCP App classification and launch metadata, publishes no provider App
-endpoint in the member index, and renders no App UI.
-
-For deployment-order compatibility, a previously released Desktop client that
-lacks the capability marker retains the provider endpoint behavior it already
-had until it upgrades. This compatibility path remains behind both default-off
-gates. Capable clients never receive the provider catalog in their
-model-facing transport.
+endpoint in the member index, clears the private App-host catalog, and renders
+no App UI. Reconciliation also removes and disconnects stale
+`openwork-connect-*` OpenCode entries while preserving user-authored MCPs and
+all durable Connect records.
 
 The provider proxy advertises `listChanged: false` because the current
 enterprise connector opens bounded request sessions rather than a durable

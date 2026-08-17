@@ -70,7 +70,6 @@ async function withClient<T>(
   run: (client: Client) => Promise<T>,
   runtimeOverrides: Record<string, unknown> = {},
   appHostClient = true,
-  boundedClient = true,
 ) {
   const server = createExternalConnectionProxyServer({
     descriptor: {
@@ -80,7 +79,6 @@ async function withClient<T>(
     operation,
     runtime: runtime(runtimeOverrides),
     appHostClient,
-    boundedClient,
   })
   const client = new Client({ name: "proxy-test", version: "1.0.0" }, { capabilities: {} })
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
@@ -98,6 +96,7 @@ test("ordinary MCP clients cannot list or call the per-provider App surface", as
   await withClient({ tools: {}, resources: {} }, async (client) => {
     expect((await client.listTools()).tools).toEqual([])
     expect((await client.listResources()).resources).toEqual([])
+    expect((await client.listResourceTemplates()).resourceTemplates).toEqual([])
     await expect(client.callTool({ name: "search_capabilities", arguments: { query: "fixture" } }))
       .rejects.toThrow("only through the OpenWork App host")
     await expect(client.readResource({ uri: resourceUri }))
@@ -105,14 +104,16 @@ test("ordinary MCP clients cannot list or call the per-provider App surface", as
   }, {}, false)
 })
 
-test("legacy clients retain the released provider endpoint until they upgrade", async () => {
+test("legacy clients also receive an empty provider surface", async () => {
   await withClient({ tools: {}, resources: {} }, async (client) => {
-    expect((await client.listTools()).tools.map((tool) => tool.name)).toEqual(["open_fixture"])
-    expect((await client.listResources()).resources.map((resource) => resource.uri)).toEqual([resourceUri])
-    expect((await client.callTool({ name: "open_fixture", arguments: {} })).structuredContent)
-      .toEqual({ status: "healthy" })
-    expect((await client.readResource({ uri: resourceUri })).contents[0]).toMatchObject({ text: html })
-  }, {}, false, false)
+    expect((await client.listTools()).tools).toEqual([])
+    expect((await client.listResources()).resources).toEqual([])
+    expect((await client.listResourceTemplates()).resourceTemplates).toEqual([])
+    await expect(client.callTool({ name: "open_fixture", arguments: {} }))
+      .rejects.toThrow("only through the OpenWork App host")
+    await expect(client.readResource({ uri: resourceUri }))
+      .rejects.toThrow("only through the OpenWork App host")
+  }, {}, false)
 })
 
 test("tool-only downstream servers initialize and never register resource handlers", async () => {

@@ -2,7 +2,13 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
-import { connectMcpRuntimeName } from "./connect-mcp-server-catalog.js";
+import {
+  CONNECT_MCP_APP_HOST_CAPABILITY,
+  CONNECT_MCP_APP_HOST_CAPABILITY_HEADER,
+  connectMcpAppHostName,
+  findOpenWorkConnectMcpAppHostServer,
+} from "./connect-mcp-server-catalog.js";
+import { readRuntimeMcpConfig } from "./runtime-opencode-config-store.js";
 import type { ServerConfig } from "./types.js";
 import {
   assertLocalManagedMcpUrl,
@@ -252,6 +258,34 @@ function decodeResourceHtml(content: { text?: string; blob?: string }): { html: 
   throw new McpAppHostError("invalid_resource", "The MCP App resource must contain exactly one of text or blob HTML.");
 }
 
+async function privateConnectMcpConfig(input: {
+  serverConfig: ServerConfig;
+  workspaceId: string;
+  connectionId?: string;
+  serverName?: string;
+}): Promise<{ serverName: string; config: Record<string, unknown> } | null> {
+  const descriptor = await findOpenWorkConnectMcpAppHostServer(
+    input.serverConfig,
+    input.workspaceId,
+    { connectionId: input.connectionId, serverName: input.serverName },
+  );
+  if (!descriptor) return null;
+  const cloudMcp = await readRuntimeMcpConfig(input.serverConfig, input.workspaceId, "openwork-cloud");
+  if (!cloudMcp || cloudMcp.enabled === false) return null;
+  return {
+    serverName: connectMcpAppHostName(descriptor.connectionId),
+    config: {
+      type: "remote",
+      url: descriptor.url,
+      enabled: true,
+      headers: {
+        ...stringHeaders(cloudMcp.headers),
+        [CONNECT_MCP_APP_HOST_CAPABILITY_HEADER]: CONNECT_MCP_APP_HOST_CAPABILITY,
+      },
+    },
+  };
+}
+
 function findHtmlResource(
   resourceUri: string,
   result: Awaited<ReturnType<Client["readResource"]>>,
@@ -354,12 +388,15 @@ export async function resolveConnectMcpAppResource(input: {
     throw new McpAppHostError("invalid_resource_uri", "MCP App resource URI must use ui://.");
   }
 
-  const serverName = connectMcpRuntimeName(input.launch.connectionId);
-  const configured = await listMcp(input.serverConfig, input.workspaceId, input.workspaceRoot);
-  const item = configured.find((candidate) => candidate.name === serverName && candidate.config.enabled !== false);
+  const item = await privateConnectMcpConfig({
+    serverConfig: input.serverConfig,
+    workspaceId: input.workspaceId,
+    connectionId: input.launch.connectionId,
+  });
   if (!item || !remoteUrl(item.config)) {
     throw new McpAppHostError("server_unavailable", "The originating Connect MCP server is not available to this workspace.");
   }
+  const { serverName } = item;
 
   return await withRemoteClient(item.config, async (client) => {
     const tool = (await listTools(client)).find((candidate) => candidate.name === input.launch.toolName);
@@ -472,8 +509,13 @@ export async function callMcpAppTool(input: {
   arguments?: Record<string, unknown>;
   approved?: boolean;
 }): Promise<CallToolResult> {
-  const configured = await listMcp(input.serverConfig, input.workspaceId, input.workspaceRoot);
-  const item = configured.find((candidate) => candidate.name === input.serverName);
+  const privateItem = await privateConnectMcpConfig({
+    serverConfig: input.serverConfig,
+    workspaceId: input.workspaceId,
+    serverName: input.serverName,
+  });
+  const configured = privateItem ? [] : await listMcp(input.serverConfig, input.workspaceId, input.workspaceRoot);
+  const item = privateItem ?? configured.find((candidate) => candidate.name === input.serverName);
   if (!item || item.config.enabled === false) {
     throw new McpAppHostError("server_unavailable", "The originating MCP server is not available to this workspace.");
   }

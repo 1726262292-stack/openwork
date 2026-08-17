@@ -11,8 +11,8 @@ import {
   ReadResourceRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { addMcp } from "./mcp.js";
-import { connectMcpRuntimeName } from "./connect-mcp-server-catalog.js";
-import { runtimeMcpMap, writeRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
+import { connectMcpAppHostName, writeOpenWorkConnectMcpAppHostCatalog } from "./connect-mcp-server-catalog.js";
+import { readRuntimeOpencodeConfig, runtimeMcpMap, writeRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
 import {
   callMcpAppTool,
   projectedMcpToolName,
@@ -178,6 +178,7 @@ async function configuredFixture(
   prefix: string,
   resourceContent?: { text?: string; blob?: string },
   mcpName = "fixture",
+  connectionId?: string,
 ): Promise<{ config: ServerConfig; root: string; activateUpdatedResource: () => Promise<void> }> {
   const root = await mkdtemp(join(tmpdir(), prefix));
   const previousRuntimeDb = process.env.OPENWORK_RUNTIME_DB;
@@ -199,11 +200,19 @@ async function configuredFixture(
     url: fixture.url,
     enabled: true,
   };
-  if (mcpName.startsWith("openwork-connect-")) {
+  if (connectionId) {
+    if (connectMcpAppHostName(connectionId) !== mcpName) throw new Error("invalid private App-host fixture");
     await writeRuntimeOpencodeConfig(config, WORKSPACE_ID, (current) => ({
       ...current,
-      mcp: { ...runtimeMcpMap(current), [mcpName]: mcpConfig },
+      mcp: {
+        ...runtimeMcpMap(current),
+        "openwork-cloud": { ...mcpConfig, headers: { Authorization: "Bearer member-token" } },
+      },
     }));
+    await writeOpenWorkConnectMcpAppHostCatalog(config, WORKSPACE_ID, {
+      schemaVersion: "openwork.connect/mcp-servers/1",
+      servers: [{ connectionId, name: "Fixture provider", description: null, url: fixture.url }],
+    });
   } else {
     await addMcp(config, WORKSPACE_ID, mcpName, mcpConfig);
   }
@@ -238,11 +247,12 @@ describe("MCP Apps host transport", () => {
 
   test("resolves a capability gateway launch through its exact native Connect tool", async () => {
     const connectionId = "emc_01mcpappgatewayfixture";
-    const serverName = connectMcpRuntimeName(connectionId);
+    const serverName = connectMcpAppHostName(connectionId);
     const { config, root } = await configuredFixture(
       "openwork-mcp-app-host-gateway-",
       undefined,
       serverName,
+      connectionId,
     );
 
     const app = await resolveConnectMcpAppResource({
@@ -262,6 +272,7 @@ describe("MCP Apps host transport", () => {
       resourceUri: RESOURCE_URI,
       html: RESOURCE_HTML,
     });
+    expect(Object.keys(runtimeMcpMap(await readRuntimeOpencodeConfig(config, WORKSPACE_ID)))).toEqual(["openwork-cloud"]);
   });
 
   test("resolves a same-server MCP App through its capability gateway", async () => {
@@ -289,7 +300,8 @@ describe("MCP Apps host transport", () => {
     const { config, root, activateUpdatedResource } = await configuredFixture(
       "openwork-mcp-app-host-gateway-stale-",
       undefined,
-      connectMcpRuntimeName(connectionId),
+      connectMcpAppHostName(connectionId),
+      connectionId,
     );
     await activateUpdatedResource();
 
