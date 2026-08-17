@@ -1,4 +1,5 @@
 import os from "node:os"
+import { readFileSync } from "node:fs"
 import path from "node:path"
 import { DEN_WORKER_POLL_INTERVAL_MS } from "./CONSTS.js"
 import { normalizeConfiguredPublicApiBaseUrl } from "./request-url.js"
@@ -87,6 +88,8 @@ const EnvSchema = z.object({
   DEN_MARKETING_URL: z.string().optional(),
   DEN_MCP_CLAIM_NAMESPACE: z.string().optional(),
   DEN_BOOTSTRAP_ADMIN_EMAILS: z.string().optional(),
+  DEN_INITIAL_ADMIN_BOOTSTRAP_CODE_SHA256: z.string().optional(),
+  DEN_INITIAL_ADMIN_BOOTSTRAP_CODE_SHA256_FILE: z.string().optional(),
   WORKER_PROXY_PORT: z.string().optional(),
   WORKER_PROVISIONING_RECONCILE_INTERVAL_MS: z.string().optional(),
   WORKER_PROVISIONING_RECONCILE_STALE_MS: z.string().optional(),
@@ -238,6 +241,18 @@ function optionalString(value: string | undefined) {
   return trimmed ? trimmed : undefined
 }
 
+function readOptionalSecretFile(envName: string, pathValue: string | undefined) {
+  const filePath = optionalString(pathValue)
+  if (!filePath) {
+    return undefined
+  }
+  try {
+    return readFileSync(filePath, "utf8").trim()
+  } catch {
+    throw new Error(`${envName} must point to a readable file`)
+  }
+}
+
 export type DenOrgMode = "single_org" | "multi_org"
 
 export function parseDenOrgMode(value: string | undefined): DenOrgMode {
@@ -299,6 +314,18 @@ function isLocalRedisHost(hostname: string) {
 function parseBooleanFlag(value: string | undefined) {
   const normalized = value?.trim().toLowerCase()
   return normalized === "1" || normalized === "true" || normalized === "yes" || normalized === "on"
+}
+
+export function parseSha256Digest(value: string | undefined) {
+  const digest = optionalString(value)
+  if (!digest) {
+    return { status: "missing" as const, value: undefined }
+  }
+  const normalized = digest.toLowerCase()
+  if (!/^[0-9a-f]{64}$/.test(normalized)) {
+    return { status: "malformed" as const, value: undefined }
+  }
+  return { status: "configured" as const, value: normalized }
 }
 
 function normalizeRedisUrl(value: string | undefined, allowInsecureInternal: boolean) {
@@ -422,6 +449,10 @@ if (connectLinkMode === "signed" && (!connectLinkPrivateKeyPem || !connectLinkKi
     "DEN_CONNECT_LINK_MODE=signed requires DEN_CONNECT_LINK_PRIVATE_KEY and DEN_CONNECT_LINK_KEY_ID.",
   )
 }
+const initialAdminBootstrapCodeSha256 = parseSha256Digest(
+  optionalString(parsed.DEN_INITIAL_ADMIN_BOOTSTRAP_CODE_SHA256)
+    ?? readOptionalSecretFile("DEN_INITIAL_ADMIN_BOOTSTRAP_CODE_SHA256_FILE", parsed.DEN_INITIAL_ADMIN_BOOTSTRAP_CODE_SHA256_FILE),
+)
 const connectLink = connectLinkMode === "signed" && connectLinkPrivateKeyPem && connectLinkKid
   ? { privateKeyPem: connectLinkPrivateKeyPem, kid: connectLinkKid }
   : null
@@ -628,6 +659,7 @@ export const env = {
   marketingUrl: optionalString(parsed.DEN_MARKETING_URL),
   mcpClaimNamespace: normalizeOrigin(optionalString(parsed.DEN_MCP_CLAIM_NAMESPACE) ?? parsed.BETTER_AUTH_URL),
   bootstrapAdminEmails: splitCsv(parsed.DEN_BOOTSTRAP_ADMIN_EMAILS).map((email) => email.toLowerCase()),
+  initialAdminBootstrapCodeSha256,
   provisionerMode: parsed.PROVISIONER_MODE ?? "stub",
   workerProvisioningReconcileIntervalMs: Number(parsed.WORKER_PROVISIONING_RECONCILE_INTERVAL_MS ?? "60000"),
   workerProvisioningReconcileStaleMs: Number(parsed.WORKER_PROVISIONING_RECONCILE_STALE_MS ?? "1200000"),

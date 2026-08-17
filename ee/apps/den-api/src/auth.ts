@@ -74,6 +74,7 @@ import {
   findEnterpriseAuthRequirementForUserId,
 } from "./enterprise-auth-requirement.js";
 import { getAuthBodyEmail, getSingleOrgEmailSignupPolicyViolation } from "./single-org-signup-policy.js";
+import { readInitialAdminBootstrapGrantFromBody } from "./initial-admin-bootstrap.js";
 import { createDenTypeId, normalizeDenTypeId } from "@openwork-ee/utils/typeid";
 import * as schema from "@openwork-ee/den-db/schema";
 import { apiKey } from "@better-auth/api-key";
@@ -755,7 +756,8 @@ export const auth = betterAuth({
           invitationIdOrToken: readRequestQueryParam(ctx.request, "invite") ?? readStringProperty(ctx.query, "invite") ?? readStringProperty(ctx.body, "invite"),
           email,
         });
-        const violation = invitationAllowsSignup ? null : await getSingleOrgEmailSignupPolicyViolation(email);
+        const bootstrapGrant = readInitialAdminBootstrapGrantFromBody(ctx.body);
+        const violation = invitationAllowsSignup || bootstrapGrant ? null : await getSingleOrgEmailSignupPolicyViolation(email);
         if (violation) {
           throw new APIError("FORBIDDEN", { message: violation.message });
         }
