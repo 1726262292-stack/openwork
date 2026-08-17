@@ -2,7 +2,8 @@
 
 **Branch:** `feat/library-composer-connections`  
 **Remote:** `origin/feat/library-composer-connections`  
-**Head:** `80f494408` — `feat(app): unify Library with composer Connections (MCPs)`  
+**Feature commit:** `80f494408` — `feat(app): unify Library with composer Connections (MCPs)`  
+**This file:** latest commit on the same branch.  
 **Base:** `dev` (`9f4425725`)  
 **PR:** none yet. Open from https://github.com/different-ai/openwork/pull/new/feat/library-composer-connections
 
@@ -34,16 +35,15 @@ MCPs are one thing: **Connections (MCPs)**.
   - **Connect your account / Reconnect** on the row when member OAuth needs it.
   - Configure from that pane opens Library `connections`.
   - **Scroll:** + panel has a definite `height` (was `maxHeight` only + `overflow-hidden`, so lists clipped with no scroll). Left nav and right list are `overflow-y-auto`. Cap raised 352 → 520.
+- Model select and model picker no longer show the OpenWork Models subscribe promo (composer Configure still goes to `/settings/ai` for providers).
 
 Helpers: `apps/app/src/react-app/domains/session/surface/composer/composer-connections.ts`  
 Tests: `apps/app/tests/composer-connections.test.ts`, `apps/app/tests/library-destination.test.ts` (17 unit tests passed locally). **No testkit tape.** Verdict for UI claims is Incomplete until a `.slow.test.ts` exists.
 
 ## Not on this branch (left dirty on the checkout)
 
-Do not treat these as part of the Library work:
+Unrelated leftovers; do not treat as Library work:
 
-- `apps/app/src/components/model-select.tsx`
-- `apps/app/src/react-app/domains/session/modals/model-picker-modal.tsx`
 - `.opencode/skills/test/`
 - `scripts/release/alpha-downloads.html`
 
@@ -85,3 +85,5 @@ cd apps/app && bun test tests/composer-connections.test.ts tests/library-destina
 | Connect MCP → connection id | `apps/app/src/react-app/domains/session/surface/connect-capability-inventory.ts` (`toMcpEntries`) |
 | Library UI | `apps/app/src/react-app/domains/settings/pages/mcp-view.tsx`, `add-library-item-modal.tsx` |
 | Den plugin detail | `ee/apps/den-web/app/(den)/dashboard/library/plugins/[pluginId]/page.tsx` |
+| Model select | `apps/app/src/components/model-select.tsx` |
+| Model picker | `apps/app/src/react-app/domains/session/modals/model-picker-modal.tsx` |
