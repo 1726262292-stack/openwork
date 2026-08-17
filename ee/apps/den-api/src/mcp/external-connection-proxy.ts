@@ -40,6 +40,7 @@ import { externalMcpAppResourceUri, resolveMcpMemberIdentity } from "./external-
 import { externalMcpToolSchemaDigest } from "./external-mcp-tool-arguments.js"
 import { preflightMcpJsonRpcRequest } from "./json-rpc-preflight.js"
 import { EXECUTE_CAPABILITY_TOOL_NAME, scoreText, SEARCH_CAPABILITIES_TOOL_NAME, tokenize } from "./search.js"
+import { DEN_MCP_APP_HOST_SCOPE } from "./scopes.js"
 
 function toolArguments(value: unknown): Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : {}
@@ -360,6 +361,7 @@ const externalMcpProxyRequestDependencies: ExternalMcpProxyRequestDependencies =
 export async function handleExternalConnectionProxyRequest(input: {
   context: Context
   operation: ExternalMcpProxyOperation
+  appHostClient?: boolean
   dependencies?: Partial<ExternalMcpProxyRequestDependencies>
 }) {
   if (input.context.req.method !== "POST") {
@@ -371,7 +373,7 @@ export async function handleExternalConnectionProxyRequest(input: {
     const server = createExternalConnectionProxyServer({
       descriptor,
       operation: input.operation,
-      appHostClient: input.context.req.header("x-openwork-mcp-client-audience") === "app-host",
+      appHostClient: input.appHostClient === true,
     })
     const response = await dependencies.serve(server, input.context)
     return response ?? new Response(null, { status: 204 })
@@ -458,7 +460,11 @@ export function registerExternalConnectionProxyRoutes<T extends { Variables: Req
       member: downstreamMember,
       diagnosticReferenceId: requestId,
     }
-    return handleExternalConnectionProxyRequest({ context: c, operation })
+    return handleExternalConnectionProxyRequest({
+      context: c,
+      operation,
+      appHostClient: principal.scopes.has(DEN_MCP_APP_HOST_SCOPE),
+    })
   })
 }
 

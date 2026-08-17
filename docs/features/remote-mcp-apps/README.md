@@ -24,12 +24,16 @@ publishes a member-scoped resource at:
 openwork://connect/mcp-servers/index.json
 ```
 
-Desktop reads that resource with the member's existing Cloud MCP bearer
-configuration and advertises the `mcp-app-host-v1` client capability. Den
-returns a non-empty provider index only when that client capability and both
-rollout gates are present. Desktop stores those endpoint descriptors in a
-private App-host catalog. It never writes `openwork-connect-*` entries to the
-OpenCode runtime or any model-visible MCP registry. A connection is proxied at:
+The signed-in Desktop session mints a separate short-lived App-host credential
+with a non-public `mcp:app-host` scope. Desktop stores that credential and the
+endpoint descriptors only in private App-host state; neither is projected into
+OpenCode. It reads the index with that credential and advertises the
+`mcp-app-host-v1` client capability. Den returns a non-empty provider index only
+when the server-verified scope, client capability, and both rollout gates are
+present. A normal model or legacy MCP token cannot unlock the index by spoofing
+an audience or capability header. Desktop never writes `openwork-connect-*`
+entries to the OpenCode runtime or any model-visible MCP registry. A connection
+is proxied at:
 
 ```text
 /mcp/agent/connections/{connectionId}
@@ -40,9 +44,9 @@ provider tools, resources, or templates and rejects direct provider calls.
 The model discovers and invokes ordinary provider operations only through the
 central `openwork-cloud` `search_capabilities` and `execute_capability` tools.
 
-Desktop's local App host marks its transport as the app-host audience. Only
-that transport receives tools with a valid `_meta.ui.resourceUri`, forced to
-`app` visibility, plus app-visible `search_capabilities` and
+Desktop's local App host authenticates with the private scoped credential. Only
+that transport receives tools with a valid `_meta.ui.resourceUri` whose
+provider-declared visibility includes `app`, plus app-visible `search_capabilities` and
 `execute_capability` scoped to the originating server. A native MCP App can
 therefore render and use authorized tools from its regular MCP server without
 placing the provider catalog in the model request.
@@ -58,8 +62,9 @@ The app-host view preserves:
   tool-call boundary.
 
 OpenWork access grants, disabled-tool policy, and approval rules still apply at
-the proxy boundary. The app-host transport never receives credentials or
-direct cross-server access.
+the proxy boundary. The App-host credential authorizes only this bounded proxy
+surface; it is not a provider credential and grants no direct cross-server
+access.
 
 ## Rollout isolation
 

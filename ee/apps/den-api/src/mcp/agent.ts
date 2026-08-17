@@ -13,6 +13,7 @@ import { remoteMcpAppsEnabled } from "../capability-sources/remote-mcp-apps-roll
 import { publicRoute, tokenRoute } from "../middleware/index.js"
 import { db } from "../db.js"
 import { getMcpResourceContext, verifyMcpRequest } from "./auth.js"
+import { DEN_MCP_APP_HOST_SCOPE } from "./scopes.js"
 import { getCatalog, protectedResourceMetadata } from "./index.js"
 import { preflightMcpJsonRpcRequest } from "./json-rpc-preflight.js"
 import {
@@ -429,7 +430,7 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
     })
     const connectMcpAppHostSupported = supportsConnectMcpAppHost(
       c.req.header(CONNECT_MCP_APP_HOST_CAPABILITY_HEADER),
-    )
+    ) && principal.scopes.has(DEN_MCP_APP_HOST_SCOPE)
     const requestInfo = await mcpRequestInfo(c.req.raw)
     const method = requestInfo.method
     const redirectUriBase = resolvePublicOrigin(c.req.raw, env.apiPublicUrl)

@@ -2251,6 +2251,7 @@ export async function reconcileOpenworkCloudMcp(input: {
     config: input.config,
     workspace: input.workspace,
     cloudMcp: desiredConfig,
+    appHostAuthorization: readString(input.body.appHostAuthorization) ?? undefined,
   }).catch(() => ({ status: "unavailable" as const, appHostNames: [], removedNames: [] }));
 
   const opencode = input.createWorkspaceOpencodeClient(input.config, input.workspace);

@@ -88,7 +88,7 @@ describe("OpenWork Connect MCP server catalog", () => {
       type: "remote",
       url: "https://cloud.example/mcp/agent",
       headers: { Authorization: "Bearer member-token" },
-    }, indexFetcher(requests));
+    }, "Bearer private-app-host-token", indexFetcher(requests));
 
     expect(index?.servers[0]?.name).toBe("Project Atlas");
     expect(requests.map((request) => request.body.method)).toEqual([
@@ -96,7 +96,7 @@ describe("OpenWork Connect MCP server catalog", () => {
       "notifications/initialized",
       "resources/read",
     ]);
-    expect(requests.every((request) => request.headers.get("authorization") === "Bearer member-token")).toBe(true);
+    expect(requests.every((request) => request.headers.get("authorization") === "Bearer private-app-host-token")).toBe(true);
     expect(requests.every((request) => request.headers.get(CONNECT_MCP_APP_HOST_CAPABILITY_HEADER)
       === CONNECT_MCP_APP_HOST_CAPABILITY)).toBe(true);
   });
@@ -119,6 +119,7 @@ describe("OpenWork Connect MCP server catalog", () => {
         url: "https://cloud.example/mcp/agent",
         headers: { Authorization: "Bearer member-token" },
       },
+      appHostAuthorization: "Bearer private-app-host-token",
       fetcher: indexFetcher([]),
     });
 
@@ -175,6 +176,7 @@ describe("OpenWork Connect MCP server catalog", () => {
       config,
       workspace: config.workspaces[0]!,
       cloudMcp: { type: "remote", url: "https://cloud.example/mcp/agent" },
+      appHostAuthorization: "Bearer private-app-host-token",
       fetcher: indexFetcher([], []),
     });
 

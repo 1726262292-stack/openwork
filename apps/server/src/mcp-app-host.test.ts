@@ -11,7 +11,11 @@ import {
   ReadResourceRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { addMcp } from "./mcp.js";
-import { connectMcpAppHostName, writeOpenWorkConnectMcpAppHostCatalog } from "./connect-mcp-server-catalog.js";
+import {
+  connectMcpAppHostName,
+  writeOpenWorkConnectMcpAppHostAuthorization,
+  writeOpenWorkConnectMcpAppHostCatalog,
+} from "./connect-mcp-server-catalog.js";
 import { readRuntimeOpencodeConfig, runtimeMcpMap, writeRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
 import {
   callMcpAppTool,
@@ -213,6 +217,7 @@ async function configuredFixture(
       schemaVersion: "openwork.connect/mcp-servers/1",
       servers: [{ connectionId, name: "Fixture provider", description: null, url: fixture.url }],
     });
+    await writeOpenWorkConnectMcpAppHostAuthorization(config, WORKSPACE_ID, "Bearer app-host-token");
   } else {
     await addMcp(config, WORKSPACE_ID, mcpName, mcpConfig);
   }

@@ -727,6 +727,8 @@ export type OpenworkCloudMcpReconcilePayload = {
   workspaceId: string;
   name: "openwork-cloud";
   config: Record<string, unknown>;
+  /** Desktop-private credential; the local server must never project it into OpenCode. */
+  appHostAuthorization?: string;
   tokenMetadata?: Record<string, string | number | boolean | null>;
   org?: Record<string, string | number | boolean | null>;
   app?: Record<string, string | number | boolean | null>;

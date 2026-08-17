@@ -7,8 +7,8 @@ import {
   CONNECT_MCP_APP_HOST_CAPABILITY_HEADER,
   connectMcpAppHostName,
   findOpenWorkConnectMcpAppHostServer,
+  readOpenWorkConnectMcpAppHostAuthorization,
 } from "./connect-mcp-server-catalog.js";
-import { readRuntimeMcpConfig } from "./runtime-opencode-config-store.js";
 import type { ServerConfig } from "./types.js";
 import {
   assertLocalManagedMcpUrl,
@@ -20,7 +20,6 @@ import { diagnoseMcpToolDenies, listMcp } from "./mcp.js";
 const MCP_APP_EXTENSION = "io.modelcontextprotocol/ui";
 const MCP_APP_MIME_TYPE = "text/html;profile=mcp-app";
 const MCP_PROTOCOL_VERSION = "2025-06-18";
-const MCP_APP_HOST_AUDIENCE_HEADER = "x-openwork-mcp-client-audience";
 const MAX_TOOL_PAGES = 32;
 const MAX_TOOLS = 2_048;
 const MAX_RESOURCE_BYTES = 768 * 1024;
@@ -178,10 +177,7 @@ async function withRemoteClient<T>(
   }
   const guardedFetch = createLocalManagedMcpGuardedFetch();
   const requestInit = {
-    headers: {
-      ...stringHeaders(config.headers),
-      [MCP_APP_HOST_AUDIENCE_HEADER]: "app-host",
-    },
+    headers: stringHeaders(config.headers),
   };
   const attempts = [
     () => new StreamableHTTPClientTransport(url, { requestInit, fetch: guardedFetch }),
@@ -270,8 +266,11 @@ async function privateConnectMcpConfig(input: {
     { connectionId: input.connectionId, serverName: input.serverName },
   );
   if (!descriptor) return null;
-  const cloudMcp = await readRuntimeMcpConfig(input.serverConfig, input.workspaceId, "openwork-cloud");
-  if (!cloudMcp || cloudMcp.enabled === false) return null;
+  const appHostAuthorization = await readOpenWorkConnectMcpAppHostAuthorization(
+    input.serverConfig,
+    input.workspaceId,
+  );
+  if (!appHostAuthorization) return null;
   return {
     serverName: connectMcpAppHostName(descriptor.connectionId),
     config: {
@@ -279,7 +278,7 @@ async function privateConnectMcpConfig(input: {
       url: descriptor.url,
       enabled: true,
       headers: {
-        ...stringHeaders(cloudMcp.headers),
+        Authorization: appHostAuthorization,
         [CONNECT_MCP_APP_HOST_CAPABILITY_HEADER]: CONNECT_MCP_APP_HOST_CAPABILITY,
       },
     },

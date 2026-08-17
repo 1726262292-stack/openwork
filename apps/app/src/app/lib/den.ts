@@ -292,7 +292,9 @@ export type DenMemory = {
 
 export type DenMcpToken = {
   token: string;
+  appHostToken: string;
   expiresAt: string;
+  appHostExpiresAt: string;
   organizationId: string;
   scopes: string[];
   resource: string;
@@ -1568,7 +1570,9 @@ function getMcpToken(payload: unknown): DenMcpToken | null {
   if (
     !isRecord(payload) ||
     typeof payload.token !== "string" ||
+    typeof payload.appHostToken !== "string" ||
     typeof payload.expiresAt !== "string" ||
+    typeof payload.appHostExpiresAt !== "string" ||
     typeof payload.organizationId !== "string" ||
     typeof payload.resource !== "string"
   ) {
@@ -1576,7 +1580,9 @@ function getMcpToken(payload: unknown): DenMcpToken | null {
   }
   return {
     token: payload.token,
+    appHostToken: payload.appHostToken,
     expiresAt: payload.expiresAt,
+    appHostExpiresAt: payload.appHostExpiresAt,
     organizationId: payload.organizationId,
     scopes: Array.isArray(payload.scopes)
       ? payload.scopes.filter((entry): entry is string => typeof entry === "string")

@@ -45,6 +45,26 @@ const appHostCatalogStore = createWorkspaceKvStore<OpenWorkConnectMcpServerIndex
   serialize: (value) => JSON.stringify(value),
 });
 
+const appHostAuthorizationStore = createWorkspaceKvStore<string>({
+  tableName: "connect_mcp_app_host_authorizations",
+  valueColumn: "authorization_json",
+  parse: (json) => {
+    try {
+      const value: unknown = JSON.parse(json);
+      return typeof value === "string" ? value : "";
+    } catch {
+      return "";
+    }
+  },
+  serialize: (value) => JSON.stringify(value),
+});
+
+function privateAppHostAuthorization(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim();
+  return normalized.length <= 8_192 && /^Bearer\s+[^\s,]+$/i.test(normalized) ? normalized : null;
+}
+
 /** Stable private App-host identifier. This must never become an OpenCode MCP key. */
 export function connectMcpAppHostName(connectionId: string): string {
   const digest = createHash("sha256").update(connectionId).digest("hex").slice(0, 12);
@@ -67,6 +87,21 @@ export async function writeOpenWorkConnectMcpAppHostCatalog(
   await appHostCatalogStore.set(config, workspaceId, parsed.success ? parsed.data : emptyIndex());
 }
 
+export async function readOpenWorkConnectMcpAppHostAuthorization(
+  config: ServerConfig,
+  workspaceId: string,
+): Promise<string | null> {
+  return privateAppHostAuthorization(await appHostAuthorizationStore.get(config, workspaceId));
+}
+
+export async function writeOpenWorkConnectMcpAppHostAuthorization(
+  config: ServerConfig,
+  workspaceId: string,
+  value: string,
+): Promise<void> {
+  await appHostAuthorizationStore.set(config, workspaceId, privateAppHostAuthorization(value) ?? "");
+}
+
 export async function findOpenWorkConnectMcpAppHostServer(
   config: ServerConfig,
   workspaceId: string,
@@ -81,16 +116,14 @@ export async function findOpenWorkConnectMcpAppHostServer(
 
 export async function readOpenWorkConnectMcpServerIndex(
   cloudMcp: Record<string, unknown>,
+  appHostAuthorization: string,
   fetcher: McpFetch = externalFetch,
 ): Promise<OpenWorkConnectMcpServerIndex | null> {
-  const headers = typeof cloudMcp.headers === "object" && cloudMcp.headers !== null
-    ? cloudMcp.headers
-    : {};
   const text = await readMcpResourceText({
     config: {
       ...cloudMcp,
       headers: {
-        ...headers,
+        Authorization: appHostAuthorization,
         [CONNECT_MCP_APP_HOST_CAPABILITY_HEADER]: CONNECT_MCP_APP_HOST_CAPABILITY,
       },
     },
@@ -112,9 +145,20 @@ export async function reconcileOpenWorkConnectMcpServers(input: {
   config: ServerConfig;
   workspace: WorkspaceInfo;
   cloudMcp: Record<string, unknown>;
+  appHostAuthorization?: string;
   fetcher?: McpFetch;
 }): Promise<{ status: "synced" | "unavailable"; appHostNames: string[]; removedNames: string[] }> {
-  const index = await readOpenWorkConnectMcpServerIndex(input.cloudMcp, input.fetcher).catch(() => null);
+  if (input.appHostAuthorization !== undefined) {
+    await writeOpenWorkConnectMcpAppHostAuthorization(
+      input.config,
+      input.workspace.id,
+      input.appHostAuthorization,
+    );
+  }
+  const appHostAuthorization = await readOpenWorkConnectMcpAppHostAuthorization(input.config, input.workspace.id);
+  const index = appHostAuthorization
+    ? await readOpenWorkConnectMcpServerIndex(input.cloudMcp, appHostAuthorization, input.fetcher).catch(() => null)
+    : null;
   const privateCatalog = index ?? emptyIndex();
   await writeOpenWorkConnectMcpAppHostCatalog(input.config, input.workspace.id, privateCatalog);
 

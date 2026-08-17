@@ -190,6 +190,7 @@ export function buildOpenworkCloudMcpReconcilePayload(input: {
       headers: { Authorization: `Bearer ${input.token.token}` },
       oauth: false,
     },
+    appHostAuthorization: `Bearer ${input.token.appHostToken}`,
     tokenMetadata: tokenMetadata(input.token),
     org: orgMetadata(input.context),
     ...(app ? { app, appVersion: typeof app.version === "string" ? app.version : undefined, buildSha: typeof app.buildSha === "string" ? app.buildSha : undefined } : {}),

@@ -116,6 +116,38 @@ test("legacy clients also receive an empty provider surface", async () => {
   }, {}, false)
 })
 
+test("a forged App-host audience header cannot unlock the provider surface", async () => {
+  let toolNames: string[] = []
+  const request = new Request("https://openwork.example/mcp/agent/connections/fixture", {
+    method: "POST",
+    headers: { "x-openwork-mcp-client-audience": "app-host" },
+  })
+  await handleExternalConnectionProxyRequest({
+    context: requestContext(request),
+    operation,
+    dependencies: {
+      describe: async () => ({
+        capabilities: { tools: {}, resources: {} },
+        serverInfo: { name: "fixture", version: "1.0.0" },
+      }) as never,
+      serve: async (server) => {
+        const client = new Client({ name: "forged-audience-test", version: "1.0.0" }, { capabilities: {} })
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
+        await server.connect(serverTransport)
+        await client.connect(clientTransport)
+        try {
+          toolNames = (await client.listTools()).tools.map((tool) => tool.name)
+        } finally {
+          await client.close()
+          await server.close()
+        }
+        return new Response(null, { status: 204 })
+      },
+    },
+  })
+  expect(toolNames).toEqual([])
+})
+
 test("tool-only downstream servers initialize and never register resource handlers", async () => {
   let resourceCalls = 0
   await withClient({ tools: {} }, async (client) => {
