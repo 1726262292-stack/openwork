@@ -47,8 +47,8 @@ test("one Azure OIDC job signs and publishes every Windows installer", async ({ 
   expect(signingJobHeader).not.toContain("AZURE_CLIENT_ID");
 
   evidence.fact(
-    "A single protected Azure OIDC job gates publication of all Windows installers",
-    "The release workflow has one Artifact Signing action on windows-2022, recursively signs six installers, verifies every signature, blocks merged-manifest publication until signing succeeds, blocks public release publication until merged Electron assets publish, and keeps Azure config out of job-wide environment scope.",
+    "Windows signing is the default and one protected Azure OIDC job gates publication",
+    "Manual releases default sign_windows to true. The release workflow has one Artifact Signing action on windows-2022, recursively signs six installers, verifies every signature, blocks merged-manifest publication until signing succeeds, blocks public release publication until merged Electron assets publish, and keeps Azure config out of job-wide environment scope.",
     true,
   );
 });
