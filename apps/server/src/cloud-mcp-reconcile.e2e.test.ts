@@ -36,6 +36,7 @@ type MockOpencodeOptions = {
   postFailure?: { status: number; body: unknown };
   cloudFailedError?: string;
   connectServers?: OpenWorkConnectMcpServerIndex["servers"];
+  appHostAuthorization?: string;
 };
 
 type CloudConfig = {
@@ -48,6 +49,7 @@ type CloudConfig = {
 
 const CLIENT_TOKEN = "owt_cloud_mcp_client";
 const HOST_TOKEN = "owt_cloud_mcp_host";
+const APP_HOST_AUTHORIZATION = "Bearer owt_secret_app_host_token";
 const previousRuntimeDb = process.env.OPENWORK_RUNTIME_DB;
 const stops: Array<() => void | Promise<void>> = [];
 const roots: string[] = [];
@@ -152,7 +154,8 @@ function startMockOpencode(options: MockOpencodeOptions = {}) {
         });
       }
       if (url.pathname.endsWith("/mcp/agent") && request.method === "POST") {
-        if (request.headers.get("authorization") !== "Bearer owt_secret_cloud_token") {
+        const authorization = request.headers.get("authorization");
+        if (authorization !== "Bearer owt_secret_cloud_token" && authorization !== options.appHostAuthorization) {
           return Response.json({ error: "unauthorized" }, { status: 401 });
         }
         const rpc = isRecord(body) ? body : {};
@@ -355,6 +358,7 @@ describe("openwork-cloud MCP strict reconcile", () => {
     const root = await createRoot();
     const connectionId = "emc_01privateapphostcatalog";
     const mock = startMockOpencode({
+      appHostAuthorization: APP_HOST_AUTHORIZATION,
       connectServers: [{
         connectionId,
         name: "Private fixture provider",
@@ -370,7 +374,9 @@ describe("openwork-cloud MCP strict reconcile", () => {
       },
     }));
 
-    const response = await reconcile(openwork.base);
+    const response = await reconcile(openwork.base, "ws_1", {
+      appHostAuthorization: APP_HOST_AUTHORIZATION,
+    });
     expect((await responseRecord(response)).phase).toBe("ready");
 
     const runtime = await readRuntimeOpencodeConfig(openwork.config, "ws_1");
