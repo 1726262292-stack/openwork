@@ -749,7 +749,12 @@ test.skipIf(missingRequirements.length > 0)(title, { timeout: 45 * 60_000 }, asy
       appMate,
       `This is an automated connectivity check of the newly configured model. Reply with the verification code ${llmMarker} to confirm the model is reachable.`,
     );
-    const llmReply = await waitForAssistantReply(appMate, { timeoutMs: 300_000 });
+    await waitFor(appMate, `([...document.querySelectorAll('[data-message-role="assistant"]')]
+      .some((message) => (message.innerText ?? "").includes(${JSON.stringify(llmMarker)})))`, {
+      timeoutMs: 300_000,
+      label: `complete assistant verification code ${JSON.stringify(llmMarker)}`,
+    });
+    const llmReply = await waitForAssistantReply(appMate, { timeoutMs: 10_000 });
     expect(llmReply.text).toContain(llmMarker);
     evidence.fact(
       "The teammate ran the workspace-configured real model",
