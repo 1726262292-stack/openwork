@@ -40,14 +40,15 @@ test("one Azure OIDC job signs and publishes every Windows installer", async ({ 
   expect(workflow).toContain("id-token: write");
   expect(workflow).toContain("files-folder-recurse: true");
   expect(workflow).toContain("Expected 6 signed Windows installers");
+  expect(workflow).toMatch(/sign_windows:\n(?: {8}.+\n)* {8}default: true/);
   expect(workflow).toContain("needs.sign-and-publish-windows.result == 'success'");
   expect(workflow).toContain("needs.resolve-release.outputs.build_electron != 'true' || needs.publish-electron-assets.result == 'success'");
   expect(workflow).toContain("vars.AZURE_CLIENT_ID || secrets.AZURE_CLIENT_ID");
   expect(signingJobHeader).not.toContain("AZURE_CLIENT_ID");
 
   evidence.fact(
-    "A single protected Azure OIDC job gates publication of all Windows installers",
-    "The release workflow has one Artifact Signing action on windows-2022, recursively signs six installers, verifies every signature, blocks merged-manifest publication until signing succeeds, blocks public release publication until merged Electron assets publish, and keeps Azure config out of job-wide environment scope.",
+    "Windows signing is the default and one protected Azure OIDC job gates publication",
+    "Manual releases default sign_windows to true. The release workflow has one Artifact Signing action on windows-2022, recursively signs six installers, verifies every signature, blocks merged-manifest publication until signing succeeds, blocks public release publication until merged Electron assets publish, and keeps Azure config out of job-wide environment scope.",
     true,
   );
 });
