@@ -1,6 +1,7 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js"
 import { expect, test } from "bun:test"
+import { Hono } from "hono"
 
 process.env.DEN_DB_ENCRYPTION_KEY ??= "x".repeat(32)
 process.env.BETTER_AUTH_SECRET ??= "y".repeat(32)
@@ -11,6 +12,7 @@ process.env.DATABASE_URL ??= "mysql://root:password@127.0.0.1:3306/openwork_den"
 const {
   createExternalConnectionProxyServer,
   handleExternalConnectionProxyRequest,
+  registerExternalConnectionProxyRoutes,
 } = await import("../src/mcp/external-connection-proxy.js")
 const {
   externalMcpConnectionReadyForMember,
@@ -206,6 +208,23 @@ test("unsupported GET requests never trigger downstream discovery", async () => 
   expect(discoveryCalls).toBe(0)
 })
 
+test("the disabled MCP Apps rollout exposes neither native provider servers nor their proxy endpoint", async () => {
+  expect(buildConnectMcpServerIndex({
+    enabled: false,
+    connections: [connection],
+    publicOrigin: "https://openwork.example",
+  }).servers).toEqual([])
+
+  const app = new Hono<{ Variables: { requestId: string } }>()
+  registerExternalConnectionProxyRoutes(app, { enabled: false })
+  const response = await app.request(`https://openwork.example/mcp/agent/connections/${connection.id}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} }),
+  })
+  expect(response.status).toBe(404)
+})
+
 test("disconnected and issuer-blocked OAuth connections are not ready for the native server index", async () => {
   const memberId = "mem_01k28e8q8pf8r9sff9mhyqxved" as never
   const base = {
@@ -244,6 +263,7 @@ test("disconnected and issuer-blocked OAuth connections are not ready for the na
 
   const ready = await readyExternalMcpConnectionsForMember([base], memberId)
   expect(buildConnectMcpServerIndex({
+    enabled: true,
     connections: ready,
     publicOrigin: "https://openwork.example",
   }).servers).toEqual([])

@@ -439,8 +439,9 @@ const mcpConnectionsGatingEnabled =
 const generatedArtifactViewsEnabled =
   (parsed.DEN_GENERATED_ARTIFACT_VIEWS_ENABLED ?? "false").trim().toLowerCase() === "true"
 
-// Imported apps use the released stable Desktop MCP Apps bridge and remain
-// independently disableable without enabling agent-authored generated views.
+// Native Connect and imported apps use the released stable Desktop MCP Apps
+// bridge and remain independently disableable without enabling agent-authored
+// generated views.
 const remoteMcpAppsEnabled =
   (parsed.DEN_REMOTE_MCP_APPS_ENABLED ?? "true").trim().toLowerCase() === "true"
 

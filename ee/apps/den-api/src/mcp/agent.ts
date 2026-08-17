@@ -497,11 +497,14 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
       if (memberIdentity) {
         registerConnectMcpServerIndex({
           server,
-          connections: await listReadyExternalMcpConnections({
-            organizationId,
-            orgMembershipId: memberIdentity.orgMembershipId,
-            teamIds: memberIdentity.teamIds,
-          }),
+          enabled: env.remoteMcpAppsEnabled,
+          connections: env.remoteMcpAppsEnabled
+            ? await listReadyExternalMcpConnections({
+                organizationId,
+                orgMembershipId: memberIdentity.orgMembershipId,
+                teamIds: memberIdentity.teamIds,
+              })
+            : [],
           publicOrigin: redirectUriBase,
         })
       }

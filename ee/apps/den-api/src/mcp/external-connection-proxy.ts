@@ -216,8 +216,17 @@ export async function handleExternalConnectionProxyRequest(input: {
  * same-server execution boundary and prevents collisions between two servers
  * that legitimately advertise the same tool name.
  */
-export function registerExternalConnectionProxyRoutes<T extends { Variables: RequestIdVariables & Record<string, unknown> }>(app: Hono<T>) {
-  app.all("/mcp/agent/connections/:connectionId", tokenRoute, async (c) => {
+export function registerExternalConnectionProxyRoutes<T extends { Variables: RequestIdVariables & Record<string, unknown> }>(
+  app: Hono<T>,
+  options: { enabled?: boolean } = {},
+) {
+  const path = "/mcp/agent/connections/:connectionId"
+  if (!(options.enabled ?? env.remoteMcpAppsEnabled)) {
+    app.all(path, (c) => c.notFound())
+    return
+  }
+
+  app.all(path, tokenRoute, async (c) => {
     const requestIdValue = c.get("requestId")
     const requestId = typeof requestIdValue === "string" ? requestIdValue : "unknown"
     const principal = await verifyMcpRequest(
