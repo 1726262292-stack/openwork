@@ -2239,6 +2239,7 @@ export function createExtensionsStore(options: {
     kind: LibraryAuthorableKind,
     input: CreateLibraryItemInput,
   ): Promise<string> {
+    const description = input.description.trim();
     const instructions = input.instructions.trim();
     const drafts = input.components?.filter((component) => component.name.trim() && component.content.trim()) ?? [];
     if (!input.name.trim()) {
