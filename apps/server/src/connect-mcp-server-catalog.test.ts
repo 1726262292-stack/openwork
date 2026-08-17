@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
+  CONNECT_MCP_APP_HOST_CAPABILITY,
+  CONNECT_MCP_APP_HOST_CAPABILITY_HEADER,
   CONNECT_MCP_SERVER_INDEX_URI,
   connectMcpRuntimeName,
   type OpenWorkConnectMcpServerIndex,
@@ -94,6 +96,8 @@ describe("OpenWork Connect MCP server catalog", () => {
       "resources/read",
     ]);
     expect(requests.every((request) => request.headers.get("authorization") === "Bearer member-token")).toBe(true);
+    expect(requests.every((request) => request.headers.get(CONNECT_MCP_APP_HOST_CAPABILITY_HEADER)
+      === CONNECT_MCP_APP_HOST_CAPABILITY)).toBe(true);
   });
 
   test("reconciles only OpenWork-owned proxy entries and preserves user MCPs", async () => {
@@ -128,7 +132,10 @@ describe("OpenWork Connect MCP server catalog", () => {
       type: "remote",
       url: `https://cloud.example/mcp/agent/connections/${connectionId}`,
       enabled: true,
-      headers: { Authorization: "Bearer member-token" },
+      headers: {
+        Authorization: "Bearer member-token",
+        [CONNECT_MCP_APP_HOST_CAPABILITY_HEADER]: CONNECT_MCP_APP_HOST_CAPABILITY,
+      },
     });
   });
 

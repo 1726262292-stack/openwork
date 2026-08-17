@@ -90,7 +90,13 @@ function requestHeader(request: IncomingMessage, name: string): string | undefin
 
 function forwardedMcpHeaders(request: IncomingMessage): Record<string, string> {
   const headers: Record<string, string> = {};
-  for (const name of ["content-type", "mcp-protocol-version", "mcp-session-id", "x-openwork-mcp-client-audience"]) {
+  for (const name of [
+    "content-type",
+    "mcp-protocol-version",
+    "mcp-session-id",
+    "x-openwork-mcp-client-audience",
+    "x-openwork-mcp-client-capabilities",
+  ]) {
     const value = requestHeader(request, name);
     if (value) headers[name] = value;
   }
@@ -673,7 +679,11 @@ test.skipIf(!appSpecsEnabled || !localPlacement || !mysqlOpen)(title, { timeout:
   expect(tokenResult.response.ok, tokenResult.text).toBe(true);
   const mcpToken = String(requireRecord(tokenResult.body, "MCP token response").token ?? "");
   const connectedEndpoint = `/mcp/agent/connections/${encodeURIComponent(connection.id)}`;
-  const appHostHeaders = { "x-openwork-mcp-client-audience": "app-host" };
+  const appHostCapabilityHeaders = { "x-openwork-mcp-client-capabilities": "mcp-app-host-v1" };
+  const appHostHeaders = {
+    ...appHostCapabilityHeaders,
+    "x-openwork-mcp-client-audience": "app-host",
+  };
   agentMcpUpstream = {
     token: mcpToken,
     staticUrl: `${den.ref.apiUrl}/mcp/agent`,
@@ -885,7 +895,17 @@ test.skipIf(!appSpecsEnabled || !localPlacement || !mysqlOpen)(title, { timeout:
   const resources = await agentRpc(den.ref.apiUrl, mcpToken, "resources/list", {});
   expect(Array.isArray(resources.resources) && resources.resources.some((resource) => isRecord(resource) && resource.uri === firstResourceUri)).toBe(true);
   expect(Array.isArray(resources.resources) && resources.resources.some((resource) => isRecord(resource) && resource.uri === "openwork://connect/mcp-servers/index.json")).toBe(true);
-  const connectIndexRead = await agentRpc(den.ref.apiUrl, mcpToken, "resources/read", { uri: "openwork://connect/mcp-servers/index.json" });
+  const legacyConnectIndexRead = await agentRpc(den.ref.apiUrl, mcpToken, "resources/read", { uri: "openwork://connect/mcp-servers/index.json" });
+  const legacyConnectIndex = requireRecord(JSON.parse(String(contentsFrom(legacyConnectIndexRead)[0]?.text ?? "{}")), "legacy Connect MCP server index");
+  expect(legacyConnectIndex.servers).toEqual([]);
+  const connectIndexRead = await agentRpc(
+    den.ref.apiUrl,
+    mcpToken,
+    "resources/read",
+    { uri: "openwork://connect/mcp-servers/index.json" },
+    "/mcp/agent",
+    appHostCapabilityHeaders,
+  );
   const connectIndex = requireRecord(JSON.parse(String(contentsFrom(connectIndexRead)[0]?.text ?? "{}")), "Connect MCP server index");
   const indexedServers = Array.isArray(connectIndex.servers) ? connectIndex.servers.filter(isRecord) : [];
   expect(indexedServers).toContainEqual(expect.objectContaining({
@@ -910,7 +930,14 @@ test.skipIf(!appSpecsEnabled || !localPlacement || !mysqlOpen)(title, { timeout:
     icons: [{ src: "https://example.test/project-atlas.png", mimeType: "image/png", sizes: ["64x64"] }],
   });
 
-  const modelConnectedTools = await agentRpc(den.ref.apiUrl, mcpToken, "tools/list", {}, connectedEndpoint);
+  const modelConnectedTools = await agentRpc(
+    den.ref.apiUrl,
+    mcpToken,
+    "tools/list",
+    {},
+    connectedEndpoint,
+    appHostCapabilityHeaders,
+  );
   expect(toolsFrom(modelConnectedTools)).toEqual([]);
   const connectedToolsResult = await agentRpc(den.ref.apiUrl, mcpToken, "tools/list", {}, connectedEndpoint, appHostHeaders);
   const connectedTools = toolsFrom(connectedToolsResult);
@@ -928,9 +955,23 @@ test.skipIf(!appSpecsEnabled || !localPlacement || !mysqlOpen)(title, { timeout:
     visibility: ["app"],
   });
 
-  const connectedResources = await agentRpc(den.ref.apiUrl, mcpToken, "resources/list", {}, connectedEndpoint);
+  const connectedResources = await agentRpc(
+    den.ref.apiUrl,
+    mcpToken,
+    "resources/list",
+    {},
+    connectedEndpoint,
+    appHostCapabilityHeaders,
+  );
   expect(connectedResources.resources).toEqual([]);
-  await expect(agentRpc(den.ref.apiUrl, mcpToken, "resources/read", { uri: connectedResourceUri }, connectedEndpoint))
+  await expect(agentRpc(
+    den.ref.apiUrl,
+    mcpToken,
+    "resources/read",
+    { uri: connectedResourceUri },
+    connectedEndpoint,
+    appHostCapabilityHeaders,
+  ))
     .rejects.toThrow("only through the OpenWork App host");
   const connectedRead = await agentRpc(
     den.ref.apiUrl,
@@ -949,7 +990,7 @@ test.skipIf(!appSpecsEnabled || !localPlacement || !mysqlOpen)(title, { timeout:
   await expect(agentRpc(den.ref.apiUrl, mcpToken, "tools/call", {
     name: "search_projects",
     arguments: { query: "migration" },
-  }, connectedEndpoint)).rejects.toThrow("only through the OpenWork App host");
+  }, connectedEndpoint, appHostCapabilityHeaders)).rejects.toThrow("only through the OpenWork App host");
   await expect(agentRpc(den.ref.apiUrl, mcpToken, "tools/call", {
     name: "search_projects",
     arguments: { query: "migration" },
@@ -1021,6 +1062,7 @@ test.skipIf(!appSpecsEnabled || !localPlacement || !mysqlOpen)(title, { timeout:
               url: ${JSON.stringify(`${fixtureUrl}/connected-mcp`)},
               enabled: true,
               oauth: false,
+              headers: ${JSON.stringify(appHostCapabilityHeaders)},
             },
           },
         },
@@ -1345,7 +1387,14 @@ test.skipIf(!appSpecsEnabled || !localPlacement || !mysqlOpen)(title, { timeout:
 
   const flagOffProviderTools = await agentRpc(den.ref.apiUrl, mcpToken, "tools/list", {}, connectedEndpoint, appHostHeaders);
   expect(toolsFrom(flagOffProviderTools)).toEqual([]);
-  const flagOffIndexRead = await agentRpc(den.ref.apiUrl, mcpToken, "resources/read", { uri: "openwork://connect/mcp-servers/index.json" });
+  const flagOffIndexRead = await agentRpc(
+    den.ref.apiUrl,
+    mcpToken,
+    "resources/read",
+    { uri: "openwork://connect/mcp-servers/index.json" },
+    "/mcp/agent",
+    appHostCapabilityHeaders,
+  );
   const flagOffIndex = requireRecord(JSON.parse(String(contentsFrom(flagOffIndexRead)[0]?.text ?? "{}")), "flag-off Connect MCP server index");
   expect(flagOffIndex.servers).toEqual([]);
   expect(standardMcpCalls).toBe(8);

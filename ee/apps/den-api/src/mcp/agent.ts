@@ -79,7 +79,11 @@ import {
   searchRemoteMcpApps,
 } from "./remote-mcp-apps.js"
 import { listReadyExternalMcpConnections } from "../capability-sources/external-mcp-connections.js"
-import { registerConnectMcpServerIndex } from "./connect-mcp-server-index.js"
+import {
+  CONNECT_MCP_APP_HOST_CAPABILITY_HEADER,
+  registerConnectMcpServerIndex,
+  supportsConnectMcpAppHost,
+} from "./connect-mcp-server-index.js"
 
 export { externalToolContent } from "./tool-content.js"
 export { externalCapabilityErrorToolResult, externalCapabilitySuccessToolResult }
@@ -435,6 +439,9 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
       deploymentEnabled: env.remoteMcpAppsEnabled,
     })
     const appHostClient = c.req.header("x-openwork-mcp-client-audience") === "app-host"
+    const connectMcpAppHostSupported = supportsConnectMcpAppHost(
+      c.req.header(CONNECT_MCP_APP_HOST_CAPABILITY_HEADER),
+    )
     const requestInfo = await mcpRequestInfo(c.req.raw)
     const method = requestInfo.method
     const redirectUriBase = resolvePublicOrigin(c.req.raw, env.apiPublicUrl)
@@ -517,8 +524,8 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
       if (memberIdentity) {
         registerConnectMcpServerIndex({
           server,
-          enabled: remoteAppsEnabled,
-          connections: remoteAppsEnabled
+          enabled: remoteAppsEnabled && connectMcpAppHostSupported,
+          connections: remoteAppsEnabled && connectMcpAppHostSupported
             ? await listReadyExternalMcpConnections({
                 organizationId,
                 orgMembershipId: memberIdentity.orgMembershipId,

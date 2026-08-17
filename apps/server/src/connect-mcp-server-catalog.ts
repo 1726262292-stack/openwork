@@ -9,6 +9,8 @@ import type { ServerConfig, WorkspaceInfo } from "./types.js";
 export const CONNECT_MCP_SERVER_INDEX_URI = "openwork://connect/mcp-servers/index.json";
 export const CONNECT_MCP_SERVER_INDEX_SCHEMA_VERSION = "openwork.connect/mcp-servers/1";
 export const CONNECT_MCP_SERVER_NAME_PREFIX = "openwork-connect-";
+export const CONNECT_MCP_APP_HOST_CAPABILITY_HEADER = "x-openwork-mcp-client-capabilities";
+export const CONNECT_MCP_APP_HOST_CAPABILITY = "mcp-app-host-v1";
 
 const indexSchema = z.object({
   schemaVersion: z.literal(CONNECT_MCP_SERVER_INDEX_SCHEMA_VERSION),
@@ -31,8 +33,17 @@ export async function readOpenWorkConnectMcpServerIndex(
   cloudMcp: Record<string, unknown>,
   fetcher: McpFetch = externalFetch,
 ): Promise<OpenWorkConnectMcpServerIndex | null> {
+  const headers = typeof cloudMcp.headers === "object" && cloudMcp.headers !== null
+    ? cloudMcp.headers
+    : {};
   const text = await readMcpResourceText({
-    config: cloudMcp,
+    config: {
+      ...cloudMcp,
+      headers: {
+        ...headers,
+        [CONNECT_MCP_APP_HOST_CAPABILITY_HEADER]: CONNECT_MCP_APP_HOST_CAPABILITY,
+      },
+    },
     uri: CONNECT_MCP_SERVER_INDEX_URI,
     fetcher,
     clientName: "openwork-server-connect-mcp-catalog",
@@ -65,7 +76,10 @@ export async function reconcileOpenWorkConnectMcpServers(input: {
       type: "remote",
       url: server.url,
       enabled: input.cloudMcp.enabled !== false,
-      ...(headers ? { headers } : {}),
+      headers: {
+        ...headers,
+        [CONNECT_MCP_APP_HOST_CAPABILITY_HEADER]: CONNECT_MCP_APP_HOST_CAPABILITY,
+      },
     }];
   }));
   let removedNames: string[] = [];

@@ -37,8 +37,11 @@ openwork://connect/mcp-servers/index.json
 ```
 
 Desktop reads that resource with the member's existing Cloud MCP bearer
-configuration and reconciles each entry as a separate remote MCP server. A
-connection is proxied at:
+configuration and advertises the `mcp-app-host-v1` client capability. Den
+returns a non-empty provider index only when that client capability and both
+rollout gates are present. Desktop persists the capability on each reconciled
+provider entry, which lets Den distinguish the bounded model/App-host split
+from a previously released client. A connection is proxied at:
 
 ```text
 /mcp/agent/connections/{connectionId}
@@ -61,6 +64,13 @@ The app-host view preserves:
   `text/html;profile=mcp-app` resources;
 - one server identity per Connect connection, preventing name collisions and
   preserving the MCP Apps same-server tool-call boundary.
+
+For deployment-order compatibility, a previously released Desktop that lacks
+the capability marker retains the provider endpoint behavior it already had
+until it upgrades. This avoids removing tools during a Den-first rollout. That
+compatibility path is still behind the deployment and organization gates,
+which both default off; capable clients never receive the provider catalog in
+their model-facing transport.
 
 OpenWork access grants and disabled-tool policy still apply at the proxy
 boundary. Ordinary tools from the same connected MCP remain available through
