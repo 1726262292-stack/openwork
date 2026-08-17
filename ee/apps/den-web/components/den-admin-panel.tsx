@@ -102,6 +102,7 @@ type AdminOrganizationCapabilities = {
   installLinks: boolean;
   mcpConnections: boolean;
   codemodeScripts: boolean;
+  remoteMcpApps: boolean;
   cloud: boolean;
 };
 
@@ -388,6 +389,7 @@ function parseAdminPayload(payload: unknown): AdminPayload | null {
             installLinks: capabilities.installLinks === true,
             mcpConnections: capabilities.mcpConnections === true,
             codemodeScripts: capabilities.codemodeScripts === true,
+            remoteMcpApps: capabilities.remoteMcpApps === true,
             cloud: capabilities.cloud === true
           }
         };
@@ -726,7 +728,7 @@ function buildFixtureOrganization(index: number): AdminOrganization {
     freeSeatCount: target ? 25 : DEFAULT_FREE_SEAT_COUNT,
     seatsFreeAdditional: target ? 20 : 0,
     billableSeatCount: target ? 103 : 0,
-    capabilities: { installLinks: target, mcpConnections: target, codemodeScripts: false, cloud: false }
+    capabilities: { installLinks: target, mcpConnections: target, codemodeScripts: false, remoteMcpApps: false, cloud: false }
   };
 }
 
@@ -2348,6 +2350,19 @@ export function DenAdminPanel() {
                       <label className="inline-flex items-center gap-2 text-sm text-slate-700">
                         <input
                           type="checkbox"
+                          data-testid="admin-capability-remoteMcpApps"
+                          checked={org.capabilities.remoteMcpApps}
+                          disabled={savingCapabilityOrgId === org.id}
+                          onChange={(event) => {
+                            void saveOrganizationCapability(org, "remoteMcpApps", event.target.checked);
+                          }}
+                          className="h-4 w-4 rounded border-slate-300"
+                        />
+                        Native MCP Apps (preview)
+                      </label>
+                      <label className="inline-flex items-center gap-2 text-sm text-slate-700">
+                        <input
+                          type="checkbox"
                           data-testid="admin-capability-cloud"
                           checked={org.capabilities.cloud}
                           disabled={savingCapabilityOrgId === org.id}
@@ -2367,6 +2382,7 @@ export function DenAdminPanel() {
                     <p className="mt-1 text-xs text-slate-400">On by default. Turn off to stop workspace admins from minting desktop install links for this organization.</p>
                     <p className="mt-1 text-xs text-slate-400">On by default. Turn off to hide member-facing org connections, marketplace capabilities on the agent rail, and the desktop Connect tab.</p>
                     <p className="mt-1 text-xs text-slate-400">Confined multi-tool scripts run server-side for this organization.</p>
+                    <p className="mt-1 text-xs text-slate-400">Off by default. Requires the deployment master switch and exposes native provider MCP Apps and imported Apps for this organization.</p>
                     <p className="mt-1 text-xs text-slate-400">Off by default. Turn on to show Cloud alpha access in this organization.</p>
                   </div>
 

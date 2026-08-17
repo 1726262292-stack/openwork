@@ -11,6 +11,8 @@ import {
 } from "@modelcontextprotocol/sdk/types.js"
 import { StreamableHTTPTransport } from "@hono/mcp"
 import { normalizeDenTypeId } from "@openwork-ee/utils/typeid"
+import { eq } from "@openwork-ee/den-db/drizzle"
+import { OrganizationTable } from "@openwork-ee/den-db/schema"
 import type { Context, Hono } from "hono"
 import type { RequestIdVariables } from "hono/request-id"
 import {
@@ -29,7 +31,9 @@ import {
 import { externalMcpDiagnosticForResponse } from "../capability-sources/external-mcp-diagnostics.js"
 import { evaluateToolPolicy } from "../capability-sources/external-mcp-tool-policy.js"
 import { env } from "../env.js"
+import { db } from "../db.js"
 import { tokenRoute } from "../middleware/index.js"
+import { remoteMcpAppsEnabled } from "../capability-sources/remote-mcp-apps-rollout.js"
 import { resolvePublicOrigin } from "../capability-sources/generic-oauth.js"
 import { getMcpResourceContext, verifyMcpRequest } from "./auth.js"
 import { resolveMcpMemberIdentity } from "./external-capabilities.js"
@@ -62,6 +66,31 @@ const externalMcpProxyRuntime: ExternalMcpProxyRuntime = {
   listResourceTemplates: listExternalMcpResourceTemplates,
   listTools: listExternalMcpTools,
   readResource: readExternalMcpResource,
+}
+
+export function createDisabledExternalConnectionProxyServer() {
+  const server = new McpServer({
+    name: "OpenWork Connect",
+    version: "1.0.0",
+  }, {
+    capabilities: {
+      tools: { listChanged: false },
+      resources: { listChanged: false, subscribe: false },
+    },
+    instructions: "Native provider MCP Apps are disabled for this OpenWork deployment.",
+  })
+
+  server.server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: [] }))
+  server.server.setRequestHandler(ListResourcesRequestSchema, async () => ({ resources: [] }))
+  server.server.setRequestHandler(ListResourceTemplatesRequestSchema, async () => ({ resourceTemplates: [] }))
+  server.server.setRequestHandler(CallToolRequestSchema, async () => {
+    throw new McpError(ErrorCode.InvalidRequest, "Native provider MCP Apps are disabled.")
+  })
+  server.server.setRequestHandler(ReadResourceRequestSchema, async () => {
+    throw new McpError(ErrorCode.InvalidRequest, "Native provider MCP Apps are disabled.")
+  })
+
+  return server
 }
 
 export function createExternalConnectionProxyServer(input: {
@@ -216,8 +245,14 @@ export async function handleExternalConnectionProxyRequest(input: {
  * same-server execution boundary and prevents collisions between two servers
  * that legitimately advertise the same tool name.
  */
-export function registerExternalConnectionProxyRoutes<T extends { Variables: RequestIdVariables & Record<string, unknown> }>(app: Hono<T>) {
-  app.all("/mcp/agent/connections/:connectionId", tokenRoute, async (c) => {
+export function registerExternalConnectionProxyRoutes<T extends { Variables: RequestIdVariables & Record<string, unknown> }>(
+  app: Hono<T>,
+  options: { enabled?: boolean } = {},
+) {
+  const path = "/mcp/agent/connections/:connectionId"
+  const enabled = options.enabled ?? env.remoteMcpAppsEnabled
+
+  app.all(path, tokenRoute, async (c) => {
     const requestIdValue = c.get("requestId")
     const requestId = typeof requestIdValue === "string" ? requestIdValue : "unknown"
     const principal = await verifyMcpRequest(
@@ -233,13 +268,29 @@ export function registerExternalConnectionProxyRoutes<T extends { Variables: Req
       return new Response(null, { status: 405, headers: { allow: "POST" } })
     }
 
+    const organizationId = normalizeDenTypeId("organization", principal.organizationId)
+    const organizationRows = enabled
+      ? await db
+          .select({ metadata: OrganizationTable.metadata })
+          .from(OrganizationTable)
+          .where(eq(OrganizationTable.id, organizationId))
+          .limit(1)
+      : []
+    const remoteAppsEnabled = remoteMcpAppsEnabled(organizationRows[0]?.metadata, {
+      deploymentEnabled: enabled,
+    })
+    if (!remoteAppsEnabled) {
+      const server = createDisabledExternalConnectionProxyServer()
+      const response = await externalMcpProxyRequestDependencies.serve(server, c)
+      return response ?? new Response(null, { status: 204 })
+    }
+
     let connectionId
     try {
       connectionId = normalizeDenTypeId("externalMcpConnection", c.req.param("connectionId"))
     } catch {
       throw new McpError(ErrorCode.InvalidRequest, "The MCP connection id is invalid.")
     }
-    const organizationId = normalizeDenTypeId("organization", principal.organizationId)
     const member = await resolveMcpMemberIdentity({
       userId: principal.userId,
       organizationId,

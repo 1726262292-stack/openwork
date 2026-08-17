@@ -12,12 +12,13 @@ export type ConnectMcpServerIndexEntry = {
 }
 
 export function buildConnectMcpServerIndex(input: {
+  enabled: boolean
   connections: ExternalMcpConnectionRow[]
   publicOrigin: string
 }) {
   return {
     schemaVersion: CONNECT_MCP_SERVER_INDEX_SCHEMA_VERSION,
-    servers: input.connections
+    servers: (input.enabled ? input.connections : [])
       .map((connection): ConnectMcpServerIndexEntry => ({
         connectionId: connection.id,
         name: connection.name,
@@ -30,6 +31,7 @@ export function buildConnectMcpServerIndex(input: {
 
 export function registerConnectMcpServerIndex(input: {
   server: McpServer
+  enabled: boolean
   connections: ExternalMcpConnectionRow[]
   publicOrigin: string
 }) {

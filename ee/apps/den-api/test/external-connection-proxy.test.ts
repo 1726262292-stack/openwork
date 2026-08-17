@@ -9,6 +9,7 @@ process.env.OPENWORK_DEV_MODE ??= "1"
 process.env.DATABASE_URL ??= "mysql://root:password@127.0.0.1:3306/openwork_den"
 
 const {
+  createDisabledExternalConnectionProxyServer,
   createExternalConnectionProxyServer,
   handleExternalConnectionProxyRequest,
 } = await import("../src/mcp/external-connection-proxy.js")
@@ -206,6 +207,30 @@ test("unsupported GET requests never trigger downstream discovery", async () => 
   expect(discoveryCalls).toBe(0)
 })
 
+test("the disabled MCP Apps rollout publishes no providers and gives stale clients an empty MCP surface", async () => {
+  expect(buildConnectMcpServerIndex({
+    enabled: false,
+    connections: [connection],
+    publicOrigin: "https://openwork.example",
+  }).servers).toEqual([])
+
+  const server = createDisabledExternalConnectionProxyServer()
+  const client = new Client({ name: "stale-proxy-test", version: "1.0.0" }, { capabilities: {} })
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
+  await server.connect(serverTransport)
+  await client.connect(clientTransport)
+  try {
+    expect(client.getServerCapabilities()?.tools).toEqual({ listChanged: false })
+    expect(client.getServerCapabilities()?.resources).toEqual({ listChanged: false, subscribe: false })
+    expect((await client.listTools()).tools).toEqual([])
+    expect((await client.listResources()).resources).toEqual([])
+    expect((await client.listResourceTemplates()).resourceTemplates).toEqual([])
+  } finally {
+    await client.close()
+    await server.close()
+  }
+})
+
 test("disconnected and issuer-blocked OAuth connections are not ready for the native server index", async () => {
   const memberId = "mem_01k28e8q8pf8r9sff9mhyqxved" as never
   const base = {
@@ -244,6 +269,7 @@ test("disconnected and issuer-blocked OAuth connections are not ready for the na
 
   const ready = await readyExternalMcpConnectionsForMember([base], memberId)
   expect(buildConnectMcpServerIndex({
+    enabled: true,
     connections: ready,
     publicOrigin: "https://openwork.example",
   }).servers).toEqual([])

@@ -174,9 +174,10 @@ Successful installation emits `notifications/tools/list_changed` and
 same MCP capability gateway emit the same notifications; every subsequent
 list request is rebuilt from the current authorized Library state.
 
-The static adapter is independently disableable with
-`DEN_REMOTE_MCP_APPS_ENABLED`, but defaults on after the compatible Desktop
-host release. `DEN_GENERATED_ARTIFACT_VIEWS_ENABLED` remains off by default;
+Native provider MCP Apps and the static adapter fail closed behind two explicit
+gates: the deployment operator must set `DEN_REMOTE_MCP_APPS_ENABLED=true`, and
+a platform admin must enable **Native MCP Apps (preview)** for the organization
+in Den admin settings. Both gates default off. `DEN_GENERATED_ARTIFACT_VIEWS_ENABLED` remains off by default;
 while it is off, generated-view creation, source submission, React compilation,
 revision activation, resources, and launch tools are absent or rejected even
 if records already exist. This flag is independent from `codemodeScripts`:

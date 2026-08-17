@@ -41,9 +41,9 @@ config:
     installLinksGatingEnabled: "false"
     # Enable only after compatible Desktop MCP Apps hosts are deployed.
     generatedArtifactViewsEnabled: "false"
-    # Imported, cached standard MCP Apps are on by default after the compatible
-    # Desktop host rollout. Set false for an operator rollback.
-    remoteMcpAppsEnabled: "true"
+    # Master opt-in for native and imported MCP Apps. Each organization must
+    # also be explicitly enabled in Den admin settings.
+    remoteMcpAppsEnabled: "false"
     connectLinkMode: exchange
     connectLinkKeyId: ""
     openworkAppConnectUrl: ""
