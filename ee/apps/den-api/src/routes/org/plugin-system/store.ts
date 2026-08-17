@@ -2702,6 +2702,7 @@ export async function createPluginBundle(input: {
       context: input.context,
       objectType: component.type,
       pluginIds: [plugin.id],
+      requireFreshSession: false,
       sourceMode: "cloud",
       value: component.value,
     })

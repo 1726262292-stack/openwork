@@ -12,7 +12,7 @@ const title = !appSpecsEnabled
     ? "skill authoring session freshness skipped — needs a real local Den"
     : !mysqlOpen
       ? "skill authoring session freshness skipped — needs MySQL on 127.0.0.1:3306"
-      : "a stale admin session can author a private skill but cannot expand its audience org-wide";
+      : "a stale admin session can author a private plugin and skill but cannot expand its audience org-wide";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -50,21 +50,6 @@ test.skipIf(!appSpecsEnabled || !localPlacement || !mysqlOpen)(title, async ({ e
   const orgId = organization && typeof organization.id === "string" ? organization.id : "";
   expect(orgId).toMatch(/^org_/);
 
-  const skillName = `stale-session-skill-${unique}`;
-  const initialSource = `---\nname: ${skillName}\ndescription: Proves stale-session private authoring.\n---\n\nReturn the initial private skill source.`;
-  const pluginResult = await denFetch(den.admin, "/v1/plugins", {
-    method: "POST",
-    headers: auth(den.admin, orgId),
-    body: JSON.stringify({
-      name: `Stale Session Plugin ${unique}`,
-      orgWide: false,
-    }),
-  });
-  expect(pluginResult.response.status).toBe(201);
-  const plugin = requireItem(pluginResult.body, "Private plugin creation");
-  const pluginId = typeof plugin.id === "string" ? plugin.id : "";
-  expect(pluginId).toMatch(/^plg_/);
-
   await queryDenDatabase(
     databaseUrl,
     "UPDATE `session` SET created_at = DATE_SUB(NOW(3), INTERVAL 20 MINUTE) WHERE token = ?",
@@ -83,6 +68,49 @@ test.skipIf(!appSpecsEnabled || !localPlacement || !mysqlOpen)(title, async ({ e
     "The admin credential is older than the privileged-session window",
     `The credential's database session is ${ageSeconds} seconds old, beyond the 900-second freshness limit.`,
     ageSeconds > 15 * 60,
+  );
+
+  const orgWidePlugin = await denFetch(den.admin, "/v1/plugins", {
+    method: "POST",
+    headers: auth(den.admin, orgId),
+    body: JSON.stringify({
+      name: `Blocked Org-wide Plugin ${unique}`,
+      orgWide: true,
+    }),
+  });
+  expect(orgWidePlugin.response.status).toBe(403);
+  expect(orgWidePlugin.body).toEqual({
+    error: "reauth",
+    reason: "fresh_auth_required",
+    message: "For security, confirm it's you before changing workspace settings.",
+  });
+  evidence.fact(
+    "Creating an org-wide plugin still requires fresh authentication",
+    "The stale credential received exact HTTP 403 reauth/fresh_auth_required before creating an org-wide plugin.",
+    orgWidePlugin.response.status === 403
+      && isRecord(orgWidePlugin.body)
+      && orgWidePlugin.body.error === "reauth"
+      && orgWidePlugin.body.reason === "fresh_auth_required",
+  );
+
+  const skillName = `stale-session-skill-${unique}`;
+  const initialSource = `---\nname: ${skillName}\ndescription: Proves stale-session private authoring.\n---\n\nReturn the initial private skill source.`;
+  const pluginResult = await denFetch(den.admin, "/v1/plugins", {
+    method: "POST",
+    headers: auth(den.admin, orgId),
+    body: JSON.stringify({
+      name: `Stale Session Plugin ${unique}`,
+      orgWide: false,
+    }),
+  });
+  expect(pluginResult.response.status).toBe(201);
+  const plugin = requireItem(pluginResult.body, "Private plugin creation");
+  const pluginId = typeof plugin.id === "string" ? plugin.id : "";
+  expect(pluginId).toMatch(/^plg_/);
+  evidence.fact(
+    "The stale credential can create a private plugin",
+    `POST /v1/plugins returned HTTP ${pluginResult.response.status} without expanding the plugin audience.`,
+    pluginResult.response.status === 201 && pluginId.startsWith("plg_"),
   );
 
   const created = await denFetch(den.admin, "/v1/config-objects", {
