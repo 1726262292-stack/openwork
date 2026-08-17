@@ -26,8 +26,11 @@ import { addMcp, listMcp, removeMcp, setMcpEnabled } from "./mcp.js";
 import {
   callMcpAppTool,
   McpAppHostError,
+  resolveConnectMcpAppResource,
   resolveMcpAppResource,
+  resolveSameServerMcpAppResource,
 } from "./mcp-app-host.js";
+import { CONNECT_MCP_SERVER_NAME_PREFIX } from "./connect-mcp-server-catalog.js";
 import {
   buildMcpAppSandboxCsp,
   MCP_APP_SANDBOX_PROXY_CSS,
@@ -3030,13 +3033,38 @@ function createRoutes(
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const body = await readJsonBody(ctx.request);
     const projectedToolName = typeof body.projectedToolName === "string" ? body.projectedToolName.trim() : "";
+    const launch = body.launch && typeof body.launch === "object" && !Array.isArray(body.launch)
+      ? body.launch as Record<string, unknown>
+      : null;
     try {
-      const app = await resolveMcpAppResource({
-        serverConfig: config,
-        workspaceId: workspace.id,
-        workspaceRoot: workspace.path,
-        projectedToolName,
-      });
+      const app = launch && typeof launch.connectionId === "string"
+        ? await resolveConnectMcpAppResource({
+            serverConfig: config,
+            workspaceId: workspace.id,
+            workspaceRoot: workspace.path,
+            launch: {
+              connectionId: typeof launch.connectionId === "string" ? launch.connectionId : "",
+              toolName: typeof launch.toolName === "string" ? launch.toolName : "",
+              resourceUri: typeof launch.resourceUri === "string" ? launch.resourceUri : "",
+            },
+          })
+        : launch
+          ? await resolveSameServerMcpAppResource({
+              serverConfig: config,
+              workspaceId: workspace.id,
+              workspaceRoot: workspace.path,
+              projectedToolName,
+              launch: {
+                toolName: typeof launch.toolName === "string" ? launch.toolName : "",
+                resourceUri: typeof launch.resourceUri === "string" ? launch.resourceUri : "",
+              },
+            })
+        : await resolveMcpAppResource({
+            serverConfig: config,
+            workspaceId: workspace.id,
+            workspaceRoot: workspace.path,
+            projectedToolName,
+          });
       return jsonResponse({ app });
     } catch (error) {
       rethrowMcpAppHostError(error);
@@ -4268,7 +4296,8 @@ async function runRuntimeMcpSyncToOpencodeEngine(
 
   const runtimeConfig = await readRuntimeOpencodeConfig(config, workspace.id);
   const entries = Object.entries(runtimeMcpMap(runtimeConfig)).filter(
-    ([name]) => !onlyNames || onlyNames.includes(name),
+    ([name]) => !name.startsWith(CONNECT_MCP_SERVER_NAME_PREFIX)
+      && (!onlyNames || onlyNames.includes(name)),
   );
   if (entries.length === 0) {
     if (!onlyNames) {
