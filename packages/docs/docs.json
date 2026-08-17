@@ -73,6 +73,16 @@
             ]
           },
           {
+            "group": "Deploy to your cloud",
+            "pages": [
+              "self-host/deploy-to-your-cloud/overview",
+              "self-host/deploy-to-your-cloud/aws",
+              "self-host/deploy-to-your-cloud/azure",
+              "self-host/deploy-to-your-cloud/google-cloud",
+              "self-host/deploy-to-your-cloud/first-administrator"
+            ]
+          },
+          {
             "group": "Plan your network",
             "pages": [
               "start-here/private-network-deployment",
