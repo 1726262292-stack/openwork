@@ -1,7 +1,6 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js"
 import { expect, test } from "bun:test"
-import { Hono } from "hono"
 
 process.env.DEN_DB_ENCRYPTION_KEY ??= "x".repeat(32)
 process.env.BETTER_AUTH_SECRET ??= "y".repeat(32)
@@ -10,9 +9,9 @@ process.env.OPENWORK_DEV_MODE ??= "1"
 process.env.DATABASE_URL ??= "mysql://root:password@127.0.0.1:3306/openwork_den"
 
 const {
+  createDisabledExternalConnectionProxyServer,
   createExternalConnectionProxyServer,
   handleExternalConnectionProxyRequest,
-  registerExternalConnectionProxyRoutes,
 } = await import("../src/mcp/external-connection-proxy.js")
 const {
   externalMcpConnectionReadyForMember,
@@ -208,21 +207,28 @@ test("unsupported GET requests never trigger downstream discovery", async () => 
   expect(discoveryCalls).toBe(0)
 })
 
-test("the disabled MCP Apps rollout exposes neither native provider servers nor their proxy endpoint", async () => {
+test("the disabled MCP Apps rollout publishes no providers and gives stale clients an empty MCP surface", async () => {
   expect(buildConnectMcpServerIndex({
     enabled: false,
     connections: [connection],
     publicOrigin: "https://openwork.example",
   }).servers).toEqual([])
 
-  const app = new Hono<{ Variables: { requestId: string } }>()
-  registerExternalConnectionProxyRoutes(app, { enabled: false })
-  const response = await app.request(`https://openwork.example/mcp/agent/connections/${connection.id}`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} }),
-  })
-  expect(response.status).toBe(404)
+  const server = createDisabledExternalConnectionProxyServer()
+  const client = new Client({ name: "stale-proxy-test", version: "1.0.0" }, { capabilities: {} })
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair()
+  await server.connect(serverTransport)
+  await client.connect(clientTransport)
+  try {
+    expect(client.getServerCapabilities()?.tools).toEqual({ listChanged: false })
+    expect(client.getServerCapabilities()?.resources).toEqual({ listChanged: false, subscribe: false })
+    expect((await client.listTools()).tools).toEqual([])
+    expect((await client.listResources()).resources).toEqual([])
+    expect((await client.listResourceTemplates()).resourceTemplates).toEqual([])
+  } finally {
+    await client.close()
+    await server.close()
+  }
 })
 
 test("disconnected and issuer-blocked OAuth connections are not ready for the native server index", async () => {

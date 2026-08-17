@@ -64,6 +64,31 @@ const externalMcpProxyRuntime: ExternalMcpProxyRuntime = {
   readResource: readExternalMcpResource,
 }
 
+export function createDisabledExternalConnectionProxyServer() {
+  const server = new McpServer({
+    name: "OpenWork Connect",
+    version: "1.0.0",
+  }, {
+    capabilities: {
+      tools: { listChanged: false },
+      resources: { listChanged: false, subscribe: false },
+    },
+    instructions: "Native provider MCP Apps are disabled for this OpenWork deployment.",
+  })
+
+  server.server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: [] }))
+  server.server.setRequestHandler(ListResourcesRequestSchema, async () => ({ resources: [] }))
+  server.server.setRequestHandler(ListResourceTemplatesRequestSchema, async () => ({ resourceTemplates: [] }))
+  server.server.setRequestHandler(CallToolRequestSchema, async () => {
+    throw new McpError(ErrorCode.InvalidRequest, "Native provider MCP Apps are disabled.")
+  })
+  server.server.setRequestHandler(ReadResourceRequestSchema, async () => {
+    throw new McpError(ErrorCode.InvalidRequest, "Native provider MCP Apps are disabled.")
+  })
+
+  return server
+}
+
 export function createExternalConnectionProxyServer(input: {
   descriptor: ExternalMcpProxyDescriptor
   operation: ExternalMcpProxyOperation
@@ -221,10 +246,7 @@ export function registerExternalConnectionProxyRoutes<T extends { Variables: Req
   options: { enabled?: boolean } = {},
 ) {
   const path = "/mcp/agent/connections/:connectionId"
-  if (!(options.enabled ?? env.remoteMcpAppsEnabled)) {
-    app.all(path, (c) => c.notFound())
-    return
-  }
+  const enabled = options.enabled ?? env.remoteMcpAppsEnabled
 
   app.all(path, tokenRoute, async (c) => {
     const requestIdValue = c.get("requestId")
@@ -240,6 +262,12 @@ export function registerExternalConnectionProxyRoutes<T extends { Variables: Req
 
     if (c.req.method !== "POST") {
       return new Response(null, { status: 405, headers: { allow: "POST" } })
+    }
+
+    if (!enabled) {
+      const server = createDisabledExternalConnectionProxyServer()
+      const response = await externalMcpProxyRequestDependencies.serve(server, c)
+      return response ?? new Response(null, { status: 204 })
     }
 
     let connectionId
