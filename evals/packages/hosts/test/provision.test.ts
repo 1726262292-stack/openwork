@@ -6,6 +6,7 @@ import {
   parseConnectorSpecEnv,
   provisionDesktopSandbox,
   renderConnectorSpecEnv,
+  serverSandboxName,
   startFaultProxyOnSandbox,
   startMockOnSandbox,
 } from "../src/provision.ts";
@@ -70,6 +71,14 @@ test("renderConnectorSpecEnv and parseConnectorSpecEnv round-trip the connector 
   assert.match(content, /OPENWORK_EVAL_MODEL=big-pickle/);
   const missingApi = content.split("\n").filter((line) => !line.startsWith("OPENWORK_EVAL_DEN_API_URL=")).join("\n");
   assert.throws(() => parseConnectorSpecEnv(missingApi), /OPENWORK_EVAL_DEN_API_URL/);
+});
+
+test("server sandbox names are unique within the same CI process and second", () => {
+  const first = serverSandboxName();
+  const second = serverSandboxName();
+
+  assert.match(first, new RegExp(`^openwork-server-\\d{8}-\\d{6}-${process.pid}-[0-9a-f]{8}$`));
+  assert.notEqual(first, second);
 });
 
 test("provisionDesktopSandbox reuses a sandbox and keeps every remote command in one argument", async () => {

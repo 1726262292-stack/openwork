@@ -504,8 +504,11 @@ export async function server(options: ServerOptions): Promise<Den> {
     }
     const base = options.place.denBase();
     if (base.kind !== "daytona") throw new Error("Daytona place returned a local Den base.");
+    const orgShape = options.org ?? {};
+    const bootstrapAdmin = personDefaults("admin", orgShape.admin, runId);
     const provisioned = await provisionDenSandbox({
       ref: base.ref,
+      bootstrapAdminEmail: bootstrapAdmin.email,
       log: (line) => console.error(`[openwork/testkit] ${line}`),
     });
     let bootedMocks: { handles: Record<string, MockHandle>; env: Record<string, string> } = { handles: {}, env: {} };
@@ -516,7 +519,7 @@ export async function server(options: ServerOptions): Promise<Den> {
         ? { admin: emptySession(ref), members: {}, createdOrg: false }
         : await provisionOrganization(
             ref,
-            options.org ?? {},
+            orgShape,
             runId,
             {
               createOrg: Boolean(options.org),

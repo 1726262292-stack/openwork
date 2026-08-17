@@ -54,7 +54,7 @@ test("Den schedules and a connected desktop runner executes an Automation", asyn
 
   await using den = await server({
     place,
-    mocks: { connector: mcpMock({ port: 3981 }) },
+    mocks: { connector: mcpMock({ port: 3981, allowUnauthenticatedMcp: true }) },
   });
   const connector = den.mocks.connector;
   const stamp = Date.now();
