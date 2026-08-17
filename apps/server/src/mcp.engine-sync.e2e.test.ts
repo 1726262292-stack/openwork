@@ -500,7 +500,7 @@ describe("runtime MCP engine sync", () => {
         body: JSON.stringify({
           config: {
             type: "remote",
-            url: "https://api.openworklabs.com/mcp/agent",
+            url: `http://127.0.0.1:${mock.server.port}/api/den/mcp/agent`,
             enabled: true,
             headers: { Authorization: "Bearer test-token" },
             oauth: false,
