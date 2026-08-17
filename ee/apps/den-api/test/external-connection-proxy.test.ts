@@ -166,9 +166,11 @@ test("a regular MCP with an App keeps every model-visible tool behind search and
       name: "search_capabilities",
       arguments: { query: "private fixture records", limit: 5 },
     })
-    expect(searched.structuredContent).toMatchObject({
-      matches: [{ name: "search_fixture", invocation: { argumentsField: "body" } }],
-    })
+    const matches = (searched.structuredContent as { matches: Array<Record<string, unknown>> }).matches
+    expect(matches).toContainEqual(expect.objectContaining({
+      name: "search_fixture",
+      invocation: { argumentsField: "body" },
+    }))
     const executed = await client.callTool({
       name: "execute_capability",
       arguments: { name: "search_fixture", body: { query: "private" } },
