@@ -113,6 +113,24 @@ test.skipIf(!localPlacement || !mysqlOpen || !redisOpen)(title, { timeout: 600_0
       && !invalidCode.text.includes("allowlist"),
   );
 
+  const rateLimitedEmail = `rate.${runId}@example.com`;
+  const rateLimitAttempts = [];
+  for (let index = 0; index < 6; index += 1) {
+    rateLimitAttempts.push(await denFetch(den.ref, "/v1/auth/bootstrap/verify", {
+      method: "POST",
+      headers: { "x-forwarded-for": `192.0.2.${index + 1}` },
+      body: JSON.stringify({ email: rateLimitedEmail, code: `wrong-${index}` }),
+    }));
+  }
+  const rateLimitStatuses = rateLimitAttempts.map((attempt) => attempt.response.status);
+  expect(rateLimitStatuses.slice(0, 5)).toEqual([403, 403, 403, 403, 403]);
+  expect(rateLimitStatuses[5]).toBe(429);
+  evidence.fact(
+    "Bootstrap verification rate limiting cannot be bypassed by changing forwarded IP headers",
+    `Six attempts for the same email with six different X-Forwarded-For values returned statuses ${rateLimitStatuses.join(", ")}.`,
+    rateLimitStatuses.slice(0, 5).every((status) => status === 403) && rateLimitStatuses[5] === 429,
+  );
+
   const valid = await denFetch(den.ref, "/v1/auth/bootstrap/verify", {
     method: "POST",
     body: JSON.stringify({ email: adminEmail, code: setupCode }),
@@ -218,10 +236,15 @@ test.skipIf(!localPlacement || !mysqlOpen || !redisOpen)(title, { timeout: 600_0
     body: JSON.stringify({ email: adminEmail, code: setupCode }),
   });
   expect(replayCode.response.status).toBe(409);
+  const replayUnconfiguredEmail = await denFetch(den.ref, "/v1/auth/bootstrap/verify", {
+    method: "POST",
+    body: JSON.stringify({ email: `outsider-after.${runId}@example.com`, code: setupCode }),
+  });
+  expect(replayUnconfiguredEmail.response.status).toBe(409);
   evidence.fact(
-    "The setup code and bootstrap grant cannot be replayed after setup completes",
-    `grant replay returned HTTP ${replayGrant.response.status}; code replay returned HTTP ${replayCode.response.status}.`,
-    replayGrant.response.status === 403 && replayCode.response.status === 409,
+    "The setup code and bootstrap grant cannot be replayed or used for email enumeration after setup completes",
+    `grant replay returned HTTP ${replayGrant.response.status}; configured-email code replay returned HTTP ${replayCode.response.status}; unconfigured-email code replay returned HTTP ${replayUnconfiguredEmail.response.status}.`,
+    replayGrant.response.status === 403 && replayCode.response.status === 409 && replayUnconfiguredEmail.response.status === 409,
   );
 
   await navigate(browser.client, `${den.ref.webUrl}/setup`);

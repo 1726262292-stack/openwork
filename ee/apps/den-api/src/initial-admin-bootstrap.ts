@@ -61,12 +61,13 @@ async function anyAuthUserExists() {
 }
 
 export async function getInitialAdminBootstrapAvailability(): Promise<InitialAdminBootstrapAvailability> {
+  if (await anyAuthUserExists()) {
+    return { status: "complete", reason: "users_exist" }
+  }
+
   const config = hasUsableBootstrapConfiguration()
   if (!config.ok) {
     return { status: "unavailable", reason: config.reason }
-  }
-  if (await anyAuthUserExists()) {
-    return { status: "complete", reason: "users_exist" }
   }
   return { status: "available", reason: "ready" }
 }
@@ -115,14 +116,14 @@ export async function verifyInitialAdminBootstrap(input: {
   code: string
 }) {
   const normalizedEmail = normalizeInitialAdminBootstrapEmail(input.email)
-  const config = hasUsableBootstrapConfiguration()
-  if (!config.ok || !isInitialAdminBootstrapEmailConfigured(normalizedEmail)) {
-    return { ok: false as const, status: 403, message: GENERIC_BOOTSTRAP_REJECTION }
-  }
-
   const availability = await getInitialAdminBootstrapAvailability()
   if (availability.status !== "available") {
     return { ok: false as const, status: 409, message: "Initial administrator setup is not available." }
+  }
+
+  const config = hasUsableBootstrapConfiguration()
+  if (!config.ok || !isInitialAdminBootstrapEmailConfigured(normalizedEmail)) {
+    return { ok: false as const, status: 403, message: GENERIC_BOOTSTRAP_REJECTION }
   }
 
   if (!compareInitialAdminBootstrapCode(input.code, config.code)) {

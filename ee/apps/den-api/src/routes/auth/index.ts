@@ -557,8 +557,8 @@ function checkLoginOptionsMissRateLimit(key: string) {
   return checkRateLimit(key, LOGIN_OPTIONS_DOMAIN_MISS_RATE_LIMIT_MAX, LOGIN_OPTIONS_DOMAIN_RATE_LIMIT_WINDOW_MS, Date.now())
 }
 
-function initialAdminBootstrapVerifyRateLimitKey(headers: Headers, email: string) {
-  return `auth-bootstrap:verify:${sha256Hex(`${readRequestAddress(headers)}:${email}`)}`
+function initialAdminBootstrapVerifyRateLimitKey(email: string) {
+  return `auth-bootstrap:verify:email:${sha256Hex(email)}`
 }
 
 async function getLoginOptionAccounts(email: string) {
@@ -751,7 +751,7 @@ export function registerAuthRoutes<T extends { Variables: AuthContextVariables }
         return c.json({ error: "bootstrap_verification_failed", message: "Setup could not be verified. Check the administrator email and one-time setup code." }, 403)
       }
       const retryAfter = await checkRateLimit(
-        initialAdminBootstrapVerifyRateLimitKey(c.req.raw.headers, normalizeLoginEmail(parsed.data.email)),
+        initialAdminBootstrapVerifyRateLimitKey(normalizeLoginEmail(parsed.data.email)),
         INITIAL_ADMIN_BOOTSTRAP_VERIFY_RATE_LIMIT_MAX,
         INITIAL_ADMIN_BOOTSTRAP_VERIFY_RATE_LIMIT_WINDOW_MS,
         Date.now(),
