@@ -12,7 +12,7 @@ import { DenInput } from "../../_components/ui/input";
 import { DenList, DenListRow } from "../../_components/ui/list-row";
 import { DenNotice } from "../../_components/ui/notice";
 import { type TabItem, UnderlineTabs } from "../../_components/ui/tabs";
-import { getOrgAccessFlags, getPluginRoute, getRemoteMcpAppRoute, getYourConnectionsRoute } from "../../_lib/den-org";
+import { getLibraryPluginRoute, getRemoteMcpAppRoute, getYourConnectionsRoute } from "../../_lib/den-org";
 import { useOrgDashboard } from "../_providers/org-dashboard-provider";
 import {
   type LibraryConnectionItem,
@@ -176,7 +176,7 @@ function getGitHubOwnerAvatar(sourceRepositoryUrl: string | null): string | unde
   }
 }
 
-function LibraryRow({ item, isAdmin, isFocused, orgName, orgSlug }: { item: LibraryItem; isAdmin: boolean; isFocused: boolean; orgName: string; orgSlug: string | null }) {
+function LibraryRow({ item, isFocused, orgName, orgSlug }: { item: LibraryItem; isFocused: boolean; orgName: string; orgSlug: string | null }) {
   const sectionState = getSectionState(item);
   const rowKind = getRowKind(item);
   const source = getSource(item, orgName);
@@ -188,9 +188,11 @@ function LibraryRow({ item, isAdmin, isFocused, orgName, orgSlug }: { item: Libr
     ? `/dashboard/library/programs/${encodeURIComponent(item.id)}`
     : item.type === "app"
       ? getRemoteMcpAppRoute(orgSlug, item.id)
-      : item.type === "plugin" && isAdmin
-        ? getPluginRoute(orgSlug, item.id)
-        : undefined;
+      : item.type === "plugin"
+        ? getLibraryPluginRoute(orgSlug, item.id)
+        : item.type === "connection"
+          ? connectionHref
+          : undefined;
   const iconUrl = item.type === "connection" && item.provider === "google-workspace"
     ? "/integrations/google.svg"
     : item.type === "plugin" || item.type === "app"
@@ -297,7 +299,6 @@ function LibrarySection({
   state,
   items,
   expanded,
-  isAdmin,
   orgName,
   orgSlug,
   focusedKey,
@@ -306,7 +307,6 @@ function LibrarySection({
   state: LibrarySectionState;
   items: LibraryItem[];
   expanded: boolean;
-  isAdmin: boolean;
   orgName: string;
   orgSlug: string | null;
   focusedKey: string | null;
@@ -335,7 +335,6 @@ function LibrarySection({
             <LibraryRow
               key={`${item.type}-${item.id}`}
               item={item}
-              isAdmin={isAdmin}
               isFocused={focusedKey === `${item.type}-${item.id}`}
               orgName={orgName}
               orgSlug={orgSlug}
@@ -373,11 +372,6 @@ export function LibraryScreen() {
     needs_admin_setup: false,
     ready: false,
   });
-  const access = getOrgAccessFlags(
-    orgContext?.currentMember.role ?? "member",
-    orgContext?.currentMember.isOwner ?? false,
-    orgContext?.roles,
-  );
   const orgName = orgContext?.organization.name ?? "your organization";
   const requestedFocus = searchParams.get("focus");
 
@@ -586,7 +580,6 @@ export function LibraryScreen() {
                 state={state}
                 items={sectionItems[state]}
                 expanded={expandedSections[state]}
-                isAdmin={access.isAdmin}
                 orgName={orgName}
                 orgSlug={orgSlug}
                 focusedKey={focusedKey}
