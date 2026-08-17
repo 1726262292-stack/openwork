@@ -269,6 +269,7 @@ async function privateConnectMcpConfig(input: {
   const appHostAuthorization = await readOpenWorkConnectMcpAppHostAuthorization(
     input.serverConfig,
     input.workspaceId,
+    descriptor.url,
   );
   if (!appHostAuthorization) return null;
   return {

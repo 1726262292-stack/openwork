@@ -753,7 +753,7 @@ test.skipIf(!appSpecsEnabled || !localPlacement || !mysqlOpen)(title, { timeout:
       body: JSON.stringify({
         config: {
           type: "remote",
-          url: ${JSON.stringify(`${fixtureUrl}/mcp/agent`)},
+          url: ${JSON.stringify(`${den.ref.apiUrl}/mcp/agent`)},
           enabled: true,
           headers: { Authorization: ${JSON.stringify(`Bearer ${mcpToken}`)} },
           oauth: false,

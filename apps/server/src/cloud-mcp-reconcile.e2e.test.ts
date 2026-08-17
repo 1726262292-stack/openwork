@@ -361,15 +361,16 @@ describe("openwork-cloud MCP strict reconcile", () => {
     process.env.OPENWORK_DEV_MODE = "1";
     const root = await createRoot();
     const connectionId = "emc_01privateapphostcatalog";
-    const mock = startMockOpencode({
+    const mockOptions: MockOpencodeOptions = {
       appHostAuthorization: APP_HOST_AUTHORIZATION,
-      connectServers: [{
-        connectionId,
-        name: "Private fixture provider",
-        description: "Native MCP App fixture",
-        url: "https://api.openworklabs.com/mcp/agent/connections/emc_01privateapphostcatalog",
-      }],
-    });
+    };
+    const mock = startMockOpencode(mockOptions);
+    mockOptions.connectServers = [{
+      connectionId,
+      name: "Private fixture provider",
+      description: "Native MCP App fixture",
+      url: `http://127.0.0.1:${mock.server.port}/mcp/agent/connections/emc_01privateapphostcatalog`,
+    }];
     const openwork = await startOpenwork([workspace("ws_1", root, `http://127.0.0.1:${mock.server.port}`)]);
     await writeRuntimeOpencodeConfig(openwork.config, "ws_1", () => ({
       mcp: {

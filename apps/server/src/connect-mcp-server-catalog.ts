@@ -32,6 +32,11 @@ const indexSchema = z.object({
   })).max(100),
 });
 
+const appHostCredentialSchema = z.object({
+  authorization: z.string(),
+  origin: z.string().url(),
+});
+
 export type OpenWorkConnectMcpServerIndex = z.infer<typeof indexSchema>;
 
 const emptyIndex = (): OpenWorkConnectMcpServerIndex => ({
@@ -53,15 +58,17 @@ const appHostCatalogStore = createWorkspaceKvStore<OpenWorkConnectMcpServerIndex
   serialize: (value) => JSON.stringify(value),
 });
 
-const appHostAuthorizationStore = createWorkspaceKvStore<string>({
+type OpenWorkConnectMcpAppHostCredential = z.infer<typeof appHostCredentialSchema>;
+
+const appHostAuthorizationStore = createWorkspaceKvStore<OpenWorkConnectMcpAppHostCredential | null>({
   tableName: "connect_mcp_app_host_authorizations",
   valueColumn: "authorization_json",
   parse: (json) => {
     try {
-      const value: unknown = JSON.parse(json);
-      return typeof value === "string" ? value : "";
+      const parsed = appHostCredentialSchema.safeParse(JSON.parse(json));
+      return parsed.success ? parsed.data : null;
     } catch {
-      return "";
+      return null;
     }
   },
   serialize: (value) => JSON.stringify(value),
@@ -71,6 +78,16 @@ function privateAppHostAuthorization(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const normalized = value.trim();
   return normalized.length <= 8_192 && /^Bearer\s+[^\s,]+$/i.test(normalized) ? normalized : null;
+}
+
+function endpointOrigin(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  try {
+    const endpoint = new URL(value);
+    return endpoint.username || endpoint.password ? null : endpoint.origin;
+  } catch {
+    return null;
+  }
 }
 
 function isLoopbackHostname(hostname: string): boolean {
@@ -120,16 +137,27 @@ export async function writeOpenWorkConnectMcpAppHostCatalog(
 export async function readOpenWorkConnectMcpAppHostAuthorization(
   config: ServerConfig,
   workspaceId: string,
+  endpointUrl: string,
 ): Promise<string | null> {
-  return privateAppHostAuthorization(await appHostAuthorizationStore.get(config, workspaceId));
+  const credential = await appHostAuthorizationStore.get(config, workspaceId);
+  const expectedOrigin = endpointOrigin(endpointUrl);
+  if (!credential || !expectedOrigin || credential.origin !== expectedOrigin) return null;
+  return privateAppHostAuthorization(credential.authorization);
 }
 
 export async function writeOpenWorkConnectMcpAppHostAuthorization(
   config: ServerConfig,
   workspaceId: string,
   value: string,
+  sourceUrl: string,
 ): Promise<void> {
-  await appHostAuthorizationStore.set(config, workspaceId, privateAppHostAuthorization(value) ?? "");
+  const authorization = privateAppHostAuthorization(value);
+  const origin = endpointOrigin(sourceUrl);
+  await appHostAuthorizationStore.set(
+    config,
+    workspaceId,
+    authorization && origin ? { authorization, origin } : null,
+  );
 }
 
 export async function findOpenWorkConnectMcpAppHostServer(
@@ -164,7 +192,10 @@ export async function readOpenWorkConnectMcpServerIndex(
   });
   if (text === null) return null;
   const parsed = indexSchema.safeParse(JSON.parse(text));
-  return parsed.success ? parsed.data : null;
+  if (!parsed.success) return null;
+  const cloudOrigin = endpointOrigin(cloudMcp.url);
+  if (!cloudOrigin || parsed.data.servers.some((server) => endpointOrigin(server.url) !== cloudOrigin)) return null;
+  return parsed.data;
 }
 
 /**
@@ -185,10 +216,15 @@ export async function reconcileOpenWorkConnectMcpServers(input: {
       input.config,
       input.workspace.id,
       input.appHostAuthorization,
+      String(input.cloudMcp.url),
     );
   }
   const appHostAuthorization = trustedCloudEndpoint
-    ? await readOpenWorkConnectMcpAppHostAuthorization(input.config, input.workspace.id)
+    ? await readOpenWorkConnectMcpAppHostAuthorization(
+      input.config,
+      input.workspace.id,
+      String(input.cloudMcp.url),
+    )
     : null;
   const index = trustedCloudEndpoint && appHostAuthorization
     ? await readOpenWorkConnectMcpServerIndex(input.cloudMcp, appHostAuthorization, input.fetcher).catch(() => null)

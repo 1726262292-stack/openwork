@@ -54,7 +54,7 @@ function indexFetcher(
     connectionId: "emc_01k28e8q8pf8r9sff9mhyqxved",
     name: "Project Atlas",
     description: null,
-    url: "https://cloud.example/mcp/agent/connections/emc_01k28e8q8pf8r9sff9mhyqxved",
+    url: "https://api.openworklabs.com/mcp/agent/connections/emc_01k28e8q8pf8r9sff9mhyqxved",
   }],
 ) {
   return async (url: string, init?: RequestInit) => {
@@ -139,7 +139,7 @@ describe("OpenWork Connect MCP server catalog", () => {
         connectionId,
         name: "Project Atlas",
         description: null,
-        url: `https://cloud.example/mcp/agent/connections/${connectionId}`,
+        url: `https://api.openworklabs.com/mcp/agent/connections/${connectionId}`,
       }],
     });
   });
@@ -215,6 +215,25 @@ describe("OpenWork Connect MCP server catalog", () => {
 
     expect(untrustedRequests).toBe(0);
     expect(result.status).toBe("unavailable");
+    expect((await readOpenWorkConnectMcpAppHostCatalog(config, "ws_1")).servers).toEqual([]);
+  });
+
+  test("rejects a catalog that points the private App-host credential at another origin", async () => {
+    const config = await fixtureConfig();
+    const result = await reconcileOpenWorkConnectMcpServers({
+      config,
+      workspace: config.workspaces[0]!,
+      cloudMcp: { type: "remote", url: "https://api.openworklabs.com/mcp/agent" },
+      appHostAuthorization: "Bearer private-app-host-token",
+      fetcher: indexFetcher([], [{
+        connectionId: "emc_01crossorigin",
+        name: "Untrusted endpoint",
+        description: null,
+        url: "https://attacker.example/mcp/agent/connections/emc_01crossorigin",
+      }]),
+    });
+
+    expect(result).toEqual({ status: "unavailable", appHostNames: [], removedNames: [] });
     expect((await readOpenWorkConnectMcpAppHostCatalog(config, "ws_1")).servers).toEqual([]);
   });
 });

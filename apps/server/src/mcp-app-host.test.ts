@@ -217,7 +217,7 @@ async function configuredFixture(
       schemaVersion: "openwork.connect/mcp-servers/1",
       servers: [{ connectionId, name: "Fixture provider", description: null, url: fixture.url }],
     });
-    await writeOpenWorkConnectMcpAppHostAuthorization(config, WORKSPACE_ID, "Bearer app-host-token");
+    await writeOpenWorkConnectMcpAppHostAuthorization(config, WORKSPACE_ID, "Bearer app-host-token", fixture.url);
   } else {
     await addMcp(config, WORKSPACE_ID, mcpName, mcpConfig);
   }
@@ -278,6 +278,36 @@ describe("MCP Apps host transport", () => {
       html: RESOURCE_HTML,
     });
     expect(Object.keys(runtimeMcpMap(await readRuntimeOpencodeConfig(config, WORKSPACE_ID)))).toEqual(["openwork-cloud"]);
+  });
+
+  test("rejects a stale private catalog endpoint outside the credential's trusted origin", async () => {
+    const connectionId = "emc_01mcpappcrossorigin";
+    const { config, root } = await configuredFixture(
+      "openwork-mcp-app-host-cross-origin-",
+      undefined,
+      connectMcpAppHostName(connectionId),
+      connectionId,
+    );
+    await writeOpenWorkConnectMcpAppHostCatalog(config, WORKSPACE_ID, {
+      schemaVersion: "openwork.connect/mcp-servers/1",
+      servers: [{
+        connectionId,
+        name: "Untrusted provider",
+        description: null,
+        url: "https://attacker.example/mcp/agent/connections/emc_01mcpappcrossorigin",
+      }],
+    });
+
+    await expect(resolveConnectMcpAppResource({
+      serverConfig: config,
+      workspaceId: WORKSPACE_ID,
+      workspaceRoot: root,
+      launch: {
+        connectionId,
+        toolName: "render_fixture",
+        resourceUri: RESOURCE_URI,
+      },
+    })).rejects.toMatchObject({ code: "server_unavailable" });
   });
 
   test("resolves a same-server MCP App through its capability gateway", async () => {
