@@ -1,18 +1,24 @@
-# Native MCP Apps
+# MCP Apps
 
-OpenWork supports MCP Apps delivered by standard MCP servers connected through
-OpenWork Connect. A server advertises the stable
-`io.modelcontextprotocol/ui` extension, a tool binds an exact UI resource with
-`_meta.ui.resourceUri`, the host reads that resource with `resources/read`, and
-tool inputs and results move over the standard MCP Apps bridge.
+OpenWork delivers MCP Apps over the stable `io.modelcontextprotocol/ui`
+extension: a tool binds an exact UI resource with `_meta.ui.resourceUri`, the
+host reads that resource with `resources/read`, and tool inputs and results
+move over the standard MCP Apps bridge. Two distinct units of value share that
+protocol surface and nothing else:
 
-This unit of value does **not** include installing a standalone App from an
-HTML URL. URL-imported MCP Apps are deferred future work with a separate
-product, security, lifecycle, and rollout contract.
+1. **Native MCP Apps** — apps advertised by regular MCP servers connected
+   through OpenWork Connect. This document describes them.
+2. **Plugin-installed URL MCP Apps** — self-contained HTML apps installed by
+   URL into an OpenWork Connect Plugin and hosted by the central
+   `openwork-cloud` server. They have their own product, security, lifecycle,
+   and rollout contract, documented in
+   [plugin-installed-apps.md](plugin-installed-apps.md), and their own
+   default-off gates (`DEN_PLUGIN_MCP_APPS_ENABLED` + the `pluginMcpApps`
+   organization capability) that never overlap with the native gates below.
 
 Programs remain executable `script` config objects. A Program's generated
 views can be MCP resources, but that does not turn Program execution into
-resource loading or a standalone URL-App installation path.
+resource loading or a URL-App installation path.
 
 ## Standard MCP server path
 
@@ -89,30 +95,17 @@ reconciliation, Desktop startup, engine refresh, or an explicit Cloud MCP
 refresh. Forwarding downstream list-change notifications remains follow-up
 interoperability work.
 
-## Deferred: standalone URL-imported Apps
+## Plugin-installed URL Apps are a separate unit
 
-Installing a self-contained HTML App from a URL is intentionally outside this
-change. In the current product:
-
-- Den Web has no Add MCP App button, URL form, installed-App detail page, or
-  URL-App lifecycle entry point;
-- the central MCP server does not register `import_remote_mcp_app` or any
-  standalone-App launch tool;
-- capability search returns no standalone URL-App matches;
-- model and App-host catalogs contain no standalone URL-App tools;
-- no `ui://openwork/library-apps/...` resources are registered;
-- member server indexes and launch metadata contain no standalone URL Apps;
-- REST calls under `/v1/remote-mcp-apps` are not registered and are therefore
-  unavailable.
-
-Existing database rows and cached revisions from earlier development remain
-stored non-destructively. They are inactive and unreachable through the UI,
-MCP catalogs, capability search, resources, launch metadata, and HTTP API. This
-change performs no deletion and introduces no destructive migration.
-
-The retained storage and validation implementation is not a supported runtime
-surface. A future standalone URL-App unit of value must deliberately restore
-its own API, UI, security review, lifecycle, testing, and rollout contract.
+Installing a self-contained HTML App from a URL is not part of the native
+unit. It ships separately as **plugin-installed URL MCP Apps** — see
+[plugin-installed-apps.md](plugin-installed-apps.md) for the product model,
+authorization, lifecycle, standards surface, and rollout contract. With that
+unit's own gates off, its entire surface is absent (no installation UI or
+mutation API, no capability matches, no launch tools, no
+`ui://openwork/library-apps/...` resources) while stored records and cached
+revisions remain retained non-destructively. There is never a global
+"standalone Apps" library and there is no `import_remote_mcp_app` model tool.
 
 ## Host security and compatibility
 

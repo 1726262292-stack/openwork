@@ -539,7 +539,9 @@ test.skipIf(!appSpecsEnabled || !localPlacement || !mysqlOpen)(title, { timeout:
     clientInfo: { name: "remote-mcp-app-eval", version: "1.0.0" },
   });
   expect(initialized.protocolVersion).toBeTruthy();
-  expect(String(initialized.instructions ?? "")).toContain("URL-imported Apps are deferred");
+  // This eval leaves the plugin-installed App rollout off, so the agent is
+  // told that surface is unavailable for the organization.
+  expect(String(initialized.instructions ?? "")).toContain("Plugin-installed URL Apps are not enabled");
   const initializedCapabilities = requireRecord(initialized.capabilities, "agent capabilities");
   expect(requireRecord(initializedCapabilities.tools, "agent tool capabilities").listChanged).toBe(true);
   expect(requireRecord(initializedCapabilities.resources, "agent resource capabilities").listChanged).toBe(true);
@@ -548,10 +550,12 @@ test.skipIf(!appSpecsEnabled || !localPlacement || !mysqlOpen)(title, { timeout:
   const centralModelToolNames = toolsFrom(centralModelTools).map((tool) => String(tool.name ?? ""));
   expect(centralModelToolNames).not.toContain("import_remote_mcp_app");
   expect(centralModelToolNames.some((name) => name.startsWith("launch_remote_app_"))).toBe(false);
+  expect(centralModelToolNames.some((name) => name.startsWith("open_plugin_app_"))).toBe(false);
   const centralAppHostTools = await agentRpc(den.ref.apiUrl, mcpToken, "tools/list", {}, "/mcp/agent", appHostHeaders);
   const centralAppHostToolNames = toolsFrom(centralAppHostTools).map((tool) => String(tool.name ?? ""));
   expect(centralAppHostToolNames).not.toContain("import_remote_mcp_app");
   expect(centralAppHostToolNames.some((name) => name.startsWith("launch_remote_app_"))).toBe(false);
+  expect(centralAppHostToolNames.some((name) => name.startsWith("open_plugin_app_"))).toBe(false);
 
   const unavailableImport = await agentRpc(den.ref.apiUrl, mcpToken, "tools/call", {
     name: "import_remote_mcp_app",
@@ -565,7 +569,10 @@ test.skipIf(!appSpecsEnabled || !localPlacement || !mysqlOpen)(title, { timeout:
       authorization: `Bearer ${den.admin.token}`,
       "x-openwork-org-id": organizationId,
     },
-    body: JSON.stringify({ sourceUrl: "https://example.test/project-atlas.html" }),
+    body: JSON.stringify({
+      sourceUrl: "https://example.test/project-atlas.html",
+      pluginId: "plg_01k28e8q8pf8r9sff9mhyqxved",
+    }),
   });
   expect(unavailableImportApi.response.status).toBe(404);
   const unavailablePreviewApi = await denFetch(den.admin, "/v1/remote-mcp-apps/preview", {
@@ -613,6 +620,7 @@ test.skipIf(!appSpecsEnabled || !localPlacement || !mysqlOpen)(title, { timeout:
     : [];
   expect(standaloneMatches.some((match) => String(match.name ?? "").startsWith("remote_app:"))).toBe(false);
   expect(JSON.stringify(standaloneMatches)).not.toContain("ui://openwork/library-apps/");
+  expect(JSON.stringify(standaloneMatches)).not.toContain("open_plugin_app_");
 
   const connectSearch = await agentRpc(den.ref.apiUrl, mcpToken, "tools/call", {
     name: "search_capabilities",
@@ -999,6 +1007,7 @@ test.skipIf(!appSpecsEnabled || !localPlacement || !mysqlOpen)(title, { timeout:
   const flagOffTools = await agentRpc(den.ref.apiUrl, mcpToken, "tools/list", {});
   expect(toolsFrom(flagOffTools).some((tool) => tool.name === "import_remote_mcp_app")).toBe(false);
   expect(toolsFrom(flagOffTools).some((tool) => String(tool.name ?? "").startsWith("launch_remote_app_"))).toBe(false);
+  expect(toolsFrom(flagOffTools).some((tool) => String(tool.name ?? "").startsWith("open_plugin_app_"))).toBe(false);
   const flagOffSearch = await agentRpc(den.ref.apiUrl, mcpToken, "tools/call", {
     name: "search_capabilities",
     arguments: { query: "open Project Atlas", type: "mcp", limit: 5 },
