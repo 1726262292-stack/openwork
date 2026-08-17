@@ -1,6 +1,6 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { expect, onTestFinished } from "vitest";
-import { clickButton, control, createAndSelectWorkspace, createOrgConnection, denFetch, evalIn, waitFor } from "@openwork/behaviors";
+import { clickButton, createAndSelectWorkspace, createOrgConnection, denFetch, evalIn, waitFor } from "@openwork/behaviors";
 import { connect, debuggerUrlFor, evaluate, listTargets, navigate } from "@openwork/cdp";
 import { screenshot, validate } from "@openwork/fraimz";
 import { chrome, desktop } from "@openwork/hosts";
@@ -809,8 +809,9 @@ test.skipIf(!appSpecsEnabled || !localPlacement || !mysqlOpen)(title, { timeout:
     if (patched !== "ok") return patched;
     const reloaded = await request("/workspace/" + encodeURIComponent(workspaceId) + "/engine/reload", { method: "POST" });
     if (reloaded !== "ok" && !reloaded.includes("opencode_reload_timeout")) return reloaded;
-    const reconciled = await request("/workspace/" + encodeURIComponent(workspaceId) + "/mcp/openwork-cloud/reconcile", {
+    const reconcileResponse = await fetch("http://127.0.0.1:" + port + "/workspace/" + encodeURIComponent(workspaceId) + "/mcp/openwork-cloud/reconcile", {
       method: "POST",
+      headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" },
       body: JSON.stringify({
         config: {
           type: "remote",
@@ -824,7 +825,11 @@ test.skipIf(!appSpecsEnabled || !localPlacement || !mysqlOpen)(title, { timeout:
         trigger: "exact-head-tape",
       }),
     });
-    if (reconciled !== "ok") return reconciled;
+    const reconcileText = await reconcileResponse.text();
+    if (!reconcileResponse.ok) return "Cloud MCP reconcile failed: " + reconcileResponse.status + " " + reconcileText.slice(0, 1_000);
+    let reconcileHealth = {};
+    try { reconcileHealth = JSON.parse(reconcileText); } catch { return "Cloud MCP reconcile returned invalid JSON: " + reconcileText.slice(0, 1_000); }
+    if (reconcileHealth?.phase !== "ready") return "Cloud MCP reconcile was not ready: " + JSON.stringify(reconcileHealth).slice(0, 2_000);
     const listedResponse = await fetch("http://127.0.0.1:" + port + "/workspace/" + encodeURIComponent(workspaceId) + "/mcp", {
       headers: { Authorization: "Bearer " + token },
     });
@@ -874,7 +879,21 @@ test.skipIf(!appSpecsEnabled || !localPlacement || !mysqlOpen)(title, { timeout:
     timeoutMs: 60_000,
     label: "desktop new task ready",
   });
-  await control(desktopApp, "session.create_task");
+  const createdTask = await evalIn(desktopApp, `(async () => {
+    const deadline = Date.now() + 60_000;
+    let last = null;
+    while (Date.now() < deadline) {
+      last = await window.__openworkControl.execute("session.create_task", null);
+      if (last?.ok === true) return last;
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
+    }
+    return {
+      ...last,
+      hash: location.hash,
+      text: (document.body?.innerText ?? "").replace(/\\s+/g, " ").slice(0, 2_000),
+    };
+  })()`, { awaitPromise: true, timeoutMs: 70_000 });
+  expect(createdTask, JSON.stringify(createdTask)).toMatchObject({ ok: true });
   await waitFor(desktopApp, `Boolean(document.querySelector('[contenteditable="true"][data-lexical-editor="true"]'))`, {
     timeoutMs: 30_000,
     label: "desktop composer ready",
