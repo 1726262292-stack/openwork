@@ -422,6 +422,7 @@ async function agentRpc(
   method: string,
   params: Record<string, unknown>,
   endpoint = "/mcp/agent",
+  extraHeaders: Record<string, string> = {},
 ) {
   const id = ++agentRequestId;
   const response = await fetch(`${apiUrl}${endpoint}`, {
@@ -430,6 +431,7 @@ async function agentRpc(
       authorization: `Bearer ${token}`,
       accept: "application/json, text/event-stream",
       "content-type": "application/json",
+      ...extraHeaders,
     },
     body: JSON.stringify({ jsonrpc: "2.0", id, method, params }),
     signal: AbortSignal.timeout(90_000),
@@ -609,7 +611,7 @@ test.skipIf(!appSpecsEnabled || !localPlacement || !mysqlOpen)(title, { timeout:
   const enabled = await denFetch(den.admin, `/v1/admin/organizations/${organizationId}/capabilities`, {
     method: "PUT",
     headers: { authorization: `Bearer ${den.admin.token}` },
-    body: JSON.stringify({ capabilities: { codemodeScripts: true } }),
+    body: JSON.stringify({ capabilities: { codemodeScripts: true, remoteMcpApps: true } }),
   });
   expect(enabled.response.ok, enabled.text).toBe(true);
 
@@ -642,7 +644,12 @@ test.skipIf(!appSpecsEnabled || !localPlacement || !mysqlOpen)(title, { timeout:
     body: JSON.stringify({ scopes: ["mcp:read", "mcp:write"] }),
   });
   expect(tokenResult.response.ok, tokenResult.text).toBe(true);
-  const mcpToken = String(requireRecord(tokenResult.body, "MCP token response").token ?? "");
+  const mcpTokenBody = requireRecord(tokenResult.body, "MCP token response");
+  const mcpToken = String(mcpTokenBody.token ?? "");
+  const appHostMcpToken = String(mcpTokenBody.appHostToken ?? "");
+  expect(appHostMcpToken).toMatch(/^ow_mcp_/);
+  expect(appHostMcpToken).not.toBe(mcpToken);
+  expect(mcpTokenBody.appHostExpiresAt).toBe(mcpTokenBody.expiresAt);
   const connectedEndpoint = `/mcp/agent/connections/${encodeURIComponent(connection.id)}`;
   agentMcpUpstream = {
     token: mcpToken,
@@ -872,6 +879,73 @@ test.skipIf(!appSpecsEnabled || !localPlacement || !mysqlOpen)(title, { timeout:
   expect(JSON.stringify(proxied.structuredContent)).toContain("Atlas migration");
   expect(requireRecord(proxied._meta, "proxied metadata").source).toBe("project-atlas-standard-mcp");
 
+  const privateHostHeaders = { "x-openwork-mcp-client-capabilities": "mcp-app-host-v1" };
+  const privateToolsResult = await agentRpc(
+    den.ref.apiUrl,
+    appHostMcpToken,
+    "tools/list",
+    {},
+    connectedEndpoint,
+    privateHostHeaders,
+  );
+  const privateTools = toolsFrom(privateToolsResult);
+  expect(privateTools.map((tool) => tool.name).sort()).toEqual([
+    "execute_capability",
+    "open_project_atlas",
+    "search_capabilities",
+  ]);
+  const privateResources = await agentRpc(
+    den.ref.apiUrl,
+    appHostMcpToken,
+    "resources/list",
+    {},
+    connectedEndpoint,
+    privateHostHeaders,
+  );
+  expect(privateResources.resources).toEqual([]);
+  const privateRead = await agentRpc(
+    den.ref.apiUrl,
+    appHostMcpToken,
+    "resources/read",
+    { uri: connectedResourceUri },
+    connectedEndpoint,
+    privateHostHeaders,
+  );
+  expect(String(contentsFrom(privateRead)[0]?.text ?? "")).toContain("Portable revision Connect 1.0.0");
+  const privateSearch = await agentRpc(
+    den.ref.apiUrl,
+    appHostMcpToken,
+    "tools/call",
+    { name: "search_capabilities", arguments: { query: "search projects", limit: 5 } },
+    connectedEndpoint,
+    privateHostHeaders,
+  );
+  const privateMatches = Array.isArray(requireRecord(privateSearch.structuredContent, "private search").matches)
+    ? (requireRecord(privateSearch.structuredContent, "private search").matches as unknown[]).filter(isRecord)
+    : [];
+  const privateMatch = requireRecord(
+    privateMatches.find((match) => match.name === "search_projects"),
+    "private same-server capability",
+  );
+  const privateRun = await agentRpc(
+    den.ref.apiUrl,
+    appHostMcpToken,
+    "tools/call",
+    {
+      name: "execute_capability",
+      arguments: {
+        name: privateMatch.name,
+        schemaDigest: privateMatch.schemaDigest,
+        body: { query: "migration" },
+      },
+    },
+    connectedEndpoint,
+    privateHostHeaders,
+  );
+  expect(privateRun.isError, JSON.stringify(privateRun)).not.toBe(true);
+  expect(JSON.stringify(privateRun.structuredContent)).toContain("Atlas migration");
+  expect(standardMcpCalls).toBe(5);
+
   await using desktopApp = await desktop({
     name: "remote-mcp-apps",
     mode: process.env.OPENWORK_EVAL_CDP_URL?.trim() ? "attach" : "spawn",
@@ -1039,7 +1113,7 @@ test.skipIf(!appSpecsEnabled || !localPlacement || !mysqlOpen)(title, { timeout:
   expect(mountedProjectAtlas, `${desktopTranscript}\nPersisted tool: ${persistedProjectAtlasTool}`).toBe(true);
   expect(desktopTranscript).not.toContain("MCP_APP_INITIALIZE_TIMEOUT");
   expect(desktopTranscript).not.toContain("Interactive view unavailable");
-  expect(standardMcpCalls).toBe(5);
+  expect(standardMcpCalls).toBe(6);
   const desktopShot = await screenshot(desktopApp);
   const desktopExpectations = [
     "The conversation visibly contains the connected Project Atlas MCP App",
@@ -1094,7 +1168,7 @@ test.skipIf(!appSpecsEnabled || !localPlacement || !mysqlOpen)(title, { timeout:
   expect(approvalCount).toBe(2);
   expect(installedTranscript).not.toContain("MCP_APP_INITIALIZE_TIMEOUT");
   expect(installedTranscript).not.toContain("Interactive view unavailable");
-  expect(standardMcpCalls).toBe(7);
+  expect(standardMcpCalls).toBe(8);
   const installedShot = await screenshot(desktopApp);
   const installedExpectations = [
     "The conversation visibly contains the installed Project Atlas MCP App",
@@ -1204,6 +1278,6 @@ test.skipIf(!appSpecsEnabled || !localPlacement || !mysqlOpen)(title, { timeout:
   evidence.fact(
     "Externally authored MCP Apps use standard same-server tools while Programs compose OpenWork Connect",
     `Preserved native Project Atlas server identity, tools, exact UI metadata, resources, structuredContent, and _meta through connection ${connection.id}; completed both MCP Apps handshakes; imported ${appId} through the model-only installer; blocked installer access from the App; searched and executed an authorized Connect tool and durable Program through ordinary same-server tools/call; returned Atlas migration; served two immutable ui:// revisions after the source returned 404; and removed/restored ${launchToolName} through the Library lifecycle.`,
-    standardMcpCalls === 7 && mountedProjectAtlas && mountedProgramApp && approvalCount === 2,
+    standardMcpCalls === 8 && mountedProjectAtlas && mountedProgramApp && approvalCount === 2,
   );
 });

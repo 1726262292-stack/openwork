@@ -16,6 +16,7 @@ import { getMcpResourceContext, verifyMcpRequest } from "./auth.js"
 import { getCatalog, protectedResourceMetadata } from "./index.js"
 import { preflightMcpJsonRpcRequest } from "./json-rpc-preflight.js"
 import {
+  compareCapabilityMatches,
   EXECUTE_CAPABILITY_TOOL_NAME,
   SEARCH_CAPABILITIES_TOOL_NAME,
   type CapabilityMatch,
@@ -122,6 +123,7 @@ const capabilityMatchOutputSchema = z.object({
   schemaDigest: z.string().optional(),
   invocation: z.object({ argumentsField: z.literal("body") }).optional(),
   kind: z.string().optional(),
+  mcpApp: z.object({ resourceUri: z.string() }).optional(),
   status: z.string().optional(),
   hint: z.string().optional(),
   connectionStatus: connectionStatusOutputSchema.optional(),
@@ -180,6 +182,7 @@ export const AGENT_MCP_INSTRUCTIONS = [
   "MCP App UI is authored and bundled outside OpenWork. Agents do not author, generate, compile, revise, activate, or publish UI source in OpenWork. Active imported apps in the member's Library appear as individually named launch tools backed by immutable ui:// resources.",
   "Use import_remote_mcp_app only after the user has selected an existing Plugin and approved installation of third-party executable content. Supply only the Plugin id and a public HTTPS URL for one self-contained index.html; never send inline HTML, React or JavaScript source, or build-project contents.",
   "An imported app receives the exact search_capabilities and execute_capability tool names in launch structuredContent. Through the standard same-server MCP Apps bridge it can search the member's authorized Connect tools and Programs, then execute an exact returned capability. The host retains workspace policy, user approval, and result-size enforcement; credentials never enter the app.",
+  "Standard MCP Apps supplied by connected MCP servers are discovered through search_capabilities. A match with kind mcp_app must be executed through execute_capability like any other exact match; compatible OpenWork hosts preserve the current _meta.ui.resourceUri and render it without a generated direct-tool name.",
   "A Program is an immutable-versioned Code Mode Script config object inside an OpenWork Connect Plugin. Organizations with Code Mode scripts enabled receive execute_capability_script, the backwards-compatible render_dynamic_artifact MCP App tool, and a constant-size Program catalog: search_programs, select_program, and clear_program_selection.",
   "To use a Program, search by Library metadata, select one exact accessible Program, then refresh the tool catalog. The selected context exposes run_selected_program and a standard renderer for its retained Artifact data; Program execution remains server-mediated and returns structuredContent.",
   "When a member asks to keep a successful Code Mode result, save it as a Program inside the existing OpenWork Connect Plugin they name by passing that pluginId to the Code Mode save operation. Omit pluginId only for a private Program in the member's My Programs Plugin. A Program inherits discovery and sharing from its Plugin and any Marketplace containing that Plugin; do not create a separate Program package or marketplace entry.",
@@ -193,6 +196,7 @@ export const AGENT_MCP_INSTRUCTIONS = [
   "Do not invent OAuth-client, credential, or local-extension setup. Organization connections are managed in the OpenWork Cloud dashboard / Settings > Connect. When a returned connection or marketplace readiness state requires administrator setup or member sign-in, relay that exact action.",
   "A successful search_capabilities call proves this OpenWork Cloud MCP connection is authorized. Never tell the user to reconnect OpenWork Cloud because a downstream connector failed.",
   "External MCP matches include the provider-advertised argumentsSchema, schemaDigest, and invocation.argumentsField. Put an object matching argumentsSchema in execute_capability.body and copy schemaDigest into execute_capability.schemaDigest.",
+  "Do not import, convert, or browse for a standalone HTML URL when a connected capability already appears with kind mcp_app. Execute that exact match and let the host resolve its originating ui:// resource.",
   "OpenWork always attempts the downstream provider call when local schema checks find a mismatch. schemaGuidance is advisory and appears alongside the provider result: if the provider succeeded, accept that result and do not retry solely because of the warning; if it failed, use the warning to correct the arguments or search again.",
   "If the provider returns invalid_capability_arguments, correct the listed issues and retry once with changed arguments; never retry the same arguments unchanged. If it returns unknown_capability, call search_capabilities again before retrying.",
   "When a match has kind connection_status, name connectionStatus.connectionName and relay connectionStatus.action exactly. Distinguish the member's Your Connections page, the organization Connections dashboard, and the provider's own admin console.",
@@ -439,6 +443,10 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
       generatedArtifactViewsEnabled: env.generatedArtifactViewsEnabled,
       organizationMetadata,
       mcpConnectionsGatingEnabled: env.mcpConnectionsGatingEnabled,
+      // This metadata is an opaque binding on an already authorized bounded
+      // search/execute result. Resolving the provider tool or resource still
+      // requires the separately scoped App-host credential below.
+      mcpAppsEnabled: remoteAppsEnabled,
     })
     const { externalMcpConnectionsEnabled } = capabilityContext
     let remoteSkills: RemoteSkillDescriptor[] = []
@@ -548,7 +556,7 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
           "Search covers native Google Workspace capabilities (Gmail, Calendar, Drive, Gmail drafts), org-connected external MCPs, and namespaced OpenWork Admin tools for allowlisted platform admins.",
           "When Code Mode is enabled, accessible Programs appear as marketplace matches with kind script and execute through execute_capability like every other exact search result.",
           "Try 2-4 keyword variants before deciding a capability is unavailable.",
-          "Native API matches include a connector-namespaced name, pathParams, queryParams, hasBody, and bodySchema. External MCP matches include argumentsSchema, schemaDigest, and invocation.argumentsField.",
+          "Native API matches include a connector-namespaced name, pathParams, queryParams, hasBody, and bodySchema. External MCP matches include argumentsSchema, schemaDigest, and invocation.argumentsField. A match with kind mcp_app is a standard MCP App launch capability from a connected MCP server; execute it normally and the OpenWork host will render its advertised ui:// resource.",
           "Built-in and marketplace skill matches return SKILL.md content when executed.",
         ].join(" "),
         annotations: SEARCH_CAPABILITIES_ANNOTATIONS,
@@ -563,7 +571,8 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
       async ({ query, limit, type }) => {
         const boundedLimit = limit ?? 5
         const result = await searchCapabilityRegistry(capabilityContext, { query, limit: boundedLimit, type })
-        return capabilitySearchToolResult(result.matches, result.externalCoverageHint)
+        const matches = result.matches.sort(compareCapabilityMatches).slice(0, boundedLimit)
+        return capabilitySearchToolResult(matches, result.externalCoverageHint)
       },
     )
 
@@ -575,6 +584,7 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
           "Call a capability found via search_capabilities, by its exact name.",
           "Pass path/query/body only as described by that match's pathParams/queryParams/hasBody.",
           "For external MCP capabilities, provider-advertised schema mismatches are returned as advisory schemaGuidance alongside the provider result; they do not block the downstream call.",
+          "When the exact capability is a standard MCP App launch tool, this call preserves its originating tool and ui:// binding so compatible OpenWork hosts render it without requiring a generated direct-tool name.",
           "For skill capabilities listed in the remote skill catalog, this returns their authorized SKILL.md content.",
           "Returns unknown_capability if name doesn't match a current capability — call search_capabilities again.",
         ].join(" "),
@@ -591,7 +601,9 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
       async ({ name, schemaDigest, path, query, body }, extra) => {
         const result = await executeCapabilityWithBudget({
           capability: name,
-          invoke: () => executeCapability(capabilityContext, { name, schemaDigest, path, query, body }),
+          invoke: async (): Promise<ExecuteCapabilityToolResult> => (
+            executeCapability(capabilityContext, { name, schemaDigest, path, query, body })
+          ),
         })
         const catalogOperation = catalog.find((operation) => operation.name === name)
         if (!result.isError && catalogOperation && catalogOperationChangesRemoteMcpAppDiscovery(catalogOperation)) {
