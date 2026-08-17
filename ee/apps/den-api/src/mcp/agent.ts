@@ -9,6 +9,7 @@ import type { Hono } from "hono"
 import type { RequestIdVariables } from "hono/request-id"
 import { z } from "zod"
 import { codemodeScriptsEnabled } from "../capability-sources/codemode-rollout.js"
+import { pluginInstalledMcpAppsEnabled } from "../capability-sources/plugin-mcp-apps-rollout.js"
 import { remoteMcpAppsEnabled } from "../capability-sources/remote-mcp-apps-rollout.js"
 import { publicRoute, tokenRoute } from "../middleware/index.js"
 import { db } from "../db.js"
@@ -23,7 +24,15 @@ import {
   type CapabilityMatch,
 } from "./search.js"
 import { resolveMcpMemberIdentity } from "./external-capabilities.js"
-import { executeMarketplaceCapability, listAccessibleMarketplaceSkillDescriptors, parseMarketplaceCapabilityName, type RemoteSkillDescriptor } from "./marketplace-capabilities.js"
+import {
+  executeMarketplaceCapability,
+  listAccessibleMarketplaceSkillDescriptors,
+  listAccessiblePluginInstalledMcpApps,
+  parseMarketplaceCapabilityName,
+  type RemoteSkillDescriptor,
+} from "./marketplace-capabilities.js"
+import { registerPluginInstalledMcpApps } from "./plugin-installed-mcp-apps.js"
+import { loadRemoteMcpAppRevisionContent } from "../remote-mcp-apps.js"
 import { resolvePublicOrigin } from "../capability-sources/generic-oauth.js"
 import { automationService } from "../automations/service.js"
 import { AGENT_AUTOMATION_INDEX_LIMIT, registerAgentAutomationResources } from "./automation-index.js"
@@ -179,10 +188,18 @@ const programRunOutputSchema = z.object({
   resultDigest: z.string().nullable(),
 })
 
-export const AGENT_MCP_INSTRUCTIONS = [
-  "This OpenWork Cloud MCP server uses standard MCP tools, resources, structured results, and list-changed notifications.",
-  "Standard MCP Apps supplied by connected MCP servers are discovered through search_capabilities. A match with kind mcp_app must be executed through execute_capability like any other exact match; compatible OpenWork hosts preserve the current _meta.ui.resourceUri and render it without a generated direct-tool name.",
-  "Standalone URL-imported Apps are deferred future work and are not part of this release. Do not offer, search for, import, or launch them.",
+export function buildAgentMcpInstructions(options: { installedAppsEnabled: boolean }): string {
+  return [
+    "This OpenWork Cloud MCP server uses standard MCP tools, resources, structured results, and list-changed notifications.",
+    "Standard MCP Apps supplied by connected MCP servers are discovered through search_capabilities. A match with kind mcp_app must be executed through execute_capability like any other exact match; compatible OpenWork hosts preserve the current _meta.ui.resourceUri and render it without a generated direct-tool name.",
+    options.installedAppsEnabled
+      ? "MCP Apps installed by URL into an OpenWork Connect Plugin also appear in search_capabilities as matches with kind mcp_app. Execute the exact match through execute_capability to launch one; compatible hosts render its immutable ui:// revision. Installation, refresh, and retirement happen in OpenWork Den plugin management, never through this connection."
+      : "Plugin-installed URL Apps are not enabled for this organization. Do not offer, search for, import, or launch them.",
+    ...AGENT_MCP_SHARED_INSTRUCTIONS,
+  ].join("\n")
+}
+
+const AGENT_MCP_SHARED_INSTRUCTIONS = [
   "A Program is an immutable-versioned Code Mode Script config object inside an OpenWork Connect Plugin. Organizations with Code Mode scripts enabled receive execute_capability_script, the backwards-compatible render_dynamic_artifact MCP App tool, and a constant-size Program catalog: search_programs, select_program, and clear_program_selection.",
   "To use a Program, search by Library metadata, select one exact accessible Program, then refresh the tool catalog. The selected context exposes run_selected_program and a standard renderer for its retained Artifact data; Program execution remains server-mediated and returns structuredContent.",
   "When a member asks to keep a successful Code Mode result, save it as a Program inside the existing OpenWork Connect Plugin they name by passing that pluginId to the Code Mode save operation. Omit pluginId only for a private Program in the member's My Programs Plugin. A Program inherits discovery and sharing from its Plugin and any Marketplace containing that Plugin; do not create a separate Program package or marketplace entry.",
@@ -201,7 +218,9 @@ export const AGENT_MCP_INSTRUCTIONS = [
   "If the provider returns invalid_capability_arguments, correct the listed issues and retry once with changed arguments; never retry the same arguments unchanged. If it returns unknown_capability, call search_capabilities again before retrying.",
   "When a match has kind connection_status, name connectionStatus.connectionName and relay connectionStatus.action exactly. Distinguish the member's Your Connections page, the organization Connections dashboard, and the provider's own admin console.",
   "Connection probes are live. After the requested human fixes that connector, search again in the same task; otherwise do not retry unchanged or improvise workarounds through other tools.",
-].join("\n")
+]
+
+export const AGENT_MCP_INSTRUCTIONS = buildAgentMcpInstructions({ installedAppsEnabled: false })
 
 async function mcpRequestInfo(request: Request): Promise<{ method: string | null; resourceUri: string | null }> {
   if (request.method.toUpperCase() !== "POST") return { method: null, resourceUri: null }
@@ -305,7 +324,7 @@ export async function executeCapabilityWithBudget<T extends ExecuteCapabilityToo
   }
 }
 
-export function createAgentMcpServer(): McpServer {
+export function createAgentMcpServer(options?: { installedAppsEnabled?: boolean }): McpServer {
   return new McpServer({
     name: "openwork-den-api-agent",
     version: "1.0.0",
@@ -315,7 +334,7 @@ export function createAgentMcpServer(): McpServer {
       tools: { listChanged: true },
       resources: { listChanged: true },
     },
-    instructions: AGENT_MCP_INSTRUCTIONS,
+    instructions: buildAgentMcpInstructions({ installedAppsEnabled: options?.installedAppsEnabled === true }),
   })
 }
 
@@ -428,6 +447,9 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
     const remoteAppsEnabled = remoteMcpAppsEnabled(organizationMetadata, {
       deploymentEnabled: env.remoteMcpAppsEnabled,
     })
+    const installedAppsEnabled = pluginInstalledMcpAppsEnabled(organizationMetadata, {
+      deploymentEnabled: env.pluginMcpAppsEnabled,
+    })
     const connectMcpAppHostSupported = supportsConnectMcpAppHost(
       c.req.header(CONNECT_MCP_APP_HOST_CAPABILITY_HEADER),
     ) && principal.scopes.has(DEN_MCP_APP_HOST_SCOPE)
@@ -447,6 +469,7 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
       organizationMetadata,
       mcpConnectionsGatingEnabled: env.mcpConnectionsGatingEnabled,
       mcpAppsEnabled: remoteAppsEnabled,
+      installedMcpAppsEnabled: installedAppsEnabled,
     })
     const { externalMcpConnectionsEnabled } = capabilityContext
     let remoteSkills: RemoteSkillDescriptor[] = []
@@ -484,7 +507,30 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
       ]
         .sort((a, b) => a.name.localeCompare(b.name) || a.capability.localeCompare(b.capability))
     }
-    const server = createAgentMcpServer()
+    const server = createAgentMcpServer({ installedAppsEnabled })
+    // Plugin-installed MCP Apps: register one inert, app-visible launch tool
+    // and the active immutable ui:// resource per App the member can use.
+    // With the rollout off (or no resolvable member) nothing is registered,
+    // so tools/list and resources/read stay protocol-valid and empty of Apps.
+    if (installedAppsEnabled && memberIdentity && appCatalogMethod) {
+      const installedApps = await listAccessiblePluginInstalledMcpApps({
+        enabled: installedAppsEnabled,
+        member: memberIdentity,
+        organizationId: principal.organizationId,
+      })
+      registerPluginInstalledMcpApps({
+        server,
+        apps: installedApps,
+        loadResource: async ({ configObjectId, versionId }) => {
+          const loaded = await loadRemoteMcpAppRevisionContent({
+            organizationId,
+            configObjectId: normalizeDenTypeId("configObject", configObjectId),
+            versionId: normalizeDenTypeId("configObjectVersion", versionId),
+          })
+          return { html: loaded.html }
+        },
+      })
+    }
     if (method === "initialize" || method === "resources/list" || method === "resources/read") {
       if (memberIdentity) {
         registerConnectMcpServerIndex({
@@ -535,7 +581,7 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
           "Search covers native Google Workspace capabilities (Gmail, Calendar, Drive, Gmail drafts), org-connected external MCPs, and namespaced OpenWork Admin tools for allowlisted platform admins.",
           "When Code Mode is enabled, accessible Programs appear as marketplace matches with kind script and execute through execute_capability like every other exact search result.",
           "Try 2-4 keyword variants before deciding a capability is unavailable.",
-          "Native API matches include a connector-namespaced name, pathParams, queryParams, hasBody, and bodySchema. External MCP matches include argumentsSchema, schemaDigest, and invocation.argumentsField. A match with kind mcp_app is a standard MCP App launch capability from a connected MCP server; execute it normally and the OpenWork host will render its advertised ui:// resource.",
+          "Native API matches include a connector-namespaced name, pathParams, queryParams, hasBody, and bodySchema. External MCP matches include argumentsSchema, schemaDigest, and invocation.argumentsField. A match with kind mcp_app is a standard MCP App launch capability — from a connected MCP server or from an App installed into an OpenWork Connect Plugin; execute it normally and the OpenWork host will render its advertised ui:// resource.",
           "Built-in and marketplace skill matches return SKILL.md content when executed.",
         ].join(" "),
         annotations: SEARCH_CAPABILITIES_ANNOTATIONS,
@@ -709,6 +755,9 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
           title: "Search Programs",
           description: "Search accessible Programs by Library metadata and parent OpenWork Connect Plugin. Results never include retained artifact data, Script source, generated source, compiled HTML, diagnostics, or credentials.",
           annotations: SEARCH_CAPABILITIES_ANNOTATIONS,
+          // Sandboxed MCP Apps operate only through search_capabilities and
+          // execute_capability; Code Mode catalog tools stay model-only.
+          _meta: { ui: { visibility: ["model"] } },
           inputSchema: z.object({
             query: z.string().trim().max(255).optional(),
             readiness: z.enum(["ready", "needs_signin", "needs_admin_setup"]).optional(),
@@ -756,6 +805,7 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
           title: "Select Program",
           description: "Select one accessible Program as this member's current organization-scoped MCP context. Selection persists across chats and devices; it does not install or grant access.",
           annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+          _meta: { ui: { visibility: ["model"] } },
           inputSchema: z.object({ programId: z.string().trim().min(1).max(160) }),
           outputSchema: programSelectionOutputSchema,
         },
@@ -784,6 +834,7 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
           title: "Clear Program selection",
           description: "Clear this member's current organization-scoped Program selection.",
           annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+          _meta: { ui: { visibility: ["model"] } },
           inputSchema: z.object({}),
           outputSchema: programSelectionClearedOutputSchema,
         },
@@ -880,6 +931,7 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
             title: `Run selected Program: ${selectedDetail.program.name}`,
             description: "Execute the selected Program's current immutable Script version after validating access, input schema, and capability readiness.",
             annotations: EXECUTE_CAPABILITY_ANNOTATIONS,
+            _meta: { ui: { visibility: ["model"] } },
             inputSchema: z.object({ input: z.unknown().optional() }),
             outputSchema: programRunOutputSchema,
           },
@@ -934,6 +986,9 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
             "Run independent tool calls in parallel with Promise.all and return only the fields needed.",
           ].join(" "),
           annotations: EXECUTE_CAPABILITY_ANNOTATIONS,
+          // Sandboxed MCP Apps must never run confined orchestration code
+          // directly; the Code Mode runtime stays model-only.
+          _meta: { ui: { visibility: ["model"] } },
           inputSchema: z.object({
             code: z.string().min(1),
             input: z.unknown().optional(),

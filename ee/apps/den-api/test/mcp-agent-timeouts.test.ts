@@ -116,7 +116,9 @@ test("agent MCP server exposes steering instructions during initialize", async (
   await client.connect(transports.client)
 
   expect(client.getInstructions()).toBe(agentModule.AGENT_MCP_INSTRUCTIONS)
-  expect(client.getInstructions()).toContain("search_capabilities and execute_capability")
+  expect(client.getInstructions()).toContain("search_capabilities")
+  expect(client.getInstructions()).toContain("execute_capability")
+  expect(client.getInstructions()).toContain("Plugin-installed URL Apps are not enabled")
   expect(client.getInstructions()).toContain("create-skill")
   expect(client.getInstructions()).toContain("share-plugin")
   expect(client.getInstructions()).toContain("add-to-marketplace")

@@ -87,6 +87,7 @@ const updateOrganizationCapabilitiesSchema = z.object({
     mcpConnections: z.boolean().nullable().optional(),
     codemodeScripts: z.boolean().nullable().optional(),
     remoteMcpApps: z.boolean().nullable().optional(),
+    pluginMcpApps: z.boolean().nullable().optional(),
     cloud: z.boolean().nullable().optional(),
   }),
 })
@@ -273,6 +274,7 @@ function readAdminVisibleOrganizationCapabilities(metadata: Record<string, unkno
     mcpConnections: memberFacingMcpConnectionsEnabled(metadata, { gatingEnabled: false }),
     codemodeScripts: codemodeScriptsEnabled(metadata),
     remoteMcpApps: normalizeOrganizationCapabilities(metadata).remoteMcpApps,
+    pluginMcpApps: normalizeOrganizationCapabilities(metadata).pluginMcpApps,
     cloud: organizationCloudEnabled(metadata, { orgMode: env.orgMode }),
   }
 }
@@ -282,7 +284,7 @@ function readUnmanagedCapabilityMetadata(metadata: Record<string, unknown>): Rec
   const capabilities: Record<string, unknown> = {}
 
   for (const [key, value] of Object.entries(raw)) {
-    if (key !== "installLinks" && key !== "mcpConnections" && key !== "codemodeScripts" && key !== "remoteMcpApps" && key !== "cloud") {
+    if (key !== "installLinks" && key !== "mcpConnections" && key !== "codemodeScripts" && key !== "remoteMcpApps" && key !== "pluginMcpApps" && key !== "cloud") {
       capabilities[key] = value
     }
   }
@@ -1416,6 +1418,14 @@ export function registerAdminRoutes<T extends { Variables: AuthContextVariables 
           delete capabilities.remoteMcpApps
         } else {
           capabilities.remoteMcpApps = remoteMcpApps
+        }
+      }
+      const pluginMcpApps = body.data.capabilities.pluginMcpApps
+      if (pluginMcpApps !== undefined) {
+        if (pluginMcpApps === null) {
+          delete capabilities.pluginMcpApps
+        } else {
+          capabilities.pluginMcpApps = pluginMcpApps
         }
       }
       const cloud = body.data.capabilities.cloud

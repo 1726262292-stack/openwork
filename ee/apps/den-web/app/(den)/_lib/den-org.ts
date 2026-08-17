@@ -242,6 +242,7 @@ export type DenOrgCapabilities = {
   mcpConnections: boolean;
   codemodeScripts: boolean;
   remoteMcpApps: boolean;
+  pluginMcpApps: boolean;
   cloud: boolean;
 };
 
@@ -625,6 +626,14 @@ export function getEditPluginSkillRoute(orgSlug: string | null | undefined, plug
   return `${getPluginSkillRoute(orgSlug, pluginId, skillId)}/edit`;
 }
 
+export function getPluginMcpAppRoute(orgSlug: string | null | undefined, pluginId: string, appId: string): string {
+  return `${getPluginRoute(orgSlug, pluginId)}/apps/${encodeURIComponent(appId)}`;
+}
+
+export function getNewPluginMcpAppRoute(orgSlug: string | null | undefined, pluginId: string): string {
+  return `${getPluginRoute(orgSlug, pluginId)}/apps/new`;
+}
+
 export function getNewPluginRoute(orgSlug?: string | null): string {
   return `${getPluginsRoute(orgSlug)}/new`;
 }
@@ -933,7 +942,7 @@ function parseOrgAuthMethods(value: unknown): DenOrgAuthMethods {
 
 function parseOrgCapabilities(value: unknown): DenOrgCapabilities {
   if (!isRecord(value)) {
-    return { installLinks: false, mcpConnections: false, codemodeScripts: false, remoteMcpApps: false, cloud: false };
+    return { installLinks: false, mcpConnections: false, codemodeScripts: false, remoteMcpApps: false, pluginMcpApps: false, cloud: false };
   }
 
   return {
@@ -941,6 +950,7 @@ function parseOrgCapabilities(value: unknown): DenOrgCapabilities {
     mcpConnections: value.mcpConnections === true,
     codemodeScripts: value.codemodeScripts === true,
     remoteMcpApps: value.remoteMcpApps === true,
+    pluginMcpApps: value.pluginMcpApps === true,
     cloud: value.cloud === true,
   };
 }

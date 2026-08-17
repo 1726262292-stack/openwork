@@ -101,7 +101,10 @@ export type CapabilityRegistryContext = {
   codemodeEnabled: boolean
   generatedArtifactViewsEnabled: boolean
   externalMcpConnectionsEnabled: boolean
+  /** Native MCP Apps from regular connected MCP servers. */
   mcpAppsEnabled: boolean
+  /** Plugin-installed URL MCP Apps hosted by the central Connect server. */
+  installedMcpAppsEnabled: boolean
   resolvePlatformAdmin: () => Promise<boolean>
   resolveNamespaceContext: () => Promise<CodemodeConnectionNamespaceContext>
 }
@@ -119,6 +122,7 @@ export type CapabilityRegistryContextInput = {
   organizationMetadata: Parameters<typeof memberFacingMcpConnectionsEnabled>[0]
   mcpConnectionsGatingEnabled: boolean
   mcpAppsEnabled?: boolean
+  installedMcpAppsEnabled?: boolean
 }
 
 export function createCapabilityRegistryContext(input: CapabilityRegistryContextInput): CapabilityRegistryContext {
@@ -151,6 +155,7 @@ export function createCapabilityRegistryContext(input: CapabilityRegistryContext
     generatedArtifactViewsEnabled: input.generatedArtifactViewsEnabled,
     externalMcpConnectionsEnabled,
     mcpAppsEnabled: input.mcpAppsEnabled === true,
+    installedMcpAppsEnabled: input.installedMcpAppsEnabled === true,
     resolvePlatformAdmin,
     resolveNamespaceContext,
   }
@@ -396,7 +401,9 @@ async function executeMarketplaceSource(
     body: input.body,
     codemodeEnabled: ctx.codemodeEnabled,
     enabled: ctx.externalMcpConnectionsEnabled,
+    installedMcpAppsEnabled: ctx.installedMcpAppsEnabled,
     redirectUriBase: ctx.redirectUriBase,
+    schemaDigest: input.schemaDigest,
   })
 }
 
@@ -558,8 +565,11 @@ const marketplaceSource: CapabilitySource = {
       query,
       limit,
       enabled: ctx.externalMcpConnectionsEnabled,
+      installedMcpAppsEnabled: ctx.installedMcpAppsEnabled,
     })
-    return matches.map((match) => ctx.codemodeEnabled && match.kind !== "script"
+    // Installed MCP App launches are host-rendered, not confined-script
+    // callable, so they never receive a Code Mode script path.
+    return matches.map((match) => ctx.codemodeEnabled && match.kind !== "script" && match.kind !== "mcp_app"
       ? { ...match, scriptPath: codemodeScriptPath("marketplace", match.name) }
       : match)
   },
@@ -571,7 +581,9 @@ const marketplaceSource: CapabilitySource = {
       enabled: ctx.externalMcpConnectionsEnabled,
     })
     const uniqueReferences = new Map(references
-      .filter((reference) => reference.objectType !== "script")
+      // Scripts execute through their own dedicated path, and installed MCP
+      // Apps are host-rendered launches: neither is a Code Mode content leaf.
+      .filter((reference) => reference.objectType !== "script" && reference.objectType !== "app")
       .map((reference) => [`${reference.pluginId}:${reference.configObjectId}`, reference]))
     return [...uniqueReferences.values()].map((reference) => {
       const capabilityName = `plugin:${reference.pluginId}:${reference.configObjectId}`
@@ -605,9 +617,26 @@ const marketplaceSource: CapabilitySource = {
         ? unknownCapabilityResult(input.name)
         : marketplaceCapabilityErrorToolResult(result)
     }
+    const { mcpApp, ...payload } = result.result
+    if (!mcpApp) {
+      return {
+        content: textContent(JSON.stringify(payload, null, 2)),
+        structuredContent: payload,
+      }
+    }
+    // Same-server MCP App launch: the standards contract is the app-visible
+    // launcher plus its bound ui:// resource. The openwork/mcpApp entry is an
+    // adapter hint for compatible OpenWork hosts, mirroring native MCP Apps.
     return {
-      content: textContent(JSON.stringify(result.result, null, 2)),
-      structuredContent: result.result,
+      content: textContent(JSON.stringify(payload, null, 2)),
+      structuredContent: payload,
+      _meta: {
+        "openwork/mcpApp": {
+          toolName: mcpApp.toolName,
+          resourceUri: mcpApp.resourceUri,
+          arguments: payload.input === undefined ? {} : { input: payload.input },
+        },
+      },
     }
   },
 }

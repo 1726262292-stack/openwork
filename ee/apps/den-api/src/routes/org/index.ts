@@ -22,6 +22,7 @@ import { registerMcpConnectionRoutes } from "./mcp-connections.js"
 import { registerMicrosoft365Routes } from "./microsoft-365.js"
 import { registerOAuthProviderRoutes } from "./oauth-providers.js"
 import { registerPluginArchRoutes } from "./plugin-system/routes.js"
+import { registerRemoteMcpAppRoutes } from "./remote-mcp-apps.js"
 import { registerOrgRoleRoutes } from "./roles.js"
 import { registerOrgScimRoutes } from "./scim.js"
 import { registerOrgSsoRoutes } from "./sso.js"
@@ -77,6 +78,7 @@ export function registerOrgRoutes<T extends { Variables: OrgRouteVariables & Req
   registerMicrosoft365Routes(app)
   registerMcpConnectionRoutes(app)
   registerPluginArchRoutes(app)
+  registerRemoteMcpAppRoutes(app)
   registerOrgRoleRoutes(app)
   registerOrgResourceRoutes(app)
   registerOrgTeamRoutes(app)

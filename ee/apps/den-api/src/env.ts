@@ -134,6 +134,7 @@ const EnvSchema = z.object({
   DEN_MCP_CONNECTIONS_GATING_ENABLED: z.string().optional(),
   DEN_GENERATED_ARTIFACT_VIEWS_ENABLED: z.string().optional(),
   DEN_REMOTE_MCP_APPS_ENABLED: z.string().optional(),
+  DEN_PLUGIN_MCP_APPS_ENABLED: z.string().optional(),
   SCIM_MAINTENANCE_INTERVAL_MS: z.string().optional(),
   POLAR_FEATURE_GATE_ENABLED: z.string().optional(),
   POLAR_API_BASE: z.string().optional(),
@@ -444,6 +445,12 @@ const generatedArtifactViewsEnabled =
 const remoteMcpAppsEnabled =
   (parsed.DEN_REMOTE_MCP_APPS_ENABLED ?? "false").trim().toLowerCase() === "true"
 
+// Plugin-installed URL MCP Apps are a separate unit of value from native MCP
+// Apps: they get their own deployment gate so operators can roll out either
+// surface independently. Missing configuration always fails closed.
+const pluginMcpAppsEnabled =
+  (parsed.DEN_PLUGIN_MCP_APPS_ENABLED ?? "false").trim().toLowerCase() === "true"
+
 const devMode = (parsed.OPENWORK_DEV_MODE ?? "0").trim() === "1"
 const botIdProtectionEnabled = (parsed.DEN_BOTID_PROTECTION_ENABLED ?? "0").trim() === "1"
 const diagnosticsOrigin = normalizeDiagnosticsOrigin(parsed.DEN_DIAGNOSTICS_ORIGIN, devMode)
@@ -537,6 +544,7 @@ export const env = {
   mcpConnectionsGatingEnabled,
   generatedArtifactViewsEnabled,
   remoteMcpAppsEnabled,
+  pluginMcpAppsEnabled,
   scimMaintenanceIntervalMs: Number(parsed.SCIM_MAINTENANCE_INTERVAL_MS ?? "300000"),
   requireEmailVerification,
   passwordBreachScreeningEnabled,

@@ -3,9 +3,9 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { Archive, ArrowLeft, Code2, FileText, MoreHorizontal, Pencil, Plus, Server, Store, Terminal, Users, Webhook } from "lucide-react";
+import { AppWindow, Archive, ArrowLeft, Code2, FileText, MoreHorizontal, Pencil, Plus, Server, Store, Terminal, Users, Webhook } from "lucide-react";
 
-import { getNewPluginSkillRoute, getOrgAccessFlags, getPluginSkillRoute, getPluginsRoute } from "../../_lib/den-org";
+import { getNewPluginMcpAppRoute, getNewPluginSkillRoute, getOrgAccessFlags, getPluginMcpAppRoute, getPluginSkillRoute, getPluginsRoute } from "../../_lib/den-org";
 import { buttonVariants, DenButton } from "../../_components/ui/button";
 import { DenInput } from "../../_components/ui/input";
 import { DenTextarea } from "../../_components/ui/textarea";
@@ -15,6 +15,7 @@ import {
   type PluginHook,
   type PluginMcp,
   type PluginProgram,
+  type PluginRemoteMcpApp,
   type PluginSkill,
   type PluginAgent,
   type PluginCommand,
@@ -219,6 +220,9 @@ export function PluginDetailScreen({ pluginId }: { pluginId: string }) {
           error={pluginAccessQuery.error}
         />
         <SkillsSection orgSlug={orgSlug} plugin={plugin} />
+        {orgContext?.capabilities.pluginMcpApps ? (
+          <McpAppsSection orgSlug={orgSlug} plugin={plugin} />
+        ) : null}
         <ProgramsSection
           plugin={plugin}
           onAdd={() => {
@@ -535,6 +539,59 @@ function SkillRow({ orgSlug, pluginId, skill }: { orgSlug: string | null; plugin
       {skill.description ? (
         <p className="mt-0.5 line-clamp-2 text-[12.5px] leading-[1.55] text-gray-500">{skill.description}</p>
       ) : null}
+    </Link>
+  );
+}
+
+function McpAppsSection({ orgSlug, plugin }: { orgSlug: string | null; plugin: DenPlugin }) {
+  return (
+    <section data-testid="plugin-mcp-apps-section">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div>
+          <h2 className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-gray-400">
+            <AppWindow className="h-3.5 w-3.5" />
+            MCP Apps
+          </h2>
+          <p className="mt-1 text-[12px] text-gray-400">Interactive apps installed by URL and shared with everyone who can use this plugin.</p>
+        </div>
+        <Link href={getNewPluginMcpAppRoute(orgSlug, plugin.id)} className={buttonVariants({ size: "sm" })} data-testid="add-plugin-mcp-app">
+          <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+          Add MCP App
+        </Link>
+      </div>
+      {plugin.apps.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-gray-200 bg-white px-5 py-8 text-center">
+          <p className="text-[14px] font-medium text-gray-900">No MCP Apps in this plugin yet.</p>
+          <p className="mt-1 text-[12.5px] text-gray-500">Install a self-contained app from a URL without leaving this plugin.</p>
+        </div>
+      ) : (
+        <div className="grid gap-2">
+          {plugin.apps.map((app) => (
+            <McpAppRow key={app.id} orgSlug={orgSlug} pluginId={plugin.id} app={app} />
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function McpAppRow({ orgSlug, pluginId, app }: { orgSlug: string | null; pluginId: string; app: PluginRemoteMcpApp }) {
+  return (
+    <Link
+      href={getPluginMcpAppRoute(orgSlug, pluginId, app.id)}
+      className="block rounded-xl border border-gray-100 bg-white px-4 py-3 transition hover:border-gray-200"
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="truncate text-[14px] font-semibold tracking-[-0.01em] text-gray-900">{app.name}</p>
+        <span className="rounded-full bg-gray-50 px-2 py-0.5 text-[11px] text-gray-500">
+          Standard MCP App
+        </span>
+      </div>
+      {app.description ? <p className="mt-0.5 line-clamp-2 text-[12.5px] leading-[1.55] text-gray-500">{app.description}</p> : null}
+      <p className="mt-2 text-[11px] text-gray-400">
+        {app.version ? `Installed revision ${app.version}` : "Installed revision"}
+        {app.sourceUrl ? " · Cached from a published URL" : ""}
+      </p>
     </Link>
   );
 }

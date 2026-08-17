@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm"
-import { index, mysqlEnum, mysqlTable, timestamp, uniqueIndex, varchar } from "drizzle-orm/mysql-core"
+import { index, mysqlEnum, mysqlTable, timestamp, varchar } from "drizzle-orm/mysql-core"
 import { denTypeIdColumn } from "../columns"
 
 export const remoteMcpAppStatusValues = ["active", "retired"] as const
@@ -25,7 +25,9 @@ export const RemoteMcpAppTable = mysqlTable(
   },
   (table) => [
     index("remote_mcp_app_organization_id").on(table.organizationId),
-    uniqueIndex("remote_mcp_app_plugin_id").on(table.pluginId),
+    // A Plugin can contain one or more installed MCP Apps, so plugin_id is a
+    // plain lookup index rather than a uniqueness constraint.
+    index("remote_mcp_app_plugin_idx").on(table.pluginId),
     index("remote_mcp_app_active_version_id").on(table.activeVersionId),
     index("remote_mcp_app_status").on(table.status),
   ],

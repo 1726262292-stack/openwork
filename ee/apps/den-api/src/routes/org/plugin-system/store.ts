@@ -627,9 +627,34 @@ function deriveSkillProjection(value: ConfigObjectInput) {
   }
 }
 
+function deriveRemoteMcpAppProjection(value: ConfigObjectInput) {
+  const payload = value.normalizedPayloadJson ?? {}
+  const documentMetadata = typeof payload.metadata === "object" && payload.metadata !== null && !Array.isArray(payload.metadata)
+    ? payload.metadata as Record<string, unknown>
+    : {}
+  const title = clampCodePoints(
+    normalizeOptionalString(typeof documentMetadata.name === "string" ? documentMetadata.name : undefined)
+      ?? `App ${new Date().toISOString()}`,
+    PROJECTION_TITLE_MAX_CHARS,
+  )
+  const description = normalizeOptionalString(
+    typeof documentMetadata.description === "string" ? documentMetadata.description : undefined,
+  )
+  // The raw HTML document is app content, never projection or search text.
+  const searchText = [title, description].filter(Boolean).join("\n")
+  return {
+    description: description ? clampUtf8Bytes(description, PROJECTION_TEXT_MAX_BYTES) : null,
+    searchText: searchText ? clampUtf8Bytes(searchText, PROJECTION_TEXT_MAX_BYTES) : null,
+    title,
+  }
+}
+
 function deriveProjection(input: { objectType: ConfigObjectRow["objectType"]; value: ConfigObjectInput }) {
   if (input.objectType === "skill") {
     return deriveSkillProjection(input.value)
+  }
+  if (input.objectType === "app" && input.value.normalizedPayloadJson?.kind === "remote_mcp_app") {
+    return deriveRemoteMcpAppProjection(input.value)
   }
 
   const metadata = input.value.metadata ?? {}

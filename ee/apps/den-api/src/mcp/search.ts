@@ -36,6 +36,8 @@ export type CapabilityMatch = {
   bodySchema?: unknown
   /** Exact MCP arguments schema returned by a live MCP tool list. */
   argumentsSchema?: unknown
+  /** Stable digest of argumentsSchema used to detect drift between search and execute. */
+  schemaDigest?: string
   /** Tells generic execute callers where MCP arguments must be supplied. */
   invocation?: { argumentsField: "body" }
   /** Exact confined-script path when Code Mode scripts are enabled. */

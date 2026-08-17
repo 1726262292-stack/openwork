@@ -10,6 +10,7 @@ import {
   PluginAccessGrantTable,
   PluginConfigObjectTable,
   PluginTable,
+  RemoteMcpAppTable,
 } from "@openwork-ee/den-db/schema"
 import { normalizeDenTypeId, type DenTypeId } from "@openwork-ee/utils/typeid"
 import {
@@ -25,13 +26,29 @@ import {
 import { EXTERNAL_MCP_PRESETS } from "../capability-sources/external-mcp-presets.js"
 import { getConnectedAccount, getOrgOAuthClient } from "../capability-sources/oauth-credentials.js"
 import { db } from "../db.js"
+import {
+  loadRemoteMcpAppRevisionContent,
+  parseRemoteMcpAppVersionPayload,
+  RemoteMcpAppError,
+  remoteMcpAppResourceUri,
+} from "../remote-mcp-apps.js"
+import { optionalArtifactDigest } from "../saved-script-artifacts.js"
 import { resolvePluginArchGrantRole } from "../routes/org/plugin-system/access.js"
+import {
+  pluginInstalledMcpAppLaunchToolName,
+  type PluginInstalledMcpAppDescriptor,
+} from "./plugin-installed-mcp-apps.js"
 import { openworkOrganizationConnectionsUrl, openworkYourConnectionsUrl } from "./connection-navigation.js"
 import { parseCodemodeScriptPayload, type CodemodeScriptInputIssue } from "./codemode-script-object.js"
 import { type BuiltCodemodeTools } from "./codemode-tools.js"
 import { executeSavedCodemodeScript } from "./saved-codemode-script-service.js"
 import { listPluginMcpRequirementBindings, type PluginMcpRequirementBindingRow } from "./plugin-mcp-requirement-bindings.js"
-import { scoreText, tokenize } from "./search.js"
+import {
+  EXECUTE_CAPABILITY_TOOL_NAME,
+  SEARCH_CAPABILITIES_TOOL_NAME,
+  scoreText,
+  tokenize,
+} from "./search.js"
 import type { McpMemberIdentity } from "./external-capabilities.js"
 import type { CapabilityMatch } from "./search.js"
 
@@ -101,7 +118,11 @@ type GrantRow = {
 type GrantWithResourceId = GrantRow & { resourceId: string }
 
 export type MarketplaceCapabilityMatch = CapabilityMatch & {
-  kind: ConfigObjectType
+  /**
+   * The config object type, except for plugin-installed MCP Apps which use
+   * the host-facing "mcp_app" kind shared with native MCP App matches.
+   */
+  kind: ConfigObjectType | "mcp_app"
   plugin: string
   marketplace?: string
   status?: MarketplaceCapabilityStatus
@@ -137,7 +158,7 @@ export type MarketplaceMcpRequirementStatus = {
 }
 
 export type MarketplaceCapabilityExecutePayload = {
-  kind: ConfigObjectType
+  kind: ConfigObjectType | "mcp_app"
   plugin: string
   marketplace: string | null
   name: string
@@ -162,6 +183,31 @@ export type MarketplaceCapabilityExecutePayload = {
   hint?: string
   action?: MarketplaceMcpRequirementAction
   mcpRequirements?: MarketplaceMcpRequirementStatus[]
+  /** Launch identity for a plugin-installed MCP App execution. */
+  app?: {
+    id: string
+    name: string
+    version: string
+    revisionId: string
+    resourceDigest: string
+  }
+  /** The exact same-server gateway tool names a rendered App may call. */
+  serverTools?: {
+    searchCapabilities: string
+    executeCapability: string
+  }
+  /** Echo of the optional launch input supplied to an App execution. */
+  input?: unknown
+  /**
+   * Same-server MCP App launch binding for compatible OpenWork hosts. The
+   * capability gateway lifts this into `_meta["openwork/mcpApp"]` on the tool
+   * result; standards-based hosts can ignore it and use the app-visible
+   * launcher tool directly.
+   */
+  mcpApp?: {
+    toolName: string
+    resourceUri: string
+  }
 }
 
 export type MarketplaceCapabilityExecuteResult =
@@ -173,8 +219,9 @@ export type MarketplaceCapabilityExecuteResult =
       message: string
       issues: CodemodeScriptInputIssue[]
       sameArgumentsRetryable: false
-      retry: { action: "correct_arguments"; searchRequired: false }
+      retry: { action: "correct_arguments" | "search_capabilities"; searchRequired: boolean }
       receiptId?: string | null
+      schemaDigest?: string
     }
   | {
       ok: false
@@ -743,6 +790,105 @@ export async function listAccessibleMarketplaceSkillDescriptors(input: {
 
   return [...descriptors.values()]
     .sort((a, b) => a.name.localeCompare(b.name) || a.capability.localeCompare(b.capability))
+}
+
+type RemoteMcpAppRow = typeof RemoteMcpAppTable.$inferSelect
+
+/**
+ * Loads the mutable installation state for plugin-owned MCP App config
+ * objects. Only rows that are active with an explicitly selected revision are
+ * launchable; everything else stays invisible and fails closed.
+ */
+async function listInstalledAppStates(
+  organizationId: OrganizationId,
+  configObjectIds: ConfigObjectId[],
+): Promise<Map<string, RemoteMcpAppRow>> {
+  if (configObjectIds.length === 0) return new Map()
+  const rows = await db.select().from(RemoteMcpAppTable).where(and(
+    eq(RemoteMcpAppTable.organizationId, organizationId),
+    inArray(RemoteMcpAppTable.configObjectId, configObjectIds),
+  ))
+  return new Map(rows.map((row) => [String(row.configObjectId), row]))
+}
+
+function launchableInstalledAppState(
+  row: MarketplaceCapabilityRow,
+  states: Map<string, RemoteMcpAppRow>,
+): (RemoteMcpAppRow & { activeVersionId: NonNullable<RemoteMcpAppRow["activeVersionId"]> }) | null {
+  const state = states.get(row.configObject.id)
+  if (!state || state.status !== "active" || !state.activeVersionId) return null
+  if (String(state.pluginId) !== String(row.plugin.id)) return null
+  const activeVersionId = state.activeVersionId
+  return { ...state, activeVersionId }
+}
+
+// Keep the standard MCP Apps surface bounded even if an organization installs
+// a large number of Apps across its plugins.
+const PLUGIN_INSTALLED_MCP_APP_CATALOG_LIMIT = 50
+
+/**
+ * Lists every plugin-installed MCP App the member can use through explicit
+ * plugin, marketplace, or config-object grants — the same visibility rule as
+ * every other marketplace capability. Used to register app-visible launch
+ * tools and immutable `ui://` resources on the central MCP server.
+ */
+export async function listAccessiblePluginInstalledMcpApps(input: {
+  enabled?: boolean
+  member: McpMemberIdentity | null
+  organizationId: string
+}): Promise<PluginInstalledMcpAppDescriptor[]> {
+  if (input.enabled !== true || !input.member) return []
+  const organizationId = normalizeDenTypeId("organization", input.organizationId)
+  if (!(await getActiveMember(organizationId, input.member))) return []
+
+  const rows = (await filterVisibleRows({
+    organizationId,
+    member: input.member,
+    rows: (await listActiveCapabilityRows(organizationId))
+      .filter((row) => row.configObject.objectType === "app"),
+  }))
+  const uniqueRows = new Map(rows.map((row) => [`${row.plugin.id}:${row.configObject.id}`, row]))
+  const states = await listInstalledAppStates(
+    organizationId,
+    unique([...uniqueRows.values()].map((row) => normalizeDenTypeId("configObject", row.configObject.id))),
+  )
+  const descriptors: PluginInstalledMcpAppDescriptor[] = []
+  for (const row of uniqueRows.values()) {
+    if (descriptors.length >= PLUGIN_INSTALLED_MCP_APP_CATALOG_LIMIT) break
+    if (descriptors.some((descriptor) => descriptor.configObjectId === row.configObject.id)) continue
+    const state = launchableInstalledAppState(row, states)
+    if (!state) continue
+    const version = await exactVersion(
+      normalizeDenTypeId("configObject", row.configObject.id),
+      organizationId,
+      state.activeVersionId,
+    )
+    if (!version) continue
+    let payload
+    try {
+      payload = parseRemoteMcpAppVersionPayload(version)
+    } catch {
+      continue
+    }
+    descriptors.push({
+      configObjectId: row.configObject.id,
+      pluginId: row.plugin.id,
+      pluginName: row.plugin.name,
+      ...(row.marketplace ? { marketplaceName: row.marketplace.name } : {}),
+      title: row.configObject.title,
+      description: row.configObject.description,
+      metadata: payload.metadata,
+      activeVersionId: String(state.activeVersionId),
+      resourceUri: remoteMcpAppResourceUri(row.configObject.id, String(state.activeVersionId)),
+      resourceDigest: payload.resource.digest,
+      byteSize: payload.resource.byteSize,
+      csp: payload.resource.csp,
+    })
+  }
+  return descriptors.sort((left, right) => (
+    left.metadata.name.localeCompare(right.metadata.name)
+    || left.configObjectId.localeCompare(right.configObjectId)
+  ))
 }
 
 async function latestVersion(configObjectId: ConfigObjectId, organizationId: OrganizationId) {
@@ -1408,6 +1554,7 @@ function commandArguments(body: unknown): string {
 export async function searchMarketplaceCapabilities(input: {
   codemodeEnabled?: boolean
   enabled?: boolean
+  installedMcpAppsEnabled?: boolean
   limit?: number
   member: McpMemberIdentity | null
   objectTypes?: MarketplaceCapabilityObjectType[]
@@ -1433,14 +1580,23 @@ export async function searchMarketplaceCapabilities(input: {
     pluginIds: unique(rows.map((row) => row.plugin.id)),
   })
   const matchesByName = new Map<string, MarketplaceCapabilityMatch>()
+  const rowsByName = new Map<string, MarketplaceCapabilityRow>()
+  const scoredAppRowsByName = new Map<string, { row: MarketplaceCapabilityRow; score: number }>()
 
   for (const row of rows) {
     if (row.configObject.objectType === "script" && input.codemodeEnabled !== true) continue
+    // Plugin-installed MCP Apps stay entirely absent from search while their
+    // rollout is off; there is no degraded "unsupported" match for them.
+    if (row.configObject.objectType === "app" && input.installedMcpAppsEnabled !== true) continue
     if (input.objectTypes && !input.objectTypes.includes(row.configObject.objectType)) continue
     const score = scoreMarketplaceRow(row, queryTokens)
     if (score <= 0) continue
     const name = buildMarketplaceCapabilityName(row.plugin.id, row.configObject.id)
-    if (matchesByName.has(name)) continue
+    if (matchesByName.has(name) || scoredAppRowsByName.has(name)) continue
+    if (row.configObject.objectType === "app") {
+      scoredAppRowsByName.set(name, { row, score })
+      continue
+    }
     const match: MarketplaceCapabilityMatch = {
       name,
       method: "PLUGIN",
@@ -1472,11 +1628,68 @@ export async function searchMarketplaceCapabilities(input: {
       }
     }
     matchesByName.set(name, match)
+    rowsByName.set(name, row)
   }
 
-  return [...matchesByName.values()]
+  if (scoredAppRowsByName.size > 0) {
+    const states = await listInstalledAppStates(
+      organizationId,
+      unique([...scoredAppRowsByName.values()].map((candidate) => (
+        normalizeDenTypeId("configObject", candidate.row.configObject.id)
+      ))),
+    )
+    for (const [name, candidate] of scoredAppRowsByName) {
+      const state = launchableInstalledAppState(candidate.row, states)
+      if (!state) continue
+      matchesByName.set(name, {
+        name,
+        method: "PLUGIN",
+        path: pluginPath(candidate.row),
+        score: candidate.score,
+        summary: summaryFor(candidate.row),
+        pathParams: [],
+        queryParams: [],
+        hasBody: true,
+        argumentsSchema: {
+          type: "object",
+          properties: { input: {} },
+          additionalProperties: false,
+        },
+        invocation: { argumentsField: "body" },
+        kind: "mcp_app",
+        mcpApp: { resourceUri: remoteMcpAppResourceUri(candidate.row.configObject.id, String(state.activeVersionId)) },
+        plugin: candidate.row.plugin.name,
+        ...(candidate.row.marketplace ? { marketplace: candidate.row.marketplace.name } : {}),
+        hint: "Executing this match launches the Plugin's installed MCP App; compatible hosts render its immutable ui:// revision.",
+      })
+    }
+  }
+
+  const ranked = [...matchesByName.values()]
     .sort((a, b) => (b.score - a.score) || a.name.localeCompare(b.name))
     .slice(0, input.limit ?? 5)
+
+  // Returned Program matches carry the current input contract so callers can
+  // both construct arguments and detect drift: a schemaDigest copied into
+  // execute_capability is verified against the version that actually runs.
+  for (const match of ranked) {
+    if (match.kind !== "script") continue
+    const row = rowsByName.get(match.name)
+    if (!row) continue
+    const version = await latestVersion(normalizeDenTypeId("configObject", row.configObject.id), organizationId)
+    if (!version) continue
+    const parsed = parseCodemodeScriptPayload(version.normalizedPayloadJson)
+    if (!parsed.ok) continue
+    const inputSchema = parsed.payload.inputSchema
+    if (inputSchema !== undefined && inputSchema !== null) {
+      match.argumentsSchema = inputSchema
+      match.invocation = { argumentsField: "body" }
+    }
+    const schemaDigest = optionalArtifactDigest(inputSchema ?? null)
+    if (schemaDigest) match.schemaDigest = schemaDigest
+  }
+
+  return ranked
 }
 
 export async function listAccessibleSavedCodemodeScripts(input: {
@@ -1513,6 +1726,80 @@ export async function listAccessibleSavedCodemodeScripts(input: {
   return scripts.sort((left, right) => left.title.localeCompare(right.title))
 }
 
+/**
+ * Executes a plugin-installed MCP App capability: a bounded, standards-first
+ * launch of the exact active immutable revision. The result never contains
+ * cached HTML, source URLs, or storage internals; a compatible host renders
+ * the advertised `ui://` revision through the same-server launch tool.
+ *
+ * Fails closed as `unknown_capability` while the rollout is off and whenever
+ * the installation is retired, unassigned, missing, or fails its integrity
+ * check — a stale or mismatched launch must never partially succeed.
+ */
+async function executePluginInstalledMcpApp(input: {
+  body?: unknown
+  installedMcpAppsEnabled: boolean
+  organizationId: OrganizationId
+  row: MarketplaceCapabilityRow
+}): Promise<MarketplaceCapabilityExecuteResult> {
+  if (!input.installedMcpAppsEnabled) {
+    return { ok: false, error: "unknown_capability", message: "No such capability." }
+  }
+  const states = await listInstalledAppStates(
+    input.organizationId,
+    [normalizeDenTypeId("configObject", input.row.configObject.id)],
+  )
+  const state = launchableInstalledAppState(input.row, states)
+  if (!state) {
+    return { ok: false, error: "unknown_capability", message: "No such capability." }
+  }
+  let revision
+  try {
+    revision = await loadRemoteMcpAppRevisionContent({
+      organizationId: input.organizationId,
+      configObjectId: state.configObjectId,
+      versionId: state.activeVersionId,
+    })
+  } catch (error) {
+    if (error instanceof RemoteMcpAppError) {
+      return { ok: false, error: "unknown_capability", message: "No such capability." }
+    }
+    throw error
+  }
+  const launchInput = isRecord(input.body) && "input" in input.body
+    ? (input.body as { input?: unknown }).input
+    : undefined
+  const resourceUri = remoteMcpAppResourceUri(String(state.configObjectId), String(state.activeVersionId))
+  return {
+    ok: true,
+    result: {
+      ...basePayload(input.row),
+      kind: "mcp_app",
+      // The immutable revision's own metadata is authoritative for the
+      // launch payload, independent of the config-object projection.
+      name: revision.payload.metadata.name,
+      description: revision.payload.metadata.description ?? null,
+      status: "executed",
+      app: {
+        id: String(state.configObjectId),
+        name: revision.payload.metadata.name,
+        version: revision.payload.metadata.version,
+        revisionId: String(state.activeVersionId),
+        resourceDigest: revision.payload.resource.digest,
+      },
+      serverTools: {
+        searchCapabilities: SEARCH_CAPABILITIES_TOOL_NAME,
+        executeCapability: EXECUTE_CAPABILITY_TOOL_NAME,
+      },
+      ...(launchInput === undefined ? {} : { input: launchInput }),
+      mcpApp: {
+        toolName: pluginInstalledMcpAppLaunchToolName(String(state.configObjectId)),
+        resourceUri,
+      },
+    },
+  }
+}
+
 export async function executeMarketplaceCapability(input: {
   buildTools?: () => Promise<BuiltCodemodeTools>
   body?: unknown
@@ -1521,10 +1808,12 @@ export async function executeMarketplaceCapability(input: {
   configObjectVersionId?: string
   automationRunId?: DenTypeId<"automationRun">
   enabled?: boolean
+  installedMcpAppsEnabled?: boolean
   member: McpMemberIdentity | null
   organizationId: string
   pluginId: string
   redirectUriBase?: string
+  schemaDigest?: string
   validateScriptOutput?: boolean
 }): Promise<MarketplaceCapabilityExecuteResult> {
   if (input.enabled === false) {
@@ -1562,6 +1851,15 @@ export async function executeMarketplaceCapability(input: {
     return { ok: false, error: "forbidden", message: "You have not been granted access to this plugin capability." }
   }
 
+  if (row.configObject.objectType === "app") {
+    return executePluginInstalledMcpApp({
+      organizationId,
+      row,
+      body: input.body,
+      installedMcpAppsEnabled: input.installedMcpAppsEnabled === true,
+    })
+  }
+
   const version = input.configObjectVersionId
     ? await exactVersion(row.configObject.id, organizationId, input.configObjectVersionId)
     : await latestVersion(row.configObject.id, organizationId)
@@ -1577,6 +1875,30 @@ export async function executeMarketplaceCapability(input: {
   }
 
   if (row.configObject.objectType === "script") {
+    // A schemaDigest copied from search is a freshness proof: when the
+    // Program's input schema has drifted since discovery, the call is
+    // rejected and the caller must search again before retrying.
+    if (input.schemaDigest !== undefined) {
+      const parsedForDigest = parseCodemodeScriptPayload(version.normalizedPayloadJson)
+      const currentDigest = parsedForDigest.ok
+        ? optionalArtifactDigest(parsedForDigest.payload.inputSchema ?? null)
+        : null
+      if (currentDigest !== input.schemaDigest) {
+        return {
+          ok: false,
+          error: "invalid_capability_arguments",
+          message: "The Program's input schema changed after discovery. Call search_capabilities again and use the latest argumentsSchema and schemaDigest.",
+          issues: [{
+            path: "/",
+            keyword: "schema_validation",
+            message: "schemaDigest does not match this Program's current input schema.",
+          }],
+          sameArgumentsRetryable: false,
+          retry: { action: "search_capabilities", searchRequired: true },
+          ...(currentDigest ? { schemaDigest: currentDigest } : {}),
+        }
+      }
+    }
     const execution = await executeSavedCodemodeScript({
       database: db,
       organizationId,

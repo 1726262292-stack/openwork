@@ -185,9 +185,10 @@ test("advertises external-only MCP App authoring instructions", async () => {
     capabilities: {},
     clientInfo: { name: "agent-codemode-test", version: "1.0.0" },
   }))
-  expect(initialized.instructions).toContain("authored and bundled outside OpenWork")
-  expect(initialized.instructions).toContain("never send inline HTML")
+  expect(initialized.instructions).toContain("Standard MCP Apps supplied by connected MCP servers are discovered through search_capabilities")
+  expect(initialized.instructions).toContain("Plugin-installed URL Apps are not enabled for this organization")
   expect(initialized.instructions).not.toContain("Compile React source")
+  expect(initialized.instructions).not.toContain("import_remote_mcp_app")
 })
 
 test("executes a confined script when the org flag is on", async () => {

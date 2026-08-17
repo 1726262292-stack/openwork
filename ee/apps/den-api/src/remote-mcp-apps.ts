@@ -11,7 +11,6 @@ import { createGuardedFetch, createRealmSafeFetch } from "./capability-sources/u
 import {
   createConfigObject,
   createConfigObjectVersion,
-  createPlugin,
   syncPluginMcpRequirementAccessForResource,
 } from "./routes/org/plugin-system/store.js"
 import {
@@ -25,6 +24,9 @@ export const REMOTE_MCP_APP_CONFIG_SCHEMA_VERSION = "openwork.remote-mcp-app-ins
 // authoritative resources/read ceiling.
 export const REMOTE_MCP_APP_MAX_BYTES = 768 * 1024
 export const REMOTE_MCP_APP_FETCH_TIMEOUT_MS = 15_000
+// Refresh keeps prior immutable revisions, so bound how many an installation
+// can accumulate before an operator must retire and reinstall it.
+export const REMOTE_MCP_APP_MAX_REVISIONS = 20
 
 export const remoteMcpAppDocumentMetadataSchema = z.object({
   name: z.string().trim().min(1).max(120),
@@ -38,7 +40,7 @@ export const remoteMcpAppDocumentMetadataSchema = z.object({
 
 export type RemoteMcpAppDocumentMetadata = z.infer<typeof remoteMcpAppDocumentMetadataSchema>
 
-type RemoteMcpAppVersionPayload = {
+export type RemoteMcpAppVersionPayload = {
   kind: "remote_mcp_app"
   metadata: RemoteMcpAppDocumentMetadata
   source: {
@@ -334,6 +336,12 @@ function payloadForFetchedApp(fetched: Awaited<ReturnType<typeof fetchRemoteMcpA
   }
 }
 
+export function parseRemoteMcpAppVersionPayload(
+  row: Pick<RemoteMcpAppVersionRow, "normalizedPayloadJson">,
+): RemoteMcpAppVersionPayload {
+  return parseVersionPayload(row)
+}
+
 function parseVersionPayload(row: Pick<RemoteMcpAppVersionRow, "normalizedPayloadJson">): RemoteMcpAppVersionPayload {
   const value = row.normalizedPayloadJson
   if (!isRecord(value) || value.kind !== "remote_mcp_app") {
@@ -429,36 +437,52 @@ export async function previewRemoteMcpApp(sourceUrl: string) {
 
 export async function importRemoteMcpApp(input: {
   context: PluginArchActorContext
-  pluginId?: string
+  pluginId: string
   sourceUrl: string
   activate?: boolean
   requireFreshSession?: boolean
 }) {
-  let pluginId: DenTypeId<"plugin"> | null = null
-  if (input.pluginId) {
-    try {
-      pluginId = normalizeDenTypeId("plugin", input.pluginId)
-    } catch {
-      throw new RemoteMcpAppError(404, "plugin_not_found", "Plugin not found.")
-    }
-    // Reject an unavailable target before performing any outbound download.
-    await requirePluginArchResourceRole({
-      context: input.context,
-      requireFreshSession: input.requireFreshSession,
-      resourceId: pluginId,
-      resourceKind: "plugin",
-      role: "editor",
-    })
+  // Every installed MCP App belongs to exactly one existing Plugin, mirroring
+  // how a skill is added to a Plugin. There is no standalone-App fallback.
+  let pluginId: DenTypeId<"plugin">
+  try {
+    pluginId = normalizeDenTypeId("plugin", input.pluginId)
+  } catch {
+    throw new RemoteMcpAppError(404, "plugin_not_found", "Plugin not found.")
   }
+  // Reject an unavailable target before performing any outbound download.
+  await requirePluginArchResourceRole({
+    context: input.context,
+    requireFreshSession: input.requireFreshSession,
+    resourceId: pluginId,
+    resourceKind: "plugin",
+    role: "editor",
+  })
   const fetched = await fetchRemoteMcpApp(input.sourceUrl)
-  if (!pluginId) {
-    const plugin = await createPlugin({
-      context: input.context,
-      name: fetched.metadata.name,
-      description: fetched.metadata.description,
-      sourceRepositoryUrl: fetched.sourceUrl.length <= 1024 ? fetched.sourceUrl : null,
-    })
-    pluginId = normalizeDenTypeId("plugin", plugin.id)
+  // Repeating the same install is idempotent: when this Plugin already holds
+  // an app cached from the same source with the same active content digest,
+  // return that installation instead of duplicating it.
+  const existingRows = await db.select().from(RemoteMcpAppTable).where(and(
+    eq(RemoteMcpAppTable.organizationId, input.context.organizationContext.organization.id),
+    eq(RemoteMcpAppTable.pluginId, pluginId),
+    eq(RemoteMcpAppTable.sourceUrl, fetched.sourceUrl),
+  ))
+  for (const existing of existingRows) {
+    if (!existing.activeVersionId || existing.status !== "active") continue
+    const activeVersions = await db.select().from(ConfigObjectVersionTable).where(and(
+      eq(ConfigObjectVersionTable.configObjectId, existing.configObjectId),
+      eq(ConfigObjectVersionTable.id, existing.activeVersionId),
+      eq(ConfigObjectVersionTable.isDeletedVersion, false),
+    )).limit(1)
+    const activeVersion = activeVersions[0]
+    if (!activeVersion) continue
+    try {
+      if (parseVersionPayload(activeVersion).resource.digest === fetched.digest) {
+        return serializeApp(existing, "manager")
+      }
+    } catch {
+      continue
+    }
   }
   const configObject = await createConfigObject({
     context: input.context,
@@ -511,17 +535,45 @@ export async function refreshRemoteMcpApp(input: {
     eq(ConfigObjectVersionTable.isDeletedVersion, false),
   )).limit(1)
   if (!activeVersions[0]) throw new RemoteMcpAppError(404, "app_revision_not_found", "The active app revision was not found.")
+  const retainedVersions = await db.select({ id: ConfigObjectVersionTable.id }).from(ConfigObjectVersionTable).where(and(
+    eq(ConfigObjectVersionTable.configObjectId, app.configObjectId),
+    eq(ConfigObjectVersionTable.isDeletedVersion, false),
+  ))
+  if (retainedVersions.length >= REMOTE_MCP_APP_MAX_REVISIONS) {
+    throw new RemoteMcpAppError(
+      409,
+      "app_revision_limit_reached",
+      `This app already retains ${REMOTE_MCP_APP_MAX_REVISIONS} immutable revisions. Retire it and install again to continue.`,
+    )
+  }
   const fetched = await fetchRemoteMcpApp(input.sourceUrl ?? app.sourceUrl)
-  await createConfigObjectVersion({
-    context: input.context,
-    configObjectId: app.configObjectId,
-    reason: fetched.digest,
-    value: {
-      normalizedPayloadJson: payloadForFetchedApp(fetched) as unknown as Record<string, unknown>,
-      rawSourceText: fetched.html,
-      schemaVersion: REMOTE_MCP_APP_CONFIG_SCHEMA_VERSION,
-    },
-  })
+  // Re-fetching unchanged content is idempotent: keep the retained revision
+  // list stable instead of caching a duplicate draft of the same bytes.
+  const latestVersions = await db.select().from(ConfigObjectVersionTable).where(and(
+    eq(ConfigObjectVersionTable.configObjectId, app.configObjectId),
+    eq(ConfigObjectVersionTable.isDeletedVersion, false),
+  )).orderBy(desc(ConfigObjectVersionTable.createdAt), desc(ConfigObjectVersionTable.id)).limit(1)
+  const latestVersion = latestVersions[0]
+  const latestDigest = (() => {
+    if (!latestVersion) return null
+    try {
+      return parseVersionPayload(latestVersion).resource.digest
+    } catch {
+      return null
+    }
+  })()
+  if (latestDigest !== fetched.digest) {
+    await createConfigObjectVersion({
+      context: input.context,
+      configObjectId: app.configObjectId,
+      reason: fetched.digest,
+      value: {
+        normalizedPayloadJson: payloadForFetchedApp(fetched) as unknown as Record<string, unknown>,
+        rawSourceText: fetched.html,
+        schemaVersion: REMOTE_MCP_APP_CONFIG_SCHEMA_VERSION,
+      },
+    })
+  }
   const updatedAt = new Date()
   await db.update(RemoteMcpAppTable).set({
     sourceUrl: fetched.sourceUrl,
@@ -612,6 +664,32 @@ export async function setRemoteMcpAppRetired(input: {
     resourceKind: "config_object",
   })
   return serializeApp({ ...app, status, retiredAt, updatedAt }, "manager")
+}
+
+/**
+ * Loads one immutable revision's exact cached bytes without resolving member
+ * roles. Callers must already have authorized the member for the owning
+ * Plugin (for example through marketplace capability visibility) before
+ * serving the content.
+ */
+export async function loadRemoteMcpAppRevisionContent(input: {
+  organizationId: DenTypeId<"organization">
+  configObjectId: DenTypeId<"configObject">
+  versionId: DenTypeId<"configObjectVersion">
+}): Promise<{ html: string; payload: RemoteMcpAppVersionPayload }> {
+  const rows = await db.select().from(ConfigObjectVersionTable).where(and(
+    eq(ConfigObjectVersionTable.organizationId, input.organizationId),
+    eq(ConfigObjectVersionTable.configObjectId, input.configObjectId),
+    eq(ConfigObjectVersionTable.id, input.versionId),
+    eq(ConfigObjectVersionTable.isDeletedVersion, false),
+  )).limit(1)
+  const row = rows[0]
+  if (!row?.rawSourceText) throw new RemoteMcpAppError(404, "app_revision_not_found", "App revision not found.")
+  const payload = parseVersionPayload(row)
+  if (sha256(row.rawSourceText) !== payload.resource.digest) {
+    throw new RemoteMcpAppError(422, "cached_app_digest_mismatch", "The cached app revision failed its integrity check.")
+  }
+  return { html: row.rawSourceText, payload }
 }
 
 export async function loadRemoteMcpAppRevision(input: {

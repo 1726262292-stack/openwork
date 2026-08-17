@@ -1,6 +1,8 @@
 import type { Context, Hono } from "hono"
 import { describeRoute } from "hono-openapi"
 import { z } from "zod"
+import { pluginInstalledMcpAppsEnabled } from "../../capability-sources/plugin-mcp-apps-rollout.js"
+import { env } from "../../env.js"
 import { jsonValidator, orgMemberRoute, paramValidator } from "../../middleware/index.js"
 import { invalidRequestSchema, jsonResponse, notFoundSchema, unauthorizedSchema } from "../../openapi.js"
 import { listTeamsForMember } from "../../orgs.js"
@@ -21,7 +23,7 @@ import type { OrgRouteVariables } from "./shared.js"
 const sourceSchema = z.object({ sourceUrl: z.string().trim().url().max(2048) })
 const importSchema = sourceSchema.extend({
   activate: z.boolean().optional().default(true),
-  pluginId: z.string().trim().min(1).max(160).optional(),
+  pluginId: z.string().trim().min(1).max(160),
 }).strict()
 const refreshSchema = z.object({
   sourceUrl: z.string().trim().url().max(2048).optional(),
@@ -38,6 +40,18 @@ type OrgContext = Context<{ Variables: OrgRouteVariables }>
 async function actorContext(c: OrgContext): Promise<PluginArchActorContext> {
   const organizationContext = c.get("organizationContext")
   if (!organizationContext) throw new RemoteMcpAppError(404, "organization_not_found", "Organization context not found.")
+  // The plugin-installed MCP App rollout fails closed per organization: with
+  // either gate off, every installation, read, and lifecycle route rejects
+  // while stored records stay retained and inactive.
+  if (!pluginInstalledMcpAppsEnabled(organizationContext.organization.metadata, {
+    deploymentEnabled: env.pluginMcpAppsEnabled,
+  })) {
+    throw new RemoteMcpAppError(
+      404,
+      "plugin_mcp_apps_disabled",
+      "Plugin-installed MCP Apps are not enabled for this organization.",
+    )
+  }
   return {
     organizationContext,
     memberTeams: await listTeamsForMember({
@@ -82,6 +96,7 @@ export function registerRemoteMcpAppRoutes<T extends { Variables: OrgRouteVariab
     jsonValidator(sourceSchema),
     async (c) => {
       try {
+        await actorContext(c as unknown as OrgContext)
         return c.json({ preview: await previewRemoteMcpApp(c.req.valid("json").sourceUrl) })
       } catch (error) {
         return errorResponse(c as unknown as OrgContext, error)
