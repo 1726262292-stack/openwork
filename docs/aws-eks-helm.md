@@ -444,10 +444,19 @@ config:
     bootstrapAdminEmails: "admin@acme.com"
 ```
 
-Open `https://openwork.example.com` and sign up with the owner email. OpenWork
-creates the singleton organization and makes that user the owner. Later users
-join the same organization. If `ownerEmails` is blank, the first user to reach
-the deployment can claim ownership, which is not recommended for production.
+For releases that include initial-administrator bootstrap, inject the
+release-documented one-time setup secret through the Kubernetes Secret referenced
+by `secret.existingSecret`. Do not store the code in the values file or a
+ConfigMap. Then open `https://openwork.example.com/setup`, enter the configured
+owner email and one-time operator code, and create the first account. OpenWork
+creates the singleton organization, grants owner and configured platform-admin
+access, signs the administrator in, and permanently consumes the setup claim.
+Public signup remains disabled.
+
+`ownerEmails` and `bootstrapAdminEmails` authorize roles; neither setting creates
+an account or password. There is no default administrator password. Chart
+versions without `/setup` do not support private initial-administrator bootstrap
+and must be upgraded before following this step.
 
 ## 9. Configure SSO with a test IdP
 
