@@ -160,23 +160,12 @@ export function catalogOperationAvailableToCapabilities(
   context: Pick<CapabilityRegistryContext, "generatedArtifactViewsEnabled">,
   operation: Pick<McpToolOperation, "method" | "path">,
 ) {
-  // Installation is reachable only through the dedicated model-visible MCP
-  // tool. This also prevents a sandboxed App or a Program from finding and
-  // invoking the REST importer through the generic capability gateway.
-  if (operation.method === "POST" && operation.path === "/v1/remote-mcp-apps") return false
+  // Standalone URL-App operations are deferred and never enter the generic
+  // capability gateway, even if their retained storage routes are reworked.
+  if (operation.path.startsWith("/v1/remote-mcp-apps")) return false
   if (context.generatedArtifactViewsEnabled) return true
   return operation.path !== "/v1/programs/{configObjectId}/views"
     && !operation.path.startsWith("/v1/artifact-views/")
-}
-
-export function catalogOperationChangesRemoteMcpAppDiscovery(
-  operation: Pick<McpToolOperation, "method" | "path">,
-) {
-  return operation.method !== "GET"
-    && operation.path.startsWith("/v1/remote-mcp-apps/")
-    && (operation.path.endsWith("/refresh")
-      || operation.path.endsWith("/activate")
-      || operation.path.endsWith("/lifecycle"))
 }
 
 type CapabilitySearchContext = CapabilityRegistryContext & {

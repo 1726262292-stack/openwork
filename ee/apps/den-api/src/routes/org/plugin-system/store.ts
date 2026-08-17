@@ -2383,22 +2383,7 @@ export async function listMeEffectivePluginAccess(input: { context: PluginArchAc
 
 export async function listMeLibraryPluginItems(input: { context: PluginArchActorContext }) {
   const result = await listMeEffectivePluginAccessWithComponentKinds(input)
-  const remoteApps = result.items.length === 0
-    ? []
-    : await db.select({
-      activeVersionId: RemoteMcpAppTable.activeVersionId,
-      configObjectId: RemoteMcpAppTable.configObjectId,
-      pluginId: RemoteMcpAppTable.pluginId,
-      sourceUrl: RemoteMcpAppTable.sourceUrl,
-      status: RemoteMcpAppTable.status,
-    }).from(RemoteMcpAppTable).where(and(
-      eq(RemoteMcpAppTable.organizationId, input.context.organizationContext.organization.id),
-      inArray(RemoteMcpAppTable.pluginId, result.items.map((item) => item.plugin.id)),
-    ))
-  const remoteAppsByPluginId = new Map(remoteApps.map((app) => [app.pluginId, app]))
-  return result.items.flatMap((item) => {
-    const remoteApp = remoteAppsByPluginId.get(item.plugin.id)
-    const pluginItem = {
+  return result.items.map((item) => ({
       type: "plugin" as const,
       id: item.plugin.id,
       name: item.plugin.name,
@@ -2408,23 +2393,7 @@ export async function listMeLibraryPluginItems(input: { context: PluginArchActor
       sourceRepositoryUrl: item.plugin.sourceRepositoryUrl,
       edges: item.edges,
       role: item.role,
-    }
-    return remoteApp
-      ? [pluginItem, {
-        type: "app" as const,
-        id: remoteApp.configObjectId,
-        pluginId: item.plugin.id,
-        name: item.plugin.name,
-        description: item.plugin.description,
-        sourceUrl: remoteApp.sourceUrl,
-        status: remoteApp.status,
-        activeVersionId: remoteApp.activeVersionId,
-        state: "ready" as const,
-        edges: item.edges,
-        role: item.role,
-      }]
-      : [pluginItem]
-  })
+  }))
 }
 
 function memberConnectionState(connection: MemberUsableConnectionFacts) {
