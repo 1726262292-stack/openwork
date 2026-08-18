@@ -19,7 +19,9 @@ test(title, async ({ evidence, place }) => {
   await using den = await server({
     place,
     org: {
-      name: `Telegram Removed Eval ${Date.now()}`,
+      // Deliberately free of the word this spec asserts is absent: the org name
+      // renders in the sidebar and would otherwise fail the page-text check.
+      name: `Connector Surface Eval ${Date.now()}`,
       admin: { name: "Sarah" },
     },
   });
