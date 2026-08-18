@@ -111,20 +111,37 @@ test("Den schedules and a connected desktop runner executes an Automation", { ti
 
   await waitForText(desktop, "succeeded", { timeoutMs: 120_000 });
   // The desktop can pull focus to the freshly executed session thread moments
-  // after the run succeeds. Re-open the receipt until its full content —
+  // after the run succeeds. Recover from wherever focus landed: the receipt
+  // itself, the automation detail page (which owns the Open button), or the
+  // automations list (open the card first), until the receipt's full content —
   // timeline, RESULT heading, and the marker — is visible in one stable view.
   let receipt = "";
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    const onReceipt = await evalIn(
-      desktop,
-      `document.body.innerText.includes('Run receipt and event timeline') && !document.body.innerText.includes('No run selected.')`,
-    );
-    if (!onReceipt) {
-      await go(desktop, "/automations");
-      await waitForText(desktop, "succeeded", { timeoutMs: 60_000 });
-      await clickButton(desktop, "Open");
-    }
     try {
+      const onReceipt = await evalIn(
+        desktop,
+        `document.body.innerText.includes('Run receipt and event timeline') && !document.body.innerText.includes('No run selected.')`,
+      );
+      if (!onReceipt) {
+        const onDetail = await evalIn(
+          desktop,
+          `[...document.querySelectorAll('button')].some((element) => (element.textContent ?? '').trim() === 'Open' && !element.disabled)`,
+        );
+        if (!onDetail) {
+          await go(desktop, "/automations");
+          await waitForText(desktop, `Daily Connect check ${stamp}`, { timeoutMs: 30_000 });
+          const openedCard = await evalIn(desktop, `(() => {
+            const card = [...document.querySelectorAll('button, [role=button], a')]
+              .find((element) => (element.textContent ?? '').includes(${JSON.stringify(`Daily Connect check ${stamp}`)}));
+            if (!(card instanceof HTMLElement)) return false;
+            card.click();
+            return true;
+          })()`);
+          expect(openedCard).toBe(true);
+          await waitForText(desktop, "succeeded", { timeoutMs: 60_000 });
+        }
+        await clickButton(desktop, "Open");
+      }
       await waitFor(
         desktop,
         `document.body.innerText.includes('Run receipt and event timeline') && !document.body.innerText.includes('No run selected.') && document.body.innerText.includes('RESULT') && document.body.innerText.includes(${JSON.stringify(marker)})`,
