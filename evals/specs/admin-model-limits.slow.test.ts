@@ -351,11 +351,17 @@ test(title, async ({ evidence, place }) => {
       `email=${addedEmail}; uiStillPresent=${String(uiStillHasRemovedAdmin)}; apiStillPresent=${apiStillHasRemovedAdmin}`,
       uiStillHasRemovedAdmin === false && !apiStillHasRemovedAdmin,
     );
-    // Visual record of the post-removal panel. Absence is a negative claim that
-    // vision judges unreliably, so removal stays proven by the DOM and live API
-    // assertions above; this frame exists for human review.
+    // The post-removal panel. Absence is a negative claim that vision judges
+    // unreliably, so removal stays proven by the DOM and live API assertions
+    // above; this frame claims only the positive end state it shows.
     await scrollIntoView(browser, '[data-testid="admin-add-email"]');
-    await screenshot(browser);
+    {
+      const shot = await screenshot(browser);
+      const seen = await validate(shot, [
+        "The Platform admins section lists an admin entry whose label ends with You",
+      ]);
+      expect(seen.ok, seen.why).toBe(true);
+    }
     addedAdminId = "";
 
     const usage = await denFetch(den.admin, `/v1/admin/users/${encodeURIComponent(memberUser.id)}/inference-usage`, {
