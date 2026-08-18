@@ -474,6 +474,10 @@ jobs:
       MACOS_NOTARIZE: ${{ needs.resolve-release.outputs.notarize }}
       SIGN_WINDOWS: ${{ needs.resolve-release.outputs.sign_windows }}
       BENCHMARK_ONLY: ${{ needs.resolve-release.outputs.benchmark_only }}
+      # A filtered frozen install already materializes the complete desktop
+      # dependency closure. Without this, pnpm may "repair" the intentionally
+      # partial workspace with a second all-workspace install before scripts.
+      PNPM_CONFIG_VERIFY_DEPS_BEFORE_RUN: "false"
       OPENWORK_DESKTOP_SENTRY_DSN: ${{ secrets.OPENWORK_DESKTOP_SENTRY_DSN || vars.OPENWORK_DESKTOP_SENTRY_DSN }}
       OPENWORK_DESKTOP_SENTRY_TRACES_SAMPLE_RATE: ${{ vars.OPENWORK_DESKTOP_SENTRY_TRACES_SAMPLE_RATE || '0.01' }}
 
@@ -497,7 +501,7 @@ jobs:
             manifest_pattern: latest*.yml
             electron_args: "--mac --x64"
             target_triple: x86_64-apple-darwin
-          - platform: blacksmith-8vcpu-ubuntu-2204
+          - platform: blacksmith-16vcpu-ubuntu-2204
             os_type: linux
             artifact: electron-linux-x64
             builder_config: electron-builder.yml
@@ -505,7 +509,10 @@ jobs:
             manifest_pattern: latest*.yml
             electron_args: "--linux --x64"
             target_triple: x86_64-unknown-linux-gnu
-          - platform: blacksmith-8vcpu-ubuntu-2204-arm
+          # electron-builder can package ARM64 without executing the target
+          # binaries. Cross-package on the faster x64 compression runner; the
+          # workspace installs both CPU variants of optional native packages.
+          - platform: blacksmith-16vcpu-ubuntu-2204
             os_type: linux
             artifact: electron-linux-arm64
             builder_config: electron-builder.yml
@@ -548,7 +555,7 @@ jobs:
             manifest_pattern: cloud*.yml
             electron_args: "--mac --x64"
             target_triple: x86_64-apple-darwin
-          - platform: blacksmith-8vcpu-ubuntu-2204
+          - platform: blacksmith-16vcpu-ubuntu-2204
             os_type: linux
             artifact: electron-cloud-linux-x64
             builder_config: electron-builder.cloud.yml
@@ -556,7 +563,7 @@ jobs:
             manifest_pattern: cloud*.yml
             electron_args: "--linux --x64"
             target_triple: x86_64-unknown-linux-gnu
-          - platform: blacksmith-8vcpu-ubuntu-2204-arm
+          - platform: blacksmith-16vcpu-ubuntu-2204
             os_type: linux
             artifact: electron-cloud-linux-arm64
             builder_config: electron-builder.cloud.yml
@@ -596,7 +603,7 @@ jobs:
             manifest_pattern: enterprise*.yml
             electron_args: "--mac --x64"
             target_triple: x86_64-apple-darwin
-          - platform: blacksmith-8vcpu-ubuntu-2204
+          - platform: blacksmith-16vcpu-ubuntu-2204
             os_type: linux
             artifact: electron-enterprise-linux-x64
             builder_config: electron-builder.enterprise.yml
@@ -604,7 +611,7 @@ jobs:
             manifest_pattern: enterprise*.yml
             electron_args: "--linux --x64"
             target_triple: x86_64-unknown-linux-gnu
-          - platform: blacksmith-8vcpu-ubuntu-2204-arm
+          - platform: blacksmith-16vcpu-ubuntu-2204
             os_type: linux
             artifact: electron-enterprise-linux-arm64
             builder_config: electron-builder.enterprise.yml
