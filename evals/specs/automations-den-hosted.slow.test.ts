@@ -110,15 +110,22 @@ test("Den schedules and a connected desktop runner executes an Automation", { ti
   );
 
   await waitForText(desktop, "succeeded", { timeoutMs: 120_000 });
+  await clickButton(desktop, "Open");
+  await waitFor(
+    desktop,
+    `document.body.innerText.includes('Run receipt and event timeline') && !document.body.innerText.includes('No run selected.')`,
+    { timeoutMs: 30_000, label: "selected run receipt" },
+  );
   await waitForText(desktop, marker, { timeoutMs: 60_000 });
   const receipt = await visibleText(desktop);
+  expect(receipt).toContain("succeeded");
   expect(receipt).toMatch(/execution thread/i);
   expect(receipt).toMatch(/desktop/i);
   {
     const shot = await screenshot(desktop);
     const seen = await validate(shot, [
       "An Automation run receipt is visible with a succeeded status and a desktop execution thread",
-      "The receipt identifies a Connect capability call made through the local runtime",
+      "The selected receipt includes the result summary and identifies Desktop as the execution location",
       "No draft, review, permission picker, or crash message is visible",
     ]);
     expect(seen.ok, seen.why).toBe(true);
