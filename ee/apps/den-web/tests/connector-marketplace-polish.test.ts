@@ -55,10 +55,14 @@ describe("connector and marketplace polish", () => {
   test("reuses Quick add on the admin dashboard and opens the selected connector flow", () => {
     const home = readDashboardComponent("dashboard-home-screen.tsx");
     const overview = readDashboardComponent("dashboard-overview-screen.tsx");
+    const data = readDashboardComponent("mcp-connections-data.tsx");
     const connectorScreen = readDashboardComponent("mcp-connections-screen.tsx");
 
     expect(home).toContain("return access.isAdmin ? <DashboardOverviewScreen /> : <MemberDashboardScreen />");
     expect(overview).toContain("<ConnectorQuickAddGrid");
+    expect(overview).toContain("useTelegramCapabilityStatus(true)");
+    expect(overview).not.toContain("useTelegramConnection(true)");
+    expect(data).toContain('"/v1/capabilities/telegram/status"');
     expect(overview).toContain("?quickAdd=${encodeURIComponent(id)}");
     expect(connectorScreen).toContain('searchParams.get("quickAdd")');
   });
