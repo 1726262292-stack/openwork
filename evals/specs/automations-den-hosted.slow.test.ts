@@ -135,14 +135,14 @@ test("Den schedules and a connected desktop runner executes an Automation", { ti
   await waitForText(desktop, "Inactive", { timeoutMs: 30_000 });
   await waitFor(
     desktop,
-    `document.body.innerText.includes('No future run scheduled') || document.body.innerText.includes('No next run')`,
+    `[...document.querySelectorAll('span')].some((label) => label.textContent?.trim() === 'Next run' && label.parentElement?.innerText.includes('—'))`,
     { timeoutMs: 30_000, label: "future due time cleared after deactivation" },
   );
   await clickButton(desktop, "Reactivate");
   await waitForText(desktop, "Active", { timeoutMs: 30_000 });
   await waitFor(
     desktop,
-    `document.body.innerText.includes('Next run') && !document.body.innerText.includes('No future run scheduled')`,
+    `[...document.querySelectorAll('span')].some((label) => label.textContent?.trim() === 'Next run' && !label.parentElement?.innerText.includes('—'))`,
     { timeoutMs: 30_000, label: "next future occurrence recalculated" },
   );
 });
