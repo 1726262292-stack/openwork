@@ -204,6 +204,27 @@ test(title, async ({ evidence, place }) => {
   const addedNote = `Admin model limits eval ${stamp}`;
   let addedAdminId = "";
   try {
+    const recorderInstalled = await evalIn(browser, `(() => {
+      const calls = [];
+      window.__adminAdminsCalls = calls;
+      const original = window.fetch.bind(window);
+      window.fetch = async (input, init) => {
+        const url = typeof input === "string" ? input : input instanceof Request ? input.url : String(input);
+        const method = (init && init.method) || (input instanceof Request ? input.method : "GET");
+        if (!url.includes("/v1/admin/admins")) return original(input, init);
+        try {
+          const response = await original(input, init);
+          const text = await response.clone().text().catch(() => "");
+          calls.push({ url, method, status: response.status, ok: response.ok, text: text.slice(0, 500) });
+          return response;
+        } catch (error) {
+          calls.push({ url, method, error: String(error) });
+          throw error;
+        }
+      };
+      return Array.isArray(window.__adminAdminsCalls);
+    })()`);
+    expect(recorderInstalled).toBe(true);
     const formFilled = await evalIn(browser, `(() => {
       const email = document.querySelector('[data-testid="admin-add-email"]');
       const note = document.querySelector('[data-testid="admin-add-note"]');
@@ -227,6 +248,13 @@ test(title, async ({ evidence, place }) => {
       return true;
     })()`);
     expect(formSubmitted).toBe(true);
+    await waitFor(browser, `Array.isArray(window.__adminAdminsCalls) && window.__adminAdminsCalls.some((call) => call.method === "POST")`, {
+      timeoutMs: 30_000,
+      label: "Add admin POST settled in the browser",
+    });
+    const addCall = await evalIn(browser, `window.__adminAdminsCalls.find((call) => call.method === "POST")`);
+    const addCallOk = isRecord(addCall) && addCall.ok === true;
+    expect(addCallOk, `Add admin POST did not succeed: ${JSON.stringify(addCall)}`).toBe(true);
     await waitFor(browser, `document.body.innerText.includes(${JSON.stringify(addedEmail)})`, {
       timeoutMs: 30_000,
       label: "new platform admin visible after Add admin",
@@ -236,9 +264,11 @@ test(title, async ({ evidence, place }) => {
     expect(addedOverview.response.ok, addedOverview.text.slice(0, 500)).toBe(true);
     const addedAdmins = adminsFrom(addedOverview.body);
     const addedAdmin = addedAdmins.find((admin) => admin.email === addedEmail);
-    expect(addedAdmin, `Overview did not contain added admin ${addedEmail}`).toBeDefined();
+    expect(addedAdmin, `Overview admins ${JSON.stringify(addedAdmins)} did not contain added admin ${addedEmail}`).toBeDefined();
     if (!addedAdmin) throw new Error(`Overview did not contain added admin ${addedEmail}`);
     addedAdminId = addedAdmin.id;
+    const addedRowVisible = await evalIn(browser, `Boolean(document.querySelector(${JSON.stringify(`[data-testid="admin-remove-${addedAdmin.id}"]`)}))`);
+    expect(addedRowVisible, `Added admin ${addedAdmin.id} has no remove control in the UI`).toBe(true);
     const uiHasAddedAdmin = await evalIn(browser, `document.body.innerText.includes(${JSON.stringify(addedEmail)})`);
     const initiallyAbsent = !initialAdmins.some((admin) => admin.email === addedEmail);
     expect(uiHasAddedAdmin).toBe(true);
@@ -256,6 +286,13 @@ test(title, async ({ evidence, place }) => {
       return true;
     })()`);
     expect(removeClicked).toBe(true);
+    await waitFor(browser, `Array.isArray(window.__adminAdminsCalls) && window.__adminAdminsCalls.some((call) => call.method === "DELETE")`, {
+      timeoutMs: 30_000,
+      label: "Remove admin DELETE settled in the browser",
+    });
+    const removeCall = await evalIn(browser, `window.__adminAdminsCalls.find((call) => call.method === "DELETE")`);
+    const removeCallOk = isRecord(removeCall) && removeCall.ok === true;
+    expect(removeCallOk, `Remove admin DELETE did not succeed: ${JSON.stringify(removeCall)}`).toBe(true);
     await waitFor(browser, `!document.body.innerText.includes(${JSON.stringify(addedEmail)})`, {
       timeoutMs: 30_000,
       label: "removed platform admin absent from UI",
