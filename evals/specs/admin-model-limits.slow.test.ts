@@ -122,7 +122,7 @@ test(title, async ({ evidence, place }) => {
     });
     const text = await response.text();
     return { ok: response.ok, status: response.status, text };
-  })()`);
+  })()`, { awaitPromise: true, timeoutMs: 30_000 });
   const signInOk = isRecord(rawSignIn) && rawSignIn.ok === true;
   expect(signInOk, `Browser sign-in failed: ${JSON.stringify(rawSignIn)}`).toBe(true);
 
