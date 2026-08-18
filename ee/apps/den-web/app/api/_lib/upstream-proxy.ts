@@ -325,9 +325,14 @@ function errorName(error: unknown): string {
   return error instanceof Error ? error.name : typeof error;
 }
 
-async function readRequestBody(request: NextRequest): Promise<Uint8Array | null> {
+async function readRequestBody(request: NextRequest): Promise<Blob | null> {
   if (request.method === "GET" || request.method === "HEAD") return null;
-  return new Uint8Array(await request.arrayBuffer());
+  // Forward a Blob, never an ArrayBuffer or a view: Next 16's patched fetch
+  // hands buffer-backed bodies to undici with their backing ArrayBuffer
+  // detached — even a fresh copy — so every proxied write threw "Cannot
+  // perform ArrayBuffer.prototype.slice on a detached ArrayBuffer" while
+  // GETs (null body) kept working. A Blob owns its bytes and survives the hop.
+  return request.blob();
 }
 
 export async function proxyUpstream(
