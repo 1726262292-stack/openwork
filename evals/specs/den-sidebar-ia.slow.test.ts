@@ -105,9 +105,12 @@ test(title, async ({ evidence, place }) => {
     headless: true,
     host: place.host(),
   });
+  // Tall enough that the fully expanded admin sidebar (Settings children end
+  // with SSO, SCIM, and Tool Tester) stays inside the screenshot the vision
+  // judge sees; at 1100px the tail falls below the fold.
   await browser.client.send("Emulation.setDeviceMetricsOverride", {
     width: 1440,
-    height: 1100,
+    height: 1700,
     deviceScaleFactor: 1,
     mobile: false,
   });

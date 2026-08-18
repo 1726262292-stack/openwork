@@ -110,14 +110,32 @@ test("Den schedules and a connected desktop runner executes an Automation", { ti
   );
 
   await waitForText(desktop, "succeeded", { timeoutMs: 120_000 });
-  await clickButton(desktop, "Open");
-  await waitFor(
-    desktop,
-    `document.body.innerText.includes('Run receipt and event timeline') && !document.body.innerText.includes('No run selected.')`,
-    { timeoutMs: 30_000, label: "selected run receipt" },
-  );
-  await waitForText(desktop, marker, { timeoutMs: 60_000 });
-  const receipt = await visibleText(desktop);
+  // The desktop can pull focus to the freshly executed session thread moments
+  // after the run succeeds. Re-open the receipt until its full content —
+  // timeline, RESULT heading, and the marker — is visible in one stable view.
+  let receipt = "";
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const onReceipt = await evalIn(
+      desktop,
+      `document.body.innerText.includes('Run receipt and event timeline') && !document.body.innerText.includes('No run selected.')`,
+    );
+    if (!onReceipt) {
+      await go(desktop, "/automations");
+      await waitForText(desktop, "succeeded", { timeoutMs: 60_000 });
+      await clickButton(desktop, "Open");
+    }
+    try {
+      await waitFor(
+        desktop,
+        `document.body.innerText.includes('Run receipt and event timeline') && !document.body.innerText.includes('No run selected.') && document.body.innerText.includes('RESULT') && document.body.innerText.includes(${JSON.stringify(marker)})`,
+        { timeoutMs: 45_000, label: "stable run receipt with result" },
+      );
+      receipt = await visibleText(desktop);
+      break;
+    } catch (error) {
+      if (attempt === 2) throw error;
+    }
+  }
   expect(receipt).toContain("succeeded");
   expect(receipt).toContain("RESULT");
   expect(receipt).toMatch(/execution thread/i);
