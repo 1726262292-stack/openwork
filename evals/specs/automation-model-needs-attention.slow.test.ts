@@ -281,18 +281,20 @@ test("an unavailable Automation model needs attention until the owner selects a 
     return Boolean(dialog && [...dialog.querySelectorAll('span')]
       .some((label) => (label.textContent ?? '').trim() === ${JSON.stringify(REPLACEMENT_MODEL_NAME)}));
   })()`, { timeoutMs: 15_000, label: "replacement model row rendered" });
-  // Search every open dialog (the picker portals after the editor), prefer the
-  // row whose label span equals the model name exactly, fall back to any
-  // role=button whose text contains it, and surface the visible spans when
+  // The expanded row is a native button whose label spans carry the model's
+  // display name and raw id (the plural group header never does). Click the
+  // candidate with an exact label match, and surface the visible spans when
   // nothing is clickable so a red run explains itself.
   const selectedReplacement = await evalIn(desktop, `(() => {
     const dialogs = [...document.querySelectorAll('[role=dialog]')];
     if (dialogs.length === 0) return "no dialog";
     for (const dialog of dialogs.slice().reverse()) {
-      const items = [...dialog.querySelectorAll('[role=button]')];
-      const exact = items.find((item) => [...item.querySelectorAll('span')]
-        .some((label) => (label.textContent ?? '').trim() === ${JSON.stringify(REPLACEMENT_MODEL_NAME)}));
-      const item = exact ?? items.find((candidate) => (candidate.textContent ?? '').includes(${JSON.stringify(REPLACEMENT_MODEL_NAME)}));
+      const items = [...dialog.querySelectorAll('button, [role=button], [role=option], [cmdk-item]')];
+      const item = items.find((candidate) => [...candidate.querySelectorAll('span')]
+        .some((label) => {
+          const text = (label.textContent ?? '').trim();
+          return text === ${JSON.stringify(REPLACEMENT_MODEL_NAME)} || text === ${JSON.stringify(REPLACEMENT_MODEL_ID)};
+        }));
       if (item instanceof HTMLElement) {
         item.click();
         return "ok";
