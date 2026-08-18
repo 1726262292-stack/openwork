@@ -67,8 +67,6 @@ test("Den schedules and a connected desktop runner executes an Automation", { ti
     access: { orgWide: true },
   });
 
-  const due = new Date(Date.now() + 2 * 60_000);
-  const scheduledTime = `${String(due.getUTCHours()).padStart(2, "0")}:${String(due.getUTCMinutes()).padStart(2, "0")}`;
   const submittedSince = new Date().toISOString();
 
   const desktop = await app({ den, as: "admin", place });
@@ -82,6 +80,8 @@ test("Den schedules and a connected desktop runner executes an Automation", { ti
     `Use search_capabilities to find the echo integration, call it with text exactly ${marker}, then summarize the result.`,
   );
   await setField(desktop, "Schedule", "daily");
+  const due = new Date(Date.now() + 2 * 60_000);
+  const scheduledTime = `${String(due.getUTCHours()).padStart(2, "0")}:${String(due.getUTCMinutes()).padStart(2, "0")}`;
   await setField(desktop, "Time", scheduledTime);
   await setField(desktop, "Timezone", "UTC");
 
