@@ -260,6 +260,7 @@ export const mcpConnectionQueryKeys = {
   nativeProviderClient: (orgId?: string | null, providerId?: string | null) =>
     [...mcpConnectionQueryKeys.all, "native-provider-client", orgId ?? "none", providerId ?? "none"],
   telegram: (orgId?: string | null) => [...mcpConnectionQueryKeys.all, "telegram", orgId ?? "none"] as const,
+  telegramStatus: (orgId?: string | null) => [...mcpConnectionQueryKeys.telegram(orgId), "status"] as const,
 };
 
 function isExternalMcpTool(value: unknown): value is ExternalMcpTool {
@@ -1192,6 +1193,24 @@ export function useTelegramConnection(enabled: boolean) {
       });
       if (!loaded) throw new Error("Telegram connection response was incomplete.");
       return connection;
+    },
+  });
+}
+
+export function useTelegramCapabilityStatus(enabled: boolean) {
+  const { orgId } = useOrgDashboard();
+  return useQuery({
+    enabled: enabled && Boolean(orgId),
+    queryKey: mcpConnectionQueryKeys.telegramStatus(orgId),
+    retry: false,
+    queryFn: async (): Promise<boolean> => {
+      const { response, payload } = await requestJson(
+        "/v1/capabilities/telegram/status",
+        { headers: getOrgScopeHeaders(requireOrgId(orgId)) },
+        15000,
+      );
+      if (!response.ok) throw getRequestError(payload, response, `Failed to load Telegram status (${response.status}).`);
+      return isRecord(payload) && isRecord(payload.connection) && payload.connection.connected === true;
     },
   });
 }
