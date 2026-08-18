@@ -12,10 +12,11 @@ function seedRequiredEnv() {
 let AutomationRunnerAuth: typeof import("../src/automations/runner-auth.js")["AutomationRunnerAuth"]
 let automationRunnerAudienceFromRequest: typeof import("../src/automations/runner-auth.js")["automationRunnerAudienceFromRequest"]
 let automationRunnerAudienceFromRequestUrl: typeof import("../src/automations/runner-auth.js")["automationRunnerAudienceFromRequestUrl"]
+let automationRunnerDirectAudience: typeof import("../src/automations/runner-auth.js")["automationRunnerDirectAudience"]
 
 beforeAll(async () => {
   seedRequiredEnv()
-  ;({ AutomationRunnerAuth, automationRunnerAudienceFromRequest, automationRunnerAudienceFromRequestUrl } = await import("../src/automations/runner-auth.js"))
+  ;({ AutomationRunnerAuth, automationRunnerAudienceFromRequest, automationRunnerAudienceFromRequestUrl, automationRunnerDirectAudience } = await import("../src/automations/runner-auth.js"))
 })
 
 describe("Automation runner credentials", () => {
@@ -107,6 +108,30 @@ describe("Automation runner credentials", () => {
     expect(automationRunnerAudienceFromRequest(request, {
       trustedOrigins: ["https://app.openworklabs.com"],
     })).toBe("https://api.openworklabs.com")
+  })
+
+  test("names the bound destination on the minted credential", () => {
+    const issued = new AutomationRunnerAuth("runner-auth-test-secret".repeat(3)).issue({
+      organizationId: "org_test",
+      ownerMemberId: "member_test",
+      runnerId: "desktop-test",
+      capabilities: [],
+    }, "https://api.example.com/")
+
+    expect(issued.baseUrl).toBe("https://api.example.com")
+    expect(new AutomationRunnerAuth("runner-auth-test-secret".repeat(3))
+      .authenticate(`Bearer ${issued.token}`)?.audience).toBe("https://api.example.com")
+  })
+
+  test("binds direct credentials only to destinations a desktop will accept", () => {
+    expect(automationRunnerDirectAudience("https://api.openworklabs.com")).toBe("https://api.openworklabs.com")
+    expect(automationRunnerDirectAudience("https://api.openworklabs.com/")).toBe("https://api.openworklabs.com")
+    expect(automationRunnerDirectAudience("http://127.0.0.1:8790")).toBe("http://127.0.0.1:8790")
+    expect(automationRunnerDirectAudience("http://den.localhost:8790")).toBe("http://den.localhost:8790")
+    // Desktops refuse plaintext runner destinations off loopback; falling back
+    // to the request-derived audience keeps those runners connected.
+    expect(automationRunnerDirectAudience("http://api.internal:8790")).toBeNull()
+    expect(automationRunnerDirectAudience(undefined)).toBeNull()
   })
 
   test("keeps legacy v1 credentials capability-free", () => {

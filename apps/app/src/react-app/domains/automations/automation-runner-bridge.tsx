@@ -1,6 +1,6 @@
 /** @jsxImportSource react */
 import { useEffect } from "react"
-import { AUTOMATION_MODEL_ATTENTION_CAPABILITY } from "@openwork/types/automations"
+import { AUTOMATION_MODEL_ATTENTION_CAPABILITY, type AutomationDesktopRunnerRegistration } from "@openwork/types/automations"
 
 import { createDenClient, DenApiError, readDenSettings } from "@/app/lib/den"
 import { denSettingsChangedEvent } from "@/app/lib/den-session-events"
@@ -56,35 +56,42 @@ export function AutomationRunnerBridge({ enabled }: { enabled: boolean }) {
         const build = await window.__OPENWORK_ELECTRON__?.invokeDesktop?.("appBuildInfo")
         const agent = navigator.userAgent
         const platform = /Mac/i.test(agent) ? "darwin" : /Win/i.test(agent) ? "win32" : "linux"
-        let runner: Awaited<ReturnType<typeof client.mintAutomationRunnerToken>>
+        const registration = (id: string, protocolVersion: 1 | 2): AutomationDesktopRunnerRegistration => ({
+          runnerId: id,
+          protocolVersion,
+          supportedExecutionTargets: ["desktop"],
+          capabilities: [AUTOMATION_MODEL_ATTENTION_CAPABILITY],
+          appVersion: String(build?.version ?? "unknown"),
+          platform,
+          concurrency: 1,
+        })
+        const mint = async (id: string) => {
+          try {
+            return await client.mintAutomationRunnerToken(organizationId, registration(id, 2))
+          } catch (error) {
+            // Older Den APIs only accept protocol v1 registrations; those
+            // credentials stay on the proxied base URL this client already uses.
+            if (error instanceof DenApiError && error.status === 400 && error.code === "invalid_request") {
+              return client.mintAutomationRunnerToken(organizationId, registration(id, 1))
+            }
+            throw error
+          }
+        }
+        let runner: Awaited<ReturnType<typeof mint>>
         try {
-          runner = await client.mintAutomationRunnerToken(organizationId, {
-            runnerId,
-            protocolVersion: 1,
-            supportedExecutionTargets: ["desktop"],
-            capabilities: [AUTOMATION_MODEL_ATTENTION_CAPABILITY],
-            appVersion: String(build?.version ?? "unknown"),
-            platform,
-            concurrency: 1,
-          })
+          runner = await mint(runnerId)
         } catch (error) {
           if (!(error instanceof DenApiError) || error.status !== 409 || error.code !== "automation_runner_identity_conflict") {
             throw error
           }
           runnerId = resetDesktopRunnerId()
-          runner = await client.mintAutomationRunnerToken(organizationId, {
-            runnerId,
-            protocolVersion: 1,
-            supportedExecutionTargets: ["desktop"],
-            capabilities: [AUTOMATION_MODEL_ATTENTION_CAPABILITY],
-            appVersion: String(build?.version ?? "unknown"),
-            platform,
-            concurrency: 1,
-          })
+          runner = await mint(runnerId)
         }
         if (disposed) return
         await window.__OPENWORK_ELECTRON__?.invokeDesktop?.("automationRunnerConfigure", {
-          baseUrl: client.baseUrls.apiBaseUrl,
+          // The minted baseUrl is the credential's signed audience; sending the
+          // runner anywhere else would fail the desktop's binding check.
+          baseUrl: runner.baseUrl ?? client.baseUrls.apiBaseUrl,
           token: runner.token,
           runnerId,
         })

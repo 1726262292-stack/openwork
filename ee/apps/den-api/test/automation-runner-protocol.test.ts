@@ -7,6 +7,7 @@ import {
   automationRunnerEventRequestSchema,
   automationRunnerHeartbeatResponseSchema,
   automationRunnerNotificationSchema,
+  automationRunnerTokenResponseSchema,
   automationRunnerUnavailableOutcomeSchema,
 } from "@openwork/types/automations"
 import { readFileSync } from "node:fs"
@@ -55,6 +56,14 @@ test("runner registration and assignment reject unsupported targets", () => {
   assert.equal(automationDesktopRunnerRegistrationSchema.safeParse({
     ...registration,
     supportedExecutionTargets: ["sandbox"],
+  }).success, false)
+  assert.equal(automationDesktopRunnerRegistrationSchema.safeParse({
+    ...registration,
+    protocolVersion: 2,
+  }).success, true)
+  assert.equal(automationDesktopRunnerRegistrationSchema.safeParse({
+    ...registration,
+    protocolVersion: 3,
   }).success, false)
   assert.equal(automationDesktopRunnerAssignmentSchema.safeParse({
     executionTarget: "sandbox",
@@ -142,6 +151,24 @@ test("a no-op heartbeat renewal is reported as a lost lease", () => {
   )
   assert.match(heartbeat, /if \(!automationUpdateChangedRows\(renewal\)\) return null/)
   assert.match(heartbeat, /gt\(AutomationRunTable\.lease_expires_at, new Date\(input\.now\)\)/)
+})
+
+test("runner credentials name their destination and tolerate older servers omitting it", () => {
+  const base = {
+    token: "t".repeat(64),
+    expiresAt: Date.now() + 60_000,
+    eventsPath: "/v1/automation-runners/events",
+  }
+  assert.equal(automationRunnerTokenResponseSchema.safeParse(base).success, true)
+  const parsed = automationRunnerTokenResponseSchema.parse({
+    ...base,
+    baseUrl: "https://api.openworklabs.com",
+  })
+  assert.equal(parsed.baseUrl, "https://api.openworklabs.com")
+  // Protocol v2 runners send their long-lived SSE and work-poll channels to
+  // the minted destination; the route must derive it from the registration.
+  const routesSource = readFileSync(join(import.meta.dir, "../src/routes/automations/index.ts"), "utf8")
+  assert.match(routesSource, /registration\.protocolVersion >= 2\s*\?\s*automationRunnerDirectAudience\(env\.apiPublicUrl\)/)
 })
 
 test("runner credential minting is never exposed as an MCP tool", () => {

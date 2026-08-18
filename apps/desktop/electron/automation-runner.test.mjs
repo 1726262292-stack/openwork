@@ -127,6 +127,26 @@ test("a v1 runner credential cannot use an untrusted HTTPS endpoint", async () =
   assert.deepEqual(attempted, [])
 })
 
+test("a v2 runner credential bound to the direct API origin connects there", async () => {
+  const attempted = []
+  const runner = createDesktopAutomationRunner({
+    getLocalRuntime: async () => ({ baseUrl: "http://127.0.0.1:3000", token: "local" }),
+    fetchImpl: async (url) => {
+      attempted.push(String(url))
+      throw new Error("no network in test")
+    },
+  })
+  runner.configure({
+    baseUrl: "https://api.example.com",
+    token: runnerTokenFor("https://api.example.com"),
+    runnerId: "runner-1",
+  })
+  await new Promise((resolve) => setTimeout(resolve, 25))
+  runner.stop()
+  assert.ok(attempted.length > 0)
+  assert.ok(attempted.every((url) => url.startsWith("https://api.example.com/v1/")))
+})
+
 test("a runner credential bound elsewhere reports why this desktop stays disconnected", async () => {
   const logged = []
   const attempted = []

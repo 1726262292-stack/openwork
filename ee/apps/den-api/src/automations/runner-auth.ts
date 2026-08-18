@@ -45,6 +45,26 @@ export function automationRunnerAudienceFromRequestUrl(requestUrl: string): stri
 }
 
 /**
+ * Runner channels held open through the Den Web serverless proxy bill for the
+ * entire held connection, so protocol v2 runners are bound to the API's own
+ * public origin whenever one is configured. Only destinations a desktop will
+ * accept are eligible — https, or http on loopback — because desktops refuse
+ * plaintext runner destinations; anything else falls back to the
+ * request-derived audience so a misconfigured public URL cannot silently
+ * disconnect every runner.
+ */
+export function automationRunnerDirectAudience(apiPublicUrl: string | undefined): string | null {
+  if (!apiPublicUrl) return null
+  const audience = normalizeRunnerAudience(apiPublicUrl)
+  if (!audience) return null
+  const parsed = new URL(audience)
+  const loopback = ["localhost", "127.0.0.1", "::1", "[::1]"].includes(parsed.hostname)
+    || parsed.hostname.endsWith(".localhost")
+  if (parsed.protocol !== "https:" && !loopback) return null
+  return audience
+}
+
+/**
  * Bind proxied runner credentials to the public Den route the desktop will
  * actually use. The Den Web proxy strips caller-supplied forwarding headers
  * and writes its own, while trustedForwardedOrigin limits the destination to
@@ -91,7 +111,14 @@ export class AutomationRunnerAuth {
       e: expiresAt,
     })).toString("base64url")
     const token = `${payload}.${this.sign(payload)}`
-    return { token, expiresAt, eventsPath: "/v1/automation-runners/events" as const }
+    return {
+      token,
+      expiresAt,
+      eventsPath: "/v1/automation-runners/events" as const,
+      // Desktops verify that the configured destination matches the signed
+      // audience, so the credential response names that destination outright.
+      baseUrl: normalizedAudience,
+    }
   }
 
   authenticate(authorization: string | undefined): AutomationRunnerIdentity | null {

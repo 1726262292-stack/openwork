@@ -182,7 +182,14 @@ export type AutomationDesktopRunnerCapability = z.infer<typeof automationDesktop
 
 export const automationDesktopRunnerRegistrationSchema = z.object({
   runnerId: idSchema.min(8),
-  protocolVersion: z.literal(1),
+  /**
+   * 1: the runner talks to whatever base URL the renderer configured
+   *    (typically the Den Web `/api/den` proxy).
+   * 2: the runner honors the `baseUrl` minted with its credential, so the
+   *    server can steer long-lived runner channels at the API origin directly
+   *    instead of holding SSE connections open through the serverless proxy.
+   */
+  protocolVersion: z.union([z.literal(1), z.literal(2)]),
   supportedExecutionTargets: z.array(z.literal("desktop")).length(1),
   capabilities: z.array(automationDesktopRunnerCapabilitySchema).max(1).default([]),
   appVersion: z.string().trim().min(1).max(80),
@@ -257,6 +264,12 @@ export const automationRunnerTokenResponseSchema = z.object({
   token: z.string().trim().min(32).max(512),
   expiresAt: timestampSchema,
   eventsPath: z.literal("/v1/automation-runners/events"),
+  /**
+   * The base URL this credential is bound to; protocol v2 runners connect
+   * here. Absent on older servers, whose credentials stay on the base URL the
+   * client already uses.
+   */
+  baseUrl: z.string().trim().min(1).max(2048).optional(),
 })
 export type AutomationRunnerTokenResponse = z.infer<typeof automationRunnerTokenResponseSchema>
 

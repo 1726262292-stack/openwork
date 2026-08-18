@@ -31,7 +31,7 @@ import {
 } from "../../middleware/index.js"
 import { invalidRequestSchema, jsonResponse, notFoundSchema, unauthorizedSchema } from "../../openapi.js"
 import { automationService, type AutomationService } from "../../automations/service.js"
-import { automationRunnerAudienceFromRequest, automationRunnerAuth } from "../../automations/runner-auth.js"
+import { automationRunnerAudienceFromRequest, automationRunnerAuth, automationRunnerDirectAudience } from "../../automations/runner-auth.js"
 import { env } from "../../env.js"
 import {
   RUNNER_KEEPALIVE_INTERVAL_MS,
@@ -137,6 +137,15 @@ export function registerAutomationRoutes<T extends { Variables: RouteVariables }
         if (mapped) return c.json(mapped.body, mapped.status)
         throw error
       }
+      // Protocol v2 runners follow the minted baseUrl, so their long-lived
+      // SSE and work-poll channels go to the API origin directly instead of
+      // being held open through the Den Web serverless proxy.
+      const audience = (registration.protocolVersion >= 2
+        ? automationRunnerDirectAudience(env.apiPublicUrl)
+        : null)
+        ?? automationRunnerAudienceFromRequest(c.req.raw, {
+          trustedOrigins: env.publicProxyTrustedOrigins,
+        })
       return c.json(automationRunnerAuth.issue(
         {
           organizationId: scope(c).organizationId,
@@ -144,9 +153,7 @@ export function registerAutomationRoutes<T extends { Variables: RouteVariables }
           runnerId: registration.runnerId,
           capabilities: registration.capabilities,
         },
-        automationRunnerAudienceFromRequest(c.req.raw, {
-          trustedOrigins: env.publicProxyTrustedOrigins,
-        }),
+        audience,
       ))
     },
   )
