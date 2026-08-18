@@ -47,6 +47,7 @@ export function validateSnapshot(value) {
 
 export function analyzeImpact(contracts, changedFiles) {
   const changed = [...new Set(changedFiles.map((entry) => entry.trim()).filter(Boolean))].sort()
+  const changedSlowSpecs = changed.filter((pathname) => pathname.startsWith("evals/specs/") && pathname.endsWith(".slow.test.ts"))
   const impacted = contracts.flatMap((contract) => {
     const implementation = changed.filter((pathname) => contract.implementation.some((pattern) => matches(pathname, pattern)))
     if (implementation.length === 0) return []
@@ -57,13 +58,18 @@ export function analyzeImpact(contracts, changedFiles) {
     changed,
     impacted,
     attention: impacted.filter((contract) => !contract.covered),
+    matchedSpecs: [...new Set([...impacted.flatMap((contract) => contract.specs), ...changedSlowSpecs])].sort(),
   }
 }
 
 function markdown(result) {
   const lines = ["### Soft spec-impact snapshot", ""]
   if (result.impacted.length === 0) {
-    lines.push("No mapped implementation contract changed.", "")
+    lines.push(
+      "No mapped implementation contract changed.",
+      "Warden suggestion: add or update an `evals/specs/<feature>.slow.test.ts` proof for this change if it affects app behavior.",
+      "",
+    )
     return lines.join("\n")
   }
   lines.push("| Contract | Result | Changed implementation | Mapped specs |", "| --- | --- | --- | --- |")
@@ -77,6 +83,7 @@ function markdown(result) {
   if (result.attention.length > 0) {
     lines.push("This check is advisory: confirm the existing mapped spec still proves the contract, or update/add a spec.", "")
   }
+  lines.push(`Matched slow specs: ${result.matchedSpecs.map((spec) => `\`${spec}\``).join(", ") || "none"}`, "")
   return lines.join("\n")
 }
 
@@ -90,6 +97,7 @@ function parseArgs(args) {
     const argument = args[index]
     if (argument === "--strict") options.strict = true
     else if (argument === "--json") options.json = true
+    else if (argument === "--matched-specs") options.matchedSpecs = true
     else if (["--base", "--head", "--snapshot", "--summary", "--changed-file"].includes(argument)) {
       const value = args[index + 1]
       if (!value) throw new Error(`${argument} requires a value`)
@@ -120,6 +128,10 @@ function main() {
   const result = analyzeImpact(contracts, changedFiles)
   const report = markdown(result)
   if (options.summary) appendFileSync(options.summary, report)
+  if (options.matchedSpecs) {
+    process.stdout.write(`${JSON.stringify(result.matchedSpecs)}\n`)
+    return
+  }
   if (options.json) process.stdout.write(`${JSON.stringify(result, null, 2)}\n`)
   else process.stdout.write(report)
   for (const contract of result.attention) {
