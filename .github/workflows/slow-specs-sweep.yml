@@ -9,9 +9,9 @@
 name: Slow Specs Sweep
 
 on:
-  pull_request:
-    types: [opened, synchronize, reopened]
-    branches: [dev]
+  workflow_run:
+    workflows: [Warden]
+    types: [completed]
   workflow_dispatch:
     inputs:
       only:
@@ -20,7 +20,9 @@ on:
         default: ""
         type: string
 permissions:
+  actions: read
   contents: read
+  pull-requests: read
 
 concurrency:
   group: slow-specs-sweep
@@ -31,8 +33,9 @@ jobs:
     if: >-
       github.repository == 'different-ai/openwork' &&
       (github.event_name == 'workflow_dispatch' ||
-      (!github.event.pull_request.draft &&
-      github.event.pull_request.head.repo.full_name == github.repository))
+      (github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_repository.full_name == github.repository))
     runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 10
     outputs:
@@ -41,8 +44,51 @@ jobs:
       has_specs: ${{ steps.matrix.outputs.has_specs }}
 
     steps:
+      - name: Authorize Warden-cleared pull request
+        id: authorize
+        if: github.event_name == 'workflow_run'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          PR: ${{ github.event.workflow_run.pull_requests[0].number }}
+        run: |
+          set -euo pipefail
+
+          mkdir -p /tmp/warden-summary
+          gh run download "$RUN_ID" --repo "$REPO" --name warden-summary --dir /tmp/warden-summary
+          summary_sha="$(jq -r '.head_sha' /tmp/warden-summary/warden-summary.json)"
+          blocking="$(jq -r '.blocking_count // .findings_count' /tmp/warden-summary/warden-summary.json)"
+          current_head="$(gh api "repos/$REPO/pulls/$PR" --jq '.head.sha')"
+
+          if [ "$summary_sha" != "$HEAD_SHA" ] || [ "$current_head" != "$HEAD_SHA" ]; then
+            echo "::error::Warden summary or pull request head does not match $HEAD_SHA."
+            exit 1
+          fi
+          if [ "$blocking" != "0" ]; then
+            echo "::notice::Slow proof withheld: Warden reported $blocking blocking finding(s)."
+            echo "authorized=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          guarded="$(gh api --paginate "repos/$REPO/pulls/$PR/files" --jq '.[].filename' \
+            | grep -E '^(\.github/|warden\.toml$|\.warden/|\.agents/skills/|\.claude/skills/)' || true)"
+          if [ -n "$guarded" ]; then
+            echo "::notice::Slow proof withheld: PR changes trusted review machinery."
+            echo "authorized=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "authorized=true" >> "$GITHUB_OUTPUT"
+
+      - name: Authorize manual sweep
+        id: authorize-manual
+        if: github.event_name == 'workflow_dispatch'
+        run: echo "authorized=true" >> "$GITHUB_OUTPUT"
+
       - name: Check slow specs sweep configuration
         id: config
+        if: steps.authorize.outputs.authorized == 'true' || steps.authorize-manual.outputs.authorized == 'true'
         shell: bash
         env:
           DAYTONA_API_KEY: ${{ secrets.DAYTONA_API_KEY }}
@@ -63,6 +109,9 @@ jobs:
       - name: Checkout
         if: steps.config.outputs.enabled == 'true'
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+          fetch-depth: 0
 
       - name: Build spec matrix
         id: matrix
@@ -71,8 +120,8 @@ jobs:
         env:
           ONLY_FILTER: ${{ inputs.only }}
           EVENT_NAME: ${{ github.event_name }}
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BASE_SHA: ${{ github.event.workflow_run.pull_requests[0].base.sha }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
           set -euo pipefail
 
@@ -97,7 +146,7 @@ jobs:
           )"
           excluded_json="$(printf '%s\n' "$excluded" | jq -Rsc 'split("\n") | map(select(length > 0))')"
 
-          if [ "$EVENT_NAME" = "pull_request" ]; then
+          if [ "$EVENT_NAME" = "workflow_run" ]; then
             matched_specs="$(node evals/scripts/spec-impact.mjs --base "$BASE_SHA" --head "$HEAD_SHA" --matched-specs)"
             only_filter=""
           else
@@ -140,7 +189,7 @@ jobs:
             echo "### Sweep plan"
             echo
             echo "Matrix specs: $(echo "$specs" | jq 'length') across $(echo "$batches" | jq 'length') batches"
-            if [ "$EVENT_NAME" = "pull_request" ] && [ "$(echo "$specs" | jq 'length')" -eq 0 ]; then
+            if [ "$EVENT_NAME" = "workflow_run" ] && [ "$(echo "$specs" | jq 'length')" -eq 0 ]; then
               echo "Warden suggestion: add or update an evals/specs/<feature>.slow.test.ts proof for this PR."
             fi
             echo "$batches" | jq -r '.[] | "- `\(.name)`: \(.specs | length) specs"'
@@ -176,6 +225,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
 
       - name: Setup Node
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
