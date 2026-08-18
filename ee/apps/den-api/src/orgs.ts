@@ -11,6 +11,7 @@ import {
   ScimProviderTable,
   ScimUserTombstoneTable,
   SsoConnectionTable,
+  SsoProviderTable,
   TeamMemberTable,
   TeamTable,
 } from "@openwork-ee/den-db/schema"
@@ -1108,7 +1109,15 @@ export async function getSingletonSsoStatus() {
   const rows = await db
     .select({ signInPath: SsoConnectionTable.signInPath })
     .from(SsoConnectionTable)
-    .where(eq(SsoConnectionTable.organizationId, organization.id))
+    .innerJoin(SsoProviderTable, and(
+      eq(SsoConnectionTable.providerId, SsoProviderTable.providerId),
+      eq(SsoConnectionTable.organizationId, SsoProviderTable.organizationId),
+      eq(SsoProviderTable.domainVerified, true),
+    ))
+    .where(and(
+      eq(SsoConnectionTable.organizationId, organization.id),
+      eq(SsoConnectionTable.status, "enabled"),
+    ))
     .limit(1)
   const signInPath = rows[0]?.signInPath || fallbackSignInPath
 
