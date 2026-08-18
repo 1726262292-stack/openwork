@@ -1,6 +1,6 @@
 # Runs every slow eval spec in three balanced Daytona batches. Each batch keeps
 # one prewarmed Den + desktop pair and reuses it across its assigned specs.
-# Unlike the nightly, legitimate skips stay green and are reported as incomplete needs.
+# The checked-in lane profile removes legitimate skips before the matrix is built.
 # The mega spec is excluded because the Nightly Mega Eval workflow owns it.
 # Specs that drive raw desktop() from @openwork/hosts are excluded dynamically:
 # they spawn Electron on the caller's machine (correct inside a VNC sandbox or
@@ -75,17 +75,12 @@ jobs:
                | sort \
                || true
            )"
-          # This Daytona-only sweep must not select specs whose placement is
-          # local-only or whose mock cannot pass the Daytona Den validator.
+          # The checked-in profile is the explicit contract for this lane.
+          # Raw desktop() detection remains as a guard for newly-added specs
+          # that have not been classified yet.
+          profile='evals/specs/slow-sweep-profile.json'
           excluded="$(
-            printf '%s\n' \
-              "$raw_desktop" \
-              'org-model-analytics-e2e.slow.test.ts' \
-              'library-mcp-connect-error.slow.test.ts' \
-              'slack-style-mcp-connector.slow.test.ts' \
-              'capability-search-latency.slow.test.ts' \
-              'capability-search-scale.slow.test.ts' \
-              'tool-tester-page.slow.test.ts' \
+            printf '%s\n' "$raw_desktop" "$(jq -r '.excluded[].spec' "$profile")" \
               | sed '/^$/d' \
               | sort -u
           )"
@@ -127,8 +122,12 @@ jobs:
             echo "Matrix specs: $(echo "$specs" | jq 'length') across $(echo "$batches" | jq 'length') batches"
             echo "$batches" | jq -r '.[] | "- `\(.name)`: \(.specs | length) specs"'
             echo
-            echo "Excluded (local-only placement, incompatible Daytona mock, or raw desktop()): $(echo "$excluded_json" | jq 'length')"
-            echo "$excluded_json" | jq -r '.[] | "- `\(.)`"'
+            echo "Excluded (profile-incompatible or raw desktop()): $(echo "$excluded_json" | jq 'length')"
+            echo "$excluded_json" | jq -r --slurpfile profile "$profile" '
+              .[] as $spec
+              | (($profile[0].excluded | map(select(.spec == $spec)) | first | .reason) // "raw desktop() topology") as $reason
+              | "- `\($spec)`: \($reason)"
+            '
           } >> "$GITHUB_STEP_SUMMARY"
 
           echo "batches=$batches" >> "$GITHUB_OUTPUT"

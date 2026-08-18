@@ -5,6 +5,7 @@ import type { NeedsSpec } from "@openwork/testkit";
 
 const requirements: NeedsSpec = {
   optIn: ["OPENWORK_EVAL_APP_SPECS", "OPENWORK_EVAL_LOCAL_MANAGED_MCP"],
+  placement: "local",
 };
 const missingRequirements = unmetNeeds(requirements, process.env);
 const title = missingRequirements.length > 0

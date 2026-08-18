@@ -17,8 +17,6 @@ import {
 import { app, mcpMock, needs, server, test } from "@openwork/testkit";
 import type { Surface } from "@openwork/cdp";
 
-process.env.MOCK_ALLOW_UNAUTHENTICATED_MCP = "1";
-
 const requirements = {
   model: "tool-capable" as const,
   optIn: ["OPENWORK_EVAL_APP_SPECS", "OPENWORK_EVAL_SAVED_SCRIPT_AUTOMATIONS_SPEC"],
@@ -129,7 +127,7 @@ test("a Code Mode result becomes a cloud Automation and a durable artifact resul
   await using den = await server({
     place,
     org: { name: `Saved Script Automation ${Date.now()}`, admin: { name: "Sarah" } },
-    mocks: { reports: mcpMock() },
+    mocks: { reports: mcpMock({ allowUnauthenticatedMcp: true }) },
   });
   const orgs = await denFetch(den.admin, "/v1/me/orgs", {
     headers: { authorization: `Bearer ${den.admin.token}` },

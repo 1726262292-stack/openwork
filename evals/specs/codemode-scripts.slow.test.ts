@@ -20,10 +20,6 @@ import { chrome } from "@openwork/hosts";
 import { app, mcpMock, needs, server, test, unmetNeeds } from "@openwork/testkit";
 import type { NeedsSpec } from "@openwork/testkit";
 
-// The mock MCP servers must accept unauthenticated /mcp so the Den-side script
-// runtime can call them through an authType "none" shared connection.
-process.env.MOCK_ALLOW_UNAUTHENTICATED_MCP = "1";
-
 const requirements: NeedsSpec = {
   model: "tool-capable",
   optIn: ["OPENWORK_EVAL_APP_SPECS"],
@@ -222,7 +218,10 @@ test(title, { timeout: 1_500_000 }, async ({ evidence, place }) => {
       admin: { name: "Sarah" },
       members: { jordan: { name: "Jordan Eval" } },
     },
-    mocks: { drive: mcpMock(), gmail: mcpMock() },
+    mocks: {
+      drive: mcpMock({ allowUnauthenticatedMcp: true }),
+      gmail: mcpMock({ allowUnauthenticatedMcp: true }),
+    },
   });
   const orgId = await organizationIdOf(den.admin);
   const adminMcpToken = await mintMcpToken(den.admin, orgId);

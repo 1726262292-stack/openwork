@@ -217,7 +217,7 @@ test("an unavailable Automation model needs attention until the owner selects a 
   );
 
   await using desktop = await app({ den, as: "admin", place });
-  await go(desktop, `/workspace/${desktop.workspaceId}/automations`);
+  await go(desktop, "/automations");
   await waitForText(desktop, automationName, { timeoutMs: 60_000 });
   await waitFor(desktop, `(() => {
     const card = document.querySelector('[data-automation-needs-attention]');
