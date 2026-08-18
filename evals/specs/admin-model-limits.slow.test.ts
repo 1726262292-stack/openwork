@@ -1,8 +1,9 @@
 import { expect } from "vitest";
 import { denFetch, evalIn, waitFor } from "@openwork/behaviors";
 import { closeTarget, navigate, newPageTarget, reattachSurface } from "@openwork/cdp";
+import { screenshot, validate } from "@openwork/fraimz";
 import { chrome } from "@openwork/hosts";
-import { needs, server, test, unmetNeeds } from "@openwork/testkit";
+import { needs, server, sleep, test, unmetNeeds } from "@openwork/testkit";
 import type { DenSession, DenFetchResult } from "@openwork/behaviors";
 import type { NeedsSpec } from "@openwork/testkit";
 
@@ -53,6 +54,17 @@ function usersFrom(value: unknown): UserEntry[] {
 
 function resetAmount(value: unknown): number | null {
   return isRecord(value) && typeof value.resetAmount === "number" ? value.resetAmount : null;
+}
+
+/** Bring a target into the viewport so its screenshot frame shows the claimed UI. */
+async function scrollIntoView(browser: Parameters<typeof screenshot>[0], selector: string): Promise<void> {
+  await evalIn(browser, `(() => {
+    const target = document.querySelector(${JSON.stringify(selector)});
+    if (!target) return false;
+    target.scrollIntoView({ block: "center", behavior: "instant" });
+    return true;
+  })()`);
+  await sleep(300);
 }
 
 async function adminOverview(admin: DenSession): Promise<DenFetchResult> {
@@ -156,6 +168,16 @@ test(title, async ({ evidence, place }) => {
     controlsVisible === true,
   );
 
+  await scrollIntoView(browser, '[data-testid="admin-add-email"]');
+  {
+    const shot = await screenshot(browser);
+    const seen = await validate(shot, [
+      "A Platform admins section is visible with an email field, a note field, and an Add admin button",
+      "A user backoffice page is shown with user rows listing email addresses",
+    ]);
+    expect(seen.ok, seen.why).toBe(true);
+  }
+
   const selected = await evalIn(browser, `(() => {
     const row = document.querySelector(${JSON.stringify(`[data-testid="admin-user-row-${memberUser.id}"]`)});
     const button = row?.querySelector("button");
@@ -199,6 +221,16 @@ test(title, async ({ evidence, place }) => {
     JSON.stringify(emptyUsageState),
     emptyUsageProved,
   );
+
+  await scrollIntoView(browser, `[data-testid="admin-user-row-${memberUser.id}"] [data-testid="admin-usage-section"]`);
+  {
+    const shot = await screenshot(browser);
+    const seen = await validate(shot, [
+      "An expanded user row shows a section headed OpenWork model consumption",
+      "That section says no organization consumption windows are available for this user",
+    ]);
+    expect(seen.ok, seen.why).toBe(true);
+  }
 
   const addedEmail = `added-admin-${stamp}@openwork.test`;
   const addedNote = `Admin model limits eval ${stamp}`;
@@ -279,6 +311,16 @@ test(title, async ({ evidence, place }) => {
       uiHasAddedAdmin === true && addedAdmins.some((admin) => admin.email === addedEmail) && initiallyAbsent,
     );
 
+    await scrollIntoView(browser, `[data-testid="admin-remove-${addedAdmin.id}"]`);
+    {
+      const shot = await screenshot(browser);
+      const seen = await validate(shot, [
+        "The Platform admins section lists an admin entry whose email begins with added-admin-",
+        "A Remove button is visible next to that newly added admin entry",
+      ]);
+      expect(seen.ok, seen.why).toBe(true);
+    }
+
     const removeClicked = await evalIn(browser, `(() => {
       const button = document.querySelector(${JSON.stringify(`[data-testid="admin-remove-${addedAdmin.id}"]`)});
       if (!button) return false;
@@ -309,6 +351,11 @@ test(title, async ({ evidence, place }) => {
       `email=${addedEmail}; uiStillPresent=${String(uiStillHasRemovedAdmin)}; apiStillPresent=${apiStillHasRemovedAdmin}`,
       uiStillHasRemovedAdmin === false && !apiStillHasRemovedAdmin,
     );
+    // Visual record of the post-removal panel. Absence is a negative claim that
+    // vision judges unreliably, so removal stays proven by the DOM and live API
+    // assertions above; this frame exists for human review.
+    await scrollIntoView(browser, '[data-testid="admin-add-email"]');
+    await screenshot(browser);
     addedAdminId = "";
 
     const usage = await denFetch(den.admin, `/v1/admin/users/${encodeURIComponent(memberUser.id)}/inference-usage`, {
