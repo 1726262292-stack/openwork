@@ -1,4 +1,5 @@
-# Runs every slow eval spec independently on the Daytona lane with bounded parallelism.
+# Runs every slow eval spec in three balanced Daytona batches. Each batch keeps
+# one prewarmed Den + desktop pair and reuses it across its assigned specs.
 # Unlike the nightly, legitimate skips stay green and are reported as incomplete needs.
 # The mega spec is excluded because the Nightly Mega Eval workflow owns it.
 # Specs that drive raw desktop() from @openwork/hosts are excluded dynamically:
@@ -29,7 +30,7 @@ jobs:
     timeout-minutes: 10
     outputs:
       enabled: ${{ steps.config.outputs.enabled }}
-      specs: ${{ steps.matrix.outputs.specs }}
+      batches: ${{ steps.matrix.outputs.batches }}
 
     steps:
       - name: Check slow specs sweep configuration
@@ -101,27 +102,47 @@ jobs:
                   | map(select($only == "" or contains($only)))
                 '
           )"
+          batches="$(
+            echo "$specs" | jq -c '
+              . as $specs
+              | [
+                  range(0; 3) as $index
+                  | {
+                      name: "batch-\($index + 1)",
+                      specs: [
+                        $specs
+                        | to_entries[]
+                        | select((.key % 3) == $index)
+                        | .value
+                      ]
+                    }
+                ]
+              | map(select(.specs | length > 0))
+            '
+          )"
 
           {
             echo "### Sweep plan"
             echo
-            echo "Matrix specs: $(echo "$specs" | jq 'length')"
+            echo "Matrix specs: $(echo "$specs" | jq 'length') across $(echo "$batches" | jq 'length') batches"
+            echo "$batches" | jq -r '.[] | "- `\(.name)`: \(.specs | length) specs"'
             echo
             echo "Excluded (local-only placement, incompatible Daytona mock, or raw desktop()): $(echo "$excluded_json" | jq 'length')"
             echo "$excluded_json" | jq -r '.[] | "- `\(.)`"'
           } >> "$GITHUB_STEP_SUMMARY"
 
-          echo "specs=$specs" >> "$GITHUB_OUTPUT"
-          echo "Spec matrix: $specs"
+          echo "batches=$batches" >> "$GITHUB_OUTPUT"
+          echo "Batch matrix: $batches"
 
   spec:
     needs: plan
     if: needs.plan.outputs.enabled == 'true'
+    name: spec (${{ matrix.batch.name }})
     strategy:
       fail-fast: false
       max-parallel: 3
       matrix:
-        spec: ${{ fromJSON(needs.plan.outputs.specs) }}
+        batch: ${{ fromJSON(needs.plan.outputs.batches) }}
     runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 45
 
@@ -167,49 +188,57 @@ jobs:
           # The CLI requires a stored profile; the env var alone is not enough.
           daytona login --api-key "$DAYTONA_API_KEY"
 
-      - name: Run spec
+      - name: Run batch
         id: run
         shell: bash
         env:
           DAYTONA_API_KEY: ${{ secrets.DAYTONA_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           NO_COLOR: "1"
-          SPEC: ${{ matrix.spec }}
+          BATCH_NAME: ${{ matrix.batch.name }}
+          SPECS_JSON: ${{ toJSON(matrix.batch.specs) }}
         run: |
           set -euo pipefail
 
+          mapfile -t specs < <(jq -r '.[] | "specs/" + .' <<< "$SPECS_JSON")
+          if [ "${#specs[@]}" -eq 0 ]; then
+            echo "No specs were assigned to $BATCH_NAME." >&2
+            exit 1
+          fi
+
           set +e
           OPENWORK_EVAL_DAYTONA=1 OPENWORK_EVAL_APP_SPECS=1 \
+          OPENWORK_EVAL_MAX_WORKERS=1 \
           OPENWORK_EVAL_AUTOMATIONS_SPEC=1 OPENWORK_EVAL_CONNECTOR_SPEC=1 \
           OPENWORK_EVAL_LOCAL_MANAGED_MCP=1 OPENWORK_EVAL_GENERATED_ARTIFACT_VIEWS_SPEC=1 \
           OPENWORK_EVAL_SAVED_SCRIPT_AUTOMATIONS_SPEC=1 OPENWORK_EVAL_ENGINE_ROLLOVER_SPEC=1 \
           OPENWORK_EVAL_MODEL=big-pickle OPENWORK_EVAL_VISION=defer \
-          pnpm --dir evals exec vitest run --config vitest.config.ts --project stack "specs/${SPEC}" \
+          pnpm --dir evals exec vitest run --config vitest.config.ts --project stack "${specs[@]}" \
             2>&1 | tee /tmp/spec-run.log
           vitest_status="${PIPESTATUS[0]}"
           set -e
 
           sed -E 's/\x1B\[[0-9;]*m//g' /tmp/spec-run.log > /tmp/spec-run-plain.log
-          detail=""
-          if [ "$vitest_status" -eq 0 ] && grep -Eq "Tests[[:space:]]+1 passed" /tmp/spec-run-plain.log; then
-            result="passed"
-          elif [ "$vitest_status" -eq 0 ] && grep -Eq "Tests[[:space:]]+[0-9]+ skipped" /tmp/spec-run-plain.log; then
-            result="skipped"
-            needs_tag="$(grep -om1 '\[needs:[^]]*\]' /tmp/spec-run-plain.log || true)"
-            needs_reason="${needs_tag#\[needs:}"
-            needs_reason="${needs_reason%\]}"
-            detail="needs: ${needs_reason}"
-          else
+          detail="${#specs[@]} specs"
+          if [ "$vitest_status" -ne 0 ]; then
             result="failed"
+          elif grep -Eq "Tests[[:space:]].*skipped" /tmp/spec-run-plain.log; then
+            result="skipped"
+            needs_reasons="$(grep -o '\[needs:[^]]*\]' /tmp/spec-run-plain.log | sort -u | paste -sd ';' - || true)"
+            if [ -n "$needs_reasons" ]; then
+              detail="$detail; $needs_reasons"
+            fi
+          else
+            result="passed"
           fi
 
           echo "result=$result" >> "$GITHUB_OUTPUT"
           {
-            echo "### $SPEC"
+            echo "### $BATCH_NAME"
             echo
-            echo "| Spec | Result | Detail |"
+            echo "| Batch | Result | Detail |"
             echo "| --- | --- | --- |"
-            echo "| $SPEC | $result | $detail |"
+            echo "| $BATCH_NAME | $result | $detail |"
           } >> "$GITHUB_STEP_SUMMARY"
           echo "Vitest exit code: $vitest_status"
 
@@ -218,13 +247,15 @@ jobs:
           fi
 
       - name: Judge deferred vision claims
-        if: steps.run.outputs.result == 'passed'
+        if: steps.run.outputs.result != 'failed'
         shell: bash
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
           set -euo pipefail
-          pnpm --dir evals fraimz:judge -- --roll latest
+          while IFS= read -r -d '' roll; do
+            pnpm --dir evals fraimz:judge -- --roll "$roll"
+          done < <(find "$GITHUB_WORKSPACE/evals/results/rolls" -mindepth 1 -maxdepth 1 -type d -print0)
 
       - name: Upload spec roll
         if: always()
