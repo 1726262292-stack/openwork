@@ -113,7 +113,7 @@ function requestPublicOrigin(request: NextRequest): URL {
 
   const requestUrl = new URL(request.url);
   const requestHost = requestUrl.hostname.toLowerCase().replace(/^\[|\]$/g, "");
-  if (requestHost !== "localhost" && requestHost !== "127.0.0.1" && requestHost !== "::1") {
+  if (requestHost !== "localhost" && requestHost !== "127.0.0.1" && requestHost !== "0.0.0.0" && requestHost !== "::1") {
     return requestUrl;
   }
 
