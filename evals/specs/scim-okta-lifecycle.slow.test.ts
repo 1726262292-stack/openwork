@@ -104,9 +104,10 @@ test(title, { timeout: 1_800_000 }, async ({ evidence, place }) => {
     throw new Error(`Organization lookup failed: HTTP ${organizations.response.status} ${organizations.text.slice(0, 500)}`);
   }
 
-  // The org-scoped token route requires an enabled SSO connection. Register an
-  // Okta-shaped SAML provider so this API-only journey also proves the ACS
-  // callback configuration without contacting an IdP.
+  // The org-scoped token route requires a verified, enabled SSO connection.
+  // Den's dev-loopback issuer path makes domain verification deterministic in
+  // the eval while the Okta-shaped entry point, certificate, and ACS contract
+  // remain real.
   const adminSignIn = await denFetch(den.ref, "/api/auth/sign-in/email", {
     method: "POST",
     body: JSON.stringify({ email: den.admin.email, password: den.admin.password }),
@@ -124,7 +125,7 @@ test(title, { timeout: 1_800_000 }, async ({ evidence, place }) => {
     method: "POST",
     headers: adminHeaders,
     body: JSON.stringify({
-      issuer: `http://www.okta.com/exk-${runId}`,
+      issuer: `http://127.0.0.1/okta/exk-${runId}`,
       domain: managedDomain,
       entryPoint: `https://okta.example.test/app/openwork/exk-${runId}/sso/saml`,
       cert: "okta-test-signing-certificate",
@@ -136,6 +137,8 @@ test(title, { timeout: 1_800_000 }, async ({ evidence, place }) => {
   }
 
   const ssoConnection = isRecord(sso.body) && isRecord(sso.body.connection) ? sso.body.connection : null;
+  expect(ssoConnection?.domainVerified).toBe(true);
+  expect(stringField(ssoConnection, "status")).toBe("enabled");
   const acsUrl = stringField(ssoConnection, "acsUrl");
   if (!acsUrl) {
     throw new Error(`SAML registration did not advertise an ACS URL: ${sso.text.slice(0, 500)}`);
