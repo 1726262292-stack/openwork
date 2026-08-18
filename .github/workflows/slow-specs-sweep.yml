@@ -9,6 +9,9 @@
 name: Slow Specs Sweep
 
 on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [dev]
   workflow_dispatch:
     inputs:
       only:
@@ -25,12 +28,17 @@ concurrency:
 
 jobs:
   plan:
-    if: github.repository == 'different-ai/openwork'
+    if: >-
+      github.repository == 'different-ai/openwork' &&
+      (github.event_name == 'workflow_dispatch' ||
+      (!github.event.pull_request.draft &&
+      github.event.pull_request.head.repo.full_name == github.repository))
     runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 10
     outputs:
       enabled: ${{ steps.config.outputs.enabled }}
       batches: ${{ steps.matrix.outputs.batches }}
+      has_specs: ${{ steps.matrix.outputs.has_specs }}
 
     steps:
       - name: Check slow specs sweep configuration
@@ -62,6 +70,9 @@ jobs:
         shell: bash
         env:
           ONLY_FILTER: ${{ inputs.only }}
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
 
@@ -86,14 +97,23 @@ jobs:
           )"
           excluded_json="$(printf '%s\n' "$excluded" | jq -Rsc 'split("\n") | map(select(length > 0))')"
 
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            matched_specs="$(node evals/scripts/spec-impact.mjs --base "$BASE_SHA" --head "$HEAD_SHA" --matched-specs)"
+            only_filter=""
+          else
+            matched_specs='[]'
+            only_filter="$ONLY_FILTER"
+          fi
+
           specs="$(
             printf '%s\n' evals/specs/*.slow.test.ts \
               | sed 's#^evals/specs/##' \
-              | jq -Rsc --arg only "$ONLY_FILTER" --argjson excluded "$excluded_json" '
+              | jq -Rsc --arg only "$only_filter" --argjson matched "$matched_specs" --argjson excluded "$excluded_json" '
                   split("\n")
                   | map(select(length > 0))
                   | map(select(. != "org-team-lifecycle-mega.slow.test.ts"))
                   | map(select(. as $s | $excluded | index($s) | not))
+                  | map(select(($matched | length == 0) or (($matched | index($s)) != null)))
                   | map(select($only == "" or contains($only)))
                 '
           )"
@@ -120,6 +140,9 @@ jobs:
             echo "### Sweep plan"
             echo
             echo "Matrix specs: $(echo "$specs" | jq 'length') across $(echo "$batches" | jq 'length') batches"
+            if [ "$EVENT_NAME" = "pull_request" ] && [ "$(echo "$specs" | jq 'length')" -eq 0 ]; then
+              echo "Warden suggestion: add or update an evals/specs/<feature>.slow.test.ts proof for this PR."
+            fi
             echo "$batches" | jq -r '.[] | "- `\(.name)`: \(.specs | length) specs"'
             echo
             echo "Excluded (profile-incompatible or raw desktop()): $(echo "$excluded_json" | jq 'length')"
@@ -130,12 +153,17 @@ jobs:
             '
           } >> "$GITHUB_STEP_SUMMARY"
 
-          echo "batches=$batches" >> "$GITHUB_OUTPUT"
-          echo "Batch matrix: $batches"
+           echo "batches=$batches" >> "$GITHUB_OUTPUT"
+           if [ "$(echo "$specs" | jq 'length')" -gt 0 ]; then
+             echo "has_specs=true" >> "$GITHUB_OUTPUT"
+           else
+             echo "has_specs=false" >> "$GITHUB_OUTPUT"
+           fi
+           echo "Batch matrix: $batches"
 
   spec:
     needs: plan
-    if: needs.plan.outputs.enabled == 'true'
+    if: needs.plan.outputs.enabled == 'true' && needs.plan.outputs.has_specs == 'true'
     name: spec (${{ matrix.batch.name }})
     strategy:
       fail-fast: false
