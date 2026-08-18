@@ -40,7 +40,7 @@ export type NewTaskComposerContext = {
   onRefreshOrganizationModels?: () => void | Promise<void>;
   modelPickerOpen: boolean;
   onModelPickerOpenChange: (open: boolean) => void;
-  onModelChange: (model: ModelRef) => void;
+  onModelChange: (model: ModelRef, variant?: string | null) => void;
   openWorkModelsEntitled?: boolean;
   openWorkModelsSyncing?: boolean;
   modelVariantLabel: string;
