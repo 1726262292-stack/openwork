@@ -970,42 +970,78 @@ jobs:
 
     steps: *electron-build-steps
 
-  publish-electron-assets:
-    name: Publish Electron Assets
-    needs: [resolve-release, verify-release, publish-electron-unix, publish-electron-windows]
+  publish-release:
+    name: Publish Electron Assets + GitHub Release
+    needs:
+      - resolve-release
+      - verify-release
+      - publish-electron-unix
+      - publish-electron-windows
+      - publish-npm
+      - publish-daytona-snapshot
+    # publish-daytona-snapshot is allowed to fail without blocking the release:
+    # the sandbox snapshot is rebuildable after the fact, while installable
+    # desktop artifacts should never be held back by it.
     if: |
       always() &&
-      needs.resolve-release.outputs.build_electron == 'true' &&
       needs.resolve-release.result == 'success' &&
       needs.verify-release.result == 'success' &&
-      needs.publish-electron-unix.result == 'success' &&
-      needs.publish-electron-windows.result == 'success' &&
-      needs.resolve-release.outputs.benchmark_only != 'true'
+      needs.resolve-release.outputs.benchmark_only != 'true' &&
+      (needs.resolve-release.outputs.build_electron != 'true' || needs.publish-electron-unix.result == 'success') &&
+      (needs.resolve-release.outputs.build_electron != 'true' || needs.publish-electron-windows.result == 'success') &&
+      (needs.publish-npm.result == 'success' || needs.publish-npm.result == 'skipped') &&
+      needs.publish-daytona-snapshot.result != 'cancelled'
     runs-on: blacksmith-4vcpu-ubuntu-2404
     env:
       RELEASE_TAG: ${{ needs.resolve-release.outputs.release_tag }}
+      RELEASE_PRERELEASE: ${{ needs.resolve-release.outputs.prerelease }}
     steps:
       - name: Checkout
+        if: needs.resolve-release.outputs.build_electron == 'true'
         uses: actions/checkout@v6
         with:
           ref: ${{ env.RELEASE_TAG }}
-          fetch-depth: 0
+          fetch-depth: 1
 
       - name: Setup Node
+        if: needs.resolve-release.outputs.build_electron == 'true'
         uses: actions/setup-node@v6
         with:
           node-version: 24
 
       - name: Download Electron updater manifest artifacts
+        if: needs.resolve-release.outputs.build_electron == 'true'
         uses: actions/download-artifact@v4
         with:
           pattern: electron-*
           path: ${{ runner.temp }}/electron-dist
 
       - name: Upload merged updater manifests
+        if: needs.resolve-release.outputs.build_electron == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: node scripts/release/publish-electron-assets.mjs --manifests-only "${{ runner.temp }}/electron-dist" "$RELEASE_TAG"
+
+      - name: Publish release after assets are ready
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          # Dispatch-based recovery runs default draft=false but may target a
+          # draft release created by an earlier tag push; always flip drafts
+          # here so AUR and updater feeds see public download URLs.
+          is_draft="$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft -q .isDraft)"
+          if [ "$is_draft" != "true" ]; then
+            echo "Release $RELEASE_TAG is already published; nothing to do."
+            exit 0
+          fi
+
+          if [ "${RELEASE_PRERELEASE}" = "true" ]; then
+            gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --draft=false --prerelease
+          else
+            gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest
+          fi
 
   publish-npm:
     name: Publish openwork-server
@@ -1175,55 +1211,3 @@ jobs:
             exit 0
           fi
           scripts/aur/publish-aur.sh "$RELEASE_TAG"
-
-  publish-release:
-    name: Publish GitHub Release
-    needs:
-      - resolve-release
-      - verify-release
-      - publish-electron-unix
-      - publish-electron-windows
-      - publish-electron-assets
-      - publish-npm
-      - publish-daytona-snapshot
-    # publish-daytona-snapshot is allowed to FAIL without blocking the release
-    # (result != 'cancelled' instead of == 'success'): the sandbox snapshot is
-    # rebuildable after the fact by re-running this workflow with the same tag,
-    # while desktop artifacts users install and update from should never be
-    # held back by it. v0.18.15 (2026-08-05) was fully built but never
-    # published solely because this job failed.
-    if: |
-      always() &&
-      needs.resolve-release.result == 'success' &&
-      needs.verify-release.result == 'success' &&
-      needs.resolve-release.outputs.benchmark_only != 'true' &&
-      (needs.resolve-release.outputs.build_electron != 'true' || needs.publish-electron-unix.result == 'success') &&
-      (needs.resolve-release.outputs.build_electron != 'true' || needs.publish-electron-windows.result == 'success') &&
-      (needs.resolve-release.outputs.build_electron != 'true' || needs.publish-electron-assets.result == 'success') &&
-      (needs.publish-npm.result == 'success' || needs.publish-npm.result == 'skipped') &&
-      needs.publish-daytona-snapshot.result != 'cancelled'
-    runs-on: blacksmith-4vcpu-ubuntu-2404
-    env:
-      RELEASE_TAG: ${{ needs.resolve-release.outputs.release_tag }}
-      RELEASE_PRERELEASE: ${{ needs.resolve-release.outputs.prerelease }}
-    steps:
-      - name: Publish release after assets are ready
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-
-          # Dispatch-based recovery runs default draft=false but may target a
-          # draft release created by an earlier tag push; always flip drafts
-          # here so AUR and updater feeds see public download URLs.
-          is_draft="$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft -q .isDraft)"
-          if [ "$is_draft" != "true" ]; then
-            echo "Release $RELEASE_TAG is already published; nothing to do."
-            exit 0
-          fi
-
-          if [ "${RELEASE_PRERELEASE}" = "true" ]; then
-            gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --draft=false --prerelease
-          else
-            gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest
-          fi
