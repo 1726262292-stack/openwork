@@ -2,13 +2,11 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { Agent } from "@opencode-ai/sdk/v2/client";
-import { AppWindowMac, ArrowUp, Check, ChevronDown, ChevronRight, FileText, ListPlus, LoaderCircle, Paperclip, Plus, RefreshCw, Settings, Square, Terminal, X, Zap } from "lucide-react";
+import { AppWindowMac, ArrowUp, Check, ChevronDown, ChevronRight, FileText, LoaderCircle, Paperclip, Plus, RefreshCw, Settings, Square, Terminal, X, Zap } from "lucide-react";
 import fuzzysort from "fuzzysort";
 import { toast } from "@/components/ui/sonner";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuShortcut, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import type { CloudImportedPlugin, CloudImportedPluginFile } from "@/app/cloud/import-state";
 import type { ComposerAttachment, McpServerEntry, McpStatus, McpStatusMap, ModelOption, ModelRef, SkillCard, SlashCommandOption } from "@/app/types";
-import { isMacPlatform } from "@/app/utils";
 import { t } from "@/i18n";
 import {
   composerConfigureSectionForMenu,
@@ -16,7 +14,6 @@ import {
   slugifyLibraryItemName,
   type ComposerSettingsSection,
 } from "@/react-app/domains/settings/library";
-import { ModelBehaviorSelect } from "@/components/model-behavior-select";
 import { ModelSelect } from "@/components/model-select";
 import { LexicalPromptEditor, syncAttachmentChipStatus, type LexicalPromptEditorHandle } from "./editor";
 import { listRunningAppsForMention } from "./app-mentions";
@@ -72,7 +69,7 @@ type ComposerProps = {
   openWorkModelsSyncing?: boolean;
   onRefreshOrganizationModels?: () => void | Promise<void>;
   onModelPickerOpenChange: (open: boolean) => void;
-  onModelChange: (model: ModelRef) => void;
+  onModelChange: (model: ModelRef, variant?: string | null) => void;
   attachments: ComposerAttachment[];
   onAttachFiles: (files: File[]) => void;
   onRemoveAttachment: (id: string) => void;
@@ -285,8 +282,8 @@ export function ReactSessionComposer(props: ComposerProps) {
   }, [props.draft]);
 
   // Follow-up message UX (only relevant while the agent is busy):
-  // - Enter sends immediately (the agent adjusts mid-task, aka "steer").
-  // - Cmd/Ctrl+Enter queues the message to send once the agent finishes.
+  // - Enter (and the send button) queues the message until the agent finishes.
+  // - Cmd/Ctrl+Enter sends immediately (the agent adjusts mid-task, aka "steer").
   // - Escape arms a "Hit Escape again to stop the agent" prompt for 3s;
   //   a second Escape within that window stops the agent.
   const [escapeArmed, setEscapeArmed] = useState(false);
@@ -345,15 +342,14 @@ export function ReactSessionComposer(props: ComposerProps) {
   }, []);
 
   // Editor submit (Enter). While idle this sends normally; while busy
-  // Enter sends immediately (steer) and Cmd/Ctrl+Enter queues the
-  // message to send once the agent finishes the current task.
+  // Enter queues until the agent finishes, and Cmd/Ctrl+Enter steers.
   const handleEditorSubmit = useCallback((options: { queue: boolean }) => {
     const hasContent = props.draft.trim().length > 0 || props.attachments.length > 0;
     if (!hasContent) return;
     if (props.submissionPreparing) return;
     if (props.busy) {
-      if (options.queue) void props.onQueue();
-      else void props.onSteer();
+      if (options.queue) void props.onSteer();
+      else void props.onQueue();
       return;
     }
     void props.onSend();
@@ -1378,9 +1374,9 @@ export function ReactSessionComposer(props: ComposerProps) {
               }}
             />
 
-            {/* Action row — attachments, quick actions, model controls, and send */}
-            <div className="mt-2 flex flex-wrap items-end justify-between gap-2 max-lg:gap-y-3">
-              <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
+            {/* Action row — tools, attachments, model, and send stay on one line */}
+            <div className="mt-2 flex items-center gap-1.5">
+              <div className="flex min-w-0 flex-1 items-center gap-1.5">
                 <input
                   ref={(element) => {
                     fileInput = element ?? undefined;
@@ -1394,20 +1390,6 @@ export function ReactSessionComposer(props: ComposerProps) {
                     event.currentTarget.value = "";
                   }}
                 />
-                <button
-                  type="button"
-                  className={`inline-flex h-9 max-h-9 w-9 items-center justify-center rounded-md text-gray-10 transition-colors hover:bg-gray-3 max-lg:h-11 max-lg:max-h-11 max-lg:w-11 ${
-                    !props.attachmentsEnabled ? "cursor-not-allowed opacity-60" : ""
-                  }`}
-                  onClick={() => {
-                    if (!props.attachmentsEnabled) return;
-                    fileInput?.click();
-                  }}
-                  disabled={!props.attachmentsEnabled}
-                  title={props.attachmentsDisabledReason ?? t("composer.attach_files")}
-                >
-                  <Paperclip size={16} />
-                </button>
                 <div
                   ref={toolMenuRef}
                   className="relative"
@@ -1418,7 +1400,7 @@ export function ReactSessionComposer(props: ComposerProps) {
                 >
                   <button
                     type="button"
-                    className={`inline-flex h-9 max-h-9 w-9 items-center justify-center rounded-md transition-colors max-lg:h-11 max-lg:max-h-11 max-lg:w-11 ${toolMenuOpen ? "bg-gray-3 text-gray-12" : "text-gray-10 hover:bg-gray-3"}`}
+                    className={`inline-flex h-9 max-h-9 w-9 shrink-0 items-center justify-center rounded-md transition-colors ${toolMenuOpen ? "bg-gray-3 text-gray-12" : "text-gray-10 hover:bg-gray-3"}`}
                     onClick={() => {
                       setMentionOpen(false);
                       setMentionItems([]);
@@ -1641,6 +1623,20 @@ export function ReactSessionComposer(props: ComposerProps) {
                     document.body,
                   ) : null}
                 </div>
+                <button
+                  type="button"
+                  className={`inline-flex h-9 max-h-9 w-9 shrink-0 items-center justify-center rounded-md text-gray-10 transition-colors hover:bg-gray-3 ${
+                    !props.attachmentsEnabled ? "cursor-not-allowed opacity-60" : ""
+                  }`}
+                  onClick={() => {
+                    if (!props.attachmentsEnabled) return;
+                    fileInput?.click();
+                  }}
+                  disabled={!props.attachmentsEnabled}
+                  title={props.attachmentsDisabledReason ?? t("composer.attach_files")}
+                >
+                  <Paperclip size={16} />
+                </button>
 
                 {/* Agent picker (#2101/#1971). Only shown once a non-default
                     agent is selected. Switching back to Default agent lives in
@@ -1713,14 +1709,20 @@ export function ReactSessionComposer(props: ComposerProps) {
                   value={props.selectedModel}
                   hideValue={props.organizationModelsEmpty}
                   onOpenChange={props.onModelPickerOpenChange}
-                  onChange={(model) => {
-                    if (!props.steering) props.onModelChange(model);
+                  onChange={(model, variant) => {
+                    if (!props.steering) props.onModelChange(model, variant);
                   }}
                   disabled={props.steering}
                   sessionId={props.sessionId}
                   openWorkModelsEntitled={props.openWorkModelsEntitled}
                   openWorkModelsSyncing={props.openWorkModelsSyncing}
                   fallbackOptions={props.modelOptions}
+                  behaviorValue={props.modelVariant}
+                  behaviorLabel={props.modelVariantLabel}
+                  behaviorOptions={props.modelBehaviorOptions}
+                  onBehaviorChange={(value) => {
+                    if (!props.steering) props.onModelVariantChange(value);
+                  }}
                 />
                 {props.modelUnavailable ? props.onRefreshOrganizationModels ? (
                   <button
@@ -1744,115 +1746,70 @@ export function ReactSessionComposer(props: ComposerProps) {
                   </span>
                 ) : null}
 
-                <ModelBehaviorSelect
-                  value={props.modelVariant}
-                  label={props.modelVariantLabel}
-                  options={props.modelBehaviorOptions}
-                  onChange={(value) => {
-                    if (!props.steering) props.onModelVariantChange(value);
-                  }}
-                  disabled={props.steering}
-                />
               </div>
 
               {/*
-                Action area.
-                - Idle: single "Run task" button (sends immediately).
-                - Busy: an outline "Stop" on the left (kept apart from the
-                  send cluster), then a split send button — the primary
-                  segment sends now (the agent adjusts mid-task, aka
-                  "steer"; Enter does the same), and the chevron opens a
-                  menu with "Send when agent finishes" (queue, ⌘⏎). A badge
-                  on the chevron shows how many messages are queued.
-                  Escape arms a "Hit Escape again to stop the agent" prompt.
+                Action area: one circular control.
+                - Idle: send arrow.
+                - Busy: stop icon in that same slot (Enter still queues;
+                  Cmd/Ctrl+Enter still steers).
               */}
-              <div className="ml-auto flex shrink-0 items-end gap-1.5 max-lg:w-full max-lg:justify-end">
-                {props.busy ? (
-                  <>
-                    {escapeArmed ? (
-                      <span className="self-center pr-1 text-[12px] font-medium text-gray-10 max-lg:hidden">
-                        {t("composer.escape_to_stop")}
-                      </span>
-                    ) : null}
-                    <button
-                      type="button"
-                      onClick={props.onStop}
-                      className="mr-2 inline-flex h-9 max-h-9 items-center gap-2 rounded-full border border-dls-border bg-transparent px-4 text-[13px] font-medium text-gray-11 transition-colors hover:bg-gray-3 max-lg:h-11 max-lg:max-h-11"
-                      title={t("composer.stop")}
-                    >
-                      <Square size={12} fill="currentColor" />
-                      <span>{t("composer.stop")}</span>
-                    </button>
-                    <div className="flex items-end">
-                      <button
-                        type="button"
-                        onClick={canSend ? props.onSteer : undefined}
-                        disabled={!canSend}
-                        className={`inline-flex h-9 max-h-9 items-center gap-2 rounded-l-full pl-4 pr-3 text-[13px] font-medium transition-colors max-lg:h-11 max-lg:max-h-11 ${
-                          canSend
-                            ? "bg-[var(--dls-accent)] text-[var(--dls-accent-fg)] hover:bg-[var(--dls-accent-hover)]"
-                            : "bg-gray-4 text-gray-10"
-                        }`}
-                        title={t("composer.steer_hint")}
-                      >
-                        <Zap size={14} />
-                        <span>{t("composer.steer")}</span>
-                      </button>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger
-                          render={
-                            <button
-                              type="button"
-                              aria-label={t("composer.send_options")}
-                              className={`relative inline-flex h-9 max-h-9 items-center rounded-r-full border-l pl-1.5 pr-2.5 transition-colors max-lg:h-11 max-lg:max-h-11 ${
-                                canSend
-                                  ? "border-[color-mix(in_srgb,var(--dls-accent-fg)_25%,transparent)] bg-[var(--dls-accent)] text-[var(--dls-accent-fg)] hover:bg-[var(--dls-accent-hover)]"
-                                  : "border-gray-6 bg-gray-4 text-gray-10"
-                              }`}
-                            >
-                              <ChevronDown size={14} />
-                              {props.queuedCount > 0 ? (
-                                <span className="absolute -right-1 -top-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-gray-12 px-1 text-[10px] font-semibold text-gray-1">
-                                  {props.queuedCount}
-                                </span>
-                              ) : null}
-                            </button>
-                          }
-                        />
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem
-                            disabled={!canSend}
-                            onClick={() => void props.onQueue()}
-                            title={t("composer.queue_hint")}
-                          >
-                            <ListPlus size={14} />
-                            <span>
-                              {props.queuedCount > 0
-                                ? `${t("composer.queue")} · ${t("composer.queued_count", { count: props.queuedCount })}`
-                                : t("composer.queue")}
-                            </span>
-                            <DropdownMenuShortcut>{isMacPlatform() ? "⌘⏎" : "Ctrl+⏎"}</DropdownMenuShortcut>
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </div>
-                  </>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={canSend && !props.submissionPreparing ? props.onSend : undefined}
-                    disabled={props.disabled || !canSend || props.submissionPreparing}
-                    className={`inline-flex h-9 max-h-9 items-center gap-2 rounded-full px-4 text-[13px] font-medium transition-colors max-lg:h-11 max-lg:max-h-11 ${
-                      !canSend || props.disabled || props.submissionPreparing
+              <div className="ml-auto flex shrink-0 items-center gap-1.5">
+                {props.busy && escapeArmed ? (
+                  <span className="self-center pr-1 text-[12px] font-medium text-gray-10 max-lg:hidden">
+                    {t("composer.escape_to_stop")}
+                  </span>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={
+                    props.busy
+                      ? props.onStop
+                      : !canSend || props.submissionPreparing
+                        ? undefined
+                        : props.onSend
+                  }
+                  disabled={
+                    props.disabled
+                    || (!props.busy && (!canSend || props.submissionPreparing))
+                  }
+                  aria-label={
+                    props.busy
+                      ? t("composer.stop")
+                      : props.submissionPreparing
+                        ? "Preparing connected service tools…"
+                        : t("composer.run_task")
+                  }
+                  className={`inline-flex h-9 max-h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors ${
+                    props.busy
+                      ? "bg-[var(--dls-accent)] text-[var(--dls-accent-fg)] hover:bg-[var(--dls-accent-hover)]"
+                      : !canSend || props.disabled || props.submissionPreparing
                         ? "bg-gray-4 text-gray-10"
                         : "bg-[var(--dls-accent)] text-[var(--dls-accent-fg)] hover:bg-[var(--dls-accent-hover)]"
-                    }`}
-                    title={props.submissionPreparing ? "Preparing connected service tools…" : t("composer.run_task")}
-                  >
-                    {props.submissionPreparing ? <LoaderCircle size={15} className="animate-spin" /> : <ArrowUp size={15} />}
-                    <span>{props.submissionPreparing ? "Preparing connected service tools…" : t("composer.run_task")}</span>
-                  </button>
-                )}
+                  }`}
+                  title={
+                    props.busy
+                      ? t("composer.stop")
+                      : props.submissionPreparing
+                        ? "Preparing connected service tools…"
+                        : t("composer.run_task")
+                  }
+                >
+                  {props.busy ? (
+                    <Square size={12} fill="currentColor" />
+                  ) : props.submissionPreparing ? (
+                    <LoaderCircle size={15} className="animate-spin" />
+                  ) : (
+                    <ArrowUp size={15} />
+                  )}
+                  <span className="sr-only">
+                    {props.busy
+                      ? t("composer.stop")
+                      : props.submissionPreparing
+                        ? "Preparing connected service tools…"
+                        : t("composer.run_task")}
+                  </span>
+                </button>
               </div>
             </div>
           </div>

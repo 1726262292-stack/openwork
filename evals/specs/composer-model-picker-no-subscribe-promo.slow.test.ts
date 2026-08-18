@@ -48,6 +48,10 @@ test(title, async ({ evidence, place }) => {
       search: Boolean(popover.querySelector('input[placeholder="Search models..."]')),
       allModels: [...popover.querySelectorAll("button")]
         .some((button) => (button.textContent ?? "").trim() === "All models"),
+      connectMore: [...popover.querySelectorAll("button")]
+        .some((button) => (button.textContent ?? "").trim() === "Connect more providers"),
+      yourApiKeys: text.includes("Your API keys"),
+      addYourKeys: hasExactText("Add your keys"),
       hostedMarker: text.includes("hosted · no API keys"),
       unlockSentence: text.includes("One subscription unlocks these in every workspace."),
       enableAction: hasExactText("Enable →"),
@@ -58,6 +62,9 @@ test(title, async ({ evidence, place }) => {
   expect(compact).toEqual({
     search: true,
     allModels: true,
+    connectMore: true,
+    yourApiKeys: false,
+    addYourKeys: false,
     hostedMarker: false,
     unlockSentence: false,
     enableAction: false,
@@ -70,6 +77,9 @@ test(title, async ({ evidence, place }) => {
     isRecord(compact)
       && compact.search === true
       && compact.allModels === true
+      && compact.connectMore === true
+      && compact.yourApiKeys === false
+      && compact.addYourKeys === false
       && compact.hostedMarker === false
       && compact.unlockSentence === false
       && compact.enableAction === false

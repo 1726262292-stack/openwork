@@ -123,6 +123,8 @@ export default {
   "composer.queued_count": "{count} queued",
   "composer.queued_send_now": "Send now",
   "composer.queued_send_now_hint": "Send this message now instead of waiting for the agent to finish",
+  "composer.queued_reorder": "Drag to reorder",
+  "composer.queued_edit": "Edit queued message",
   "composer.escape_to_stop": "Hit Escape again to stop the agent",
   "composer.skill_source": "Skill",
   "composer.stop": "Stop",
