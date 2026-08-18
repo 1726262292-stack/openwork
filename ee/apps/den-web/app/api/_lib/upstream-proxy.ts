@@ -327,7 +327,12 @@ function errorName(error: unknown): string {
 
 async function readRequestBody(request: NextRequest): Promise<Uint8Array | null> {
   if (request.method === "GET" || request.method === "HEAD") return null;
-  return new Uint8Array(await request.arrayBuffer());
+  // Forward an owned copy, never a view: Next 16 detaches the ArrayBuffer
+  // behind arrayBuffer() after the read, and undici serializes fetch bodies
+  // lazily, so a view over that buffer throws "Cannot perform
+  // ArrayBuffer.prototype.slice on a detached ArrayBuffer" on every proxied
+  // write while GETs (null body) keep working.
+  return new Uint8Array(await request.arrayBuffer()).slice();
 }
 
 export async function proxyUpstream(
