@@ -498,6 +498,13 @@
       "when": 1786982612757,
       "tag": "0071_shocking_namorita",
       "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "5",
+      "when": 1787053634255,
+      "tag": "0072_huge_avengers",
+      "breakpoints": true
     }
   ]
 }

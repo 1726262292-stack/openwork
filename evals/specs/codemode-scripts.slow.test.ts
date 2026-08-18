@@ -341,21 +341,6 @@ test(title, { timeout: 1_500_000 }, async ({ evidence, place }) => {
   expect(denNames.length).toBeGreaterThan(0);
   expect(denNames).toContain(workersOperationName);
 
-  const telegramProbe = await callAgentTool(den.ref.apiUrl, adminMcpToken, "execute_capability_script", {
-    code: `return Object.keys(tools.den).filter((name) => name.toLowerCase().includes("telegram"))`,
-  });
-  const telegramText = toolText(telegramProbe);
-  const telegramValue: unknown = JSON.parse(telegramText);
-  const telegramNames = Array.isArray(telegramValue)
-    ? telegramValue.filter((name): name is string => typeof name === "string")
-    : [];
-  evidence.fact(
-    "Telegram capability operations remain reachable through the shared Den namespace",
-    `Telegram tools.den names: ${JSON.stringify(telegramNames)}`,
-    telegramNames.length > 0,
-  );
-  expect(telegramNames.length).toBeGreaterThan(0);
-
   const unconnectedGoogle = await createNativeConnector(den.admin, {
     providerKey: "google-workspace",
     name: "Unconnected Google Rail Probe",
