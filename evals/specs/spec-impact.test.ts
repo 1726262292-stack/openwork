@@ -51,3 +51,13 @@ test("the spec-impact report suggests a slow spec for unmapped changes", ({ evid
     true,
   )
 })
+
+test("the spec-impact matcher always selects changed slow specs", ({ evidence }) => {
+  const matched = JSON.parse(runMatched("evals/specs/new-unmapped-feature.slow.test.ts"))
+  expect(matched).toEqual(["evals/specs/new-unmapped-feature.slow.test.ts"])
+  evidence.fact(
+    "New slow specs enter the PR sweep without a contract mapping",
+    "The matcher selected a changed unmapped slow spec directly.",
+    true,
+  )
+})

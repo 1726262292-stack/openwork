@@ -47,6 +47,7 @@ export function validateSnapshot(value) {
 
 export function analyzeImpact(contracts, changedFiles) {
   const changed = [...new Set(changedFiles.map((entry) => entry.trim()).filter(Boolean))].sort()
+  const changedSlowSpecs = changed.filter((pathname) => pathname.startsWith("evals/specs/") && pathname.endsWith(".slow.test.ts"))
   const impacted = contracts.flatMap((contract) => {
     const implementation = changed.filter((pathname) => contract.implementation.some((pattern) => matches(pathname, pattern)))
     if (implementation.length === 0) return []
@@ -57,7 +58,7 @@ export function analyzeImpact(contracts, changedFiles) {
     changed,
     impacted,
     attention: impacted.filter((contract) => !contract.covered),
-    matchedSpecs: [...new Set(impacted.flatMap((contract) => contract.specs))].sort(),
+    matchedSpecs: [...new Set([...impacted.flatMap((contract) => contract.specs), ...changedSlowSpecs])].sort(),
   }
 }
 
