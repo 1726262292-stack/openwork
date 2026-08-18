@@ -115,7 +115,10 @@ test("a Code Mode result becomes a cloud Automation and a durable artifact resul
   const scriptName = `Launch briefing ${stamp}`
   const firstMarker = `launch-now-${stamp}`
   const scheduledMarker = `launch-scheduled-${stamp}`
-  const code = "return { briefing: await tools.report_source.mock_echo({ text: input.topic }) }"
+  const code = [
+    "const result = await tools.den.getWorkers({})",
+    "return { briefing: { topic: input.topic, workerCount: result.workers.length } }",
+  ].join("\n")
   const inputSchema = {
     type: "object",
     properties: { topic: { type: "string" } },
@@ -141,7 +144,7 @@ test("a Code Mode result becomes a cloud Automation and a durable artifact resul
     headers: { authorization: `Bearer ${den.admin.token}` },
     body: JSON.stringify({
       name: scriptName,
-      description: "Builds a reusable launch briefing from the connected report source.",
+      description: "Builds a reusable launch briefing from the organization's worker roster.",
       code,
       currentInput: { topic: firstMarker },
       inputSchema,
@@ -210,13 +213,11 @@ test("a Code Mode result becomes a cloud Automation and a durable artifact resul
   const scheduledRunId = typeof scheduledRun?.id === "string" ? scheduledRun.id : ""
   expect(scheduledRunId).not.toBe("")
 
-  const scheduledCalls = await den.mocks.reports.toolCalls({
+  const scheduledExternalCalls = await den.mocks.reports.toolCalls({
     name: "mock_echo",
-    atLeast: 1,
     sinceIso: scheduledAfter,
-    timeoutMs: 5 * 60_000,
   })
-  expect(scheduledCalls.filter((call) => call.args.text === scheduledMarker)).toHaveLength(1)
+  expect(scheduledExternalCalls).toHaveLength(0)
 
   const scheduledReceiptResponse = await denFetch(den.admin, `/v1/automation-runs/${scheduledRunId}`, {
     headers: { authorization: `Bearer ${den.admin.token}` },
@@ -224,8 +225,22 @@ test("a Code Mode result becomes a cloud Automation and a durable artifact resul
   expect(scheduledReceiptResponse.response.ok, scheduledReceiptResponse.text).toBe(true)
   const scheduledReceipt = requireRecord(scheduledReceiptResponse.body, "scheduled Automation receipt")
   const scheduledReceiptRun = requireRecord(scheduledReceipt.run, "scheduled Automation run")
+  const scheduledReceiptAutomation = requireRecord(scheduledReceipt.automation, "scheduled Automation identity")
+  const scheduledReceiptRevision = requireRecord(scheduledReceipt.revision, "scheduled Automation revision")
+  const scheduledExecutionThread = requireRecord(scheduledReceiptRun.executionThread, "scheduled Automation execution thread")
   expect(JSON.stringify(scheduledReceipt)).toContain(scheduledMarker)
-  expect(scheduledReceiptRun.executionThread).toBeNull()
+  expect(scheduledReceiptAutomation.id).toBe(automationId)
+  expect(scheduledReceiptRevision.id).toBe(scheduledRun?.revisionId)
+  expect(Array.isArray(scheduledReceipt.events)).toBe(true)
+  expect(scheduledReceipt.events).toEqual([])
+  expect(String(scheduledExecutionThread.id ?? "")).not.toBe("")
+  expect(scheduledExecutionThread).toMatchObject({
+    threadKind: "automation",
+    executionLocation: "cloud",
+    automationId,
+    automationRunId: scheduledRunId,
+    engineKind: "openwork-cloud-codemode-v1",
+  })
 
   const toolList = await agentRpc(den.ref.apiUrl, mcpToken, "tools/list", {})
   const tools = records(toolList.tools)
@@ -268,14 +283,62 @@ test("a Code Mode result becomes a cloud Automation and a durable artifact resul
     true,
   )
 
-  const policyChangedAt = new Date().toISOString()
-  const disabled = await denFetch(den.admin, `/v1/mcp-connections/${connection.id}/tool-policy`, {
-    method: "PUT",
-    headers: { authorization: `Bearer ${den.admin.token}` },
-    body: JSON.stringify({ allDisabled: false, disabledTools: ["mock_echo"] }),
+  const externalMarker = `launch-external-${stamp}`
+  const externalCode = "return { briefing: await tools.report_source.mock_echo({ text: input.topic }) }"
+  const externalRunStartedAt = new Date().toISOString()
+  const externalExecuted = await agentRpc(den.ref.apiUrl, mcpToken, "tools/call", {
+    name: "execute_capability_script",
+    arguments: { code: externalCode, input: { topic: externalMarker } },
   })
-  expect(disabled.response.ok, disabled.text).toBe(true)
+  expect(externalExecuted.isError).not.toBe(true)
+  expect(JSON.stringify(externalExecuted.content)).toContain(externalMarker)
+  const interactiveExternalCalls = await den.mocks.reports.toolCalls({
+    name: "mock_echo",
+    atLeast: 1,
+    sinceIso: externalRunStartedAt,
+    timeoutMs: 60_000,
+  })
+  expect(interactiveExternalCalls.filter((call) => call.args.text === externalMarker)).toHaveLength(1)
 
+  const externalSavedResponse = await denFetch(den.admin, "/v1/codemode-scripts", {
+    method: "POST",
+    headers: { authorization: `Bearer ${den.admin.token}` },
+    body: JSON.stringify({
+      name: `${scriptName} external`,
+      description: "Checks the unattended Cloud boundary for external MCP tools.",
+      code: externalCode,
+      currentInput: { topic: externalMarker },
+      inputSchema,
+      outputSchema,
+    }),
+  })
+  expect(externalSavedResponse.response.status, externalSavedResponse.text).toBe(201)
+  const externalSaved = requireRecord(externalSavedResponse.body, "external saved Script")
+  const externalPluginId = typeof externalSaved.pluginId === "string" ? externalSaved.pluginId : ""
+  const externalConfigObjectId = typeof externalSaved.configObjectId === "string" ? externalSaved.configObjectId : ""
+  const externalConfigObjectVersionId = typeof externalSaved.configObjectVersionId === "string" ? externalSaved.configObjectVersionId : ""
+  expect(externalPluginId).not.toBe("")
+  expect(externalConfigObjectId).not.toBe("")
+  expect(externalConfigObjectVersionId).not.toBe("")
+
+  const externalAutomation = await denFetch(den.admin, `/v1/automations/${automationId}`, {
+    method: "PATCH",
+    headers: { authorization: `Bearer ${den.admin.token}` },
+    body: JSON.stringify({
+      action: {
+        kind: "saved_script",
+        script: {
+          pluginId: externalPluginId,
+          configObjectId: externalConfigObjectId,
+          configObjectVersionId: externalConfigObjectVersionId,
+        },
+        input: { topic: externalMarker },
+      },
+    }),
+  })
+  expect(externalAutomation.response.ok, externalAutomation.text).toBe(true)
+
+  const unattendedRunStartedAt = new Date().toISOString()
   const failedRunResponse = await denFetch(den.admin, `/v1/automations/${automationId}/run`, {
     method: "POST",
     headers: { authorization: `Bearer ${den.admin.token}` },
@@ -292,34 +355,36 @@ test("a Code Mode result becomes a cloud Automation and a durable artifact resul
     expect(response.response.ok, response.text).toBe(true)
     return requireRecord(response.body, "failed Automation receipt")
   }, (receipt) => isRecord(receipt.run)
-    && ["failed", "skipped", "cancelled"].includes(String(receipt.run.status)), "revoked-capability run to finish")
+    && ["failed", "skipped", "cancelled"].includes(String(receipt.run.status)), "external-capability run to finish")
   const failedReceiptRun = requireRecord(failedReceipt.run, "failed Automation run")
   expect(failedReceiptRun.status).toBe("failed")
+  const failedRunError = requireRecord(failedReceiptRun.error, "failed Automation error")
+  expect(String(failedRunError.message ?? "")).toContain("must be read-only and explicitly approved")
 
-  const afterRevocation = await eventually(async () => {
+  const afterBoundaryRejection = await eventually(async () => {
     const response = await denFetch(den.admin, `/v1/automations/${automationId}`, {
       headers: { authorization: `Bearer ${den.admin.token}` },
     })
     expect(response.response.ok, response.text).toBe(true)
-    return requireRecord(response.body, "Automation after revocation")
+    return requireRecord(response.body, "Automation after unattended boundary rejection")
   }, (detail) => isRecord(detail.automation) && detail.automation.state === "needs_attention", "Automation to need attention")
-  expect(JSON.stringify(afterRevocation)).toContain(scheduledMarker)
+  expect(JSON.stringify(afterBoundaryRejection)).toContain(scheduledMarker)
 
-  let callsAfterRevocation = 0
+  let unattendedExternalCalls = 0
   try {
-    callsAfterRevocation = (await den.mocks.reports.toolCalls({
+    unattendedExternalCalls = (await den.mocks.reports.toolCalls({
       name: "mock_echo",
       atLeast: 1,
-      sinceIso: policyChangedAt,
+      sinceIso: unattendedRunStartedAt,
       timeoutMs: 5_000,
     })).length
   } catch {
-    callsAfterRevocation = 0
+    unattendedExternalCalls = 0
   }
-  expect(callsAfterRevocation).toBe(0)
+  expect(unattendedExternalCalls).toBe(0)
   evidence.fact(
-    "Revoked capability access fails before provider I/O and preserves the last good result",
-    `Provider calls after revocation: ${callsAfterRevocation}; the previous ${scheduledMarker} result remains durable.`,
-    callsAfterRevocation === 0 && JSON.stringify(afterRevocation).includes(scheduledMarker),
+    "Unattended Cloud rejects external MCP capability access before provider I/O and preserves the last good result",
+    `Provider calls from the unattended run: ${unattendedExternalCalls}; the previous ${scheduledMarker} result remains durable.`,
+    unattendedExternalCalls === 0 && JSON.stringify(afterBoundaryRejection).includes(scheduledMarker),
   )
 })
