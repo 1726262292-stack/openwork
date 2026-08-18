@@ -226,6 +226,7 @@ export default {
           assert: async () => {
             await ctx.expectText("Google Workspace");
             await ctx.expectText("Microsoft 365");
+            await ctx.expectText("Telegram");
             const extensionsHref = await ctx.eval(`(() => {
               const link = [...document.querySelectorAll('nav a')]
                 .find((entry) => (entry.textContent ?? '').trim().startsWith('Extensions'));
@@ -236,7 +237,7 @@ export default {
           screenshot: screenshot(
             "dashboard-quick-add",
             "The admin dashboard visibly offers reusable connector Quick add choices.",
-            ["Dashboard", "Quick add", "Google Workspace", "Microsoft 365"],
+            ["Dashboard", "Quick add", "Google Workspace", "Microsoft 365", "Telegram"],
           ),
         });
       },
