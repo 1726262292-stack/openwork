@@ -1,8 +1,5 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
 import test from "node:test";
-import { fileURLToPath } from "node:url";
 
 import {
   deleteSandboxes,
@@ -16,24 +13,6 @@ import {
 } from "../src/provision.ts";
 import type { ConnectorSpecEnv } from "../src/provision.ts";
 import type { DaytonaExec } from "../src/daytona.ts";
-
-const REPO_ROOT = fileURLToPath(new URL("../../../..", import.meta.url));
-
-function daytonaServerTrustedOrigins(env: Record<string, string>): string[] {
-  const script = readFileSync(`${REPO_ROOT}/.devcontainer/start-daytona-server.sh`, "utf8");
-  const setup = script.slice(0, script.indexOf("run_root() {"));
-  const result = spawnSync("bash", ["-c", `${setup}\nprintf '%s' \"$DEN_BETTER_AUTH_TRUSTED_ORIGINS\"`], {
-    cwd: REPO_ROOT,
-    encoding: "utf8",
-    env: {
-      PATH: process.env.PATH ?? "",
-      OPENWORK_WORKSPACE_DIR: REPO_ROOT,
-      ...env,
-    },
-  });
-  assert.equal(result.status, 0, result.stderr);
-  return result.stdout.split(",");
-}
 
 interface ExecCall {
   args: string[];
@@ -101,19 +80,6 @@ test("server sandbox names are unique within the same CI process and second", ()
 
   assert.match(first, new RegExp(`^openwork-server-\\d{8}-\\d{6}-${process.pid}-[0-9a-f]{8}$`));
   assert.notEqual(first, second);
-});
-
-test("Daytona server boot always appends the rotating preview domain to trusted origins", () => {
-  assert(daytonaServerTrustedOrigins({
-    DEN_WEB_PUBLIC_URL: "http://localhost:3005",
-  }).includes("https://*.daytonaproxy01.net"));
-
-  const configured = daytonaServerTrustedOrigins({
-    DEN_WEB_PUBLIC_URL: "https://3005-boot.preview.example.test",
-    DEN_BETTER_AUTH_TRUSTED_ORIGINS: "https://configured.example.test",
-  });
-  assert(configured.includes("https://configured.example.test"));
-  assert(configured.includes("https://*.preview.example.test"));
 });
 
 test("desktop sandbox names stay unique when parallel workers use the same surface name", () => {

@@ -54,28 +54,21 @@ export CORS_ORIGINS="${CORS_ORIGINS:-$DEFAULT_ORIGINS}"
 # Daytona mints a fresh preview hostname on every preview-url call, so any
 # origin baked at boot goes stale immediately. Trust the preview proxy domain
 # by wildcard (better-auth supports wildcard trusted origins) so rotated
-# preview URLs keep working. Keep the Daytona default when boot starts from the
-# localhost fallback, before a public preview URL is available.
+# preview URLs keep working. Local hosts produce no wildcard.
 PREVIEW_PROXY_HOST="${DEN_WEB_PUBLIC_URL#http://}"
 PREVIEW_PROXY_HOST="${PREVIEW_PROXY_HOST#https://}"
 PREVIEW_PROXY_HOST="${PREVIEW_PROXY_HOST%%/*}"
-PREVIEW_PROXY_SUFFIX="daytonaproxy01.net"
+PREVIEW_PROXY_WILDCARD=""
 case "$PREVIEW_PROXY_HOST" in
   localhost*|127.*|0.0.0.0*|\[*) ;;
   *.*.*)
-    PREVIEW_PROXY_SUFFIX="${PREVIEW_PROXY_HOST#*.}"
+    PREVIEW_PROXY_WILDCARD="https://*.${PREVIEW_PROXY_HOST#*.}"
     ;;
 esac
-PREVIEW_PROXY_WILDCARD="https://*.$PREVIEW_PROXY_SUFFIX"
 # Preview hosts are not app.*: tell den-api the preview domain serves den-web
 # so desktop handoff links point at the den-web /api/den proxy.
-export DEN_WEB_APP_HOSTS="${DEN_WEB_APP_HOSTS:-.$PREVIEW_PROXY_SUFFIX}"
-TRUSTED_ORIGINS="${DEN_BETTER_AUTH_TRUSTED_ORIGINS:-$CORS_ORIGINS}"
-case ",$TRUSTED_ORIGINS," in
-  *",$PREVIEW_PROXY_WILDCARD,"*) ;;
-  *) TRUSTED_ORIGINS="$TRUSTED_ORIGINS,$PREVIEW_PROXY_WILDCARD" ;;
-esac
-export DEN_BETTER_AUTH_TRUSTED_ORIGINS="$TRUSTED_ORIGINS"
+export DEN_WEB_APP_HOSTS="${DEN_WEB_APP_HOSTS:-${PREVIEW_PROXY_WILDCARD:+.${PREVIEW_PROXY_HOST#*.}}}"
+export DEN_BETTER_AUTH_TRUSTED_ORIGINS="${DEN_BETTER_AUTH_TRUSTED_ORIGINS:-$CORS_ORIGINS${PREVIEW_PROXY_WILDCARD:+,$PREVIEW_PROXY_WILDCARD}}"
 
 run_root() {
   if [ "$(id -u)" -eq 0 ]; then
