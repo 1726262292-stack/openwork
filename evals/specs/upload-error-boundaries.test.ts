@@ -6,7 +6,7 @@ import { normalizeWorkspaceRelativePath } from "../../apps/server/src/routes/fil
 
 const encoder = new TextEncoder();
 
-test("upload filenames fit filesystem component limits without losing their extensions", ({ evidence }) => {
+test("upload filename and path boundaries reject unsafe writes", ({ evidence }) => {
   const asciiInput = `${"a".repeat(400)}.pdf`;
   const multibyteInput = `${"李".repeat(200)}.txt`;
   const asciiName = safeAttachmentFilename(asciiInput);
@@ -27,9 +27,6 @@ test("upload filenames fit filesystem component limits without losing their exte
     `The ${encoder.encode(asciiInput).byteLength}-byte ASCII and ${encoder.encode(multibyteInput).byteLength}-byte multibyte inputs became ${encoder.encode(asciiName).byteLength}-byte .pdf and ${encoder.encode(multibyteName).byteLength}-byte .txt names without a broken UTF-8 character.`,
     true,
   );
-});
-
-test("upload paths reject Windows-unsafe and oversized components", ({ evidence }) => {
   const unsafePaths = [
     ["reports/CON.txt", "Windows reserved device names"],
     ["reports/screenshot.png:metadata", "must not contain colons"],
