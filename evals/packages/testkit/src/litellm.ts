@@ -374,9 +374,9 @@ function makeHandle(input: HandleInput): LiteLlmHandle {
     },
     async [Symbol.asyncDispose]() {
       if (disposed) return;
-      disposed = true;
       try {
         await input.dispose();
+        disposed = true;
       } catch (error) {
         throw redactedError(error, secrets);
       }
@@ -575,12 +575,12 @@ async function startLocalLiteLlm(
       fetchImpl: fetch,
       async dispose(): Promise<void> {
         if (placementDisposed) return;
-        placementDisposed = true;
         await run("docker", ["rm", "--force", container], 20_000).catch(() => undefined);
         await Promise.all([
           rm(root, { recursive: true, force: true }),
           closeServer(startedWitness.server),
         ]);
+        placementDisposed = true;
       },
     });
   } catch (error) {
@@ -612,8 +612,7 @@ function uploadCommands(content: string, remotePath: string): string[] {
     `base64 -d ${encodedPath} > ${remotePath} || decode_status=$?`,
     `actual_bytes=$(wc -c < ${remotePath})`,
     `rm -f ${encodedPath}`,
-    'test "$decode_status" -eq 0',
-    `test "$actual_bytes" -eq ${source.byteLength}`,
+    `test "$decode_status" -eq 0 && test "$actual_bytes" -eq ${source.byteLength}`,
   ].join("; "));
   return commands;
 }
@@ -659,7 +658,7 @@ async function previewUrl(exec: DaytonaExec, sandbox: string, port: number): Pro
     `LiteLLM preview URL gate for ${sandbox}:${port}`,
     { timeoutMs: 60_000 },
   );
-  const url = firstHttpsUrl(`${result.stdout}\n${result.stderr}`);
+  const url = firstHttpsUrl(result.stdout);
   if (!url) throw new Error(`LiteLLM preview URL gate for ${sandbox}:${port} did not return an HTTPS URL.`);
   return url;
 }
@@ -807,8 +806,8 @@ async function startDaytonaLiteLlm(
       fetchImpl,
       async dispose(): Promise<void> {
         if (placementDisposed) return;
-        placementDisposed = true;
         await deleteSandboxes([sandbox], { exec, log: () => undefined });
+        placementDisposed = true;
       },
     });
   } catch (error) {

@@ -14,7 +14,9 @@ interface ExecCall {
 }
 
 interface FakeOptions {
+  deleteFailures?: number;
   invalidHealth?: boolean;
+  previewOnStderr?: boolean;
   requests?: () => LiteLlmUpstreamRequest[];
 }
 
@@ -61,6 +63,7 @@ function makeFake(options: FakeOptions = {}): {
   let masterKey = "";
   let upstreamKey = "";
   let controlKey = "";
+  let deleteAttempts = 0;
   const exec: DaytonaExec = async (args, opts) => {
     calls.push({ args: [...args], opts });
     if (args[0] === "create") {
@@ -70,7 +73,17 @@ function makeFake(options: FakeOptions = {}): {
     }
     if (args[0] === "preview-url") {
       const port = args[args.indexOf("-p") + 1] ?? "";
+      if (options.previewOnStderr) {
+        return { stdout: "", stderr: "Upgrade at https://updates.example.test\n", code: 0 };
+      }
       return { stdout: `Preview URL: https://port-${port}.example.test\n`, stderr: "", code: 0 };
+    }
+    if (args[0] === "delete") {
+      deleteAttempts += 1;
+      if (deleteAttempts <= (options.deleteFailures ?? 0)) {
+        return { stdout: "transient deletion failure\n", stderr: "", code: 1 };
+      }
+      return { stdout: "deleted\n", stderr: "", code: 0 };
     }
     if (args[0] !== "exec") return { stdout: "", stderr: "", code: 0 };
 
@@ -177,7 +190,7 @@ test("Daytona LiteLLM pins its image, verifies bounded uploads, exposes both por
   assert(chunks.every((chunk) => chunk.length <= 8 * 1_024));
   const finalizers = uploadCalls.filter(({ script }) => script.includes("actual_bytes=$(wc -c"));
   assert.equal(finalizers.length, 2);
-  assert(finalizers.every(({ script }) => script.includes('test "$decode_status" -eq 0')));
+  assert(finalizers.every(({ script }) => script.includes('test "$decode_status" -eq 0 && test "$actual_bytes"')));
   assert(finalizers.every(({ script }) => /test "\$actual_bytes" -eq [1-9][0-9]*/.test(script)));
 
   const previews = fake.calls.filter((call) => call.args[0] === "preview-url");
@@ -228,4 +241,35 @@ test("Daytona LiteLLM redacts every key and deletes its sandbox after startup fa
   assert.match(failure.message, /\[REDACTED\]/);
   assert.match(failure.message, /Daytona logs/);
   assert.equal(fake.calls.filter((call) => call.args[0] === "delete").length, 1);
+});
+
+test("Daytona LiteLLM ignores unrelated HTTPS URLs on CLI stderr", async () => {
+  const fake = makeFake({ previewOnStderr: true });
+
+  await assert.rejects(
+    liteLlm({
+      place: daytonaPlace,
+      modelId: MODEL_ID,
+      reply: "deterministic reply",
+      daytonaExec: fake.exec,
+      fetchImpl: fake.fetchImpl,
+    }),
+    /did not return an HTTPS URL/,
+  );
+  assert.equal(fake.calls.filter((call) => call.args[0] === "delete").length, 1);
+});
+
+test("Daytona LiteLLM disposal retries a transient sandbox deletion failure", async () => {
+  const fake = makeFake({ deleteFailures: 1 });
+  const gateway = await liteLlm({
+    place: daytonaPlace,
+    modelId: MODEL_ID,
+    reply: "deterministic reply",
+    daytonaExec: fake.exec,
+    fetchImpl: fake.fetchImpl,
+  });
+
+  await assert.rejects(gateway[Symbol.asyncDispose](), /Sandbox deletion gate failed/);
+  await gateway[Symbol.asyncDispose]();
+  assert.equal(fake.calls.filter((call) => call.args[0] === "delete").length, 2);
 });
