@@ -644,10 +644,11 @@ return { drive, gmail }`,
     label: "Workflow Runs dashboard",
   });
   // The banner renders before the table; screenshot only after the loading
-  // placeholder is gone and real rows (status chip + Duration header) exist.
+  // placeholder is gone and real rows (status chip + duration header) exist.
+  // Table headers render uppercase (DURATION), so match case-insensitively.
   await waitFor(
     browser,
-    `!document.body.innerText.includes("Loading workflow runs") && document.body.innerText.includes("Duration") && /Succeeded|Failed/.test(document.body.innerText)`,
+    `!document.body.innerText.includes("Loading workflow runs") && /duration/i.test(document.body.innerText) && /succeeded|failed/i.test(document.body.innerText)`,
     { timeoutMs: 60_000, label: "Workflow Runs rows loaded" },
   );
   const runsShot = await screenshot(browser);

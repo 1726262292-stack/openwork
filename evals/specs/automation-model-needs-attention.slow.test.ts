@@ -260,10 +260,27 @@ test("an unavailable Automation model needs attention until the owner selects a 
   const pickerText = await evalIn(desktop, `document.querySelector('[role=dialog]')?.textContent ?? ''`);
   expect(String(pickerText)).toContain("Replacement Automation Model");
   expect(String(pickerText)).not.toContain("Legacy Automation Model");
-  // Picker rows are role="button" divs whose visible label is the model's
-  // display name (never the raw model id). Match the label span exactly so the
-  // plural provider heading ("… Models") cannot shadow the row, then click the
-  // enclosing row.
+  // Provider groups start collapsed unless they hold the current model, a
+  // cloud-sourced group, or OpenWork models — none apply here, so the model
+  // rows are not in the DOM yet. The shipped interaction is: expand the
+  // provider group via its header button, then click the model row (a
+  // role="button" div whose label span is the model's display name).
+  const expandedReplacementGroup = await evalIn(desktop, `(() => {
+    const dialog = document.querySelector('[role=dialog]');
+    if (!dialog) return false;
+    const header = [...dialog.querySelectorAll('button')]
+      .find((candidate) => [...candidate.querySelectorAll('span')]
+        .some((label) => (label.textContent ?? '').trim() === ${JSON.stringify(REPLACEMENT_PROVIDER_NAME)}));
+    if (!(header instanceof HTMLElement)) return false;
+    header.click();
+    return true;
+  })()`);
+  expect(expandedReplacementGroup).toBe(true);
+  await waitFor(desktop, `(() => {
+    const dialog = document.querySelector('[role=dialog]');
+    return Boolean(dialog && [...dialog.querySelectorAll('span')]
+      .some((label) => (label.textContent ?? '').trim() === ${JSON.stringify(REPLACEMENT_MODEL_NAME)}));
+  })()`, { timeoutMs: 15_000, label: "replacement model row rendered" });
   const selectedReplacement = await evalIn(desktop, `(() => {
     const dialog = document.querySelector('[role=dialog]');
     if (!dialog) return false;
