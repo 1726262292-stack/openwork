@@ -169,6 +169,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 export function isEngineConnectionFailure(error: unknown): boolean {
+  // Node/undici occasionally drops the transport cause. This classifier is
+  // only used for managed OpenCode engine traffic, never external egress.
+  if (error instanceof TypeError && error.message === "fetch failed" && error.cause === undefined) return true;
   const visited = new Set<object>();
   let current: unknown = error;
   for (let depth = 0; depth < 6 && current !== null && current !== undefined; depth += 1) {
