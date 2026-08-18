@@ -25,7 +25,7 @@ test(title, async ({ evidence, place }) => {
       admin: { name: "Sarah" },
     },
     mocks: {
-      connector: mcpMock({ profileId: "synthetic-enterprise-oauth-mcp" }),
+      connector: mcpMock(),
     },
   });
   await using desktop = await app({ den, as: "admin", place });
