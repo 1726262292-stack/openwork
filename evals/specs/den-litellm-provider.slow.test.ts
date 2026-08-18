@@ -31,9 +31,11 @@ const PROVIDER_KEY = "openwork-litellm-witness";
 const MODEL_ID = "openwork-litellm-witness-model";
 const MODEL_NAME = "Witness Model";
 const PROVIDER_ENV = "LITELLM_WITNESS_API_KEY";
-const REPLY = "The deterministic local route is working.";
+const REPLY = "The deterministic LiteLLM route is working.";
 const REQUEST_TIMEOUT_MS = 10_000;
-const requirements: NeedsSpec = { optIn: ["OPENWORK_EVAL_APP_SPECS"], commands: ["docker"] };
+const TEST_CONNECTION_TIMEOUT_MS = 60_000;
+const placementCommand = process.env.OPENWORK_EVAL_DAYTONA?.trim() === "1" ? "daytona" : "docker";
+const requirements: NeedsSpec = { optIn: ["OPENWORK_EVAL_APP_SPECS"], commands: [placementCommand] };
 const missingRequirements = unmetNeeds(requirements, process.env);
 const title = missingRequirements.length > 0
   ? `Den LiteLLM provider route skipped — needs: ${missingRequirements.join(", ")}`
@@ -61,6 +63,19 @@ async function organizationId(session: DenSession): Promise<string> {
     throw new Error(`Finding the test organization failed: HTTP ${result.response.status} ${result.text.slice(0, 500)}`);
   }
   return id;
+}
+
+async function testConnection(admin: DenSession, orgId: string, baseUrl: string, apiKey: string): Promise<Record<string, unknown>> {
+  const response = await denFetch(admin, "/v1/llm-providers/test-connection", {
+    method: "POST",
+    headers: { ...auth(admin), "x-openwork-org-id": orgId },
+    body: JSON.stringify({ api: baseUrl, apiKey, modelIds: [MODEL_ID] }),
+    signal: AbortSignal.timeout(TEST_CONNECTION_TIMEOUT_MS),
+  });
+  if (!response.response.ok || !isRecord(response.body)) {
+    throw new Error(`Testing the LiteLLM connection failed: HTTP ${response.response.status} ${response.text.slice(0, 500)}`);
+  }
+  return response.body;
 }
 
 async function createProvider(admin: DenSession, orgId: string, baseUrl: string, apiKey: string): Promise<string> {
@@ -164,7 +179,7 @@ async function runDirectProviderSync(
     return sync.body;
   })()`, { awaitPromise: true, timeoutMs: 30_000 });
   if (!isRecord(value) || typeof value.error === "string") {
-    throw new Error(`Triggering direct local provider sync failed: ${JSON.stringify(value)}`);
+    throw new Error(`Triggering direct provider sync failed: ${JSON.stringify(value)}`);
   }
   return value;
 }
@@ -205,13 +220,13 @@ async function seedRendererDenSession(
   });
 }
 
-test.skipIf(missingRequirements.length > 0)(title, { timeout: 15 * 60_000 }, async ({ evidence, place }) => {
+test.skipIf(missingRequirements.length > 0)(title, { timeout: 30 * 60_000 }, async ({ evidence, place }) => {
   needs(requirements);
-  if (place.kind !== "local" || process.env.OPENWORK_EVAL_DEN_API_URL?.trim()) {
-    throw new SkipError("LiteLLM loopback topology requires local placement and a cold local Den");
+  if (process.env.OPENWORK_EVAL_DEN_API_URL?.trim()) {
+    throw new SkipError("The LiteLLM provider proof requires a cold managed Den");
   }
 
-  await using gateway = await liteLlm({ modelId: MODEL_ID, reply: REPLY });
+  await using gateway = await liteLlm({ place, modelId: MODEL_ID, reply: REPLY });
   await using den = await server({
     place,
     org: {
@@ -221,8 +236,40 @@ test.skipIf(missingRequirements.length > 0)(title, { timeout: 15 * 60_000 }, asy
     },
   });
   const member = den.members.member;
-  if (!member) throw new Error("The cold local Den did not provision the member.");
+  if (!member) throw new Error("The cold managed Den did not provision the member.");
   const orgId = await organizationId(den.admin);
+  const probeCheckpoint = await gateway.checkpoint();
+  const probeResponse = await testConnection(den.admin, orgId, gateway.baseUrl, gateway.apiKey);
+  const probeResult = isRecord(probeResponse.result) ? probeResponse.result : {};
+  const discoveredModels = Array.isArray(probeResult.models) ? probeResult.models.filter(isRecord) : [];
+  const verifications = Array.isArray(probeResponse.verifications) ? probeResponse.verifications.filter(isRecord) : [];
+  const verification = verifications.find((entry) => entry.id === MODEL_ID);
+  expect(probeResult.ok).toBe(true);
+  expect(discoveredModels.some((entry) => entry.id === MODEL_ID)).toBe(true);
+  expect(verification?.status).toBe("ok");
+
+  const probeRequest = await gateway.waitForUpstreamRequest({
+    after: probeCheckpoint,
+    model: MODEL_ID,
+    key: gateway.upstreamKey,
+    timeoutMs: 120_000,
+  });
+  const probeRequests = await gateway.upstreamRequests({ after: probeCheckpoint });
+  const probeUsedUpstreamKey = probeRequest.tokenId === gateway.tokenId(gateway.upstreamKey);
+  const probeMasterKeyReachedUpstream = probeRequests
+    .some((request) => request.tokenId === gateway.tokenId(gateway.apiKey));
+  evidence.fact(
+    "Den verified the discovered LiteLLM model through the deterministic upstream",
+    `The endpoint probe discovered ${MODEL_ID}, verification was ${String(verification?.status)}, and upstream sequence ${probeRequest.sequence} carried only the rewritten token fingerprint.`,
+    probeResult.ok === true
+      && discoveredModels.some((entry) => entry.id === MODEL_ID)
+      && verification?.status === "ok"
+      && probeUsedUpstreamKey
+      && !probeMasterKeyReachedUpstream,
+  );
+  expect(probeUsedUpstreamKey).toBe(true);
+  expect(probeMasterKeyReachedUpstream).toBe(false);
+
   const cloudProviderId = await createProvider(den.admin, orgId, gateway.baseUrl, gateway.apiKey);
   await using publishedProvider = {
     async [Symbol.asyncDispose]() {
@@ -326,21 +373,21 @@ test.skipIf(missingRequirements.length > 0)(title, { timeout: 15 * 60_000 }, asy
   const selected: ModelFacts = await selectModel(desktop, model.id);
   expect(selected.selected).toBe(true);
 
-  const prompt = "Please answer with one short sentence confirming this local test route works.";
+  const prompt = "Please answer with one short sentence confirming this test route works.";
   expect(prompt).not.toContain(PROVIDER_KEY);
   expect(prompt).not.toContain(MODEL_ID);
   expect(prompt).not.toContain(orgId);
-  const since = new Date().toISOString();
+  const desktopCheckpoint = await gateway.checkpoint();
   await sendComposerMessage(desktop, prompt);
   const upstreamRequest = await gateway.waitForUpstreamRequest({
+    after: desktopCheckpoint,
     model: MODEL_ID,
     key: gateway.upstreamKey,
-    since,
     timeoutMs: 120_000,
   });
   const requestUsedUpstreamKey = upstreamRequest.tokenId === gateway.tokenId(gateway.upstreamKey);
   const requestContainsPrompt = upstreamRequest.bodyText.includes(prompt);
-  const masterKeyReachedUpstream = gateway.upstreamRequests({ since })
+  const masterKeyReachedUpstream = (await gateway.upstreamRequests({ after: desktopCheckpoint }))
     .some((request) => request.tokenId === gateway.tokenId(gateway.apiKey));
   evidence.fact(
     "The desktop request traversed LiteLLM and LiteLLM rewrote the bearer key for the deterministic upstream",
