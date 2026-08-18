@@ -61,6 +61,7 @@ import {
   ORGANIZATION_SAML_DEPRECATED_ALGORITHM_BEHAVIOR,
   ORGANIZATION_SAML_REQUIRE_TIMESTAMPS,
 } from "./sso-saml-policy.js";
+import { SSO_DOMAIN_VERIFICATION_TOKEN_PREFIX } from "./sso-domain-verification.js";
 import {
   getOrganizationContextForUser,
   listAssignableRoles,
@@ -1173,6 +1174,7 @@ export const auth = betterAuth({
       provisionUserOnEveryLogin: true,
       domainVerification: {
         enabled: true,
+        tokenPrefix: SSO_DOMAIN_VERIFICATION_TOKEN_PREFIX,
       },
       organizationProvisioning: {
         disabled: false,

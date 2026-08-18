@@ -433,5 +433,5 @@ export async function hasEnabledOrganizationSsoConnection(organizationId: Organi
   }
 
   const provider = await getSsoProviderForConnection(connection)
-  return isOrganizationSsoReady({ connection, providerExists: Boolean(provider) })
+  return isOrganizationSsoReady({ connection, provider })
 }
