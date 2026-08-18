@@ -954,6 +954,25 @@ function adminScaleFixturePayload(path: string): unknown | null {
   return null;
 }
 
+const AUTH_TOKEN_STORAGE_KEY = "openwork:web:auth-token";
+
+// The den proxy strips cookies from requests whose Origin matches a cloud
+// instance origin (they are bearer-only by design), and browsers always send
+// an Origin header on mutating fetches. Cookie-only admin writes therefore
+// 401 when den-web itself is served from such an origin. Attach the stored
+// bearer token like den-flow's requestJson does; den-api accepts either
+// credential, so cookie-authenticated sessions keep working unchanged.
+function withStoredBearer(headers: Record<string, string>): Record<string, string> {
+  if (typeof window === "undefined") {
+    return headers;
+  }
+  const token = window.localStorage.getItem(AUTH_TOKEN_STORAGE_KEY)?.trim();
+  if (!token) {
+    return headers;
+  }
+  return { ...headers, Authorization: `Bearer ${token}` };
+}
+
 async function requestJson(path: string, signal?: AbortSignal) {
   const fixturePayload = adminScaleFixturePayload(path);
   if (fixturePayload) {
@@ -964,9 +983,9 @@ async function requestJson(path: string, signal?: AbortSignal) {
     method: "GET",
     credentials: "include",
     signal,
-    headers: {
+    headers: withStoredBearer({
       Accept: "application/json"
-    }
+    })
   });
 
   const text = await response.text();
@@ -991,10 +1010,10 @@ async function patchJson(path: string, body: unknown) {
   const response = await fetch(`/api/den${path}`, {
     method: "PATCH",
     credentials: "include",
-    headers: {
+    headers: withStoredBearer({
       Accept: "application/json",
       "Content-Type": "application/json"
-    },
+    }),
     body: JSON.stringify(body)
   });
 
@@ -1016,10 +1035,10 @@ async function postJson(path: string, body: unknown) {
   const response = await fetch(`/api/den${path}`, {
     method: "POST",
     credentials: "include",
-    headers: {
+    headers: withStoredBearer({
       Accept: "application/json",
       "Content-Type": "application/json"
-    },
+    }),
     body: JSON.stringify(body)
   });
 
@@ -1039,10 +1058,10 @@ async function putJson(path: string, body: unknown) {
   const response = await fetch(`/api/den${path}`, {
     method: "PUT",
     credentials: "include",
-    headers: {
+    headers: withStoredBearer({
       Accept: "application/json",
       "Content-Type": "application/json"
-    },
+    }),
     body: JSON.stringify(body)
   });
 
@@ -1064,9 +1083,9 @@ async function deleteJson(path: string) {
   const response = await fetch(`/api/den${path}`, {
     method: "DELETE",
     credentials: "include",
-    headers: {
+    headers: withStoredBearer({
       Accept: "application/json"
-    }
+    })
   });
 
   const text = await response.text();
