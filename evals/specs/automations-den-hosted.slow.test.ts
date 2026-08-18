@@ -109,7 +109,7 @@ test("Den schedules and a connected desktop runner executes an Automation", { ti
     true,
   );
 
-  await waitForText(desktop, "Succeeded", { timeoutMs: 120_000 });
+  await waitForText(desktop, "succeeded", { timeoutMs: 120_000 });
   await waitForText(desktop, marker, { timeoutMs: 60_000 });
   const receipt = await visibleText(desktop);
   expect(receipt).toMatch(/execution thread/i);
