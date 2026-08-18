@@ -175,7 +175,11 @@ function sandboxTimestamp(): string {
 }
 
 export function desktopSandboxName(name: string): string {
-  const safeName = name.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "") || "surface";
+  // Split/join rather than trimming with /^-+|-+$/g: that pattern backtracks
+  // quadratically on a mid-string run of hyphens (~1s at 40KB), which CodeQL
+  // flags as polynomial ReDoS. This form cannot backtrack and also collapses
+  // internal runs, so "a_-_b" yields "a-b" instead of "a---b".
+  const safeName = name.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean).join("-") || "surface";
   return `openwork-connector-${safeName}-${sandboxTimestamp()}-${process.pid}-${randomBytes(4).toString("hex")}`;
 }
 
