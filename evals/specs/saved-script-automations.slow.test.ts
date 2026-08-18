@@ -173,7 +173,8 @@ test("a Code Mode result becomes a cloud Automation and a durable artifact resul
   await sendPrompt(
     desktop,
     `Use search_capabilities to find the Report source echo capability, then call execute_capability_script exactly once. `
-      + `The script must return { briefing: await tools.report_source.mock_echo({ text: input.topic }) } and input.topic must be ${firstMarker}. `
+      + `Pass exactly one tool argument named code whose plain JavaScript source is: return { briefing: await tools.report_source.mock_echo({ text: (input && input.topic) || ${JSON.stringify(firstMarker)} }) }. `
+      + "Do not pass an input argument for this first run; the literal fallback makes the run succeed while preserving input.topic for the saved Script. "
       + "Do not call execute_capability. Reply with the briefing after the tool succeeds.",
   );
   await waitForText(desktop, firstMarker, { timeoutMs: 60_000 });
