@@ -148,6 +148,8 @@
             ]
           },
           "cloud/members-and-rbac",
+          "cloud/sso-okta",
+          "cloud/scim-okta",
           "cloud/sso-microsoft-entra",
           "cloud/scim-microsoft-entra",
           "cloud/security-and-operations",

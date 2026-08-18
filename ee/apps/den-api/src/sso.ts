@@ -155,6 +155,7 @@ async function registerBetterAuthSsoProvider(input: OrganizationSsoRegistrationI
           entryPoint: input.entryPoint,
           cert: input.cert,
           audience,
+          callbackUrl: getSsoAcsUrl(providerId),
           idpMetadata: {
             entityID: input.issuer,
           },

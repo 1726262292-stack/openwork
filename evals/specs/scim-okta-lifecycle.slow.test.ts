@@ -104,8 +104,9 @@ test(title, { timeout: 1_800_000 }, async ({ evidence, place }) => {
     throw new Error(`Organization lookup failed: HTTP ${organizations.response.status} ${organizations.text.slice(0, 500)}`);
   }
 
-  // The org-scoped token route requires an enabled SSO connection. Manual
-  // endpoints keep this API-only journey self-contained; no IdP is contacted.
+  // The org-scoped token route requires an enabled SSO connection. Register an
+  // Okta-shaped SAML provider so this API-only journey also proves the ACS
+  // callback configuration without contacting an IdP.
   const adminSignIn = await denFetch(den.ref, "/api/auth/sign-in/email", {
     method: "POST",
     body: JSON.stringify({ email: den.admin.email, password: den.admin.password }),
@@ -119,26 +120,41 @@ test(title, { timeout: 1_800_000 }, async ({ evidence, place }) => {
     cookie: sessionCookie,
     "x-openwork-org-id": organizationId,
   };
-  const sso = await denFetch(den.ref, "/v1/sso/oidc", {
+  const sso = await denFetch(den.ref, "/v1/sso/saml", {
     method: "POST",
     headers: adminHeaders,
     body: JSON.stringify({
-      issuer: "https://okta.example.test",
+      issuer: `http://www.okta.com/exk-${runId}`,
       domain: managedDomain,
-      clientId: `okta-client-${runId}`,
-      clientSecret: `okta-secret-${runId}`,
-      scopes: ["openid", "email", "profile"],
-      skipDiscovery: true,
-      authorizationEndpoint: "https://okta.example.test/oauth2/v1/authorize",
-      tokenEndpoint: "https://okta.example.test/oauth2/v1/token",
-      jwksEndpoint: "https://okta.example.test/oauth2/v1/keys",
-      userInfoEndpoint: "https://okta.example.test/oauth2/v1/userinfo",
-      tokenEndpointAuthentication: "client_secret_basic",
+      entryPoint: `https://okta.example.test/app/openwork/exk-${runId}/sso/saml`,
+      cert: "okta-test-signing-certificate",
+      audience: den.ref.apiUrl,
     }),
   });
   if (!sso.response.ok) {
     throw new Error(`SSO prerequisite failed: HTTP ${sso.response.status} ${sso.text.slice(0, 500)}`);
   }
+
+  const ssoConnection = isRecord(sso.body) && isRecord(sso.body.connection) ? sso.body.connection : null;
+  const acsUrl = stringField(ssoConnection, "acsUrl");
+  if (!acsUrl) {
+    throw new Error(`SAML registration did not advertise an ACS URL: ${sso.text.slice(0, 500)}`);
+  }
+  const malformedSaml = await fetch(acsUrl, {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ SAMLResponse: "not-base64-xml" }),
+    signal: AbortSignal.timeout(30_000),
+  });
+  const malformedSamlBody: unknown = await malformedSaml.json();
+  expect(stringField(malformedSamlBody, "error")).toBe("invalid_encoding");
+  expect(stringField(malformedSamlBody, "error")).not.toBe("invalid_saml_configuration");
+  evidence.fact(
+    "Okta SAML registration persists a usable ACS callback configuration",
+    `POSTing a deliberately malformed assertion to the advertised ACS URL reached response-policy validation and returned invalid_encoding, not invalid_saml_configuration.`,
+    malformedSaml.status === 400
+      && stringField(malformedSamlBody, "error") === "invalid_encoding",
+  );
 
   // ── Frame 1: Den issues the org's Okta bearer, never a raw BA token ──────
   const scimBasePath = "/api/auth/scim/v2";
