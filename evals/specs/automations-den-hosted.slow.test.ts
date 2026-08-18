@@ -119,7 +119,7 @@ test("Den schedules and a connected desktop runner executes an Automation", { ti
   await waitForText(desktop, marker, { timeoutMs: 60_000 });
   const receipt = await visibleText(desktop);
   expect(receipt).toContain("succeeded");
-  expect(receipt).toContain("Result");
+  expect(receipt).toContain("RESULT");
   expect(receipt).toMatch(/execution thread/i);
   expect(receipt).toMatch(/desktop/i);
   {
