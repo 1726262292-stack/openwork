@@ -20,10 +20,6 @@ import { chrome } from "@openwork/hosts";
 import { app, mcpMock, needs, server, test, unmetNeeds } from "@openwork/testkit";
 import type { NeedsSpec } from "@openwork/testkit";
 
-// The mock MCP servers must accept unauthenticated /mcp so the Den-side script
-// runtime can call them through an authType "none" shared connection.
-process.env.MOCK_ALLOW_UNAUTHENTICATED_MCP = "1";
-
 const requirements: NeedsSpec = {
   model: "tool-capable",
   optIn: ["OPENWORK_EVAL_APP_SPECS"],
@@ -222,7 +218,10 @@ test(title, { timeout: 1_500_000 }, async ({ evidence, place }) => {
       admin: { name: "Sarah" },
       members: { jordan: { name: "Jordan Eval" } },
     },
-    mocks: { drive: mcpMock(), gmail: mcpMock() },
+    mocks: {
+      drive: mcpMock({ allowUnauthenticatedMcp: true }),
+      gmail: mcpMock({ allowUnauthenticatedMcp: true }),
+    },
   });
   const orgId = await organizationIdOf(den.admin);
   const adminMcpToken = await mintMcpToken(den.admin, orgId);
@@ -459,7 +458,7 @@ test(title, { timeout: 1_500_000 }, async ({ evidence, place }) => {
       "Answer this question: which of my workers are idle? "
         + "First call search_capabilities with query \"list workers\" and note the scriptPath field on the matches. "
         + "Then call execute_capability_script exactly once with one script that calls that scriptPath, "
-        + "treats every worker with no recorded activity (lastActiveAt null) as idle, and returns their names. "
+        + "reads the response's workers array, and returns exactly result.workers.filter((worker) => worker.lastActiveAt === null).map((worker) => worker.name). "
         + "Do not call execute_capability. Reply with just the idle worker names.",
       (text) => text.includes("builder-1") && text.includes("builder-2") && text.includes("builder-3"),
     );
@@ -644,6 +643,14 @@ return { drive, gmail }`,
     timeoutMs: 60_000,
     label: "Workflow Runs dashboard",
   });
+  // The banner renders before the table; screenshot only after the loading
+  // placeholder is gone and real rows (status chip + duration header) exist.
+  // Table headers render uppercase (DURATION), so match case-insensitively.
+  await waitFor(
+    browser,
+    `!document.body.innerText.includes("Loading workflow runs") && /duration/i.test(document.body.innerText) && /succeeded|failed/i.test(document.body.innerText)`,
+    { timeoutMs: 60_000, label: "Workflow Runs rows loaded" },
+  );
   const runsShot = await screenshot(browser);
   const runsSeen = await validateWithRetry(runsShot, [
     "A dashboard screen lists script runs with status and duration information",

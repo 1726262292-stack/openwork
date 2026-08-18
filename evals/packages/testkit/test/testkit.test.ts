@@ -55,6 +55,15 @@ test("needs reports an unavailable command", () => {
   );
 });
 
+test("needs rejects a local-only spec on Daytona or an attached Den", () => {
+  assert.doesNotThrow(() => checkNeeds({ placement: "local" }, {}));
+  assert.throws(() => checkNeeds({ placement: "local" }, { OPENWORK_EVAL_DAYTONA: "1" }), SkipError);
+  assert.throws(
+    () => checkNeeds({ placement: "local" }, { OPENWORK_EVAL_DEN_API_URL: "https://den.example.test" }),
+    SkipError,
+  );
+});
+
 test("needs reads process.env at the call site", () => {
   const name = "OPENWORK_TESTKIT_UNIT_RESOURCE";
   const previous = process.env[name];

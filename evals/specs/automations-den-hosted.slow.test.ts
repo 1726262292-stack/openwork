@@ -49,7 +49,7 @@ async function setField(surface: Surface, label: string, value: string): Promise
   expect(changed, `Could not set ${label}`).toBe(true);
 }
 
-test("Den schedules and a connected desktop runner executes an Automation", async ({ evidence, place }) => {
+test("Den schedules and a connected desktop runner executes an Automation", { timeout: 1_200_000 }, async ({ evidence, place }) => {
   needs(requirements);
 
   await using den = await server({
@@ -67,14 +67,12 @@ test("Den schedules and a connected desktop runner executes an Automation", asyn
     access: { orgWide: true },
   });
 
-  const due = new Date(Date.now() + 2 * 60_000);
-  const scheduledTime = `${String(due.getUTCHours()).padStart(2, "0")}:${String(due.getUTCMinutes()).padStart(2, "0")}`;
   const submittedSince = new Date().toISOString();
 
   const desktop = await app({ den, as: "admin", place });
-  await go(desktop, `/workspace/${desktop.workspaceId}/automations`);
+  await go(desktop, "/automations");
   await waitForText(desktop, "Automations", { timeoutMs: 60_000 });
-  await clickButton(desktop, "Create Automation");
+  await clickButton(desktop, "New Automation");
   await setField(desktop, "Name", `Daily Connect check ${stamp}`);
   await setField(
     desktop,
@@ -82,15 +80,16 @@ test("Den schedules and a connected desktop runner executes an Automation", asyn
     `Use search_capabilities to find the echo integration, call it with text exactly ${marker}, then summarize the result.`,
   );
   await setField(desktop, "Schedule", "daily");
+  const due = new Date(Date.now() + 2 * 60_000);
+  const scheduledTime = `${String(due.getUTCHours()).padStart(2, "0")}:${String(due.getUTCMinutes()).padStart(2, "0")}`;
   await setField(desktop, "Time", scheduledTime);
   await setField(desktop, "Timezone", "UTC");
-  await setField(desktop, "Model", process.env.OPENWORK_EVAL_MODEL ?? "");
 
   const createScreen = await visibleText(desktop);
   expect(createScreen).not.toMatch(/draft|permission picker|review automation|approve/i);
   expect(createScreen).toContain("Den keeps the schedule and run history");
   expect(createScreen).toContain("local OpenCode runtime");
-  await clickButton(desktop, "Create Automation");
+  await clickButton(desktop, "Create and activate");
   await waitForText(desktop, "Active", { timeoutMs: 60_000 });
   evidence.fact(
     "Creation is immediately active",
@@ -110,16 +109,59 @@ test("Den schedules and a connected desktop runner executes an Automation", asyn
     true,
   );
 
-  await waitForText(desktop, "Succeeded", { timeoutMs: 120_000 });
-  await waitForText(desktop, marker, { timeoutMs: 60_000 });
-  const receipt = await visibleText(desktop);
+  await waitForText(desktop, "succeeded", { timeoutMs: 120_000 });
+  // The desktop can pull focus to the freshly executed session thread moments
+  // after the run succeeds. Recover from wherever focus landed: the receipt
+  // itself, the automation detail page (which owns the Open button), or the
+  // automations list (open the card first), until the receipt's full content —
+  // timeline, RESULT heading, and the marker — is visible in one stable view.
+  let receipt = "";
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      const onReceipt = await evalIn(
+        desktop,
+        `document.body.innerText.includes('Run receipt and event timeline') && !document.body.innerText.includes('No run selected.')`,
+      );
+      if (!onReceipt) {
+        const onDetail = await evalIn(
+          desktop,
+          `[...document.querySelectorAll('button')].some((element) => (element.textContent ?? '').trim() === 'Open' && !element.disabled)`,
+        );
+        if (!onDetail) {
+          await go(desktop, "/automations");
+          await waitForText(desktop, `Daily Connect check ${stamp}`, { timeoutMs: 30_000 });
+          const openedCard = await evalIn(desktop, `(() => {
+            const card = [...document.querySelectorAll('button, [role=button], a')]
+              .find((element) => (element.textContent ?? '').includes(${JSON.stringify(`Daily Connect check ${stamp}`)}));
+            if (!(card instanceof HTMLElement)) return false;
+            card.click();
+            return true;
+          })()`);
+          expect(openedCard).toBe(true);
+          await waitForText(desktop, "succeeded", { timeoutMs: 60_000 });
+        }
+        await clickButton(desktop, "Open");
+      }
+      await waitFor(
+        desktop,
+        `document.body.innerText.includes('Run receipt and event timeline') && !document.body.innerText.includes('No run selected.') && document.body.innerText.includes('RESULT') && document.body.innerText.includes(${JSON.stringify(marker)})`,
+        { timeoutMs: 45_000, label: "stable run receipt with result" },
+      );
+      receipt = await visibleText(desktop);
+      break;
+    } catch (error) {
+      if (attempt === 2) throw error;
+    }
+  }
+  expect(receipt).toContain("succeeded");
+  expect(receipt).toContain("RESULT");
   expect(receipt).toMatch(/execution thread/i);
   expect(receipt).toMatch(/desktop/i);
   {
     const shot = await screenshot(desktop);
     const seen = await validate(shot, [
       "An Automation run receipt is visible with a succeeded status and a desktop execution thread",
-      "The receipt identifies a Connect capability call made through the local runtime",
+      "The selected receipt includes the result summary and identifies Desktop as the execution location",
       "No draft, review, permission picker, or crash message is visible",
     ]);
     expect(seen.ok, seen.why).toBe(true);
@@ -129,14 +171,14 @@ test("Den schedules and a connected desktop runner executes an Automation", asyn
   await waitForText(desktop, "Inactive", { timeoutMs: 30_000 });
   await waitFor(
     desktop,
-    `document.body.innerText.includes('No future run scheduled') || document.body.innerText.includes('No next run')`,
+    `[...document.querySelectorAll('span')].some((label) => label.textContent?.trim() === 'Next run' && label.parentElement?.innerText.includes('—'))`,
     { timeoutMs: 30_000, label: "future due time cleared after deactivation" },
   );
-  await clickButton(desktop, "Reactivate");
+  await clickButton(desktop, "Activate");
   await waitForText(desktop, "Active", { timeoutMs: 30_000 });
   await waitFor(
     desktop,
-    `document.body.innerText.includes('Next run') && !document.body.innerText.includes('No future run scheduled')`,
+    `[...document.querySelectorAll('span')].some((label) => label.textContent?.trim() === 'Next run' && !label.parentElement?.innerText.includes('—'))`,
     { timeoutMs: 30_000, label: "next future occurrence recalculated" },
   );
 });

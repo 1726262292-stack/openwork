@@ -29,6 +29,7 @@ const LEGACY_PROVIDER_NAME = "Legacy Automation Models";
 const LEGACY_MODEL_ID = "legacy-automation-model";
 const REPLACEMENT_PROVIDER_NAME = "Replacement Automation Models";
 const REPLACEMENT_MODEL_ID = "replacement-automation-model";
+const REPLACEMENT_MODEL_NAME = "Replacement Automation Model";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -196,7 +197,7 @@ test("an unavailable Automation model needs attention until the owner selects a 
     providerKey: `replacement-automation-${stamp}`,
     providerName: REPLACEMENT_PROVIDER_NAME,
     modelId: REPLACEMENT_MODEL_ID,
-    modelName: "Replacement Automation Model",
+    modelName: REPLACEMENT_MODEL_NAME,
   });
   const automationId = await createDueAutomation({
     admin: den.admin,
@@ -217,7 +218,7 @@ test("an unavailable Automation model needs attention until the owner selects a 
   );
 
   await using desktop = await app({ den, as: "admin", place });
-  await go(desktop, `/workspace/${desktop.workspaceId}/automations`);
+  await go(desktop, "/automations");
   await waitForText(desktop, automationName, { timeoutMs: 60_000 });
   await waitFor(desktop, `(() => {
     const card = document.querySelector('[data-automation-needs-attention]');
@@ -259,15 +260,53 @@ test("an unavailable Automation model needs attention until the owner selects a 
   const pickerText = await evalIn(desktop, `document.querySelector('[role=dialog]')?.textContent ?? ''`);
   expect(String(pickerText)).toContain("Replacement Automation Model");
   expect(String(pickerText)).not.toContain("Legacy Automation Model");
-  const selectedReplacement = await evalIn(desktop, `(() => {
+  // Provider groups start collapsed unless they hold the current model, a
+  // cloud-sourced group, or OpenWork models — none apply here, so the model
+  // rows are not in the DOM yet. The shipped interaction is: expand the
+  // provider group via its header button, then click the model row (a
+  // role="button" div whose label span is the model's display name).
+  const expandedReplacementGroup = await evalIn(desktop, `(() => {
     const dialog = document.querySelector('[role=dialog]');
-    const item = dialog && [...dialog.querySelectorAll('[cmdk-item], [role=option], button')]
-      .find((candidate) => (candidate.textContent ?? '').includes('Replacement Automation Model'));
-    if (!(item instanceof HTMLElement)) return false;
-    item.click();
+    if (!dialog) return false;
+    const header = [...dialog.querySelectorAll('button')]
+      .find((candidate) => [...candidate.querySelectorAll('span')]
+        .some((label) => (label.textContent ?? '').trim() === ${JSON.stringify(REPLACEMENT_PROVIDER_NAME)}));
+    if (!(header instanceof HTMLElement)) return false;
+    header.click();
     return true;
   })()`);
-  expect(selectedReplacement).toBe(true);
+  expect(expandedReplacementGroup).toBe(true);
+  await waitFor(desktop, `(() => {
+    const dialog = document.querySelector('[role=dialog]');
+    return Boolean(dialog && [...dialog.querySelectorAll('span')]
+      .some((label) => (label.textContent ?? '').trim() === ${JSON.stringify(REPLACEMENT_MODEL_NAME)}));
+  })()`, { timeoutMs: 15_000, label: "replacement model row rendered" });
+  // The expanded row is a native button whose label spans carry the model's
+  // display name and raw id (the plural group header never does). Click the
+  // candidate with an exact label match, and surface the visible spans when
+  // nothing is clickable so a red run explains itself.
+  const selectedReplacement = await evalIn(desktop, `(() => {
+    const dialogs = [...document.querySelectorAll('[role=dialog]')];
+    if (dialogs.length === 0) return "no dialog";
+    for (const dialog of dialogs.slice().reverse()) {
+      const items = [...dialog.querySelectorAll('button, [role=button], [role=option], [cmdk-item]')];
+      const item = items.find((candidate) => [...candidate.querySelectorAll('span')]
+        .some((label) => {
+          const text = (label.textContent ?? '').trim();
+          return text === ${JSON.stringify(REPLACEMENT_MODEL_NAME)} || text === ${JSON.stringify(REPLACEMENT_MODEL_ID)};
+        }));
+      if (item instanceof HTMLElement) {
+        item.click();
+        return "ok";
+      }
+    }
+    const spans = [...dialogs[dialogs.length - 1].querySelectorAll('span')]
+      .map((label) => (label.textContent ?? '').trim())
+      .filter((text) => text.length > 0)
+      .slice(0, 40);
+    return "no clickable row; dialogs=" + dialogs.length + " spans=" + JSON.stringify(spans);
+  })()`);
+  expect(selectedReplacement).toBe("ok");
   await clickButton(desktop, "Save changes");
 
   await waitForText(desktop, "Active", { timeoutMs: 60_000 });

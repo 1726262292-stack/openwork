@@ -111,7 +111,26 @@ function requestPublicOrigin(request: NextRequest): URL {
     }
   }
 
-  return new URL(request.url);
+  const requestUrl = new URL(request.url);
+  const requestHost = requestUrl.hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  if (requestHost !== "localhost" && requestHost !== "127.0.0.1" && requestHost !== "0.0.0.0" && requestHost !== "::1") {
+    return requestUrl;
+  }
+
+  const forwardedHost = request.headers.get("x-forwarded-host")?.split(",", 1)[0]?.trim();
+  const forwardedProto = request.headers.get("x-forwarded-proto")?.split(",", 1)[0]?.trim().toLowerCase();
+  if (forwardedHost && (forwardedProto === "http" || forwardedProto === "https")) {
+    try {
+      const forwarded = new URL(`${forwardedProto}://${forwardedHost}`);
+      if (!forwarded.username && !forwarded.password && forwarded.pathname === "/" && !forwarded.search && !forwarded.hash) {
+        return forwarded;
+      }
+    } catch {
+      // Fall through to the request URL when the ingress headers are malformed.
+    }
+  }
+
+  return requestUrl;
 }
 
 function normalizePathPrefix(value: string): string {
