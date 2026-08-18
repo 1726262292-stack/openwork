@@ -643,6 +643,13 @@ return { drive, gmail }`,
     timeoutMs: 60_000,
     label: "Workflow Runs dashboard",
   });
+  // The banner renders before the table; screenshot only after the loading
+  // placeholder is gone and real rows (status chip + Duration header) exist.
+  await waitFor(
+    browser,
+    `!document.body.innerText.includes("Loading workflow runs") && document.body.innerText.includes("Duration") && /Succeeded|Failed/.test(document.body.innerText)`,
+    { timeoutMs: 60_000, label: "Workflow Runs rows loaded" },
+  );
   const runsShot = await screenshot(browser);
   const runsSeen = await validateWithRetry(runsShot, [
     "A dashboard screen lists script runs with status and duration information",

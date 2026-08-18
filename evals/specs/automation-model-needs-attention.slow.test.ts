@@ -29,6 +29,7 @@ const LEGACY_PROVIDER_NAME = "Legacy Automation Models";
 const LEGACY_MODEL_ID = "legacy-automation-model";
 const REPLACEMENT_PROVIDER_NAME = "Replacement Automation Models";
 const REPLACEMENT_MODEL_ID = "replacement-automation-model";
+const REPLACEMENT_MODEL_NAME = "Replacement Automation Model";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -196,7 +197,7 @@ test("an unavailable Automation model needs attention until the owner selects a 
     providerKey: `replacement-automation-${stamp}`,
     providerName: REPLACEMENT_PROVIDER_NAME,
     modelId: REPLACEMENT_MODEL_ID,
-    modelName: "Replacement Automation Model",
+    modelName: REPLACEMENT_MODEL_NAME,
   });
   const automationId = await createDueAutomation({
     admin: den.admin,
@@ -259,10 +260,16 @@ test("an unavailable Automation model needs attention until the owner selects a 
   const pickerText = await evalIn(desktop, `document.querySelector('[role=dialog]')?.textContent ?? ''`);
   expect(String(pickerText)).toContain("Replacement Automation Model");
   expect(String(pickerText)).not.toContain("Legacy Automation Model");
+  // Picker rows are role="button" divs whose visible label is the model's
+  // display name (never the raw model id). Match the label span exactly so the
+  // plural provider heading ("… Models") cannot shadow the row, then click the
+  // enclosing row.
   const selectedReplacement = await evalIn(desktop, `(() => {
     const dialog = document.querySelector('[role=dialog]');
-    const item = dialog && [...dialog.querySelectorAll('[cmdk-item], [role=option], button')]
-      .find((candidate) => (candidate.textContent ?? '').includes(${JSON.stringify(REPLACEMENT_MODEL_ID)}));
+    if (!dialog) return false;
+    const label = [...dialog.querySelectorAll('span')]
+      .find((candidate) => (candidate.textContent ?? '').trim() === ${JSON.stringify(REPLACEMENT_MODEL_NAME)});
+    const item = label?.closest('[role=button]');
     if (!(item instanceof HTMLElement)) return false;
     item.click();
     return true;
