@@ -1,7 +1,10 @@
+import { spawnSync } from "node:child_process";
+
 export interface NeedsSpec {
   model?: "tool-capable";
   env?: string[];
   optIn?: string[];
+  commands?: string[];
   daytona?: boolean;
 }
 
@@ -26,6 +29,10 @@ export function unmetNeeds(spec: NeedsSpec, env: NodeJS.ProcessEnv): string[] {
   }
   for (const name of spec.optIn ?? []) {
     if (env[name]?.trim() !== "1") missing.push(`set ${name}=1`);
+  }
+  for (const command of spec.commands ?? []) {
+    const result = spawnSync(command, ["--version"], { stdio: "ignore", timeout: 10_000 });
+    if (result.error || result.status !== 0) missing.push(`install ${command}`);
   }
   if (spec.model === "tool-capable") {
     if (!present(env, "OPENWORK_EVAL_MODEL")) missing.push("set OPENWORK_EVAL_MODEL");
