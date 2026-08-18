@@ -281,17 +281,30 @@ test("an unavailable Automation model needs attention until the owner selects a 
     return Boolean(dialog && [...dialog.querySelectorAll('span')]
       .some((label) => (label.textContent ?? '').trim() === ${JSON.stringify(REPLACEMENT_MODEL_NAME)}));
   })()`, { timeoutMs: 15_000, label: "replacement model row rendered" });
+  // Search every open dialog (the picker portals after the editor), prefer the
+  // row whose label span equals the model name exactly, fall back to any
+  // role=button whose text contains it, and surface the visible spans when
+  // nothing is clickable so a red run explains itself.
   const selectedReplacement = await evalIn(desktop, `(() => {
-    const dialog = document.querySelector('[role=dialog]');
-    if (!dialog) return false;
-    const label = [...dialog.querySelectorAll('span')]
-      .find((candidate) => (candidate.textContent ?? '').trim() === ${JSON.stringify(REPLACEMENT_MODEL_NAME)});
-    const item = label?.closest('[role=button]');
-    if (!(item instanceof HTMLElement)) return false;
-    item.click();
-    return true;
+    const dialogs = [...document.querySelectorAll('[role=dialog]')];
+    if (dialogs.length === 0) return "no dialog";
+    for (const dialog of dialogs.slice().reverse()) {
+      const items = [...dialog.querySelectorAll('[role=button]')];
+      const exact = items.find((item) => [...item.querySelectorAll('span')]
+        .some((label) => (label.textContent ?? '').trim() === ${JSON.stringify(REPLACEMENT_MODEL_NAME)}));
+      const item = exact ?? items.find((candidate) => (candidate.textContent ?? '').includes(${JSON.stringify(REPLACEMENT_MODEL_NAME)}));
+      if (item instanceof HTMLElement) {
+        item.click();
+        return "ok";
+      }
+    }
+    const spans = [...dialogs[dialogs.length - 1].querySelectorAll('span')]
+      .map((label) => (label.textContent ?? '').trim())
+      .filter((text) => text.length > 0)
+      .slice(0, 40);
+    return "no clickable row; dialogs=" + dialogs.length + " spans=" + JSON.stringify(spans);
   })()`);
-  expect(selectedReplacement).toBe(true);
+  expect(selectedReplacement).toBe("ok");
   await clickButton(desktop, "Save changes");
 
   await waitForText(desktop, "Active", { timeoutMs: 60_000 });
