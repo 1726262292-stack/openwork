@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SkipError } from "./needs.ts";
 
-const IMAGE = "ghcr.io/berriai/litellm:v1.97.0";
+const IMAGE = "ghcr.io/berriai/litellm:v1.97.0@sha256:468c25f35f3e5ec4e414974f00deab93337b1b4d9953cabcfd3722e59415f834";
 const COMMAND_TIMEOUT_MS = 180_000;
 const STARTUP_TIMEOUT_MS = 90_000;
 
