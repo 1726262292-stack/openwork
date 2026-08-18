@@ -22,6 +22,18 @@ DEN_API_PORT="${DEN_API_PORT:-8788}"
 DEN_WEB_PORT="${DEN_WEB_PORT:-3005}"
 DEN_WORKER_PROXY_PORT="${DEN_WORKER_PROXY_PORT:-8789}"
 MAX_WAIT="${DAYTONA_SERVER_MAX_WAIT:-240}"
+DEN_GENERATED_ARTIFACT_VIEWS_ENABLED="${DEN_GENERATED_ARTIFACT_VIEWS_ENABLED:-}"
+if [ -z "$DEN_GENERATED_ARTIFACT_VIEWS_ENABLED" ]; then
+  if [ "${OPENWORK_EVAL_GENERATED_ARTIFACT_VIEWS_SPEC:-0}" = "1" ]; then
+    DEN_GENERATED_ARTIFACT_VIEWS_ENABLED="true"
+  else
+    DEN_GENERATED_ARTIFACT_VIEWS_ENABLED="false"
+  fi
+fi
+case "$DEN_GENERATED_ARTIFACT_VIEWS_ENABLED" in
+  true|false) ;;
+  *) echo "ERROR: DEN_GENERATED_ARTIFACT_VIEWS_ENABLED must be true or false" >&2; exit 1 ;;
+esac
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -117,7 +129,7 @@ daytona exec "$SANDBOX" -- "bash -lc 'set -euo pipefail; cd /workspace; mkdir -p
 
 echo "==> Starting OpenWork Den server stack..."
 BOOTSTRAP_ADMIN_EMAILS_B64="$(printf %s "${DEN_BOOTSTRAP_ADMIN_EMAILS:-}" | base64 | tr -d '\n')"
-daytona exec "$SANDBOX" -- "bash -lc 'set -euo pipefail; cd /workspace; DEN_BOOTSTRAP_ADMIN_EMAILS=\"\$(printf %s $BOOTSTRAP_ADMIN_EMAILS_B64 | base64 -d)\" DEN_WEB_PUBLIC_URL=\"$DEN_WEB_URL\" DEN_API_PUBLIC_URL=\"$DEN_API_URL\" DEN_WORKER_PROXY_PUBLIC_URL=\"$DEN_WORKER_PROXY_URL\" DEN_WEB_PORT=$DEN_WEB_PORT DEN_API_PORT=$DEN_API_PORT DEN_WORKER_PROXY_PORT=$DEN_WORKER_PROXY_PORT RUN_SEED=$RUN_SEED bash .devcontainer/start-daytona-server.sh'"
+daytona exec "$SANDBOX" -- "bash -lc 'set -euo pipefail; cd /workspace; DEN_BOOTSTRAP_ADMIN_EMAILS=\"\$(printf %s $BOOTSTRAP_ADMIN_EMAILS_B64 | base64 -d)\" DEN_GENERATED_ARTIFACT_VIEWS_ENABLED=\"$DEN_GENERATED_ARTIFACT_VIEWS_ENABLED\" DEN_WEB_PUBLIC_URL=\"$DEN_WEB_URL\" DEN_API_PUBLIC_URL=\"$DEN_API_URL\" DEN_WORKER_PROXY_PUBLIC_URL=\"$DEN_WORKER_PROXY_URL\" DEN_WEB_PORT=$DEN_WEB_PORT DEN_API_PORT=$DEN_API_PORT DEN_WORKER_PROXY_PORT=$DEN_WORKER_PROXY_PORT RUN_SEED=$RUN_SEED bash .devcontainer/start-daytona-server.sh'"
 
 echo "==> Waiting for public Den Web health (up to ${MAX_WAIT}s)..."
 elapsed=0

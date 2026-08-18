@@ -83,6 +83,7 @@ test("the agent MCP exposes the custom Artifact view authoring lifecycle", { tim
   needs(requirements)
   await using den = await server({
     place,
+    env: { DEN_GENERATED_ARTIFACT_VIEWS_ENABLED: "true" },
     org: {
       name: `Generated Artifact Views ${Date.now()}`,
       admin: { name: "Avery" },

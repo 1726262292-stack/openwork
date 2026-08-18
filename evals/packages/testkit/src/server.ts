@@ -690,6 +690,8 @@ export async function server(options: ServerOptions): Promise<Den> {
       DEN_ORG_MODE: "multi_org",
       DEN_REQUIRE_EMAIL_VERIFICATION: "false",
       DEN_PASSWORD_BREACH_SCREENING_ENABLED: "false",
+      DEN_GENERATED_ARTIFACT_VIEWS_ENABLED:
+        process.env.OPENWORK_EVAL_GENERATED_ARTIFACT_VIEWS_SPEC === "1" ? "true" : "false",
       OPENWORK_DEV_MODE: "1",
       PROVISIONER_MODE: "stub",
         // The locally booted Den seeds this admin into the platform-admin

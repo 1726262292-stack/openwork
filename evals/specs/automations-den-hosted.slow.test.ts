@@ -74,7 +74,7 @@ test("Den schedules and a connected desktop runner executes an Automation", asyn
   const desktop = await app({ den, as: "admin", place });
   await go(desktop, "/automations");
   await waitForText(desktop, "Automations", { timeoutMs: 60_000 });
-  await clickButton(desktop, "Create Automation");
+  await clickButton(desktop, "New Automation");
   await setField(desktop, "Name", `Daily Connect check ${stamp}`);
   await setField(
     desktop,
@@ -84,13 +84,12 @@ test("Den schedules and a connected desktop runner executes an Automation", asyn
   await setField(desktop, "Schedule", "daily");
   await setField(desktop, "Time", scheduledTime);
   await setField(desktop, "Timezone", "UTC");
-  await setField(desktop, "Model", process.env.OPENWORK_EVAL_MODEL ?? "");
 
   const createScreen = await visibleText(desktop);
   expect(createScreen).not.toMatch(/draft|permission picker|review automation|approve/i);
   expect(createScreen).toContain("Den keeps the schedule and run history");
   expect(createScreen).toContain("local OpenCode runtime");
-  await clickButton(desktop, "Create Automation");
+  await clickButton(desktop, "Create and activate");
   await waitForText(desktop, "Active", { timeoutMs: 60_000 });
   evidence.fact(
     "Creation is immediately active",

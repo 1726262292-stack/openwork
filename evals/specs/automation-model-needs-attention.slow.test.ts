@@ -262,7 +262,7 @@ test("an unavailable Automation model needs attention until the owner selects a 
   const selectedReplacement = await evalIn(desktop, `(() => {
     const dialog = document.querySelector('[role=dialog]');
     const item = dialog && [...dialog.querySelectorAll('[cmdk-item], [role=option], button')]
-      .find((candidate) => (candidate.textContent ?? '').includes('Replacement Automation Model'));
+      .find((candidate) => (candidate.textContent ?? '').includes(${JSON.stringify(REPLACEMENT_MODEL_ID)}));
     if (!(item instanceof HTMLElement)) return false;
     item.click();
     return true;

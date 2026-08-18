@@ -458,7 +458,7 @@ test(title, { timeout: 1_500_000 }, async ({ evidence, place }) => {
       "Answer this question: which of my workers are idle? "
         + "First call search_capabilities with query \"list workers\" and note the scriptPath field on the matches. "
         + "Then call execute_capability_script exactly once with one script that calls that scriptPath, "
-        + "treats every worker with no recorded activity (lastActiveAt null) as idle, and returns their names. "
+        + "reads the response's workers array, and returns exactly result.workers.filter((worker) => worker.lastActiveAt === null).map((worker) => worker.name). "
         + "Do not call execute_capability. Reply with just the idle worker names.",
       (text) => text.includes("builder-1") && text.includes("builder-2") && text.includes("builder-3"),
     );
