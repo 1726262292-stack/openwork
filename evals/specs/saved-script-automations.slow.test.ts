@@ -198,14 +198,6 @@ test("a Code Mode result becomes a cloud Automation and a durable artifact resul
   const automationId = typeof automation.id === "string" ? automation.id : ""
   expect(automationId).not.toBe("")
 
-  const scheduledCalls = await den.mocks.reports.toolCalls({
-    name: "mock_echo",
-    atLeast: 1,
-    sinceIso: scheduledAfter,
-    timeoutMs: 5 * 60_000,
-  })
-  expect(scheduledCalls.filter((call) => call.args.text === scheduledMarker)).toHaveLength(1)
-
   const scheduledRun = await eventually(async () => {
     const response = await denFetch(den.admin, `/v1/automations/${automationId}/runs`, {
       headers: { authorization: `Bearer ${den.admin.token}` },
@@ -217,6 +209,14 @@ test("a Code Mode result becomes a cloud Automation and a durable artifact resul
   }, (run) => run?.status === "succeeded", "scheduled saved Script Automation to succeed", 5 * 60_000)
   const scheduledRunId = typeof scheduledRun?.id === "string" ? scheduledRun.id : ""
   expect(scheduledRunId).not.toBe("")
+
+  const scheduledCalls = await den.mocks.reports.toolCalls({
+    name: "mock_echo",
+    atLeast: 1,
+    sinceIso: scheduledAfter,
+    timeoutMs: 5 * 60_000,
+  })
+  expect(scheduledCalls.filter((call) => call.args.text === scheduledMarker)).toHaveLength(1)
 
   const scheduledReceiptResponse = await denFetch(den.admin, `/v1/automation-runs/${scheduledRunId}`, {
     headers: { authorization: `Bearer ${den.admin.token}` },
