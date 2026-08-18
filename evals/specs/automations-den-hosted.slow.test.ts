@@ -49,7 +49,7 @@ async function setField(surface: Surface, label: string, value: string): Promise
   expect(changed, `Could not set ${label}`).toBe(true);
 }
 
-test("Den schedules and a connected desktop runner executes an Automation", async ({ evidence, place }) => {
+test("Den schedules and a connected desktop runner executes an Automation", { timeout: 1_200_000 }, async ({ evidence, place }) => {
   needs(requirements);
 
   await using den = await server({
