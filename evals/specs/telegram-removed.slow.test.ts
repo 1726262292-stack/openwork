@@ -85,12 +85,23 @@ test(title, async ({ evidence, place }) => {
   const suiteState = await evalIn(browser, `(() => {
     const grid = document.querySelector('[data-testid="connector-quick-add-grid"]');
     const gridText = grid?.textContent ?? "";
+    const body = document.body.innerText;
+    // Report where any residual mention sits, so a failure names its source
+    // instead of only asserting that one exists somewhere on the page.
+    const mentions = [];
+    const pattern = /telegram/gi;
+    let match;
+    while ((match = pattern.exec(body)) !== null) {
+      mentions.push(body.slice(Math.max(0, match.index - 60), match.index + 60).replace(/\\s+/g, " "));
+      if (mentions.length >= 5) break;
+    }
     return {
       googleWorkspace: gridText.includes("Google Workspace"),
       microsoft365: gridText.includes("Microsoft 365"),
-      telegramText: /telegram/i.test(document.body.innerText),
+      telegramText: mentions.length > 0,
+      telegramMentions: mentions,
       telegramTile: Boolean(document.querySelector('[data-testid="quick-add-telegram"]')),
-      loadError: document.body.innerText.includes("Failed to load"),
+      loadError: body.includes("Failed to load"),
     };
   })()`);
   const isRecord = (value: unknown): value is Record<string, unknown> =>
