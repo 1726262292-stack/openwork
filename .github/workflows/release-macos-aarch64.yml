@@ -431,6 +431,10 @@ jobs:
   verify-release:
     name: Verify Release Versions
     needs: resolve-release
+    # Benchmark mode intentionally skips resolve-production. Override the
+    # implicit success() check so that skipped sibling does not propagate
+    # through the selected release context and suppress verification.
+    if: always() && needs.resolve-release.result == 'success'
     runs-on: blacksmith-4vcpu-ubuntu-2404
     env:
       RELEASE_TAG: ${{ needs.resolve-release.outputs.release_tag }}
@@ -457,7 +461,11 @@ jobs:
   publish-electron:
     name: Build + publish Electron (${{ matrix.artifact }})
     needs: [resolve-release, verify-release]
-    if: needs.resolve-release.outputs.build_electron == 'true'
+    if: |
+      always() &&
+      needs.resolve-release.result == 'success' &&
+      needs.verify-release.result == 'success' &&
+      needs.resolve-release.outputs.build_electron == 'true'
     runs-on: ${{ matrix.platform }}
     timeout-minutes: 120
     env:
