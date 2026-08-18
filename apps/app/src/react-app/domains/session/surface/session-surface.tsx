@@ -21,6 +21,7 @@ import type {
 import type {
   ComposerAttachment,
   ComposerDraft,
+  ComposerPart,
   McpServerEntry,
   McpStatusMap,
   ModelRef,
@@ -1101,7 +1102,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
       if (pasteMatch) {
         const target = pasteParts.find((item) => item.label === pasteMatch[1]);
         if (target) {
-          return [{ type: "paste", id: target.id, label: target.label, text: target.text, lines: target.lines }];
+          return [{ type: "paste", id: target.id, label: target.label, text: target.text, lines: target.lines } satisfies ComposerDraft["parts"][number]];
         }
       }
       const connectSkill = parseConnectSkillToken(segment);
@@ -1344,12 +1345,16 @@ export function SessionSurface(props: SessionSurfaceProps) {
   }, [props.sessionId, props.workspaceId]);
 
   // Drain one queued follow-up each time the session goes idle, so prompts
-  // run as separate turns instead of one merged message.
+  // run as separate turns instead of one merged message. The busy-wait is
+  // grounded in the engine's own run status (liveStatus), not chatStreaming:
+  // the client-side `sending` pulse would release the wait before the engine
+  // actually went busy and the next idle render could steer the following
+  // item into the still-starting turn.
   useEffect(() => {
-    if (chatStreaming || liveStatus.type !== "idle") {
+    if (liveStatus.type !== "idle") {
       awaitingQueueBusyRef.current = false;
     }
-  }, [chatStreaming, liveStatus.type]);
+  }, [liveStatus.type]);
 
   useEffect(() => {
     if (drainingQueueRef.current || sendingQueued) return;
@@ -1363,19 +1368,26 @@ export function SessionSurface(props: SessionSurfaceProps) {
     if (!nextDraft) return;
     drainingQueueRef.current = true;
     removeQueuedDraftFromStore(props.sessionId, nextItem.id);
+    // Arm the busy-wait BEFORE the send can resolve: the engine's busy status
+    // can render before the send promise's continuation runs, and arming late
+    // would erase that observation — the next idle would then never drain the
+    // following item. Failure paths below disarm so retries stay possible.
+    awaitingQueueBusyRef.current = true;
     void (async () => {
       try {
         const result = await sendDraft(nextDraft);
         if (result.outcome === "blocked") {
           cloudQueueBlockedRef.current = true;
+          awaitingQueueBusyRef.current = false;
           prependQueuedDrafts(props.sessionId, [{ id: nextItem.id, draft: nextDraft }]);
         } else if (result.outcome === "cancelled") {
+          awaitingQueueBusyRef.current = false;
           prependQueuedDrafts(props.sessionId, [{ id: nextItem.id, draft: nextDraft }]);
         } else {
           nextDraft.attachments.forEach(revokeAttachmentPreview);
-          awaitingQueueBusyRef.current = true;
         }
       } catch {
+        awaitingQueueBusyRef.current = false;
         prependQueuedDrafts(props.sessionId, [{ id: nextItem.id, draft: nextDraft }]);
       } finally {
         drainingQueueRef.current = false;

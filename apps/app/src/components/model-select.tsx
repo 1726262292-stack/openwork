@@ -349,7 +349,7 @@ export function ModelSelect({
         initialFocus={false}
       >
         <div className="flex h-full w-72 min-w-72 flex-col overflow-hidden rounded-3xl bg-popover shadow-lg ring-1 ring-foreground/5 dark:ring-foreground/10">
-        <Command className="flex h-full min-h-0 flex-col" items={groups} value={search} onValueChange={setSearch}>
+        <Command items={groups} value={search} onValueChange={setSearch}>
           <CommandHeader>
             <CommandInput
               ref={searchInputRef}
