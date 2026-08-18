@@ -72,7 +72,7 @@ test("Den schedules and a connected desktop runner executes an Automation", asyn
   const submittedSince = new Date().toISOString();
 
   const desktop = await app({ den, as: "admin", place });
-  await go(desktop, `/workspace/${desktop.workspaceId}/automations`);
+  await go(desktop, "/automations");
   await waitForText(desktop, "Automations", { timeoutMs: 60_000 });
   await clickButton(desktop, "Create Automation");
   await setField(desktop, "Name", `Daily Connect check ${stamp}`);

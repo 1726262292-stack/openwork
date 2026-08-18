@@ -149,6 +149,16 @@ test("the agent MCP exposes the custom Artifact view authoring lifecycle", { tim
   })
   expect(executed.isError, JSON.stringify(executed)).not.toBe(true)
 
+  const receipts = await denFetch(den.admin, "/v1/codemode-runs", {
+    headers: { authorization: `Bearer ${den.admin.token}` },
+  })
+  expect(receipts.response.ok, receipts.text).toBe(true)
+  const runs = isRecord(receipts.body) && Array.isArray(receipts.body.runs)
+    ? receipts.body.runs.filter(isRecord)
+    : []
+  const receipt = runs.find((run) => run.source === "adhoc" && run.status === "succeeded")
+  expect(receipt).toMatchObject({ toolCallCount: 0, toolCalls: [] })
+
   const savedScript = await denFetch(den.admin, "/v1/codemode-scripts", {
     method: "POST",
     headers: { authorization: `Bearer ${den.admin.token}` },

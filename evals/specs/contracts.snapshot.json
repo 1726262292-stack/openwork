@@ -1,0 +1,75 @@
+{
+  "version": 1,
+  "contracts": [
+    {
+      "id": "desktop.automations",
+      "description": "Desktop Automation navigation, editing, execution, and needs-attention behavior",
+      "implementation": [
+        "apps/app/src/react-app/domains/automations/**",
+        "apps/app/src/react-app/shell/session-route.tsx",
+        "apps/app/src/react-app/shell/workspace-routes.ts",
+        "ee/apps/den-api/src/automations/**",
+        "ee/apps/den-api/src/routes/automations/**"
+      ],
+      "specs": [
+        "evals/specs/automation-model-needs-attention.slow.test.ts",
+        "evals/specs/automation-proposal-model-resolution.slow.test.ts",
+        "evals/specs/automation-revision-revert.slow.test.ts",
+        "evals/specs/automation-runtime-placement.slow.test.ts",
+        "evals/specs/automations-den-hosted.slow.test.ts",
+        "evals/specs/saved-script-automations.slow.test.ts"
+      ]
+    },
+    {
+      "id": "den.codemode-receipts",
+      "description": "Code Mode execution receipts, saved-script promotion, and generated Artifact views",
+      "implementation": [
+        "ee/apps/den-api/src/codemode-runs.ts",
+        "ee/apps/den-api/src/codemode-scripts.ts",
+        "ee/apps/den-api/src/mcp/codemode-run.ts",
+        "ee/apps/den-api/src/mcp/generated-artifact-views.ts",
+        "ee/apps/den-api/src/mcp/saved-codemode-script-service.ts",
+        "ee/apps/den-api/src/routes/org/codemode-runs.ts",
+        "ee/apps/den-api/src/routes/org/codemode-scripts.ts",
+        "ee/packages/den-db/src/schema/codemode.ts"
+      ],
+      "specs": [
+        "evals/specs/codemode-scripts.slow.test.ts",
+        "evals/specs/generated-artifact-views.slow.test.ts",
+        "evals/specs/saved-script-automations.slow.test.ts"
+      ]
+    },
+    {
+      "id": "evals.mock-placement",
+      "description": "Local and Daytona mock placement, authentication, and eligibility",
+      "implementation": [
+        "evals/packages/testkit/src/mock.ts",
+        "evals/packages/testkit/src/needs.ts",
+        "evals/packages/testkit/src/place.ts",
+        "evals/packages/testkit/src/server.ts",
+        "evals/packages/hosts/src/provision.ts"
+      ],
+      "specs": [
+        "evals/specs/codemode-scripts.slow.test.ts",
+        "evals/specs/local-managed-mcp-oauth.slow.test.ts",
+        "evals/specs/saved-script-automations.slow.test.ts",
+        "evals/specs/testkit-selftest.slow.test.ts"
+      ]
+    },
+    {
+      "id": "evals.slow-sweep",
+      "description": "Slow-spec runner selection, placement profile, batching, and shared-stack lifecycle",
+      "implementation": [
+        ".github/workflows/slow-specs-sweep.yml",
+        "evals/runner/prepare-stack.ts",
+        "evals/runner/stack-env.ts",
+        "evals/runner/stack-suite.ts",
+        "evals/specs/slow-sweep-profile.json"
+      ],
+      "specs": [
+        "evals/specs/spec-impact.test.ts",
+        "evals/specs/testkit-selftest.slow.test.ts"
+      ]
+    }
+  ]
+}

@@ -3,6 +3,7 @@ export interface NeedsSpec {
   env?: string[];
   optIn?: string[];
   daytona?: boolean;
+  placement?: "daytona" | "local";
 }
 
 export class SkipError extends Error {
@@ -35,6 +36,15 @@ export function unmetNeeds(spec: NeedsSpec, env: NodeJS.ProcessEnv): string[] {
   }
   if (spec.daytona && env.OPENWORK_EVAL_DAYTONA?.trim() !== "1") {
     missing.push("set OPENWORK_EVAL_DAYTONA=1");
+  }
+  if (spec.placement === "daytona" && env.OPENWORK_EVAL_DAYTONA?.trim() !== "1") {
+    missing.push("set OPENWORK_EVAL_DAYTONA=1");
+  }
+  if (
+    spec.placement === "local"
+    && (env.OPENWORK_EVAL_DAYTONA?.trim() === "1" || present(env, "OPENWORK_EVAL_DEN_API_URL"))
+  ) {
+    missing.push("use local placement without OPENWORK_EVAL_DEN_API_URL");
   }
   return missing;
 }
