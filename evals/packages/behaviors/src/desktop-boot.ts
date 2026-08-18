@@ -42,7 +42,17 @@ export async function signInDesktopAs(app: Surface, den: DenRef, member: DenSess
     label: "auth.exchange-grant action registered",
   });
   const grant = await createDesktopHandoffGrant(member);
-  await control(app, "auth.exchange-grant", { grant, baseUrl: den.webUrl });
+  try {
+    await control(app, "auth.exchange-grant", { grant, baseUrl: den.webUrl });
+  } catch (error) {
+    const message = messageText(error);
+    if (!message.includes("Already acting: auth.exchange-grant")) throw error;
+    await waitFor(app, "Boolean(window.__openworkControl?.listActions?.().some((action) => action.id === 'auth.exchange-grant' && action.disabled === false))", {
+      timeoutMs: 30_000,
+      label: "auth.exchange-grant action available after conflicting exchange",
+    });
+    await control(app, "auth.exchange-grant", { grant, baseUrl: den.webUrl });
+  }
   await waitForDenState(app, den, "Boolean((localStorage.getItem('openwork.den.authToken') ?? '').trim())", {
     timeoutMs: 45_000,
     label: "persisted den auth token",

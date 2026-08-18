@@ -1,0 +1,311 @@
+import { expect } from "vitest";
+import {
+  denFetch,
+  evalIn,
+  fill,
+  go,
+  readAvailableModels,
+  selectModel,
+  sendComposerMessage,
+  waitFor,
+  waitForAssistantReply,
+} from "@openwork/behaviors";
+import type { DenSession, ModelFacts } from "@openwork/behaviors";
+import { screenshot, validate } from "@openwork/fraimz";
+import {
+  app,
+  eventually,
+  liteLlm,
+  needs,
+  server,
+  SkipError,
+  test,
+  unmetNeeds,
+} from "@openwork/testkit";
+import type { NeedsSpec } from "@openwork/testkit";
+
+const ORGANIZATION_NAME = "LiteLLM Provider Route";
+const PROVIDER_NAME = "Deterministic LiteLLM";
+const PROVIDER_KEY = "openwork-litellm-witness";
+const MODEL_ID = "openwork-litellm-witness-model";
+const MODEL_NAME = "Deterministic Witness Model";
+const PROVIDER_ENV = "LITELLM_WITNESS_API_KEY";
+const REPLY = "The deterministic local route is working.";
+const REQUEST_TIMEOUT_MS = 10_000;
+const requirements: NeedsSpec = { optIn: ["OPENWORK_EVAL_APP_SPECS"], commands: ["docker"] };
+const missingRequirements = unmetNeeds(requirements, process.env);
+const title = missingRequirements.length > 0
+  ? `Den LiteLLM provider route skipped — needs: ${missingRequirements.join(", ")}`
+  : "a Den provider syncs to desktop and reaches its upstream through LiteLLM";
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function auth(session: DenSession): Record<string, string> {
+  return { authorization: `Bearer ${session.token}` };
+}
+
+async function organizationId(session: DenSession): Promise<string> {
+  const result = await denFetch(session, "/v1/me/orgs", {
+    headers: auth(session),
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+  });
+  const organizations = isRecord(result.body) && Array.isArray(result.body.orgs)
+    ? result.body.orgs.filter(isRecord)
+    : [];
+  const organization = organizations.find((entry) => entry.name === ORGANIZATION_NAME);
+  const id = organization && typeof organization.id === "string" ? organization.id : "";
+  if (!result.response.ok || !id) {
+    throw new Error(`Finding the test organization failed: HTTP ${result.response.status} ${result.text.slice(0, 500)}`);
+  }
+  return id;
+}
+
+async function createProvider(admin: DenSession, orgId: string, baseUrl: string, apiKey: string): Promise<string> {
+  const result = await denFetch(admin, "/v1/llm-providers", {
+    method: "POST",
+    headers: { ...auth(admin), "x-openwork-org-id": orgId },
+    body: JSON.stringify({
+      name: PROVIDER_NAME,
+      source: "custom",
+      customConfig: {
+        id: PROVIDER_KEY,
+        name: PROVIDER_NAME,
+        npm: "@ai-sdk/openai-compatible",
+        env: [PROVIDER_ENV],
+        api: baseUrl,
+        models: [{ id: MODEL_ID, name: MODEL_NAME }],
+      },
+      apiKey,
+      allMembers: true,
+      memberIds: [],
+      teamIds: [],
+    }),
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+  });
+  const provider = isRecord(result.body) && isRecord(result.body.llmProvider) ? result.body.llmProvider : null;
+  const id = provider && typeof provider.id === "string" ? provider.id : "";
+  if (result.response.status !== 201 || !id) {
+    throw new Error(`Creating the LiteLLM provider failed: HTTP ${result.response.status} ${result.text.slice(0, 500)}`);
+  }
+  return id;
+}
+
+async function deleteProvider(admin: DenSession, orgId: string, providerId: string): Promise<void> {
+  await denFetch(admin, `/v1/llm-providers/${encodeURIComponent(providerId)}`, {
+    method: "DELETE",
+    headers: { ...auth(admin), "x-openwork-org-id": orgId },
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+  });
+}
+
+interface SyncFacts {
+  lastRunStatus: string;
+  lastRunMessage: string;
+  providerIds: string[];
+  skippedProviders: unknown[];
+  raw: Record<string, unknown>;
+}
+
+async function readSyncStatus(desktop: Parameters<typeof evalIn>[0]): Promise<SyncFacts> {
+  const value = await evalIn(desktop, `(async () => {
+    const port = localStorage.getItem("openwork.server.port");
+    const token = localStorage.getItem("openwork.server.token");
+    if (!port || !token) return { error: "missing local server credentials" };
+    const response = await fetch("http://127.0.0.1:" + port + "/cloud-provider-sync/status", {
+      headers: { Authorization: "Bearer " + token },
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!response.ok) return { error: "HTTP " + response.status };
+    return await response.json();
+  })()`, { awaitPromise: true, timeoutMs: 15_000 });
+  if (!isRecord(value) || typeof value.error === "string") {
+    throw new Error(`Reading cloud provider sync status failed: ${JSON.stringify(value)}`);
+  }
+  const lastRun = isRecord(value.lastRun) ? value.lastRun : {};
+  const providers = Array.isArray(value.providers) ? value.providers.filter(isRecord) : [];
+  return {
+    lastRunStatus: typeof lastRun.status === "string" ? lastRun.status : "",
+    lastRunMessage: typeof lastRun.message === "string" ? lastRun.message : "",
+    providerIds: providers.flatMap((provider) => typeof provider.cloudProviderId === "string" ? [provider.cloudProviderId] : []),
+    skippedProviders: Array.isArray(value.skippedProviders) ? value.skippedProviders : [],
+    raw: value,
+  };
+}
+
+async function runDirectProviderSync(
+  desktop: Parameters<typeof evalIn>[0],
+  input: { baseUrl: string; token: string; orgId: string },
+): Promise<Record<string, unknown>> {
+  const value = await evalIn(desktop, `(async () => {
+    const info = await window.__OPENWORK_ELECTRON__?.invokeDesktop?.("openworkServerInfo");
+    if (!info?.running || !info.baseUrl || !info.hostToken) return { error: "local_server_unavailable" };
+    const request = async (path, method, body) => {
+      const response = await fetch(String(info.baseUrl).replace(/\\/+$/, "") + path, {
+        method,
+        headers: {
+          Authorization: "Bearer " + String(info.hostToken),
+          "Content-Type": "application/json",
+          "x-openwork-host-token": String(info.hostToken),
+        },
+        body: JSON.stringify(body),
+      });
+      const text = await response.text();
+      let payload = text;
+      try { payload = text ? JSON.parse(text) : null; } catch {}
+      return { status: response.status, body: payload };
+    };
+    const session = await request("/den-session", "PUT", ${JSON.stringify(input)});
+    if (session.status !== 204) return { error: "den_session_failed", session };
+    const sync = await request("/cloud-provider-sync/run", "POST", { reason: "eval_litellm_provider" });
+    if (sync.status !== 200) return { error: "sync_run_failed", sync };
+    return sync.body;
+  })()`, { awaitPromise: true, timeoutMs: 30_000 });
+  if (!isRecord(value) || typeof value.error === "string") {
+    throw new Error(`Triggering direct local provider sync failed: ${JSON.stringify(value)}`);
+  }
+  return value;
+}
+
+test.skipIf(missingRequirements.length > 0)(title, { timeout: 15 * 60_000 }, async ({ evidence, place }) => {
+  needs(requirements);
+  if (place.kind !== "local" || process.env.OPENWORK_EVAL_DEN_API_URL?.trim()) {
+    throw new SkipError("LiteLLM loopback topology requires local placement and a cold local Den");
+  }
+
+  await using gateway = await liteLlm({ modelId: MODEL_ID, reply: REPLY });
+  await using den = await server({
+    place,
+    org: {
+      name: ORGANIZATION_NAME,
+      admin: { name: "Provider Admin" },
+      members: { member: { name: "Provider Member" } },
+    },
+  });
+  const member = den.members.member;
+  if (!member) throw new Error("The cold local Den did not provision the member.");
+  const orgId = await organizationId(den.admin);
+  const cloudProviderId = await createProvider(den.admin, orgId, gateway.baseUrl, gateway.apiKey);
+  await using publishedProvider = {
+    async [Symbol.asyncDispose]() {
+      await deleteProvider(den.admin, orgId, cloudProviderId).catch(() => undefined);
+    },
+  };
+  await using desktop = await app({ den, as: "member", place });
+  // Avoid making this provider test depend on first-request Next.js dev proxy compilation.
+  await runDirectProviderSync(desktop, { baseUrl: den.ref.apiUrl, token: member.token, orgId });
+  await go(desktop, `/workspace/${desktop.workspaceId}/session`);
+  await waitFor(desktop, "Boolean(window.__openworkControl)", {
+    timeoutMs: 120_000,
+    label: "desktop session control",
+  });
+
+  const sync = await eventually(() => readSyncStatus(desktop), {
+    within: 120_000,
+    intervalMs: 2_000,
+    label: "terminal LiteLLM provider sync",
+    until: (status) => status.lastRunStatus === "failed"
+      || (status.providerIds.includes(cloudProviderId)
+        && (status.lastRunStatus === "applied" || status.lastRunStatus === "noop")),
+  });
+  const synced = sync.providerIds.includes(cloudProviderId)
+    && (sync.lastRunStatus === "applied" || sync.lastRunStatus === "noop");
+  evidence.fact(
+    "Den's custom provider reached a terminal desktop sync outcome",
+    `Provider appeared in sync status with lastRun=${sync.lastRunStatus}; payload: ${JSON.stringify(sync.raw)}`,
+    synced,
+  );
+  expect(synced, `Cloud provider sync failed: ${sync.lastRunMessage || "no message"}; skipped: ${JSON.stringify(sync.skippedProviders)}; payload: ${JSON.stringify(sync.raw)}`).toBe(true);
+
+  const models = await eventually(() => readAvailableModels(desktop), {
+    within: 60_000,
+    intervalMs: 2_000,
+    label: "selectable LiteLLM witness model",
+    until: (available) => available.some((model) => model.selectable && (model.id === MODEL_ID || model.id.endsWith(`/${MODEL_ID}`))),
+  });
+  const model = models.find((candidate) => candidate.selectable && (candidate.id === MODEL_ID || candidate.id.endsWith(`/${MODEL_ID}`)));
+  const modelAvailable = model !== undefined;
+  evidence.fact(
+    "The synced provider's model became selectable in the desktop",
+    `Selectable model ids: ${JSON.stringify(models.filter((candidate) => candidate.selectable).map((candidate) => candidate.id))}`,
+    modelAvailable,
+  );
+  expect(modelAvailable).toBe(true);
+  if (!model) throw new Error("The LiteLLM witness model was not selectable.");
+  await fill(desktop, 'input[placeholder="Search providers and models..."]', MODEL_NAME);
+  await waitFor(desktop, `(() => {
+    const dialog = document.querySelector('[data-slot="dialog-content"]');
+    return Boolean(dialog
+      && dialog.innerText.includes(${JSON.stringify(PROVIDER_NAME)})
+      && dialog.innerText.includes(${JSON.stringify(MODEL_NAME)}));
+  })()`, { timeoutMs: 30_000, label: "LiteLLM provider and model in picker" });
+  const pickerLayout = await evalIn(desktop, `(() => {
+    const dialog = document.querySelector('[data-slot="dialog-content"]');
+    const model = [...(dialog?.querySelectorAll("button") ?? [])].find((element) =>
+      (element.textContent ?? "").includes(${JSON.stringify(MODEL_NAME)}));
+    const rect = model?.getBoundingClientRect();
+    return {
+      dialogVisible: Boolean(dialog && dialog.getBoundingClientRect().height > 100),
+      modelVisible: Boolean(rect && rect.width > 0 && rect.height > 0
+        && rect.top >= 0 && rect.bottom <= window.innerHeight),
+    };
+  })()`);
+  const pickerReady = isRecord(pickerLayout)
+    && pickerLayout.dialogVisible === true
+    && pickerLayout.modelVisible === true;
+  evidence.fact(
+    "The Den-managed LiteLLM model is structurally visible in the model picker",
+    `Model picker layout probe: ${JSON.stringify(pickerLayout)}`,
+    pickerReady,
+  );
+  expect(pickerReady).toBe(true);
+  const pickerShot = await screenshot(desktop);
+  const pickerSeen = await validate(pickerShot, [
+    `The model picker visibly shows provider ${PROVIDER_NAME} and model ${MODEL_NAME}`,
+    "The LiteLLM model is presented as selectable, without unavailable, credential, syncing, or error text",
+    "The model picker is polished and legible with no overlap, clipping, blank panel, or stray overlay",
+  ]);
+  expect(pickerSeen.ok, pickerSeen.why).toBe(true);
+  const selected: ModelFacts = await selectModel(desktop, model.id);
+  expect(selected.selected).toBe(true);
+
+  const prompt = "Please answer with one short sentence confirming this local test route works.";
+  expect(prompt).not.toContain(PROVIDER_KEY);
+  expect(prompt).not.toContain(MODEL_ID);
+  expect(prompt).not.toContain(orgId);
+  const since = new Date().toISOString();
+  await sendComposerMessage(desktop, prompt);
+  const upstreamRequest = await gateway.waitForUpstreamRequest({
+    model: MODEL_ID,
+    key: gateway.upstreamKey,
+    since,
+    timeoutMs: 120_000,
+  });
+  const requestUsedUpstreamKey = upstreamRequest.tokenId === gateway.tokenId(gateway.upstreamKey);
+  const requestContainsPrompt = upstreamRequest.bodyText.includes(prompt);
+  const masterKeyReachedUpstream = gateway.upstreamRequests({ since })
+    .some((request) => request.tokenId === gateway.tokenId(gateway.apiKey));
+  evidence.fact(
+    "The desktop request traversed LiteLLM and LiteLLM rewrote the bearer key for the deterministic upstream",
+    `Upstream saw model ${upstreamRequest.model}, token fingerprint ${upstreamRequest.tokenId}, and no master-key fingerprint after submission.`,
+    requestUsedUpstreamKey && requestContainsPrompt && !masterKeyReachedUpstream,
+  );
+  expect(requestContainsPrompt).toBe(true);
+  expect(requestUsedUpstreamKey).toBe(true);
+  expect(masterKeyReachedUpstream).toBe(false);
+
+  await waitFor(desktop, `([...document.querySelectorAll('[data-message-role="assistant"]')]
+    .some((message) => (message.innerText ?? "").includes(${JSON.stringify(REPLY)})))`, {
+    timeoutMs: 120_000,
+    label: "complete deterministic LiteLLM reply",
+  });
+  const assistant = await waitForAssistantReply(desktop, { timeoutMs: 10_000 });
+  const rendered = assistant.text.includes(REPLY);
+  evidence.fact(
+    "The deterministic upstream reply rendered in the desktop conversation",
+    `Latest assistant message contained ${JSON.stringify(REPLY)}.`,
+    rendered,
+  );
+  expect(rendered).toBe(true);
+});
