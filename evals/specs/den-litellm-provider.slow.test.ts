@@ -25,11 +25,11 @@ import {
 } from "@openwork/testkit";
 import type { NeedsSpec } from "@openwork/testkit";
 
-const ORGANIZATION_NAME = "LiteLLM Provider Route";
-const PROVIDER_NAME = "Deterministic LiteLLM";
+const ORGANIZATION_NAME = "Den Lab";
+const PROVIDER_NAME = "LiteLLM Gateway";
 const PROVIDER_KEY = "openwork-litellm-witness";
 const MODEL_ID = "openwork-litellm-witness-model";
-const MODEL_NAME = "Deterministic Witness Model";
+const MODEL_NAME = "Witness Model";
 const PROVIDER_ENV = "LITELLM_WITNESS_API_KEY";
 const REPLY = "The deterministic local route is working.";
 const REQUEST_TIMEOUT_MS = 10_000;
@@ -261,7 +261,13 @@ test.skipIf(missingRequirements.length > 0)(title, { timeout: 15 * 60_000 }, asy
     synced,
   );
   expect(synced, `Cloud provider sync failed: ${sync.lastRunMessage || "no message"}; skipped: ${JSON.stringify(sync.skippedProviders)}; payload: ${JSON.stringify(sync.raw)}`).toBe(true);
-  const { workspaceId } = await createAndSelectWorkspace(desktop, { path: `/tmp/openwork-litellm-${Date.now()}` });
+  const { workspaceId } = await createAndSelectWorkspace(desktop, { path: "/tmp/litellm-demo" });
+  await desktop.client.send("Emulation.setDeviceMetricsOverride", {
+    width: 1440,
+    height: 900,
+    deviceScaleFactor: 1,
+    mobile: false,
+  });
   await go(desktop, `/workspace/${workspaceId}/session`);
   await waitFor(desktop, "Boolean(window.__openworkControl)", {
     timeoutMs: 120_000,
