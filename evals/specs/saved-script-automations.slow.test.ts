@@ -223,8 +223,9 @@ test("a Code Mode result becomes a cloud Automation and a durable artifact resul
   })
   expect(scheduledReceiptResponse.response.ok, scheduledReceiptResponse.text).toBe(true)
   const scheduledReceipt = requireRecord(scheduledReceiptResponse.body, "scheduled Automation receipt")
+  const scheduledReceiptRun = requireRecord(scheduledReceipt.run, "scheduled Automation run")
   expect(JSON.stringify(scheduledReceipt)).toContain(scheduledMarker)
-  expect(JSON.stringify(scheduledReceipt)).not.toContain("executionThread")
+  expect(scheduledReceiptRun.executionThread).toBeNull()
 
   const toolList = await agentRpc(den.ref.apiUrl, mcpToken, "tools/list", {})
   const tools = records(toolList.tools)
@@ -290,8 +291,10 @@ test("a Code Mode result becomes a cloud Automation and a durable artifact resul
     })
     expect(response.response.ok, response.text).toBe(true)
     return requireRecord(response.body, "failed Automation receipt")
-  }, (receipt) => ["failed", "skipped", "cancelled"].includes(String(receipt.status)), "revoked-capability run to finish")
-  expect(failedReceipt.status).toBe("failed")
+  }, (receipt) => isRecord(receipt.run)
+    && ["failed", "skipped", "cancelled"].includes(String(receipt.run.status)), "revoked-capability run to finish")
+  const failedReceiptRun = requireRecord(failedReceipt.run, "failed Automation run")
+  expect(failedReceiptRun.status).toBe("failed")
 
   const afterRevocation = await eventually(async () => {
     const response = await denFetch(den.admin, `/v1/automations/${automationId}`, {
