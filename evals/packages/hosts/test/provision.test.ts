@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   deleteSandboxes,
+  desktopSandboxName,
   parseConnectorSpecEnv,
   provisionDesktopSandbox,
   renderConnectorSpecEnv,
@@ -78,6 +79,14 @@ test("server sandbox names are unique within the same CI process and second", ()
   const second = serverSandboxName();
 
   assert.match(first, new RegExp(`^openwork-server-\\d{8}-\\d{6}-${process.pid}-[0-9a-f]{8}$`));
+  assert.notEqual(first, second);
+});
+
+test("desktop sandbox names stay unique when parallel workers use the same surface name", () => {
+  const first = desktopSandboxName("testkit admin");
+  const second = desktopSandboxName("testkit admin");
+
+  assert.match(first, new RegExp(`^openwork-connector-testkit-admin-\\d{8}-\\d{6}-${process.pid}-[0-9a-f]{8}$`));
   assert.notEqual(first, second);
 });
 
@@ -183,6 +192,27 @@ test("startMockOnSandbox rejects a health response with the wrong issuer", async
     /https:\/\/wrong-issuer\.example\.test.*https:\/\/mock\.example\.test/,
   );
   assertRemoteCommandsAreSingleArgument(calls);
+});
+
+test("Daytona preview URL lookup retries a transient control-plane failure", async () => {
+  let previewAttempts = 0;
+  const exec: DaytonaExec = async (args) => {
+    if (args[0] === "preview-url") {
+      previewAttempts += 1;
+      return previewAttempts === 1
+        ? { stdout: "", stderr: "unexpected EOF", code: 1 }
+        : { stdout: "Preview URL: https://mock.example.test\n", stderr: "", code: 0 };
+    }
+    return { stdout: "", stderr: "", code: 0 };
+  };
+  const fetchImpl: typeof fetch = async () => new Response(
+    JSON.stringify({ ok: true, issuer: "https://mock.example.test" }),
+    { status: 200, headers: { "content-type": "application/json" } },
+  );
+
+  await startMockOnSandbox({ sandbox: "den-1", exec, fetchImpl, log: () => undefined });
+
+  assert.equal(previewAttempts, 2);
 });
 
 test("startFaultProxyOnSandbox uploads and detaches the proxy after resolving its preview URL", async () => {

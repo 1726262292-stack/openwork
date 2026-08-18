@@ -174,6 +174,15 @@ function sandboxTimestamp(): string {
   return new Date().toISOString().replace(/[-:]/g, "").replace("T", "-").slice(0, 15);
 }
 
+export function desktopSandboxName(name: string): string {
+  // Split/join rather than trimming with /^-+|-+$/g: that pattern backtracks
+  // quadratically on a mid-string run of hyphens (~1s at 40KB), which CodeQL
+  // flags as polynomial ReDoS. This form cannot backtrack and also collapses
+  // internal runs, so "a_-_b" yields "a-b" instead of "a---b".
+  const safeName = name.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean).join("-") || "surface";
+  return `openwork-connector-${safeName}-${sandboxTimestamp()}-${process.pid}-${randomBytes(4).toString("hex")}`;
+}
+
 export function serverSandboxName(): string {
   return `openwork-server-${sandboxTimestamp()}-${process.pid}-${randomBytes(4).toString("hex")}`;
 }
@@ -214,7 +223,7 @@ export async function provisionDesktopSandbox(options: DesktopSandboxOptions & P
       if (!id) {
         throw new Error(`Snapshot gate failed: snapshot ${snapshot} is missing. Output tail: ${outputTail(listed)}`);
       }
-      sandbox = `openwork-connector-${options.name}-${sandboxTimestamp()}`;
+      sandbox = desktopSandboxName(options.name);
       await checkedExec(
         exec,
         [
@@ -511,15 +520,24 @@ function sandboxFromServerOutput(output: string): string | null {
 
 
 async function previewUrl(exec: DaytonaExec, sandbox: string, port: number): Promise<string> {
-  const result = await checkedExec(
-    exec,
-    ["preview-url", sandbox, "-p", String(port)],
-    `preview URL gate for ${sandbox}:${port}`,
-    { timeoutMs: 60_000 },
-  );
-  const url = firstHttpsUrl(result.stdout);
-  if (!url) throw new Error(`Preview URL gate failed for ${sandbox}:${port}: no https URL in output tail: ${outputTail(result)}`);
-  return url;
+  let lastError = "not attempted";
+  for (let attempt = 1; attempt <= 4; attempt += 1) {
+    try {
+      const result = await checkedExec(
+        exec,
+        ["preview-url", sandbox, "-p", String(port)],
+        `preview URL gate for ${sandbox}:${port}`,
+        { timeoutMs: 60_000 },
+      );
+      const url = firstHttpsUrl(result.stdout);
+      if (url) return url;
+      lastError = `no https URL in output tail: ${outputTail(result)}`;
+    } catch (error) {
+      lastError = messageText(error);
+    }
+    if (attempt < 4) await delay(attempt * 1_000);
+  }
+  throw new Error(`Preview URL gate failed for ${sandbox}:${port} after 4 attempts: ${lastError}`);
 }
 
 async function proveDenSeed(apiUrl: string, webUrl: string, sandbox: string, reused: boolean): Promise<void> {
