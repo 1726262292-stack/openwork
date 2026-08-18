@@ -1,5 +1,6 @@
 import { expect } from "vitest";
 import {
+  createAndSelectWorkspace,
   denFetch,
   evalIn,
   fill,
@@ -12,8 +13,8 @@ import {
 } from "@openwork/behaviors";
 import type { DenSession, ModelFacts } from "@openwork/behaviors";
 import { screenshot, validate } from "@openwork/fraimz";
+import { desktop as launchDesktop } from "@openwork/hosts";
 import {
-  app,
   eventually,
   liteLlm,
   needs,
@@ -168,6 +169,42 @@ async function runDirectProviderSync(
   return value;
 }
 
+async function seedRendererDenSession(
+  desktop: Parameters<typeof evalIn>[0],
+  input: { token: string; orgId: string; webUrl: string },
+): Promise<void> {
+  const value = await evalIn(desktop, `(async () => {
+    const { seedDenDesktopConfigConnectPolicy, writeDenSettings } = await import("/src/app/lib/den.ts");
+    const { dispatchDenSessionUpdated } = await import("/src/app/lib/den-session-events.ts");
+    writeDenSettings({
+      baseUrl: ${JSON.stringify(input.webUrl)},
+      authToken: ${JSON.stringify(input.token)},
+      activeOrgId: ${JSON.stringify(input.orgId)},
+      activeOrgSlug: null,
+      activeOrgName: ${JSON.stringify(ORGANIZATION_NAME)},
+    });
+    seedDenDesktopConfigConnectPolicy({
+      organizationId: ${JSON.stringify(input.orgId)},
+      connectEnabled: true,
+    });
+    dispatchDenSessionUpdated({
+      status: "success",
+      baseUrl: ${JSON.stringify(input.webUrl)},
+      token: ${JSON.stringify(input.token)},
+      user: null,
+      email: null,
+    });
+    return { ok: true };
+  })()`, { awaitPromise: true, timeoutMs: 60_000 });
+  if (!isRecord(value) || value.ok !== true) {
+    throw new Error(`Seeding the renderer Den session failed: ${JSON.stringify(value)}`);
+  }
+  await waitFor(desktop, "Boolean((localStorage.getItem('openwork.den.authToken') ?? '').trim())", {
+    timeoutMs: 45_000,
+    label: "persisted Den auth token after session seed",
+  });
+}
+
 test.skipIf(missingRequirements.length > 0)(title, { timeout: 15 * 60_000 }, async ({ evidence, place }) => {
   needs(requirements);
   if (place.kind !== "local" || process.env.OPENWORK_EVAL_DEN_API_URL?.trim()) {
@@ -192,14 +229,21 @@ test.skipIf(missingRequirements.length > 0)(title, { timeout: 15 * 60_000 }, asy
       await deleteProvider(den.admin, orgId, cloudProviderId).catch(() => undefined);
     },
   };
-  await using desktop = await app({ den, as: "member", place });
-  // Avoid making this provider test depend on first-request Next.js dev proxy compilation.
-  await runDirectProviderSync(desktop, { baseUrl: den.ref.apiUrl, token: member.token, orgId });
-  await go(desktop, `/workspace/${desktop.workspaceId}/session`);
-  await waitFor(desktop, "Boolean(window.__openworkControl)", {
-    timeoutMs: 120_000,
-    label: "desktop session control",
+  await using desktop = await launchDesktop({
+    name: "den-litellm-provider",
+    host: place.host(),
+    bootstrap: {
+      baseUrl: den.ref.webUrl,
+      apiBaseUrl: den.ref.webUrl,
+      requireSignin: false,
+    },
   });
+  await seedRendererDenSession(desktop, {
+    token: member.token,
+    orgId,
+    webUrl: den.ref.webUrl,
+  });
+  await runDirectProviderSync(desktop, { baseUrl: den.ref.apiUrl, token: member.token, orgId });
 
   const sync = await eventually(() => readSyncStatus(desktop), {
     within: 120_000,
@@ -217,6 +261,12 @@ test.skipIf(missingRequirements.length > 0)(title, { timeout: 15 * 60_000 }, asy
     synced,
   );
   expect(synced, `Cloud provider sync failed: ${sync.lastRunMessage || "no message"}; skipped: ${JSON.stringify(sync.skippedProviders)}; payload: ${JSON.stringify(sync.raw)}`).toBe(true);
+  const { workspaceId } = await createAndSelectWorkspace(desktop, { path: `/tmp/openwork-litellm-${Date.now()}` });
+  await go(desktop, `/workspace/${workspaceId}/session`);
+  await waitFor(desktop, "Boolean(window.__openworkControl)", {
+    timeoutMs: 120_000,
+    label: "desktop session control",
+  });
 
   const models = await eventually(() => readAvailableModels(desktop), {
     within: 60_000,
