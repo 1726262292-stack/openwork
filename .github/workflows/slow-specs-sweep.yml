@@ -214,6 +214,9 @@ jobs:
     needs: plan
     if: needs.plan.outputs.enabled == 'true' && needs.plan.outputs.has_specs == 'true'
     name: spec (${{ matrix.batch.name }})
+    # This environment requires maintainer approval before PR-controlled code
+    # can execute or access repository secrets.
+    environment: pr-slow-specs
     strategy:
       fail-fast: false
       max-parallel: 3
