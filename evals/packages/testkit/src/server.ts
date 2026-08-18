@@ -89,7 +89,7 @@ interface SpawnedService {
 interface ProvisionedOrganization {
   admin: DenSession;
   members: Record<string, DenSession>;
-  createdOrg: boolean;
+  createdOrgId: string | null;
 }
 
 interface PlatformAdminGrant {
@@ -317,15 +317,17 @@ async function createOrSignInAccount(
   }
 }
 
-async function createOrganization(admin: DenSession, name: string): Promise<void> {
+async function createOrganization(admin: DenSession, name: string): Promise<string> {
   const created = await denFetch(admin, "/v1/org", {
     method: "POST",
     headers: auth(admin),
     body: JSON.stringify({ name }),
   });
-  if (!created.response.ok) {
+  const organizationId = stringField(recordField(created.body, "organization"), "id");
+  if (!created.response.ok || !organizationId) {
     throw new Error(`Organization create failed: HTTP ${created.response.status} ${created.text.slice(0, 500)}`);
   }
+  return organizationId;
 }
 
 async function createMember(
@@ -384,12 +386,14 @@ async function provisionOrganization(
   const admin = options.fallbackAdmin && !shape.admin
     ? await signIn(ref, { email: adminPerson.email, password: adminPerson.password })
     : await createOrSignInAccount(ref, adminPerson, options.databaseUrl);
-  if (options.createOrg) await createOrganization(admin, shape.name?.trim() || `OpenWork Eval ${runId}`);
+  const createdOrgId = options.createOrg
+    ? await createOrganization(admin, shape.name?.trim() || `OpenWork Eval ${runId}`)
+    : null;
   const members: Record<string, DenSession> = {};
   for (const [key, memberShape] of Object.entries(shape.members ?? {})) {
     members[key] = await createMember(ref, admin, personDefaults(key, memberShape, runId), options.databaseUrl);
   }
-  return { admin, members, createdOrg: options.createOrg };
+  return { admin, members, createdOrgId };
 }
 
 async function provisionReusedMembers(
@@ -482,10 +486,19 @@ async function stopServices(services: SpawnedService[]): Promise<void> {
   }
 }
 
-async function deleteCreatedOrganization(admin: DenSession): Promise<void> {
-  const active = await freshSession(admin);
+async function deleteCreatedOrganization(admin: DenSession, organizationId: string): Promise<void> {
+  const active = await freshSession(admin).catch(() => admin);
+  const selected = await denFetch(active, "/v1/me/active-organization", {
+    method: "POST",
+    headers: auth(active),
+    body: JSON.stringify({ organizationId }),
+  });
+  if (selected.response.status === 404) return;
+  if (!selected.response.ok) {
+    throw new Error(`Organization cleanup selection returned HTTP ${selected.response.status}: ${selected.text.slice(0, 500)}`);
+  }
   const deleted = await denFetch(active, "/v1/org", { method: "DELETE", headers: auth(active) });
-  if (!deleted.response.ok) {
+  if (!deleted.response.ok && deleted.response.status !== 404) {
     throw new Error(`Organization cleanup returned HTTP ${deleted.response.status}: ${deleted.text.slice(0, 500)}`);
   }
 }
@@ -512,7 +525,7 @@ export async function server(options: ServerOptions): Promise<Den> {
     const bootedMocks = await bootLocalMocks(options.place, options.mocks ?? {});
     try {
       const organization = options.provision === false
-        ? { admin: emptySession(reuse), members: {}, createdOrg: false }
+        ? { admin: emptySession(reuse), members: {}, createdOrgId: null }
         : await provisionOrganization(
             reuse,
             options.org ?? {},
@@ -537,8 +550,8 @@ export async function server(options: ServerOptions): Promise<Den> {
         async [Symbol.asyncDispose](): Promise<void> {
           if (disposed) return;
           disposed = true;
-          if (organization.createdOrg) {
-            await deleteCreatedOrganization(organization.admin).catch((error: unknown) => {
+          if (organization.createdOrgId) {
+            await deleteCreatedOrganization(organization.admin, organization.createdOrgId).catch((error: unknown) => {
               console.error(`[openwork/testkit] reused Den org cleanup failed: ${messageText(error)}`);
             });
           }
@@ -559,6 +572,7 @@ export async function server(options: ServerOptions): Promise<Den> {
     if (base.kind !== "daytona") throw new Error("Daytona place returned a local Den base.");
     const preparedSandbox = process.env.OPENWORK_EVAL_DAYTONA_DEN_SANDBOX?.trim();
     const orgShape = options.org ?? {};
+    const isolatePreparedSpec = Boolean(preparedSandbox && options.provision !== false);
     const bootstrapAdmin = personDefaults("admin", orgShape.admin, runId);
     const provisioned = await provisionDenSandbox({
       ref: base.ref,
@@ -571,14 +585,14 @@ export async function server(options: ServerOptions): Promise<Den> {
       bootedMocks = await bootDaytonaMocks(provisioned.sandbox, options.mocks ?? {});
       const ref = { apiUrl: cleanUrl(provisioned.apiUrl), webUrl: cleanUrl(provisioned.webUrl) };
       const organization = options.provision === false
-        ? { admin: emptySession(ref), members: {}, createdOrg: false }
+        ? { admin: emptySession(ref), members: {}, createdOrgId: null }
         : await provisionOrganization(
             ref,
             orgShape,
             runId,
             {
-              createOrg: Boolean(options.org),
-              fallbackAdmin: options.org?.admin ? undefined : defaultReuseAdmin(),
+              createOrg: isolatePreparedSpec || Boolean(options.org),
+              fallbackAdmin: (isolatePreparedSpec || options.org?.admin) ? undefined : defaultReuseAdmin(),
             },
           );
       let platformAdminGrant: PlatformAdminGrant | null = null;
@@ -586,7 +600,9 @@ export async function server(options: ServerOptions): Promise<Den> {
         try {
           platformAdminGrant = await grantPreparedPlatformAdmin(ref, organization.admin.email);
         } catch (error) {
-          if (organization.createdOrg) await deleteCreatedOrganization(organization.admin).catch(() => undefined);
+          if (organization.createdOrgId) {
+            await deleteCreatedOrganization(organization.admin, organization.createdOrgId).catch(() => undefined);
+          }
           throw error;
         }
       }
@@ -610,8 +626,8 @@ export async function server(options: ServerOptions): Promise<Den> {
         async [Symbol.asyncDispose](): Promise<void> {
           if (disposed) return;
           disposed = true;
-          if (organization.createdOrg) {
-            await deleteCreatedOrganization(organization.admin).catch((error: unknown) => {
+          if (organization.createdOrgId) {
+            await deleteCreatedOrganization(organization.admin, organization.createdOrgId).catch((error: unknown) => {
               console.error(`[openwork/testkit] Daytona Den org cleanup failed: ${messageText(error)}`);
             });
           }
@@ -697,7 +713,7 @@ export async function server(options: ServerOptions): Promise<Den> {
     if (web) await waitForHttp(`${ref.webUrl}/api/ready`, web, (response) => response.ok);
     await waitForAuthProbe(ref, api);
     const organization = options.provision === false
-      ? { admin: emptySession(ref), members: {}, createdOrg: false }
+      ? { admin: emptySession(ref), members: {}, createdOrgId: null }
       : await provisionOrganization(
           ref,
           orgShape,
@@ -719,8 +735,8 @@ export async function server(options: ServerOptions): Promise<Den> {
       async [Symbol.asyncDispose](): Promise<void> {
         if (disposed) return;
         disposed = true;
-        if (organization.createdOrg) {
-          await deleteCreatedOrganization(organization.admin).catch((error: unknown) => {
+        if (organization.createdOrgId) {
+          await deleteCreatedOrganization(organization.admin, organization.createdOrgId).catch((error: unknown) => {
             console.error(`[openwork/testkit] local Den org cleanup failed: ${messageText(error)}`);
           });
         }
