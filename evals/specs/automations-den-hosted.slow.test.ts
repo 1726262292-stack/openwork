@@ -119,6 +119,7 @@ test("Den schedules and a connected desktop runner executes an Automation", { ti
   await waitForText(desktop, marker, { timeoutMs: 60_000 });
   const receipt = await visibleText(desktop);
   expect(receipt).toContain("succeeded");
+  expect(receipt).toContain("Result");
   expect(receipt).toMatch(/execution thread/i);
   expect(receipt).toMatch(/desktop/i);
   {
@@ -138,7 +139,7 @@ test("Den schedules and a connected desktop runner executes an Automation", { ti
     `[...document.querySelectorAll('span')].some((label) => label.textContent?.trim() === 'Next run' && label.parentElement?.innerText.includes('—'))`,
     { timeoutMs: 30_000, label: "future due time cleared after deactivation" },
   );
-  await clickButton(desktop, "Reactivate");
+  await clickButton(desktop, "Activate");
   await waitForText(desktop, "Active", { timeoutMs: 30_000 });
   await waitFor(
     desktop,
