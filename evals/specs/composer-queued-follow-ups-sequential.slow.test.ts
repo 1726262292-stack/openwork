@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { expect, onTestFinished } from "vitest";
 import { clickButton, control, createAndSelectWorkspace, evalIn, waitFor } from "@openwork/behaviors";
 import type { Surface } from "@openwork/cdp";
-import { screenshot } from "@openwork/fraimz";
+import { screenshot, validate } from "@openwork/fraimz";
 import { desktop } from "@openwork/hosts";
 import { needs, test, unmetNeeds } from "@openwork/testkit";
 import type { NeedsSpec } from "@openwork/testkit";
@@ -508,7 +508,15 @@ test(title, async ({ evidence }) => {
     message.text.includes(queuedPromptOne) || message.text.includes(queuedPromptTwo))).toBe(false);
   expect(mainRequests.length).toBe(1);
   expect(mainRequests[0]?.label).toBe("first");
-  await screenshot(app);
+  {
+    const shot = await screenshot(app);
+    const seen = await validate(shot, [
+      "A queued messages panel headed '2 queued' lists two queued follow-up messages",
+      "The composer's round action button shows a stop control (filled square icon), not an upward send arrow",
+      "No error dialog or crash is visible",
+    ]);
+    expect(seen.ok, seen.why).toBe(true);
+  }
   evidence.fact(
     "Plain Enter while busy queues follow-ups FIFO instead of sending them",
     `With the run still busy, both follow-ups sat in the queued panel in submission order ("2 queued", first at index ${queuedState.firstIndex} before second at ${queuedState.secondIndex}), no user bubble contained them, the engine held exactly ${userTurnsWhileQueued.length} user turn, and the provider had served exactly ${mainRequests.length} main completion.`,
@@ -547,7 +555,15 @@ test(title, async ({ evidence }) => {
   expect(drainOneUserText.includes(queuedPromptOne)).toBe(true);
   expect(drainOneUserText.includes(queuedPromptTwo)).toBe(false);
   expect(drainOneUserText.includes(firstPrompt)).toBe(false);
-  await screenshot(app);
+  {
+    const shot = await screenshot(app);
+    const seen = await validate(shot, [
+      "The conversation shows a user message reading 'Queued follow-up ONE for sequential drain proof.'",
+      "A queued messages panel headed '1 queued' still holds the second follow-up",
+      "No error dialog or crash is visible",
+    ]);
+    expect(seen.ok, seen.why).toBe(true);
+  }
   evidence.fact(
     "The idle drain sends only the first queued item as its own turn",
     `After the busy run finished, the transcript gained the first follow-up as its own user turn while "1 queued" still held the second; the provider's second main completion carried exactly the first follow-up as its newest user message (contains second follow-up: ${drainOneUserText.includes(queuedPromptTwo)}, contains initial prompt: ${drainOneUserText.includes(firstPrompt)}).`,
@@ -603,7 +619,15 @@ test(title, async ({ evidence }) => {
     };
   })()`);
   expect(finalBubbles).toEqual({ withFirstQueued: 1, withSecondQueued: 1, withBoth: 0 });
-  await screenshot(app);
+  {
+    const shot = await screenshot(app);
+    const seen = await validate(shot, [
+      "The conversation shows two separate follow-up user messages, ONE before TWO, each followed by its own assistant reply",
+      "No queued messages panel is visible anymore",
+      "No error dialog or crash is visible",
+    ]);
+    expect(seen.ok, seen.why).toBe(true);
+  }
   evidence.fact(
     "Both queued follow-ups landed as separate FIFO user turns, never one merged message",
     `Engine session ${sessionId} ended with six messages in exact FIFO order (initial turn, its reply, first follow-up, its reply, second follow-up, its reply); ${mergedMessages.length} engine messages and ${isRecord(finalBubbles) ? String(finalBubbles.withBoth) : "?"} rendered user bubbles contained both follow-up texts; the provider served exactly three main completions ordered ${JSON.stringify(mainRequests.map((request) => request.label))}, and the drained turns' newest user messages were exactly the queued texts.`,
