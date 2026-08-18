@@ -92,6 +92,11 @@ interface ProvisionedOrganization {
   createdOrg: boolean;
 }
 
+interface PlatformAdminGrant {
+  id: string;
+  owner: DenSession;
+}
+
 function messageText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -106,6 +111,12 @@ function stringField(value: unknown, key: string): string | null {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
   const field = Reflect.get(value, key);
   return typeof field === "string" ? field : null;
+}
+
+function recordField(value: unknown, key: string): Record<string, unknown> | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const field = Reflect.get(value, key);
+  return typeof field === "object" && field !== null && !Array.isArray(field) ? field : null;
 }
 
 function auth(session: DenSession): Record<string, string> {
@@ -136,6 +147,33 @@ function defaultReuseAdmin(): Required<PersonShape> {
   };
 }
 
+async function grantPreparedPlatformAdmin(ref: DenRef, email: string): Promise<PlatformAdminGrant | null> {
+  const ownerPerson = defaultReuseAdmin();
+  if (ownerPerson.email.toLowerCase() === email.toLowerCase()) return null;
+  const owner = await signIn(ref, { email: ownerPerson.email, password: ownerPerson.password });
+  const result = await denFetch(owner, "/v1/admin/admins", {
+    method: "POST",
+    headers: auth(owner),
+    body: JSON.stringify({ email, note: "Temporary prepared eval admin" }),
+  });
+  if (result.response.status === 409) return null;
+  const id = stringField(recordField(result.body, "admin"), "id");
+  if (!result.response.ok || !id) {
+    throw new Error(`Prepared Daytona admin grant failed for ${email}: HTTP ${result.response.status} ${result.text.slice(0, 500)}`);
+  }
+  return { id, owner };
+}
+
+async function revokePreparedPlatformAdmin(grant: PlatformAdminGrant): Promise<void> {
+  const result = await denFetch(grant.owner, `/v1/admin/admins/${encodeURIComponent(grant.id)}`, {
+    method: "DELETE",
+    headers: auth(grant.owner),
+  });
+  if (!result.response.ok && result.response.status !== 404) {
+    throw new Error(`Prepared Daytona admin cleanup returned HTTP ${result.response.status}: ${result.text.slice(0, 500)}`);
+  }
+}
+
 function emptySession(ref: DenRef): DenSession {
   return { ...ref, token: "", email: "", password: "" };
 }
@@ -157,9 +195,15 @@ function spawnService(
   logPath: string,
 ): SpawnedService {
   const logFd = openSync(logPath, "a");
-  const child = spawn("pnpm", [script], {
+  const prepared = process.env.OPENWORK_EVAL_DEN_RUNTIME_PREPARED === "1";
+  const args = prepared
+    ? label === "den-api"
+      ? ["--filter", "@openwork-ee/den-api", "exec", "tsx", "src/main.ts"]
+      : ["--filter", "@openwork-ee/den-web", "exec", "next", "start", "--hostname", "127.0.0.1", "--port", String(port)]
+    : [script];
+  const child = spawn("pnpm", args, {
     cwd: REPO_ROOT,
-    env,
+    env: prepared && label === "den-api" ? { ...env, PORT: String(port) } : env,
     detached: true,
     stdio: ["ignore", logFd, logFd],
   });
@@ -218,16 +262,25 @@ async function waitForAuthProbe(ref: DenRef, service: SpawnedService): Promise<v
 
 async function runDbPush(databaseUrl: string): Promise<void> {
   try {
-    await execFileAsync("pnpm", ["--filter", "@openwork-ee/den-db", "db:push"], {
-      cwd: REPO_ROOT,
-      env: {
-        ...process.env,
-        DATABASE_URL: databaseUrl,
-        DEN_DB_ENCRYPTION_KEY: DATABASE_ENCRYPTION_KEY,
-      },
-      maxBuffer: 16 * 1024 * 1024,
-      timeout: 180_000,
-    });
+    const commands = process.env.OPENWORK_EVAL_DEN_RUNTIME_PREPARED === "1"
+      ? [
+          ["--filter", "@openwork-ee/den-db", "exec", "node", "--import", "tsx", "./node_modules/drizzle-kit/bin.cjs", "push", "--config", "drizzle.config.ts"],
+          ["--filter", "@openwork-ee/den-db", "exec", "node", "--import", "tsx", "scripts/ensure-fulltext-indexes.ts"],
+          ["--filter", "@openwork-ee/den-db", "exec", "node", "--import", "tsx", "scripts/ensure-schema-repairs.ts"],
+        ]
+      : [["--filter", "@openwork-ee/den-db", "db:push"]];
+    for (const args of commands) {
+      await execFileAsync("pnpm", args, {
+        cwd: REPO_ROOT,
+        env: {
+          ...process.env,
+          DATABASE_URL: databaseUrl,
+          DEN_DB_ENCRYPTION_KEY: DATABASE_ENCRYPTION_KEY,
+        },
+        maxBuffer: 16 * 1024 * 1024,
+        timeout: 180_000,
+      });
+    }
   } catch (error) {
     const stderr = typeof error === "object" && error !== null && typeof Reflect.get(error, "stderr") === "string"
       ? Reflect.get(error, "stderr")
@@ -504,10 +557,12 @@ export async function server(options: ServerOptions): Promise<Den> {
     }
     const base = options.place.denBase();
     if (base.kind !== "daytona") throw new Error("Daytona place returned a local Den base.");
+    const preparedSandbox = process.env.OPENWORK_EVAL_DAYTONA_DEN_SANDBOX?.trim();
     const orgShape = options.org ?? {};
     const bootstrapAdmin = personDefaults("admin", orgShape.admin, runId);
     const provisioned = await provisionDenSandbox({
       ref: base.ref,
+      reuse: preparedSandbox,
       bootstrapAdminEmail: bootstrapAdmin.email,
       log: (line) => console.error(`[openwork/testkit] ${line}`),
     });
@@ -526,6 +581,15 @@ export async function server(options: ServerOptions): Promise<Den> {
               fallbackAdmin: options.org?.admin ? undefined : defaultReuseAdmin(),
             },
           );
+      let platformAdminGrant: PlatformAdminGrant | null = null;
+      if (preparedSandbox && options.provision !== false) {
+        try {
+          platformAdminGrant = await grantPreparedPlatformAdmin(ref, organization.admin.email);
+        } catch (error) {
+          if (organization.createdOrg) await deleteCreatedOrganization(organization.admin).catch(() => undefined);
+          throw error;
+        }
+      }
       let disposed = false;
       return {
         ref,
@@ -549,6 +613,11 @@ export async function server(options: ServerOptions): Promise<Den> {
           if (organization.createdOrg) {
             await deleteCreatedOrganization(organization.admin).catch((error: unknown) => {
               console.error(`[openwork/testkit] Daytona Den org cleanup failed: ${messageText(error)}`);
+            });
+          }
+          if (platformAdminGrant) {
+            await revokePreparedPlatformAdmin(platformAdminGrant).catch((error: unknown) => {
+              console.error(`[openwork/testkit] Daytona platform-admin cleanup failed: ${messageText(error)}`);
             });
           }
           await stopMocks(bootedMocks.handles);

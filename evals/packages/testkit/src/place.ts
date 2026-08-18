@@ -165,13 +165,24 @@ class DaytonaPlacementHost implements Host {
   readonly kind = "daytona";
   readonly workspaceRoot = "/workspace";
   readonly #ref: string;
+  readonly #preparedSandbox: string | undefined;
+  readonly #preparedHost: Host | undefined;
   readonly #surfaces = new Map<SurfaceHandle, PlacedSurface>();
 
-  constructor(ref: string) {
+  constructor(ref: string, preparedSandbox?: string) {
     this.#ref = ref;
+    this.#preparedSandbox = preparedSandbox;
+    this.#preparedHost = preparedSandbox ? daytonaSandbox(preparedSandbox) : undefined;
   }
 
   async #provision(name: string): Promise<PlacedSurface> {
+    if (this.#preparedSandbox && this.#preparedHost) {
+      return {
+        host: this.#preparedHost,
+        sandbox: this.#preparedSandbox,
+        created: false,
+      };
+    }
     const provisioned = await provisionDesktopSandbox({
       ref: this.#ref,
       name,
@@ -233,9 +244,9 @@ class DaytonaPlace implements Place {
   readonly #ref: string;
   readonly #host: Host;
 
-  constructor(ref: string) {
+  constructor(ref: string, preparedDesktopSandbox?: string) {
     this.#ref = ref;
-    this.#host = new DaytonaPlacementHost(ref);
+    this.#host = new DaytonaPlacementHost(ref, preparedDesktopSandbox);
   }
 
   host(): Host {
@@ -264,7 +275,7 @@ export function resolvePlace(env: NodeJS.ProcessEnv = process.env): Place {
   const useDaytona = env.OPENWORK_EVAL_DAYTONA?.trim() === "1";
   if (useDaytona) {
     const ref = env.OPENWORK_EVAL_REF?.trim() || env.GITHUB_SHA?.trim() || "dev";
-    return new DaytonaPlace(ref);
+    return new DaytonaPlace(ref, env.OPENWORK_EVAL_DAYTONA_DESKTOP_SANDBOX?.trim());
   }
   return new LocalPlace(env.OPENWORK_EVAL_MYSQL_URL?.trim() || DEFAULT_MYSQL_URL);
 }

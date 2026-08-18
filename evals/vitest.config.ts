@@ -1,14 +1,21 @@
 import { defineConfig } from "vitest/config";
+import { shouldPrepareSuite, suiteWorkerCount } from "./runner/stack-suite.ts";
 
 const common = {
   environment: "node",
   testTimeout: 120_000,
 };
 
+const prepareSuite = shouldPrepareSuite(process.argv);
+const attachedDen = Boolean(process.env.OPENWORK_EVAL_DEN_API_URL?.trim());
+const managedStack = prepareSuite && !attachedDen;
+const stackWorkers = managedStack ? suiteWorkerCount(process.argv, process.env) : 1;
+
 export default defineConfig({
   test: {
     ...common,
-    fileParallelism: false,
+    fileParallelism: managedStack,
+    maxWorkers: stackWorkers,
     projects: [
       {
         test: {
@@ -25,6 +32,8 @@ export default defineConfig({
           name: "stack",
           testTimeout: 600_000,
           hookTimeout: 600_000,
+          globalSetup: ["./runner/prepare-stack.ts"],
+          setupFiles: ["./runner/stack-env.ts"],
           include: ["specs/**/*.test.ts"],
         },
       },
