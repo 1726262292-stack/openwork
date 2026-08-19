@@ -32,6 +32,7 @@ import {
 import { getInvalidMcpOAuthRedirectUris, isAllowedMcpOAuthRedirectUri, MCP_OAUTH_REDIRECT_URI_ERROR_DESCRIPTION } from "../../mcp/oauth-client-policy.js"
 import { normalizeMcpOAuthClientScope } from "../../mcp/scopes.js"
 import { publicRoute, queryValidator, tokenRoute } from "../../middleware/index.js"
+import { getOAuthTokenRateLimitLogFields, readBasicAuthClientId } from "../../oauth-token-rate-limit-observability.js"
 import { emptyResponse, jsonResponse } from "../../openapi.js"
 import { getSingletonSsoStatus } from "../../orgs.js"
 import { cache } from "../../cache.js"
@@ -96,20 +97,6 @@ function readStoredOAuthClientScopes(scopes: string | null) {
     // Better Auth has used both JSON arrays and space-delimited strings for scopes.
   }
   return readOAuthScopeList(scopes)
-}
-
-function readBasicAuthClientId(headers: Headers) {
-  const authorization = headers.get("authorization")?.trim() ?? ""
-  const match = authorization.match(/^Basic\s+(.+)$/i)
-  if (!match?.[1]) return null
-
-  try {
-    const decoded = atob(match[1])
-    const separator = decoded.indexOf(":")
-    return separator > 0 ? decoded.slice(0, separator) : null
-  } catch {
-    return null
-  }
 }
 
 async function registeredClientHasMcpScope(clientId: string) {
@@ -675,6 +662,10 @@ async function handleAuthRequest(c: Context) {
     await revokeBearerSession(authRequest.headers)
   }
 
+  const observabilityRequest = authRequest.method === "POST"
+    && getBetterAuthProxyPath(new URL(authRequest.url).pathname) === "/oauth2/token"
+    ? authRequest.clone()
+    : null
   let response: Response
   try {
     response = await auth.handler(authRequest)
@@ -697,6 +688,12 @@ async function handleAuthRequest(c: Context) {
   }
   if (emailSignInAttempt) {
     await recordEmailSignInResult(emailSignInAttempt, response)
+  }
+  if (observabilityRequest) {
+    const rateLimitFields = await getOAuthTokenRateLimitLogFields(observabilityRequest, response)
+    if (rateLimitFields) {
+      logger.warn("oauth token request rate limited", rateLimitFields)
+    }
   }
   return response
 }
