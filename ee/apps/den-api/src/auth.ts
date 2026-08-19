@@ -600,6 +600,7 @@ export const auth = betterAuth({
         }),
         after: async (user) => {
           if (typeof user.id === "string") {
+            // User profile changes can stale cached auth payloads; clear all sessions here.
             await cache.auth.deleteSessionsForUser(normalizeDenTypeId("user", user.id));
           }
         },
@@ -652,6 +653,7 @@ export const auth = betterAuth({
       update: {
         after: async (session) => {
           if (typeof session.token === "string") {
+            // Better Auth session updates are the explicit invalidation point for cached sessions.
             await cache.auth.deleteSession(session.token);
           }
           if (typeof session.id === "string") {
@@ -662,6 +664,7 @@ export const auth = betterAuth({
       delete: {
         after: async (session) => {
           if (typeof session.token === "string") {
+            // Sign-out deletes the backing session row, so cached hits must be cleared here.
             await cache.auth.deleteSession(session.token);
           }
           if (typeof session.id === "string") {
@@ -827,6 +830,7 @@ export const auth = betterAuth({
       }
 
       await ctx.context.internalAdapter.deleteSession(newSession.session.token);
+      // Enterprise auth rejection deletes the just-created session outside hooks in some adapters.
       await cache.auth.deleteSession(newSession.session.token);
       deleteSessionCookie(ctx);
       throw ctx.redirect(getEnterpriseAuthRedirectUrl({

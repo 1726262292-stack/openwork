@@ -543,7 +543,10 @@ async function insertMemberIfMissing(input: {
     defaultRole: input.role,
   })
   if (invitedMember) {
-    await cache.org.deleteMembers(input.organizationId)
+    // Accepting an invite materializes membership data; cached org/member reads
+    // must be invalidated here because hot cache hits do not re-check the DB.
+    await cache.org.deleteMemberList(input.organizationId)
+    await cache.org.deleteMembership({ organizationId: input.organizationId, userId: input.userId })
     return invitedMember
   }
 
@@ -563,7 +566,9 @@ async function insertMemberIfMissing(input: {
       role: input.role,
       joinedAt: new Date(),
     })
-    await cache.org.deleteMembers(input.organizationId)
+    // Joining an org changes both the aggregate list and this user's membership cache.
+    await cache.org.deleteMemberList(input.organizationId)
+    await cache.org.deleteMembership({ organizationId: input.organizationId, userId: input.userId })
   } catch {}
 
   const created = await db
@@ -1784,7 +1789,11 @@ export async function updateOrganizationMemberRole(input: {
   })
 
   if (updated.ok && updated.changed) {
-    await cache.org.deleteMembers(input.organizationId)
+    // Role edits change authorization decisions served from membership cache.
+    await cache.org.deleteMemberList(input.organizationId)
+    if (updated.member.userId) {
+      await cache.org.deleteMembership({ organizationId: input.organizationId, userId: updated.member.userId })
+    }
     await revokeOrganizationApiKeysForMember({
       organizationId: input.organizationId,
       orgMembershipId: updated.member.id,
@@ -1919,6 +1928,7 @@ export async function transferOrganizationOwnership(input: {
     return transfer
   }
 
+  // Ownership transfer edits multiple member roles; clear all org membership keys.
   await cache.org.deleteMembers(input.organizationId)
 
   for (const ownerRow of transfer.demotedOwners) {

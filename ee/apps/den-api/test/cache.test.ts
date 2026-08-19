@@ -184,7 +184,7 @@ test("cache.auth.activeSessionId stores and reuses session id liveness", async (
   })
 })
 
-test("cache.auth.activeSessionId refreshes cached liveness inside the renewal window", async () => {
+test("cache.auth.activeSessionId does not re-check the database on cached liveness hits", async () => {
   authSessionExpiresAt = new Date("2026-08-16T11:00:00.000Z")
   const first = await cacheModule.cache.auth.activeSessionId(sessionId)
   authSessionExpiresAt = new Date("2026-08-17T12:00:00.000Z")
@@ -192,9 +192,9 @@ test("cache.auth.activeSessionId refreshes cached liveness inside the renewal wi
   const second = await cacheModule.cache.auth.activeSessionId(sessionId)
 
   expect(first?.expiresAt).toEqual(new Date("2026-08-16T11:00:00.000Z"))
-  expect(second?.expiresAt).toEqual(new Date("2026-08-17T12:00:00.000Z"))
-  expect(authSessionIdSelectCount).toBe(2)
-  expect(setCalls).toHaveLength(2)
+  expect(second?.expiresAt).toEqual(new Date("2026-08-16T11:00:00.000Z"))
+  expect(authSessionIdSelectCount).toBe(1)
+  expect(setCalls).toHaveLength(1)
 })
 
 test("cache.auth.activeSessionId rejects missing database sessions", async () => {
@@ -271,6 +271,26 @@ test("cache.org.deleteMembers invalidates aggregate and per-user membership cach
     `cache:org:members:${organizationId}`,
     `cache:org:member:${organizationId}:${userId}`,
   ])
+})
+
+test("cache.org.deleteMemberList invalidates only the aggregate member list", async () => {
+  await cacheModule.cache.org.members(organizationId)
+  await cacheModule.cache.org.membership({ organizationId, userId })
+  deleteCalls.length = 0
+
+  await cacheModule.cache.org.deleteMemberList(organizationId)
+
+  expect(deleteCalls).toEqual([`cache:org:members:${organizationId}`])
+})
+
+test("cache.org.deleteMembership invalidates one per-user membership cache", async () => {
+  await cacheModule.cache.org.members(organizationId)
+  await cacheModule.cache.org.membership({ organizationId, userId })
+  deleteCalls.length = 0
+
+  await cacheModule.cache.org.deleteMembership({ organizationId, userId })
+
+  expect(deleteCalls).toEqual([`cache:org:member:${organizationId}:${userId}`])
 })
 
 test("cache.auth.session falls back to the database loader without Redis", async () => {

@@ -28,6 +28,11 @@ type CacheRedisClient = {
   scan?(cursor: string, mode: "MATCH", pattern: string, countMode: "COUNT", count: number): Promise<[string, string[]]>
 }
 
+type CacheResult<T> = {
+  value: T
+  source: "cache" | "loader"
+}
+
 export type CachedAuthSession = {
   session: {
     id: DenTypeId<"session">
@@ -483,7 +488,7 @@ async function loadOrgMembership(input: { organizationId: OrgId; userId: UserId 
   return member ? { id: member.id, role: member.role, isOwner: roleIncludesOwner(member.role) } : null
 }
 
-async function getAuthSession(token: string) {
+async function getAuthSessionResult(token: string): Promise<CacheResult<CachedAuthSession | null>> {
   const now = new Date()
   const keyInput = { parent: "auth", child: "session", id: token } as const
   const key = cacheKey(keyInput)
@@ -492,7 +497,7 @@ async function getAuthSession(token: string) {
     try {
       const cached = parseCachedAuthSession(await redis.get(key), now)
       if (cached) {
-        return cached
+        return { value: cached, source: "cache" }
       }
     } catch (error) {
       console.error("openwork_cache_get_failed", { ...cacheLogDetails(keyInput), error })
@@ -501,7 +506,7 @@ async function getAuthSession(token: string) {
 
   const loaded = await activeAuthSessionLoader(token, now)
   if (!loaded || !redis) {
-    return loaded
+    return { value: loaded, source: "loader" }
   }
 
   const ttl = Math.min(AUTH_SESSION_MAX_TTL_SECONDS, Math.ceil((loaded.session.expiresAt.getTime() - now.getTime()) / 1000))
@@ -512,7 +517,11 @@ async function getAuthSession(token: string) {
       console.error("openwork_cache_set_failed", { ...cacheLogDetails(keyInput), error })
     }
   }
-  return loaded
+  return { value: loaded, source: "loader" }
+}
+
+async function getAuthSession(token: string) {
+  return (await getAuthSessionResult(token)).value
 }
 
 async function getActiveSessionId(sessionId: DenTypeId<"session">) {
@@ -523,7 +532,7 @@ async function getActiveSessionId(sessionId: DenTypeId<"session">) {
   if (redis) {
     try {
       const cached = parseCachedActiveSessionId(await redis.get(key))
-      if (cached && cached.expiresAt > getDenSessionRefreshCutoff(now)) {
+      if (cached) {
         return cached
       }
     } catch (error) {
@@ -586,6 +595,15 @@ async function deleteByPrefix(prefix: string) {
   } while (cursor !== "0")
 }
 
+async function deleteOrgMemberList(organizationId: OrgId) {
+  const key = cacheKey({ parent: "org", child: "members", id: organizationId })
+  try {
+    await activeRedisClient?.del(key)
+  } catch (error) {
+    console.error("openwork_cache_delete_failed", { key, error })
+  }
+}
+
 async function deleteOrgMembers(organizationId: OrgId) {
   const key = cacheKey({ parent: "org", child: "members", id: organizationId })
   try {
@@ -593,6 +611,15 @@ async function deleteOrgMembers(organizationId: OrgId) {
     await deleteByPrefix(cacheKey({ parent: "org", child: "member", id: `${organizationId}:` }))
   } catch (error) {
     console.error("openwork_cache_delete_failed", { key, error })
+  }
+}
+
+async function deleteOrgMembership(input: { organizationId: OrgId; userId: UserId }) {
+  const keyInput = { parent: "org", child: "member", id: `${input.organizationId}:${input.userId}` } as const
+  try {
+    await activeRedisClient?.del(cacheKey(keyInput))
+  } catch (error) {
+    console.error("openwork_cache_delete_failed", { ...cacheLogDetails(keyInput), error })
   }
 }
 
@@ -626,12 +653,15 @@ async function deleteAuthSessionsForUser(userId: UserId) {
  * Every getter must be safe when Redis is absent: it should run its DB loader,
  * attempt to populate Redis when available, and return the loaded value either
  * way. Auth sessions are DB-authoritative and cached for at most one hour;
- * every session delete or identity-changing update must invalidate the matching
- * `cache.auth.deleteSession(token)` entry.
+ * Cached hits must not perform live DB checks. Any operation that changes the
+ * source rows instead calls the dedicated invalidators below: user sign-out and
+ * session mutation clear auth session keys; org deletion, member removal, member
+ * addition, role transfer, and role edits clear org member/membership keys.
  */
 export const cache = {
   auth: {
     session: getAuthSession,
+    sessionResult: getAuthSessionResult,
     activeSessionId: getActiveSessionId,
     deleteSession: deleteAuthSession,
     deleteSessionId: deleteAuthSessionId,
@@ -649,7 +679,9 @@ export const cache = {
         load: () => activeOrgMembersLoader(organizationId),
       })
     },
+    deleteMemberList: deleteOrgMemberList,
     deleteMembers: deleteOrgMembers,
+    deleteMembership: deleteOrgMembership,
   },
 }
 

@@ -1491,6 +1491,7 @@ export function registerAdminRoutes<T extends { Variables: AuthContextVariables 
       ]))
 
       const organizationIds = Array.from(new Set(activeMembershipRows.map((row) => row.organizationId).filter(isOrganizationId)))
+      // Admin user deletion soft-removes memberships; clear affected org membership caches.
       await Promise.all(organizationIds.map((organizationId) => cache.org.deleteMembers(organizationId)))
       for (const organizationId of organizationIds) {
         const seatCounts = await getOrganizationSeatBillingCounts({ organizationId })
