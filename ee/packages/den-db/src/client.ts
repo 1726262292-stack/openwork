@@ -15,37 +15,42 @@ export type PlanetScaleCredentials = {
 }
 
 const TRANSIENT_DB_ERROR_CODES = new Set([
+  "EAI_AGAIN",
+  "ECONNREFUSED",
   "ECONNRESET",
+  "ENOTFOUND",
   "EPIPE",
   "ETIMEDOUT",
   "PROTOCOL_CONNECTION_LOST",
   "PROTOCOL_ENQUEUE_AFTER_FATAL_ERROR",
+  "UND_ERR_BODY_TIMEOUT",
+  "UND_ERR_CONNECT_TIMEOUT",
+  "UND_ERR_HEADERS_TIMEOUT",
+  "UND_ERR_SOCKET",
 ])
 
+const TRANSIENT_DB_HTTP_STATUSES = new Set([429, 500, 502, 503, 504])
 const RETRYABLE_QUERY_PREFIXES = ["select", "show", "describe", "explain"]
+type PlanetScaleFetch = NonNullable<ConstructorParameters<typeof Client>[0]["fetch"]>
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null
 }
 
-function getErrorCode(error: unknown): string | null {
-  if (!isRecord(error)) {
-    return null
-  }
-
-  if (typeof error.code === "string") {
-    return error.code
-  }
-
-  return getErrorCode(error.cause)
-}
-
 export function isTransientDbConnectionError(error: unknown): boolean {
-  const code = getErrorCode(error)
-  if (!code) {
+  if (!isRecord(error)) {
     return false
   }
-  return TRANSIENT_DB_ERROR_CODES.has(code)
+
+  if (typeof error.code === "string" && TRANSIENT_DB_ERROR_CODES.has(error.code)) {
+    return true
+  }
+
+  if (typeof error.status === "number" && TRANSIENT_DB_HTTP_STATUSES.has(error.status)) {
+    return true
+  }
+
+  return isTransientDbConnectionError(error.cause)
 }
 
 function extractSql(value: unknown): string | null {
@@ -62,6 +67,22 @@ function extractSql(value: unknown): string | null {
   }
 
   return null
+}
+
+function extractPlanetScaleSql(body: string | undefined): string | null {
+  if (!body) {
+    return null
+  }
+
+  try {
+    const parsed: unknown = JSON.parse(body)
+    if (isRecord(parsed) && typeof parsed.query === "string") {
+      return parsed.query
+    }
+    return null
+  } catch {
+    return null
+  }
 }
 
 function isRetryableReadQuery(sql: string | null): boolean {
@@ -82,8 +103,25 @@ async function retryReadQuery<T>(label: "query" | "execute", sql: string | null,
     }
 
     const queryType = sql?.trimStart().split(/\s+/, 1)[0]?.toUpperCase() ?? "QUERY"
-    console.warn(`[db] transient mysql error on ${label} (${queryType}); retrying once`)
+    console.warn(`[db] transient database error on ${label} (${queryType}); retrying once`)
     return run()
+  }
+}
+
+function createRetryingPlanetScaleFetch(): PlanetScaleFetch {
+  return async (input, init) => {
+    const sql = extractPlanetScaleSql(init?.body)
+    let firstAttempt = true
+
+    return retryReadQuery("execute", sql, async () => {
+      const shouldRetryResponse = firstAttempt && isRetryableReadQuery(sql)
+      firstAttempt = false
+      const response = await globalThis.fetch(input, init)
+      if (shouldRetryResponse && TRANSIENT_DB_HTTP_STATUSES.has(response.status)) {
+        throw response
+      }
+      return response
+    })
   }
 }
 
@@ -121,7 +159,7 @@ export function createDenDb(input: {
       throw new Error("PlanetScale mode requires DATABASE_HOST, DATABASE_USERNAME, and DATABASE_PASSWORD")
     }
 
-    const client = new Client(credentials)
+    const client = new Client({ ...credentials, fetch: createRetryingPlanetScaleFetch() })
     return {
       client,
       db: drizzlePlanetScale(client, { schema }) as unknown as DenDb,
