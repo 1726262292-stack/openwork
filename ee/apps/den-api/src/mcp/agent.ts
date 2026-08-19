@@ -411,10 +411,6 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
     c.json(protectedResourceMetadata(c.req.raw, "agent")))
 
   app.all("/mcp/agent", tokenRoute, async (c) => {
-    if (c.req.method === "GET") {
-      return unsupportedStandaloneSseResponse()
-    }
-
     const requestIdValue = c.get("requestId")
     const requestId = typeof requestIdValue === "string" ? requestIdValue : "unknown"
     const principal = await verifyMcpRequest(
@@ -423,6 +419,10 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
     )
     if (principal instanceof Response) {
       return principal
+    }
+
+    if (c.req.method === "GET") {
+      return unsupportedStandaloneSseResponse()
     }
 
     const preflightResponse = await preflightMcpJsonRpcRequest(c.req.raw, requestId)
