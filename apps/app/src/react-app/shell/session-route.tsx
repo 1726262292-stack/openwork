@@ -506,7 +506,7 @@ export function SessionRoute() {
         });
     };
     refreshAutomationState();
-    const interval = window.setInterval(refreshAutomationState, 15_000);
+    const interval = window.setInterval(refreshAutomationState, 5 * 60_000);
     window.addEventListener(automationsStateChangedEvent, refreshAutomationState);
     return () => {
       cancelled = true;

@@ -1,4 +1,5 @@
 const EMPTY_USAGE = { inputTokens: null, outputTokens: null, costMicros: null }
+const RUNNER_WORK_POLL_MS = 60_000
 
 function serializedError(value) {
   if (value instanceof Error) return value.message
@@ -201,13 +202,13 @@ export function createDesktopAutomationRunner(options) {
   const fetchImpl = options.fetchImpl ?? fetch
   const random = options.random ?? Math.random
   const waitBeforeReconnect = options.waitBeforeReconnect ?? sleep
+  const heartbeatIntervalMs = options.heartbeatIntervalMs ?? 10_000
   const legacyBaseUrls = new Set((options.legacyBaseUrls ?? [])
     .map((value) => normalizeRunnerBaseUrl(value))
     .filter(Boolean))
   let generation = 0
   let current = null
   let pendingConfiguration = null
-  let rejectedCursor = null
   let stopped = false
   const rejectedCredentials = new Set()
 
@@ -232,16 +233,6 @@ export function createDesktopAutomationRunner(options) {
     const affectedCurrent = current === state || (current && credentialKey(current.configuration) === key)
       ? current
       : null
-    if (affectedCurrent) {
-      const affectedBinding = runnerTokenBinding(affectedCurrent.configuration.token)
-      rejectedCursor = affectedBinding?.scope
-        ? {
-            baseUrl: affectedCurrent.configuration.baseUrl,
-            scope: affectedBinding.scope,
-            lastEventId: affectedCurrent.lastEventId,
-          }
-        : null
-    }
     retire(state, new Error(`Automation runner credential rejected with HTTP ${status}`))
     if (affectedCurrent && affectedCurrent !== state) {
       affectedCurrent.credentialRejected = true
@@ -300,7 +291,7 @@ export function createDesktopAutomationRunner(options) {
       `/v1/automation-runs/${encodeURIComponent(assignment.runId)}/events`,
       { method: "POST", body: { attempt: assignment.attempt, sequence: ++sequence, type, payload, createdAt: Date.now() } },
     )
-    const heartbeatTimer = setInterval(() => void heartbeat(state).catch((error) => controller.abort(error)), 10_000)
+    const heartbeatTimer = setInterval(() => void heartbeat(state).catch((error) => controller.abort(error)), heartbeatIntervalMs)
     let result
     try {
       await event("user", { text: assignment.instructions, executionTarget: "desktop" })
@@ -371,102 +362,42 @@ export function createDesktopAutomationRunner(options) {
         if (!claimed?.assignment) break
         await runAssignment(state, claimed.assignment)
       }
-    })().catch((error) => options.log?.(`reconcile failed: ${error instanceof Error ? error.message : String(error)}`))
-      .finally(() => {
-        if (state.reconcilePromise === promise) state.reconcilePromise = null
-        if (isCurrent(state) && pendingConfiguration && !state.active) {
-          const next = pendingConfiguration
-          pendingConfiguration = null
-          activateConfiguration(next)
-        }
-      })
+    })().finally(() => {
+      if (state.reconcilePromise === promise) state.reconcilePromise = null
+      if (isCurrent(state) && pendingConfiguration && !state.active) {
+        const next = pendingConfiguration
+        pendingConfiguration = null
+        activateConfiguration(next)
+      }
+    })
     state.reconcilePromise = promise
     return promise
-  }
-
-  const consumeSse = async (state, response, onHealthy) => {
-    if (!response.ok || !response.body) throw new Error(`SSE returned ${response.status}`)
-    const reader = response.body.getReader()
-    const decoder = new TextDecoder()
-    let buffer = ""
-    let healthy = false
-    while (isCurrent(state)) {
-      const { done, value } = await reader.read()
-      if (done) return
-      buffer += decoder.decode(value, { stream: true }).replaceAll("\r\n", "\n")
-      let boundary
-      while ((boundary = buffer.indexOf("\n\n")) >= 0) {
-        const block = buffer.slice(0, boundary)
-        buffer = buffer.slice(boundary + 2)
-        let eventType = "message"
-        let eventData = null
-        let parsedData = false
-        for (const line of block.split("\n")) {
-          if (line.startsWith("id:")) {
-            const value = Number(line.slice(3).trim())
-            if (Number.isSafeInteger(value) && value > state.lastEventId) state.lastEventId = value
-          }
-          if (line.startsWith("event:")) eventType = line.slice(6).trim()
-          if (line.startsWith("data:")) {
-            try { eventData = JSON.parse(line.slice(5).trim()); parsedData = true } catch { eventData = null }
-          }
-        }
-        if (parsedData && !healthy) { healthy = true; onHealthy() }
-        await heartbeat(state).catch(() => undefined)
-        if (
-          eventType !== "keepalive"
-          && eventData?.cursor === String(state.lastEventId)
-          && ["automation_work_available", "automation_cancellation_available"].includes(eventData?.type)
-        ) void reconcile(state)
-      }
-    }
   }
 
   const connectLoop = async (state) => {
     let reconnectAttempt = 0
     while (isCurrent(state)) {
-      void reconcile(state)
       try {
-        const response = await fetchImpl(`${state.configuration.baseUrl.replace(/\/+$/, "")}/v1/automation-runners/events`, {
-          headers: {
-            Accept: "text/event-stream",
-            Authorization: `Bearer ${state.configuration.token}`,
-            ...(state.lastEventId > 0 ? { "Last-Event-ID": String(state.lastEventId) } : {}),
-          },
-          signal: state.controller.signal,
-        })
-        if ([401, 403].includes(response.status)) {
-          rejectCredential(state, response.status)
-          return
+        await reconcile(state)
+        reconnectAttempt = 0
+        await waitBeforeReconnect(RUNNER_WORK_POLL_MS, state.controller.signal)
+      } catch (error) {
+        if (!isCurrent(state)) return
+        if ([401, 403].includes(error?.status)) return
+        options.log?.(`runner polling failed: ${error instanceof Error ? error.message : String(error)}`)
+        const backoff = Math.min(30_000, 500 * (2 ** reconnectAttempt++))
+        try {
+          await waitBeforeReconnect(Math.round(backoff * (0.5 + random())), state.controller.signal)
+        } catch (waitError) {
+          if (!isCurrent(state)) return
+          options.log?.(`runner polling wait failed: ${waitError instanceof Error ? waitError.message : String(waitError)}`)
         }
-        options.log?.("SSE connected")
-        await consumeSse(state, response, () => { reconnectAttempt = 0 })
-      } catch (error) {
-        if (!isCurrent(state)) return
-        options.log?.(`SSE reconnecting: ${error instanceof Error ? error.message : String(error)}`)
-      }
-      if (!isCurrent(state)) return
-      const backoff = Math.min(30_000, 500 * (2 ** reconnectAttempt++))
-      try {
-        await waitBeforeReconnect(Math.round(backoff * (0.5 + random())), state.controller.signal)
-      } catch (error) {
-        if (!isCurrent(state)) return
-        options.log?.(`SSE reconnect wait failed: ${error instanceof Error ? error.message : String(error)}`)
       }
     }
   }
 
   activateConfiguration = (configuration) => {
     const previous = current
-    const previousBinding = previous ? runnerTokenBinding(previous.configuration.token) : null
-    const nextBinding = configuration ? runnerTokenBinding(configuration.token) : null
-    const cursor = previousBinding?.scope
-      ? { baseUrl: previous.configuration.baseUrl, scope: previousBinding.scope, lastEventId: previous.lastEventId }
-      : rejectedCursor
-    const lastEventId = cursor?.scope && cursor.scope === nextBinding?.scope && cursor.baseUrl === configuration?.baseUrl
-      ? cursor.lastEventId
-      : 0
-    rejectedCursor = null
     generation += 1
     if (previous) retire(previous, new Error("Automation runner configuration changed"))
     if (!configuration || stopped) return
@@ -474,7 +405,6 @@ export function createDesktopAutomationRunner(options) {
       generation,
       configuration,
       controller: new AbortController(),
-      lastEventId,
       reconcilePromise: null,
       claimInFlight: false,
       active: null,
@@ -520,7 +450,6 @@ export function createDesktopAutomationRunner(options) {
         return { connected: !current.controller.signal.aborted }
       }
       pendingConfiguration = null
-      if (!normalized) rejectedCursor = null
       activateConfiguration(normalized)
       return { connected: false }
     },
@@ -528,7 +457,6 @@ export function createDesktopAutomationRunner(options) {
       stopped = true
       generation += 1
       pendingConfiguration = null
-      rejectedCursor = null
       if (current) retire(current, new Error("Desktop is shutting down"))
     },
   }
