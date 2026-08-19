@@ -123,6 +123,42 @@ test("Desktop and Cloud events remain ordered within their claimed attempt", () 
   assert.match(repositorySource, /orderBy\(asc\(AutomationRunEventTable\.attempt\), asc\(AutomationRunEventTable\.sequence\)\)/)
 })
 
+test("desktop occurrences stay claimable through the recovery window with named missed causes", () => {
+  const claim = repositorySource.slice(
+    repositorySource.indexOf("async claim("),
+    repositorySource.indexOf("async recordSkippedManual"),
+  )
+  const expire = repositorySource.slice(
+    repositorySource.indexOf("async expireUnclaimedDesktop"),
+    repositorySource.indexOf("async getRunReceipt"),
+  )
+  // The recovery window is one policy in @openwork/automations: the claim path
+  // clamps it against the occurrence's own next due time, and the expiry path
+  // records the cause an operator can act on instead of one generic wording.
+  assert.match(claim, /desktopClaimDeadline\(\{[\s\S]*nextDueAt,[\s\S]*\}\)/)
+  assert.match(expire, /missedDesktopReason\(/)
+  assert.match(expire, /code: "runner_unavailable"/)
+})
+
+test("runner presence is a read-only view of existing liveness data", () => {
+  const serviceSource = readFileSync(join(import.meta.dir, "../src/automations/service.ts"), "utf8")
+  const presence = serviceSource.slice(
+    serviceSource.indexOf("async desktopRunnerPresence"),
+    serviceSource.indexOf("async discoverDesktopRunnerWork"),
+  )
+  const reader = repositorySource.slice(
+    repositorySource.indexOf("async desktopRunnerLastSeenAt"),
+    repositorySource.indexOf("private async missedDesktopReason"),
+  )
+  // Presence answers from the liveness the work poll already records; adding
+  // writes here would reintroduce the idle database traffic the bounded work
+  // poll was introduced to remove.
+  assert.match(presence, /desktopRunnerLastSeenAt/)
+  assert.doesNotMatch(presence, /update|insert|touchDesktopRunner/i)
+  assert.match(reader, /db\.select\(/)
+  assert.doesNotMatch(reader, /db\.(update|insert)/)
+})
+
 test("expired lease recovery cannot clobber a concurrently renewed lease", () => {
   const recovery = repositorySource.slice(
     repositorySource.indexOf("async recoverExpiredLeases"),

@@ -79,7 +79,10 @@ function runVariant(status: AutomationRun["status"]): "default" | "secondary" | 
 
 function runLabel(run: AutomationRun) {
   if (run.status === "skipped" && run.error?.code === "runner_unavailable") {
-    return "Missed — desktop runner unavailable"
+    // Den names the cause it observed — no desktop, a busy desktop, or one
+    // that stayed silent. Older receipts predate that and carry the single
+    // generic wording, so fall back rather than restate it for every cause.
+    return run.error.message.trim() || "Missed — desktop runner unavailable"
   }
   if (run.status === "skipped" && (run.error?.code === "model_access_lost" || run.error?.code === "provider_unavailable")) {
     return "Skipped — model unavailable"
@@ -181,6 +184,19 @@ export function AutomationsPage(props: { providerCatalog?: AutomationProviderCat
     queryFn: () => client!.listOrgLlmProviders(organizationId!),
     enabled: ready,
   })
+  const runnerPresenceQuery = useQuery({
+    queryKey: [...queryRoot, "runner-presence"],
+    queryFn: () => client!.getAutomationDesktopRunnerPresence(organizationId!),
+    enabled: ready,
+    // A failed probe waits for the next interval instead of retrying, and a
+    // Den without the route answers null once — there is nothing to poll.
+    retry: false,
+    refetchInterval: (queryState) => (queryState.state.data === null ? false : 60_000),
+  })
+  // Only a Den that positively reports no desktop earns the warning. A Den too
+  // old to answer, or one that has not answered yet, leaves presence unknown,
+  // and claiming there is no desktop on that basis would be worse than silence.
+  const noDesktopConnected = runnerPresenceQuery.data?.connected === false
   const detailQuery = useQuery({
     queryKey: [...queryRoot, "detail", selectedId],
     queryFn: () => client!.getAutomation(organizationId!, selectedId!),
@@ -432,6 +448,21 @@ export function AutomationsPage(props: { providerCatalog?: AutomationProviderCat
             </Button>
           </div>
         </div>
+
+        {(detail.revision.executionTarget ?? "desktop") === "desktop"
+          && task.state === "active"
+          && noDesktopConnected ? (
+          <Alert variant="warning" data-automation-runner-offline>
+            <AlertCircle />
+            <AlertTitle>No desktop connected</AlertTitle>
+            <AlertDescription>
+              <p>
+                This Automation runs on your desktop, and Den cannot see one right now. Occurrences that
+                come due are recorded as missed unless a signed-in desktop is running by then.
+              </p>
+            </AlertDescription>
+          </Alert>
+        ) : null}
 
         {task.needsAttentionReason ? (
           <Alert variant="warning" data-automation-model-attention={modelNeedsAttention || undefined}>

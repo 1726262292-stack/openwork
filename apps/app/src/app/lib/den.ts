@@ -8,6 +8,7 @@ import {
 } from "@openwork/types/automations";
 import type {
   AutomationDetail,
+  AutomationDesktopRunnerPresence,
   AutomationDesktopRunnerRegistration,
   AutomationList,
   AutomationRun,
@@ -2667,6 +2668,25 @@ export function createDenClient(options: { baseUrl: string; apiBaseUrl?: string 
         organizationId: orgId,
         automationModelAttentionCapable: true,
       });
+    },
+
+    /**
+     * Null when this Den cannot report presence: desktops outlive the Den they
+     * were released against, and self-hosted Dens lag further still. Unknown
+     * presence is not an absent desktop, so callers must not warn on it.
+     */
+    async getAutomationDesktopRunnerPresence(orgId: string): Promise<AutomationDesktopRunnerPresence | null> {
+      try {
+        return await requestJson<AutomationDesktopRunnerPresence>(baseUrls, "/v1/automation-runners/presence", {
+          method: "GET",
+          token,
+          organizationId: orgId,
+          automationModelAttentionCapable: true,
+        });
+      } catch (error) {
+        if (error instanceof DenApiError && error.status === 404) return null;
+        throw error;
+      }
     },
 
     async mintAutomationRunnerToken(orgId: string, registration: AutomationDesktopRunnerRegistration): Promise<AutomationRunnerTokenResponse> {
