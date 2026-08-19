@@ -23,7 +23,6 @@ import {
   DEN_SESSION_UPDATE_AGE_IN_SECONDS,
 } from "./session-lifetime.js";
 import { DEN_ACCOUNT_CONFIG } from "./account-linking-policy.js";
-import { ensureDenAccountId } from "./account-id-policy.js";
 import { cache } from "./cache.js";
 import { SCIM_TOKEN_STORAGE_STRATEGY } from "./scim-token-storage.js";
 import { syncDenSignupContact } from "./loops.js";
@@ -580,15 +579,6 @@ export const auth = betterAuth({
     freshAge: 15 * 60,
   },
   databaseHooks: {
-    // Account-linking flows can arrive with Better Auth's opaque local row ID.
-    // Enforce Den's persisted account TypeID without touching the IdP accountId.
-    account: {
-      create: {
-        before: async (account) => ({
-          data: ensureDenAccountId(account),
-        }),
-      },
-    },
     user: {
       update: {
         after: async (user) => {
