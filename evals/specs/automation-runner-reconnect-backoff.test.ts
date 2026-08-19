@@ -33,7 +33,7 @@ test("desktop Automation runners back off repeated HTTP failures", async ({ evid
   expect(unit.stdout).toMatch(/# fail 0\b/);
   expect(unit.stdout).toMatch(/# skipped 0\b/);
   expect(unit.stdout).toMatch(/# todo 0\b/);
-  evidence.fact(
+  evidence.recordAssertionEvidence(
     "Repeated HTTP failures retain capped exponential backoff",
     "Both ten-response 502 and 401 sequences produced 500, 1000, 2000, 4000, 8000, 16000, then four 30000ms delays, with exactly one work and one SSE request per attempt. After three 502s, a parsed keepalive followed by an abrupt stream error reset the next delay to 500ms.",
     true,
@@ -44,7 +44,7 @@ test("desktop Automation runners back off repeated HTTP failures", async ({ evid
   expect(requestBudget(expectedDelays, 60_000)).toBe(14);
   expect(previousResetOnResponseDelays.reduce((total, delay) => total + delay, 0)).toBe(5_000);
   expect(expectedDelays.reduce((total, delay) => total + delay, 0)).toBe(151_500);
-  evidence.fact(
+  evidence.recordAssertionEvidence(
     "Reconnect request budget is bounded during an outage",
     "At midpoint jitter, the pre-fix reset behavior budgets 240 work-plus-SSE requests in 60 seconds; capped exponential backoff budgets 14. Across ten failures, waiting rises from 5 seconds to 151.5 seconds.",
     true,
