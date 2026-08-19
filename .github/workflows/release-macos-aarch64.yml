@@ -1132,7 +1132,7 @@ jobs:
 
       - name: Prepare openwork-server
         if: steps.npm-versions.outputs.publish_server == 'true'
-        run: pnpm --filter openwork-server prepare:npm
+        run: pnpm --filter openwork-server publish:npm --dry-run
 
       - name: Upload npm package
         if: steps.npm-versions.outputs.publish_server == 'true'
