@@ -13,7 +13,7 @@ import { remoteMcpAppsEnabled } from "../capability-sources/remote-mcp-apps-roll
 import { publicRoute, tokenRoute } from "../middleware/index.js"
 import { db } from "../db.js"
 import { getMcpResourceContext, verifyMcpRequest } from "./auth.js"
-import { DEN_MCP_APP_HOST_SCOPE } from "./scopes.js"
+import { DEN_MCP_APP_HOST_SCOPE, DEN_MCP_WRITE_SCOPE } from "./scopes.js"
 import { getCatalog, protectedResourceMetadata } from "./index.js"
 import { preflightMcpJsonRpcRequest } from "./json-rpc-preflight.js"
 import {
@@ -31,7 +31,7 @@ import { env } from "../env.js"
 import { getOrganizationContextForUser, listTeamsForMember } from "../orgs.js"
 import { getCodemodeScriptDetail, getCodemodeScriptSnapshot } from "../codemode-scripts.js"
 import { artifactFreshness } from "../saved-script-artifacts.js"
-import { PluginArchAuthorizationError } from "../routes/org/plugin-system/access.js"
+import { PluginArchAuthorizationError, requirePluginArchCapability } from "../routes/org/plugin-system/access.js"
 import {
   DYNAMIC_ARTIFACT_APP_SCHEMA_VERSION,
   dynamicArtifactAppServerCapabilities,
@@ -76,6 +76,8 @@ import {
   registerConnectMcpServerIndex,
   supportsConnectMcpAppHost,
 } from "./connect-mcp-server-index.js"
+import { registerAgentSkillCreatedApp } from "./skill-created-app.js"
+import { createPluginBundle, listPluginMemberships, PluginArchRouteFailure } from "../routes/org/plugin-system/store.js"
 
 export { externalToolContent } from "./tool-content.js"
 export { externalCapabilityErrorToolResult, externalCapabilitySuccessToolResult }
@@ -181,6 +183,7 @@ const programRunOutputSchema = z.object({
 
 export const AGENT_MCP_INSTRUCTIONS = [
   "This OpenWork Cloud MCP server uses standard MCP tools, resources, structured results, and list-changed notifications.",
+  "Use create_skill to create one private Cloud skill in a new Plugin. It returns a standard skill-created MCP App result plus a text fallback; do not route this flow through execute_capability or postPlugins.",
   "Standard MCP Apps supplied by connected MCP servers are discovered through search_capabilities. A match with kind mcp_app must be executed through execute_capability like any other exact match; compatible OpenWork hosts preserve the current _meta.ui.resourceUri and render it without a generated direct-tool name.",
   "Standalone URL-imported Apps are deferred future work and are not part of this release. Do not offer, search for, import, or launch them.",
   "A Program is an immutable-versioned Code Mode Script config object inside an OpenWork Connect Plugin. Organizations with Code Mode scripts enabled receive execute_capability_script, the backwards-compatible render_dynamic_artifact MCP App tool, and a constant-size Program catalog: search_programs, select_program, and clear_program_selection.",
@@ -369,8 +372,9 @@ export function registerAgentSkillResources(input: {
 }
 
 /**
- * The minimal, harness-facing MCP surface: two core tools plus gated Code Mode
- * execution and standards-based Artifact presentation.
+ * The minimal, harness-facing MCP surface: two capability-routing tools, one
+ * first-party skill creation App, plus gated Code Mode execution and
+ * standards-based Artifact presentation.
  *
  * `/mcp` (index.ts) stays exactly as it is — every catalog operation
  * individually registered, ~129 tools today. That's unchanged and still
@@ -380,8 +384,9 @@ export function registerAgentSkillResources(input: {
  * `/mcp/agent` is a *different* endpoint for a *different* consumer: the
  * desktop app's "OpenWork Cloud Control" connection, which is what an
  * OpenCode/Claude Code/Codex-style harness actually sees. It always registers
- * `search_capabilities` and `execute_capability`, and conditionally registers
- * Code Mode plus a constant-size Program search/selection catalog.
+ * `search_capabilities`, `execute_capability`, and `create_skill`, and
+ * conditionally registers Code Mode plus a constant-size Program
+ * search/selection catalog.
  * One selected Program contributes exact run/render tools; its renderer is a
  * read-only MCP App over the same authorized saved-Script snapshots and does
  * not create a second execution or scheduling path. The other ~127 operations
@@ -532,8 +537,8 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
         title: "Search capabilities",
         description: [
           codemodeEnabled
-            ? "Search for a capability by keyword. This connection also exposes execute_capability, execute_capability_script, and Program search/selection tools —"
-            : "Search for a capability by keyword. This connection only exposes this tool and execute_capability —",
+            ? "Search for a capability by keyword. This connection also exposes execute_capability, create_skill, execute_capability_script, and Program search/selection tools —"
+            : "Search for a capability by keyword. This connection also exposes execute_capability and create_skill —",
           "there is no list of individually-named tools to browse. Always search first.",
           "Search covers native Google Workspace capabilities (Gmail, Calendar, Drive, Gmail drafts), org-connected external MCPs, and namespaced OpenWork Admin tools for allowlisted platform admins.",
           "When Code Mode is enabled, accessible Programs appear as marketplace matches with kind script and execute through execute_capability like every other exact search result.",
@@ -590,6 +595,70 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
         return result
       },
     )
+
+    registerAgentSkillCreatedApp({
+      server,
+      create: async ({ pluginName, skillMarkdown }) => {
+        if (!principal.scopes.has(DEN_MCP_WRITE_SCOPE)) {
+          return {
+            ok: false,
+            error: "insufficient_mcp_scope",
+            message: `Creating a skill requires the ${DEN_MCP_WRITE_SCOPE} scope.`,
+          }
+        }
+        if (!libraryContext) {
+          return {
+            ok: false,
+            error: "mcp_membership_revoked",
+            message: "The OpenWork Cloud membership for this connection is unavailable.",
+          }
+        }
+        try {
+          await requirePluginArchCapability(libraryContext, "plugin.create", false)
+          await requirePluginArchCapability(libraryContext, "config_object.create", false)
+          const plugin = await createPluginBundle({
+            context: libraryContext,
+            name: pluginName,
+            components: [{ type: "skill", value: { rawSourceText: skillMarkdown } }],
+          })
+          const memberships = await listPluginMemberships({
+            context: libraryContext,
+            pluginId: plugin.id,
+            includeConfigObjects: true,
+            onlyActive: true,
+          })
+          const skill = memberships.items
+            .map((membership) => membership.configObject)
+            .find((configObject) => configObject?.objectType === "skill")
+          if (!skill || !skill.description) {
+            return {
+              ok: false,
+              error: "skill_creation_incomplete",
+              message: "The Plugin was created, but its skill could not be resolved.",
+            }
+          }
+          return {
+            ok: true,
+            payload: {
+              schemaVersion: "1",
+              name: skill.title,
+              pluginId: plugin.id,
+              skillId: skill.id,
+              description: skill.description,
+              libraryUrl: new URL(
+                `/dashboard/library/plugins/${encodeURIComponent(plugin.id)}`,
+                env.betterAuthUrl,
+              ).toString(),
+            },
+          }
+        } catch (error) {
+          if (error instanceof PluginArchRouteFailure || error instanceof PluginArchAuthorizationError) {
+            return { ok: false, error: error.error, message: error.message }
+          }
+          throw error
+        }
+      },
+    })
 
     if (codemodeEnabled) {
       const loadDynamicArtifact = async ({
