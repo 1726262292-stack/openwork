@@ -356,6 +356,7 @@ export function registerDeleteOrganizationRoutes<T extends { Variables: OrgRoute
 
       await cancelOrganizationSubscriptions({ organizationId })
 
+      let affectedSessions: Array<{ id: typeof AuthSessionTable.$inferSelect.id; token: typeof AuthSessionTable.$inferSelect.token }> = []
       await db.transaction(async (tx) => {
         const memberRows = await tx
           .select({ id: MemberTable.id, userId: MemberTable.userId })
@@ -456,12 +457,11 @@ export function registerDeleteOrganizationRoutes<T extends { Variables: OrgRoute
           await tx.delete(LlmProviderAccessTable).where(inArray(LlmProviderAccessTable.llmProviderId, llmProviderIds))
         }
 
-        const affectedSessions = await tx
-          .select({ token: AuthSessionTable.token })
+        affectedSessions = await tx
+          .select({ id: AuthSessionTable.id, token: AuthSessionTable.token })
           .from(AuthSessionTable)
           .where(eq(AuthSessionTable.activeOrganizationId, organizationId))
         await tx.update(AuthSessionTable).set({ activeOrganizationId: null }).where(eq(AuthSessionTable.activeOrganizationId, organizationId))
-        await Promise.all(affectedSessions.map((session) => cache.auth.deleteSession(session.token)))
 
         await tx.delete(OrganizationBrandAssetTable).where(eq(OrganizationBrandAssetTable.organizationId, organizationId))
         await tx.delete(WorkspaceClaimTable).where(eq(WorkspaceClaimTable.organizationId, organizationId))
@@ -527,6 +527,12 @@ export function registerDeleteOrganizationRoutes<T extends { Variables: OrgRoute
         await tx.delete(MemberTable).where(eq(MemberTable.organizationId, organizationId))
         await tx.delete(OrganizationTable).where(eq(OrganizationTable.id, organizationId))
       })
+
+      await cache.org.deleteMembers(organizationId)
+      await Promise.all(affectedSessions.flatMap((session) => [
+        cache.auth.deleteSession(session.token),
+        cache.auth.deleteSessionId(session.id),
+      ]))
 
       logger.info("organization deleted", {
         organization_id: organizationId,
