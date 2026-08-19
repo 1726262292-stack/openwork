@@ -588,17 +588,14 @@ childTest("session liveness check failures 503 resource requests but fail open r
   expect(accessGrants.length).toBeGreaterThan(0)
 }, 8_000)
 
-childTest("session touch failures do not block healthy liveness checks", async () => {
+childTest("session liveness accepts cached session-id checks", async () => {
   const grant = await issueOAuthGrant()
   const provider = new HarnessOAuthProvider(grant)
-  const errors: unknown[][] = []
-  const originalError = console.error
-  console.error = (...args: unknown[]) => {
-    errors.push(args)
-  }
+  let selectCount = 0
   const restoreLiveness = setMcpSessionLivenessDependenciesForTest({
-    touch: async () => {
-      throw new Error("simulated liveness touch outage")
+    select: async () => {
+      selectCount += 1
+      return [{ id: grant.sessionId }]
     },
   })
 
@@ -609,12 +606,9 @@ childTest("session touch failures do not block healthy liveness checks", async (
   } finally {
     await session?.client.close()
     restoreLiveness()
-    console.error = originalError
   }
 
-  const logs = serializedConsoleErrors(errors)
-  expect(logs).toContain("mcp_session_liveness_touch_failed")
-  expect(logs).not.toContain("mcp_session_liveness_check_failed")
+  expect(selectCount).toBeGreaterThan(0)
 }, 8_000)
 
 type RefreshRecord = {

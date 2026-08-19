@@ -6,7 +6,6 @@ import {
   OPENWORK_CLOUD_MCP_CONNECTION_ACTION_SOURCE,
   OPENWORK_CLOUD_MCP_CONNECTION_ACTION_VERSION,
 } from "@openwork/types/den/mcp-connection-action"
-import { MemberTable } from "@openwork-ee/den-db/schema"
 import { normalizeDenTypeId, type DenTypeId } from "@openwork-ee/utils/typeid"
 import {
   getExternalMcpConnection,
@@ -31,6 +30,7 @@ import {
   evaluateToolPolicy,
   isToolDisabled,
 } from "../capability-sources/external-mcp-tool-policy.js"
+import { cache } from "../cache.js"
 import { db } from "../db.js"
 import { listTeamsForMember } from "../orgs.js"
 import { openworkOrganizationConnectionsUrl, openworkYourConnectionsUrl } from "./connection-navigation.js"
@@ -109,16 +109,10 @@ export async function resolveMcpMemberIdentity(input: {
   organizationId: string
 }): Promise<McpMemberIdentity | null> {
   const organizationId = normalizeDenTypeId("organization", input.organizationId)
-  const rows = await db
-    .select({ id: MemberTable.id })
-    .from(MemberTable)
-    .where(and(
-      eq(MemberTable.userId, normalizeDenTypeId("user", input.userId)),
-      eq(MemberTable.organizationId, organizationId),
-      isNull(MemberTable.removedAt),
-    ))
-    .limit(1)
-  const member = rows[0]
+  const member = await cache.org.membership({
+    organizationId,
+    userId: normalizeDenTypeId("user", input.userId),
+  })
   if (!member) return null
   const teams = await listTeamsForMember({ organizationId, memberId: member.id })
   return { orgMembershipId: member.id, teamIds: teams.map((team) => team.id) }

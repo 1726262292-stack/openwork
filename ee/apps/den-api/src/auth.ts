@@ -534,7 +534,7 @@ async function getOrganizationMemberRole(input: {
   organizationId: string;
   userId: string;
 }) {
-  const member = await getOrganizationContextForUser({
+  const member = await cache.org.membership({
     organizationId: normalizeDenTypeId("organization", input.organizationId),
     userId: normalizeDenTypeId("user", input.userId),
   });
@@ -542,8 +542,8 @@ async function getOrganizationMemberRole(input: {
     return null;
   }
   return {
-    role: member.currentMember.role,
-    isOwner: member.currentMember.isOwner,
+    role: member.role,
+    isOwner: member.isOwner,
   };
 }
 
@@ -654,12 +654,18 @@ export const auth = betterAuth({
           if (typeof session.token === "string") {
             await cache.auth.deleteSession(session.token);
           }
+          if (typeof session.id === "string") {
+            await cache.auth.deleteSessionId(normalizeDenTypeId("session", session.id));
+          }
         },
       },
       delete: {
         after: async (session) => {
           if (typeof session.token === "string") {
             await cache.auth.deleteSession(session.token);
+          }
+          if (typeof session.id === "string") {
+            await cache.auth.deleteSessionId(normalizeDenTypeId("session", session.id));
           }
         },
       },

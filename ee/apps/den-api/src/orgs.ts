@@ -1414,6 +1414,7 @@ export async function setSessionActiveOrganization(sessionId: SessionId, organiz
   if (session) {
     await cache.auth.deleteSession(session.token)
   }
+  await cache.auth.deleteSessionId(sessionId)
 }
 
 export async function listUserOrgs(userId: UserId) {

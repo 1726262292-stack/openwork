@@ -36,7 +36,10 @@ export async function revokeMembershipSessionCredentials(input: {
     await db
       .delete(AuthSessionTable)
       .where(inArray(AuthSessionTable.id, sessions.map((session) => session.id)))
-    await Promise.all(sessions.map((session) => cache.auth.deleteSession(session.token)))
+    await Promise.all(sessions.flatMap((session) => [
+      cache.auth.deleteSession(session.token),
+      cache.auth.deleteSessionId(session.id),
+    ]))
   }
 
   const oauthAccessTokens = await db
