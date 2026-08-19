@@ -25,7 +25,6 @@ import {
 import { DEN_ACCOUNT_CONFIG } from "./account-linking-policy.js";
 import { cache } from "./cache.js";
 import { SCIM_TOKEN_STORAGE_STRATEGY } from "./scim-token-storage.js";
-import { OAUTH_TOKEN_RATE_LIMIT_MAX, OAUTH_TOKEN_RATE_LIMIT_WINDOW_SECONDS } from "./oauth-token-rate-limit-observability.js";
 import { syncDenSignupContact } from "./loops.js";
 import { sendEmail } from "./utils/email/send-email.js";
 import {
@@ -935,10 +934,7 @@ export const auth = betterAuth({
         window: 300,
         max: 10,
       },
-      "/oauth2/token": {
-        window: OAUTH_TOKEN_RATE_LIMIT_WINDOW_SECONDS,
-        max: OAUTH_TOKEN_RATE_LIMIT_MAX,
-      },
+      "/oauth2/token": false,
       "/request-password-reset": {
         window: 3600,
         max: 5,

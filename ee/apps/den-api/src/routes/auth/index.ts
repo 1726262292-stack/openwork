@@ -32,6 +32,7 @@ import {
 import { getInvalidMcpOAuthRedirectUris, isAllowedMcpOAuthRedirectUri, MCP_OAUTH_REDIRECT_URI_ERROR_DESCRIPTION } from "../../mcp/oauth-client-policy.js"
 import { normalizeMcpOAuthClientScope } from "../../mcp/scopes.js"
 import { publicRoute, queryValidator, tokenRoute } from "../../middleware/index.js"
+import { checkOAuthTokenRateLimit, recordOAuthTokenFailure } from "../../oauth-token-rate-limit.js"
 import { getOAuthTokenRateLimitLogFields, readBasicAuthClientId } from "../../oauth-token-rate-limit-observability.js"
 import { emptyResponse, jsonResponse } from "../../openapi.js"
 import { getSingletonSsoStatus } from "../../orgs.js"
@@ -602,8 +603,28 @@ async function isInvitationSignupAllowed(request: Request) {
 
 async function handleAuthRequest(c: Context) {
   const request = c.req.raw
+  const observabilityRequest = request.method === "POST"
+    && getBetterAuthProxyPath(new URL(request.url).pathname) === "/oauth2/token"
+    ? request.clone()
+    : null
+  const oauthTokenRateLimit = observabilityRequest
+    ? await checkOAuthTokenRateLimit(request, checkRateLimit)
+    : null
+  if (observabilityRequest && oauthTokenRateLimit?.response) {
+    const rateLimitFields = await getOAuthTokenRateLimitLogFields(observabilityRequest, oauthTokenRateLimit.response)
+    if (rateLimitFields) {
+      logger.warn("oauth token request rate limited", rateLimitFields)
+    }
+    return oauthTokenRateLimit.response
+  }
   const authRequest = await normalizeMcpOAuthRequest(request)
   if (authRequest instanceof Response) {
+    if (oauthTokenRateLimit) {
+      // Malformed token requests rejected before auth.handler must still
+      // consume the failure budget, or repeated invalid-resource submissions
+      // would only ever pay the looser attempt buckets.
+      await recordOAuthTokenFailure(oauthTokenRateLimit.failureKey, authRequest, checkRateLimit)
+    }
     return authRequest
   }
   const invitationSignupAllowed = await isInvitationSignupAllowed(authRequest)
@@ -662,10 +683,6 @@ async function handleAuthRequest(c: Context) {
     await revokeBearerSession(authRequest.headers)
   }
 
-  const observabilityRequest = authRequest.method === "POST"
-    && getBetterAuthProxyPath(new URL(authRequest.url).pathname) === "/oauth2/token"
-    ? authRequest.clone()
-    : null
   let response: Response
   try {
     response = await auth.handler(authRequest)
@@ -688,6 +705,9 @@ async function handleAuthRequest(c: Context) {
   }
   if (emailSignInAttempt) {
     await recordEmailSignInResult(emailSignInAttempt, response)
+  }
+  if (oauthTokenRateLimit) {
+    await recordOAuthTokenFailure(oauthTokenRateLimit.failureKey, response, checkRateLimit)
   }
   if (observabilityRequest) {
     const rateLimitFields = await getOAuthTokenRateLimitLogFields(observabilityRequest, response)

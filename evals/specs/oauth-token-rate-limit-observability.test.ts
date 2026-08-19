@@ -7,7 +7,7 @@ import { test } from "@openwork/testkit";
 
 const repoRoot = resolve(import.meta.dirname, "../..");
 
-test("OAuth token reconnect bursts remain available with safe rate-limit diagnostics", ({ evidence }) => {
+test("OAuth token rate-limit diagnostics remain safe", ({ evidence }) => {
   const reportDir = mkdtempSync(join(tmpdir(), "openwork-oauth-rate-limit-"));
   const reportPath = join(reportDir, "bun-junit.xml");
   try {
@@ -39,11 +39,6 @@ test("OAuth token reconnect bursts remain available with safe rate-limit diagnos
     expect(junit).not.toContain("<failure");
     expect(junit).not.toContain("<skipped");
 
-    evidence.recordAssertionEvidence(
-      "Legitimate OAuth reconnect bursts exceed the observed production peak",
-      "The focused runtime witness requires a 120-request allowance in a 60-second window, above the observed 64 token requests per minute.",
-      true,
-    );
     evidence.recordAssertionEvidence(
       "Rate-limit diagnostics do not expose OAuth credentials",
       "The focused runtime witness rejects raw client IDs, client secrets, refresh tokens, authorization codes, and raw user-agent strings while retaining a client fingerprint and category.",
