@@ -193,6 +193,8 @@ export function runnerTokenAudience(token) {
 
 export function createDesktopAutomationRunner(options) {
   const fetchImpl = options.fetchImpl ?? fetch
+  const random = options.random ?? Math.random
+  const waitBeforeReconnect = options.waitBeforeReconnect ?? ((ms) => sleep(ms, new AbortController().signal))
   const legacyBaseUrls = new Set((options.legacyBaseUrls ?? [])
     .map((value) => normalizeRunnerBaseUrl(value))
     .filter(Boolean))
@@ -295,11 +297,12 @@ export function createDesktopAutomationRunner(options) {
     return reconcilePromise
   }
 
-  const consumeSse = async (response, localGeneration) => {
+  const consumeSse = async (response, localGeneration, onHealthy) => {
     if (!response.ok || !response.body) throw new Error(`SSE returned ${response.status}`)
     const reader = response.body.getReader()
     const decoder = new TextDecoder()
     let buffer = ""
+    let healthy = false
     while (!stopped && localGeneration === generation) {
       const { done, value } = await reader.read()
       if (done) return
@@ -310,6 +313,7 @@ export function createDesktopAutomationRunner(options) {
         buffer = buffer.slice(boundary + 2)
         let eventType = "message"
         let eventData = null
+        let parsedData = false
         for (const line of block.split("\n")) {
           if (line.startsWith("id:")) {
             const value = Number(line.slice(3).trim())
@@ -317,9 +321,10 @@ export function createDesktopAutomationRunner(options) {
           }
           if (line.startsWith("event:")) eventType = line.slice(6).trim()
           if (line.startsWith("data:")) {
-            try { eventData = JSON.parse(line.slice(5).trim()) } catch { eventData = null }
+            try { eventData = JSON.parse(line.slice(5).trim()); parsedData = true } catch { eventData = null }
           }
         }
+        if (parsedData && !healthy) { healthy = true; onHealthy() }
         await heartbeat().catch(() => undefined)
         if (
           eventType !== "keepalive"
@@ -345,14 +350,13 @@ export function createDesktopAutomationRunner(options) {
           signal: connectionController.signal,
         })
         options.log?.("SSE connected")
-        reconnectAttempt = 0
-        await consumeSse(response, localGeneration)
+        await consumeSse(response, localGeneration, () => { reconnectAttempt = 0 })
       } catch (error) {
         if (stopped || localGeneration !== generation) return
         options.log?.(`SSE reconnecting: ${error instanceof Error ? error.message : String(error)}`)
       }
       const backoff = Math.min(30_000, 500 * (2 ** reconnectAttempt++))
-      await sleep(Math.round(backoff * (0.5 + Math.random())), new AbortController().signal)
+      await waitBeforeReconnect(Math.round(backoff * (0.5 + random())))
     }
   }
 
