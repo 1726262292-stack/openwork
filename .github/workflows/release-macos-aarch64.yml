@@ -1053,6 +1053,9 @@ jobs:
       needs.resolve-release.outputs.benchmark_only != 'true' &&
       needs.resolve-release.outputs.publish_npm == 'true'
     runs-on: blacksmith-4vcpu-ubuntu-2404
+    permissions:
+      contents: read
+      id-token: write
     env:
       RELEASE_TAG: ${{ needs.resolve-release.outputs.release_tag }}
       RELEASE_VERSION: ${{ needs.resolve-release.outputs.release_version }}
