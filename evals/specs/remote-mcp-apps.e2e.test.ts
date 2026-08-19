@@ -1,9 +1,9 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { expect, onTestFinished } from "vitest";
 import { clickButton, createAndSelectWorkspace, createOrgConnection, denFetch, evalIn, waitFor } from "@openwork/behaviors";
-import { connect, debuggerUrlFor, evaluate, listTargets } from "@openwork/cdp";
+import { connect, debuggerUrlFor, evaluate, listTargets, navigate } from "@openwork/cdp";
 import { screenshot, validate } from "@openwork/test-evidence";
-import { desktop } from "@openwork/hosts";
+import { chrome, desktop } from "@openwork/hosts";
 import { localMysqlIsRunning, needs, server, test } from "@openwork/testkit";
 import { buildGeneratedArtifactViewInWorker } from "../../ee/apps/den-api/src/generated-artifact-view-builder.js";
 
@@ -17,7 +17,7 @@ const title = !e2eTestsEnabled
     ? "Remote MCP Apps skipped — needs local placement without OPENWORK_EVAL_DEN_API_URL"
     : !mysqlOpen
       ? "Remote MCP Apps skipped — needs MySQL on 127.0.0.1:3306"
-      : "Desktop adopts the private native MCP App host before legacy Den surfaces are retired";
+      : "standard MCP Apps stay behind capability search while standalone URL Apps remain unavailable";
 const providerId = "remote-mcp-apps-provider";
 const modelId = "remote-mcp-apps-model";
 const desktopClosingReply = "Project Atlas is open through its standard MCP server.";
@@ -360,6 +360,7 @@ test.skipIf(!e2eTestsEnabled || !localPlacement || !mysqlOpen)(title, { timeout:
           name.includes("open_project_atlas")
           || name.includes("search_projects")
           || name.includes("launch_remote_app_")
+          || name.includes("import_remote_mcp_app")
           || name.includes("openwork_connect_")
         ));
         if (directProviderTools.length > 0) {
@@ -538,17 +539,80 @@ test.skipIf(!e2eTestsEnabled || !localPlacement || !mysqlOpen)(title, { timeout:
     clientInfo: { name: "remote-mcp-app-eval", version: "1.0.0" },
   });
   expect(initialized.protocolVersion).toBeTruthy();
-  expect(String(initialized.instructions ?? "")).toContain("Standard MCP Apps supplied by connected MCP servers");
+  expect(String(initialized.instructions ?? "")).toContain("URL-imported Apps are deferred");
   const initializedCapabilities = requireRecord(initialized.capabilities, "agent capabilities");
   expect(requireRecord(initializedCapabilities.tools, "agent tool capabilities").listChanged).toBe(true);
   expect(requireRecord(initializedCapabilities.resources, "agent resource capabilities").listChanged).toBe(true);
 
   const centralModelTools = await agentRpc(den.ref.apiUrl, mcpToken, "tools/list", {});
   const centralModelToolNames = toolsFrom(centralModelTools).map((tool) => String(tool.name ?? ""));
-  expect(centralModelToolNames).toContain("import_remote_mcp_app");
+  expect(centralModelToolNames).not.toContain("import_remote_mcp_app");
+  expect(centralModelToolNames.some((name) => name.startsWith("launch_remote_app_"))).toBe(false);
   const centralAppHostTools = await agentRpc(den.ref.apiUrl, mcpToken, "tools/list", {}, "/mcp/agent", appHostHeaders);
   const centralAppHostToolNames = toolsFrom(centralAppHostTools).map((tool) => String(tool.name ?? ""));
-  expect(centralAppHostToolNames).toContain("import_remote_mcp_app");
+  expect(centralAppHostToolNames).not.toContain("import_remote_mcp_app");
+  expect(centralAppHostToolNames.some((name) => name.startsWith("launch_remote_app_"))).toBe(false);
+
+  const unavailableImport = await agentRpc(den.ref.apiUrl, mcpToken, "tools/call", {
+    name: "import_remote_mcp_app",
+    arguments: { sourceUrl: "https://example.test/project-atlas.html" },
+  });
+  expect(unavailableImport.isError).toBe(true);
+
+  const unavailableImportApi = await denFetch(den.admin, "/v1/remote-mcp-apps", {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${den.admin.token}`,
+      "x-openwork-org-id": organizationId,
+    },
+    body: JSON.stringify({ sourceUrl: "https://example.test/project-atlas.html" }),
+  });
+  expect(unavailableImportApi.response.status).toBe(404);
+  const unavailablePreviewApi = await denFetch(den.admin, "/v1/remote-mcp-apps/preview", {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${den.admin.token}`,
+      "x-openwork-org-id": organizationId,
+    },
+    body: JSON.stringify({ sourceUrl: "https://example.test/project-atlas.html" }),
+  });
+  expect(unavailablePreviewApi.response.status).toBe(404);
+
+  await using browser = await chrome({ name: "remote-mcp-apps", startUrl: den.ref.webUrl, headless: true });
+  await navigate(browser.client, den.ref.webUrl);
+  await waitFor(browser, `location.href.startsWith(${JSON.stringify(den.ref.webUrl)}) && document.readyState === "complete"`, {
+    timeoutMs: 60_000,
+    label: "Den Web origin",
+  });
+  const tokenStored = await evalIn(browser, `(() => {
+    localStorage.setItem("openwork:web:auth-token", ${JSON.stringify(den.admin.token)});
+    return localStorage.getItem("openwork:web:auth-token") === ${JSON.stringify(den.admin.token)};
+  })()`);
+  expect(tokenStored).toBe(true);
+  await navigate(browser.client, `${den.ref.webUrl}/dashboard/library`);
+  await waitFor(browser, `document.body.innerText.includes("My Library")`, {
+    timeoutMs: 60_000,
+    label: "Library without standalone URL-App import",
+  });
+  const libraryDom = await evalIn(browser, `({
+    text: document.body.innerText,
+    addButton: Boolean(document.querySelector('[data-testid="add-remote-mcp-app"]')),
+    urlInput: Boolean(document.querySelector('input[type="url"]')),
+  })`);
+  const libraryState = requireRecord(libraryDom, "Library DOM state");
+  expect(libraryState.addButton).toBe(false);
+  expect(libraryState.urlInput).toBe(false);
+  expect(String(libraryState.text)).not.toContain("Add remote MCP App");
+
+  const standaloneSearch = await agentRpc(den.ref.apiUrl, mcpToken, "tools/call", {
+    name: "search_capabilities",
+    arguments: { query: "open standalone URL-installed Project Atlas", type: "mcp", limit: 10 },
+  });
+  const standaloneMatches = Array.isArray(requireRecord(standaloneSearch.structuredContent, "standalone App search").matches)
+    ? (requireRecord(standaloneSearch.structuredContent, "standalone App search").matches as unknown[]).filter(isRecord)
+    : [];
+  expect(standaloneMatches.some((match) => String(match.name ?? "").startsWith("remote_app:"))).toBe(false);
+  expect(JSON.stringify(standaloneMatches)).not.toContain("ui://openwork/library-apps/");
 
   const connectSearch = await agentRpc(den.ref.apiUrl, mcpToken, "tools/call", {
     name: "search_capabilities",
@@ -583,8 +647,7 @@ test.skipIf(!e2eTestsEnabled || !localPlacement || !mysqlOpen)(title, { timeout:
   expect(Array.isArray(resources.resources) && resources.resources.some((resource) => isRecord(resource) && resource.uri === "openwork://connect/mcp-servers/index.json")).toBe(true);
   const legacyConnectIndexRead = await agentRpc(den.ref.apiUrl, mcpToken, "resources/read", { uri: "openwork://connect/mcp-servers/index.json" });
   const legacyConnectIndex = requireRecord(JSON.parse(String(contentsFrom(legacyConnectIndexRead)[0]?.text ?? "{}")), "legacy Connect MCP server index");
-  expect(Array.isArray(legacyConnectIndex.servers)).toBe(true);
-  expect(legacyConnectIndex.servers).toContainEqual(expect.objectContaining({ connectionId: connection.id }));
+  expect(legacyConnectIndex.servers).toEqual([]);
   const connectIndexRead = await agentRpc(
     den.ref.apiUrl,
     appHostMcpToken,
@@ -622,13 +685,31 @@ test.skipIf(!e2eTestsEnabled || !localPlacement || !mysqlOpen)(title, { timeout:
     connectedEndpoint,
     appHostCapabilityHeaders,
   );
-  expect(toolsFrom(modelConnectedTools).map((tool) => tool.name)).toContain("search_projects");
+  expect(toolsFrom(modelConnectedTools).map((tool) => tool.name)).toEqual([
+    "search_capabilities",
+    "execute_capability",
+  ]);
   const legacyConnectedTools = await agentRpc(den.ref.apiUrl, mcpToken, "tools/list", {}, connectedEndpoint);
-  expect(toolsFrom(legacyConnectedTools).map((tool) => tool.name)).toContain("search_projects");
+  expect(toolsFrom(legacyConnectedTools).map((tool) => tool.name)).toEqual([
+    "search_capabilities",
+    "execute_capability",
+  ]);
+  for (const tool of [...toolsFrom(modelConnectedTools), ...toolsFrom(legacyConnectedTools)]) {
+    expect(tool._meta).toBeUndefined();
+  }
   const legacyConnectedResources = await agentRpc(den.ref.apiUrl, mcpToken, "resources/list", {}, connectedEndpoint);
   expect(legacyConnectedResources.resources).toEqual([]);
   const legacyConnectedTemplates = await agentRpc(den.ref.apiUrl, mcpToken, "resources/templates/list", {}, connectedEndpoint);
   expect(legacyConnectedTemplates.resourceTemplates).toEqual([]);
+  const legacyProviderSearch = await agentRpc(den.ref.apiUrl, mcpToken, "tools/call", {
+    name: "search_capabilities",
+    arguments: { query: "Atlas project catalog", limit: 5 },
+  }, connectedEndpoint);
+  const legacyProviderMatches = Array.isArray(requireRecord(legacyProviderSearch.structuredContent, "legacy provider search").matches)
+    ? (requireRecord(legacyProviderSearch.structuredContent, "legacy provider search").matches as unknown[]).filter(isRecord)
+    : [];
+  expect(legacyProviderMatches).toContainEqual(expect.objectContaining({ name: "search_projects" }));
+  expect(legacyProviderMatches.every((match) => match.kind === undefined && match.mcpApp === undefined)).toBe(true);
   const connectedToolsResult = await agentRpc(den.ref.apiUrl, appHostMcpToken, "tools/list", {}, connectedEndpoint, appHostHeaders);
   const connectedTools = toolsFrom(connectedToolsResult);
   expect(connectedTools.map((tool) => tool.name)).toEqual([
@@ -654,15 +735,15 @@ test.skipIf(!e2eTestsEnabled || !localPlacement || !mysqlOpen)(title, { timeout:
     appHostCapabilityHeaders,
   );
   expect(connectedResources.resources).toEqual([]);
-  const transitionalRead = await agentRpc(
+  await expect(agentRpc(
     den.ref.apiUrl,
     mcpToken,
     "resources/read",
     { uri: connectedResourceUri },
     connectedEndpoint,
     appHostCapabilityHeaders,
-  );
-  expect(contentsFrom(transitionalRead)[0]).toMatchObject({ uri: connectedResourceUri });
+  ))
+    .rejects.toThrow("only through the OpenWork App host");
   const connectedRead = await agentRpc(
     den.ref.apiUrl,
     appHostMcpToken,
@@ -677,11 +758,10 @@ test.skipIf(!e2eTestsEnabled || !localPlacement || !mysqlOpen)(title, { timeout:
   expect(String(connectedContent.text ?? "")).toContain("Portable revision Connect 1.0.0");
   expect(requireRecord(requireRecord(connectedContent._meta, "connected resource metadata").ui, "connected resource UI metadata").csp).toBeTruthy();
 
-  const transitionalDirectCall = await agentRpc(den.ref.apiUrl, mcpToken, "tools/call", {
+  await expect(agentRpc(den.ref.apiUrl, mcpToken, "tools/call", {
     name: "search_projects",
     arguments: { query: "migration" },
-  }, connectedEndpoint, appHostCapabilityHeaders);
-  expect(JSON.stringify(transitionalDirectCall.structuredContent)).toContain("Atlas migration");
+  }, connectedEndpoint, appHostCapabilityHeaders)).rejects.toThrow("Use search_capabilities and execute_capability");
   await expect(agentRpc(den.ref.apiUrl, appHostMcpToken, "tools/call", {
     name: "search_projects",
     arguments: { query: "migration" },
@@ -699,7 +779,7 @@ test.skipIf(!e2eTestsEnabled || !localPlacement || !mysqlOpen)(title, { timeout:
     arguments: { name: "search_projects", body: { query: "migration" } },
   }, connectedEndpoint, appHostHeaders);
   expect(JSON.stringify(providerAppRun.structuredContent)).toContain("Atlas migration");
-  expect(standardMcpCalls).toBe(3);
+  expect(standardMcpCalls).toBe(2);
 
   await using desktopApp = await desktop({
     name: "remote-mcp-apps",
@@ -910,7 +990,7 @@ test.skipIf(!e2eTestsEnabled || !localPlacement || !mysqlOpen)(title, { timeout:
   expect(mountedProjectAtlas, `${desktopTranscript}\nPersisted tool: ${persistedProjectAtlasTool}`).toBe(true);
   expect(desktopTranscript).not.toContain("MCP_APP_INITIALIZE_TIMEOUT");
   expect(desktopTranscript).not.toContain("Interactive view unavailable");
-  expect(standardMcpCalls).toBe(4);
+  expect(standardMcpCalls).toBe(3);
   const desktopShot = await screenshot(desktopApp);
   const desktopExpectations = [
     "The conversation visibly contains the connected Project Atlas MCP App",
@@ -971,11 +1051,11 @@ test.skipIf(!e2eTestsEnabled || !localPlacement || !mysqlOpen)(title, { timeout:
   );
   const flagOffIndex = requireRecord(JSON.parse(String(contentsFrom(flagOffIndexRead)[0]?.text ?? "{}")), "flag-off Connect MCP server index");
   expect(flagOffIndex.servers).toEqual([]);
-  expect(standardMcpCalls).toBe(5);
+  expect(standardMcpCalls).toBe(4);
 
   evidence.recordAssertionEvidence(
-    "Desktop adopts the private native MCP App host before Den retires legacy surfaces",
-    `Kept the OpenCode runtime on central openwork-cloud with zero openwork-connect-* entries; launched the regular connected Project Atlas App through the scoped private host on connection ${connection.id}; preserved the prior Den provider endpoint for already-published Desktop builds during the rollout; used bounded same-server search_capabilities and execute_capability from the App; then disabled the organization rollout, published an empty private provider index, and preserved ordinary central search/execute without MCP App launch metadata.`,
-    standardMcpCalls === 5 && mountedProjectAtlas,
+    "Native MCP Apps stay bounded while standalone URL Apps remain unavailable",
+    `Kept every model-visible provider operation behind search_capabilities and execute_capability; exposed only the regular connected Project Atlas App binding on connection ${connection.id} to the App host; blocked direct provider access; proved the URL import tool, REST calls, Library button/form, capability matches, ui:// library resources, and standalone launch tools absent; completed the native MCP App handshake; then disabled the organization rollout, published an empty provider index, and preserved ordinary search/execute without MCP App launch metadata.`,
+    standardMcpCalls === 4 && mountedProjectAtlas,
   );
 });
