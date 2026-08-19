@@ -1,8 +1,5 @@
 import { createHash } from "node:crypto"
 
-export const OAUTH_TOKEN_RATE_LIMIT_MAX = 120
-export const OAUTH_TOKEN_RATE_LIMIT_WINDOW_SECONDS = 60
-
 const KNOWN_GRANT_TYPES = new Set([
   "authorization_code",
   "client_credentials",

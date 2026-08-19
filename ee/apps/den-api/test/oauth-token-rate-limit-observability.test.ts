@@ -1,13 +1,13 @@
 import { expect, test } from "bun:test"
 import {
   getOAuthTokenRateLimitLogFields,
-  OAUTH_TOKEN_RATE_LIMIT_MAX,
-  OAUTH_TOKEN_RATE_LIMIT_WINDOW_SECONDS,
+  readBasicAuthClientId,
 } from "../src/oauth-token-rate-limit-observability.js"
 
-test("allows reconnect bursts above the observed 64 requests per minute", () => {
-  expect(OAUTH_TOKEN_RATE_LIMIT_MAX).toBe(120)
-  expect(OAUTH_TOKEN_RATE_LIMIT_WINDOW_SECONDS).toBe(60)
+test("reads a client ID from valid Basic authentication only", () => {
+  expect(readBasicAuthClientId(new Headers({ authorization: `Basic ${btoa("desktop-client:secret")}` }))).toBe("desktop-client")
+  expect(readBasicAuthClientId(new Headers({ authorization: "Basic not-base64" }))).toBeNull()
+  expect(readBasicAuthClientId(new Headers({ authorization: `Bearer ${btoa("desktop-client:secret")}` }))).toBeNull()
 })
 
 test("builds safe OAuth token rate-limit diagnostics from Basic auth", async () => {
