@@ -70,27 +70,27 @@ test("GitHub installation-token request budgets and recovery hold in focused run
     expect(retryJunit).not.toContain("<failure");
     expect(retryJunit).not.toContain("<skipped");
 
-    evidence.fact(
+    evidence.recordAssertionEvidence(
       "Concurrent installation-token minting is single-flight",
       "The runtime witness measured a 12-caller cold-cache control at 12 installation-token calls and concurrency 12, then the production token helper at exactly 1 mint and peak concurrency 1.",
       true,
     );
-    evidence.fact(
+    evidence.recordAssertionEvidence(
       "Failed and timed-out token mints recover",
       "The runtime witness requires a shared 502 and an abort-signaled hung request to be evicted, then requires the immediately following provider call to succeed.",
       true,
     );
-    evidence.fact(
+    evidence.recordAssertionEvidence(
       "GitHub sync retries 502 and timeout failures",
       "A separately-accounted focused worker witness passes exactly one test with zero failures and zero skips while requiring GithubConnectorRequestError(502) and TimeoutError to classify as transient.",
       true,
     );
-    evidence.fact(
+    evidence.recordAssertionEvidence(
       "App and installation token keys stay isolated",
       "The runtime witness starts duplicate and distinct app/installation requests together, requires exactly three independent mints for three keys, and then requires each key to reuse only its own cached token.",
       true,
     );
-    evidence.fact(
+    evidence.recordAssertionEvidence(
       "Cache clearing is generation-safe",
       "The runtime witness clears during an in-flight mint, lets the old request settle, and requires a new provider request to return a fresh token rather than accepting repopulated stale cache state.",
       true,

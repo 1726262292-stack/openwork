@@ -46,27 +46,27 @@ test("direct Cloud MCP health checks stay within a scoped handshake budget", ({ 
   expect(reconcileOutput).toContain("0 fail");
   expect(reconcileOutput).toContain("cloud-mcp-reconcile-operation-benchmark pre=6 post=3");
 
-  evidence.fact(
+  evidence.recordAssertionEvidence(
     "Only concurrent health checks share a direct handshake",
     "Six checks are released together through deterministic barriers and reduce the 18-operation protocol baseline to 3; the next settled explicit check performs 3 fresh operations.",
     true,
   );
-  evidence.fact(
+  evidence.recordAssertionEvidence(
     "Successful reconcile does not repeat tools/list",
     "The focused reconcile witness completes ready and reduces its two direct handshakes from 6 operations to exactly 3 by reusing only its operation-local success.",
     true,
   );
-  evidence.fact(
+  evidence.recordAssertionEvidence(
     "Upstream failures remain retryable",
     "A tools/list 502 is asserted retryable and the next settled check must perform a complete new initialize, initialized notification, and tools/list handshake.",
     true,
   );
-  evidence.fact(
+  evidence.recordAssertionEvidence(
     "In-flight reuse is correctness-scoped",
     "Blocked checks require distinct flights across workspaces and Authorization or organization revisions, while provider/model differences share the same direct tools/list flight.",
     true,
   );
-  evidence.fact(
+  evidence.recordAssertionEvidence(
     "Healthy same-revision delivery state heals",
     "A registering delivery entry with the already-applied revision is required to return to ready after a healthy inspection.",
     true,
