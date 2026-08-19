@@ -226,7 +226,7 @@ function requestBudget(delays, windowMs) {
     nextAttemptAt += delays[Math.min(attempts, delays.length - 1)]
     attempts += 1
   }
-  return attempts * 2
+  return attempts
 }
 
 test("model-not-found failures become a repairable Automation error", () => {
@@ -629,8 +629,8 @@ test("retiring a generation cancels its reconnect wait", async () => {
 
 test("runner HTTP failure request budget drops from the reset-on-response baseline", () => {
   const previousResetOnResponseDelays = Array(10).fill(500)
-  assert.equal(requestBudget(previousResetOnResponseDelays, 60_000), 240)
-  assert.equal(requestBudget(EXPECTED_RECONNECT_DELAYS, 60_000), 14)
+  assert.equal(requestBudget(previousResetOnResponseDelays, 60_000), 120)
+  assert.equal(requestBudget(EXPECTED_RECONNECT_DELAYS, 60_000), 7)
   assert.equal(previousResetOnResponseDelays.reduce((total, delay) => total + delay, 0), 5_000)
   assert.equal(EXPECTED_RECONNECT_DELAYS.reduce((total, delay) => total + delay, 0), 151_500)
 })
