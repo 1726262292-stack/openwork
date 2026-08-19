@@ -17,7 +17,7 @@ test(
     expect(isDenTypeId("account", account.id)).toBe(true);
     expect(account.id).not.toBe(betterAuthDefaultId);
     expect(account.accountId).toBe(idpSubject);
-    evidence.fact(
+    evidence.recordAssertionEvidence(
       "SSO account rows use a Den TypeID without rewriting the IdP subject",
       `The foreign local ID was replaced with ${account.id}, while accountId remained ${account.accountId}.`,
       isDenTypeId("account", account.id)
