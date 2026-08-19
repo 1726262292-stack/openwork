@@ -74,6 +74,7 @@ import {
   findEnterpriseAuthRequirementForEmail,
   findEnterpriseAuthRequirementForUserId,
 } from "./enterprise-auth-requirement.js";
+import { normalizeLoginEmail } from "./auth-login-options.js";
 import { getAuthBodyEmail, getSingleOrgEmailSignupPolicyViolation } from "./single-org-signup-policy.js";
 import { readInitialAdminBootstrapGrantFromBody } from "./initial-admin-bootstrap.js";
 import { createDenTypeId, normalizeDenTypeId } from "@openwork-ee/utils/typeid";
@@ -580,7 +581,23 @@ export const auth = betterAuth({
   },
   databaseHooks: {
     user: {
+      create: {
+        before: async (user) => ({
+          data: {
+            ...user,
+            email: normalizeLoginEmail(user.email),
+          },
+        }),
+      },
       update: {
+        before: async (user) => ({
+          data: typeof user.email === "string"
+            ? {
+              ...user,
+              email: normalizeLoginEmail(user.email),
+            }
+            : user,
+        }),
         after: async (user) => {
           if (typeof user.id === "string") {
             await cache.auth.deleteSessionsForUser(normalizeDenTypeId("user", user.id));
