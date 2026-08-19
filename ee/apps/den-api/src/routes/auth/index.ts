@@ -569,7 +569,7 @@ async function getLoginOptionAccounts(email: string) {
     })
     .from(AuthUserTable)
     .innerJoin(AuthAccountTable, eq(AuthUserTable.id, AuthAccountTable.userId))
-    .where(sql`lower(${AuthUserTable.email}) = ${email}`)
+    .where(eq(AuthUserTable.email, email))
 
   return rows.map((row) => ({
     providerId: row.providerId,
