@@ -8,6 +8,7 @@ import { DEN_API_KEY_HEADER, getApiKeySessionById, type DenApiKeySession } from 
 import { cache, type CachedAuthSession } from "./cache.js"
 import { db } from "./db.js"
 import { env } from "./env.js"
+import { appLogger } from "./observability/logger.js"
 import { getDenSessionExpiresAt, getDenSessionRefreshCutoff } from "./session-lifetime.js"
 
 type AuthSessionValue = {
@@ -18,6 +19,11 @@ type AuthSessionValue = {
   }
 }
 type AuthSessionLike = AuthSessionValue | null
+type SessionRequestContext = {
+  method: string
+  path: string
+  requestId?: string
+}
 
 export type AuthContextVariables = {
   user: AuthSessionValue["user"] | null
@@ -230,7 +236,22 @@ function bearerSessionValue(row: CachedAuthSession): AuthSessionValue {
   }
 }
 
-async function getSessionFromToken(token: string): Promise<AuthSessionLike> {
+const logger = appLogger.child({ component: "session" })
+
+function sessionRequestContext(context?: Context): SessionRequestContext | undefined {
+  if (!context) {
+    return undefined
+  }
+
+  const requestId = context.get("requestId")
+  return {
+    method: context.req.method,
+    path: context.req.path,
+    requestId: typeof requestId === "string" ? requestId : undefined,
+  }
+}
+
+async function getSessionFromToken(token: string, requestContext?: SessionRequestContext): Promise<AuthSessionLike> {
   const row = await cache.auth.session(token)
   if (!row) {
     return null
@@ -243,18 +264,29 @@ async function getSessionFromToken(token: string): Promise<AuthSessionLike> {
   }
 
   const nextExpiresAt = getDenSessionExpiresAt(now)
-  await db
-    .update(AuthSessionTable)
-    .set({
-      expiresAt: nextExpiresAt,
-      updatedAt: now,
+  try {
+    await db
+      .update(AuthSessionTable)
+      .set({
+        expiresAt: nextExpiresAt,
+        updatedAt: now,
+      })
+      .where(and(
+        eq(AuthSessionTable.token, token),
+        gt(AuthSessionTable.expiresAt, now),
+        lte(AuthSessionTable.expiresAt, refreshCutoff),
+        lt(AuthSessionTable.expiresAt, nextExpiresAt),
+      ))
+  } catch (error) {
+    logger.error("session refresh failed", {
+      auth_session_source: "den_session_middleware",
+      http_method: requestContext?.method,
+      http_path: requestContext?.path,
+      request_id: requestContext?.requestId,
+      error,
     })
-    .where(and(
-      eq(AuthSessionTable.token, token),
-      gt(AuthSessionTable.expiresAt, now),
-      lte(AuthSessionTable.expiresAt, refreshCutoff),
-      lt(AuthSessionTable.expiresAt, nextExpiresAt),
-    ))
+    throw error
+  }
 
   await cache.auth.deleteSession(token)
   const renewed = await cache.auth.session(token)
@@ -293,7 +325,7 @@ export async function getRequestSession(headers: Headers, context?: Context): Pr
 
   const cookieToken = context ? await readSignedSessionCookieToken(context) : null
   if (cookieToken) {
-    const cookieSession = await getSessionFromToken(cookieToken)
+    const cookieSession = await getSessionFromToken(cookieToken, sessionRequestContext(context))
     if (cookieSession?.user?.id) {
       return cookieSession
     }
@@ -304,7 +336,7 @@ export async function getRequestSession(headers: Headers, context?: Context): Pr
     return null
   }
 
-  return getSessionFromToken(bearerToken)
+  return getSessionFromToken(bearerToken, sessionRequestContext(context))
 }
 
 export function shouldSkipRequestSession(request: Request) {
