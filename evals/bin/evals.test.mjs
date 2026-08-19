@@ -5,6 +5,7 @@ import {
   consentVarsFromSource,
   exitCodeFor,
   parseArgs,
+  resolveRunEnvironment,
   summarize,
   verdictFor,
 } from "./evals.mjs";
@@ -38,6 +39,7 @@ test("parseArgs maps run and publish flags", () => {
   assert.deepEqual(parseArgs(["app-smoke", "--with-llm-vision", "--daytona", "--den", "https://den.example"]), {
     testNames: ["app-smoke"],
     withLlmVision: true,
+    local: false,
     daytona: true,
     publish: false,
     dryRun: false,
@@ -48,6 +50,7 @@ test("parseArgs maps run and publish flags", () => {
   assert.deepEqual(parseArgs(["--publish", "--pr", "42", "--test-run", "latest", "--dry-run", "--force"]), {
     testNames: [],
     withLlmVision: false,
+    local: false,
     daytona: false,
     publish: true,
     dryRun: true,
@@ -62,7 +65,44 @@ test("parseArgs validates values, exclusivity, and unknown flags", () => {
   assert.throws(() => parseArgs(["--den"]), /--den requires a value/);
   assert.throws(() => parseArgs(["--publish", "--dry-run", "app-smoke"]), /mutually exclusive with test names/);
   assert.throws(() => parseArgs(["--publish", "--pr", "1", "--den", "x"]), /mutually exclusive with --den/);
+  assert.throws(() => parseArgs(["app-smoke", "--local", "--daytona"]), /--local is mutually exclusive with --daytona/);
+  assert.throws(() => parseArgs(["app-smoke", "--local", "--den", "https:\/\/den.example"]), /--local is mutually exclusive with --den/);
   assert.throws(() => parseArgs(["--unknown"]), /Unknown flag: --unknown/);
+});
+
+test("explicit local placement removes inherited remote provisioning inputs", () => {
+  const options = parseArgs(["app-smoke", "--local"]);
+  const childEnv = resolveRunEnvironment(options, {
+    PATH: "/bin",
+    OPENWORK_EVAL_DAYTONA: "1",
+    OPENWORK_EVAL_DAYTONA_SANDBOX: "desktop-sandbox",
+    OPENWORK_EVAL_DAYTONA_SANDBOX_ID: "legacy-sandbox",
+    OPENWORK_EVAL_DAYTONA_DEN_SANDBOX: "den-sandbox",
+    OPENWORK_EVAL_DAYTONA_DESKTOP_SANDBOX: "prepared-desktop",
+    OPENWORK_EVAL_DEN_API_URL: "https://den-api.example.test",
+    OPENWORK_EVAL_DEN_WEB_URL: "https://den.example.test",
+  });
+
+  assert.deepEqual(childEnv, { PATH: "/bin" });
+});
+
+test("explicit Daytona and attached Den placement retain their existing behavior", () => {
+  const daytona = resolveRunEnvironment(parseArgs(["app-smoke", "--daytona"]), {
+    OPENWORK_EVAL_DEN_API_URL: "https://attached.example.test",
+  });
+  assert.equal(daytona.OPENWORK_EVAL_DAYTONA, "1");
+  assert.equal(daytona.OPENWORK_EVAL_DEN_API_URL, "https://attached.example.test");
+
+  const attached = resolveRunEnvironment(parseArgs(["app-smoke", "--den", "https://den.example.test"]), {});
+  assert.equal(attached.OPENWORK_EVAL_DEN_API_URL, "https://den.example.test");
+});
+
+test("automatic placement preserves the caller environment", () => {
+  const ambient = {
+    OPENWORK_EVAL_DAYTONA: "1",
+    OPENWORK_EVAL_DEN_API_URL: "https://den.example.test",
+  };
+  assert.deepEqual(resolveRunEnvironment(parseArgs(["app-smoke"]), ambient), ambient);
 });
 
 test("verdict and exit mapping covers failed, incomplete, and passed runs", () => {

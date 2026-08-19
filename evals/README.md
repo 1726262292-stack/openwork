@@ -53,9 +53,12 @@ OPENWORK_EVAL_E2E_TESTS=1 \
   --project e2e specs/<slug>.e2e.test.ts
 ```
 
-Set `OPENWORK_EVAL_DAYTONA=1` to place supported resources in Daytona
-sandboxes. Leave it unset for isolated local resources. See `run-tests` for
-environment requirements and the cold-boot verdict check.
+Use `--local` to force isolated local resources even when the invoking shell
+contains inherited Daytona or attached-Den placement variables. Use `--daytona`
+to place supported resources in Daytona sandboxes, or `--den <url>` to attach a
+running Den. Without an explicit flag, the runner preserves the ambient
+placement environment. See `run-tests` for environment requirements and the
+cold-boot verdict check.
 
 ## Authoring contract
 
