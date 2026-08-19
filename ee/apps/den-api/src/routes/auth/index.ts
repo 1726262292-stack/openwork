@@ -35,6 +35,7 @@ import { publicRoute, queryValidator, tokenRoute } from "../../middleware/index.
 import { emptyResponse, jsonResponse } from "../../openapi.js"
 import { getSingletonSsoStatus } from "../../orgs.js"
 import { cache } from "../../cache.js"
+import { appLogger } from "../../observability/logger.js"
 import { getAuthRequestEmail, getSingleOrgEmailSignupPolicyViolation, type SingleOrgEmailSignupPolicyViolation } from "../../single-org-signup-policy.js"
 import { samlResponsePolicyMiddleware } from "../../sso-saml-response-middleware.js"
 import { getRequestSession, readSignedSessionCookieToken, revokeBearerSession, type AuthContextVariables } from "../../session.js"
@@ -42,6 +43,8 @@ import { checkRateLimit } from "../../utils/rate-limit.js"
 import { registerDesktopAuthRoutes } from "./desktop-handoff.js"
 import { normalizeOAuthAuthorizeRedirect } from "./oauth-redirect.js"
 import { registerScimAuthRoutes } from "./scim.js"
+
+const logger = appLogger.child({ component: "auth" })
 
 function rewriteAuthRequest(request: Request, path: string) {
   const url = new URL(request.url)
@@ -676,6 +679,14 @@ async function handleAuthRequest(c: Context) {
   try {
     response = await auth.handler(authRequest)
   } catch (error) {
+    const requestId = c.get("requestId")
+    logger.error("better auth handler failed", {
+      auth_session_source: "better_auth_handler",
+      http_method: authRequest.method,
+      http_path: new URL(authRequest.url).pathname,
+      request_id: typeof requestId === "string" ? requestId : undefined,
+      error,
+    })
     throw error
   }
   if (initialAdminBootstrapAuthorization) {
