@@ -45,6 +45,8 @@ export async function deleteGlobalAuthUser(userId: UserId) {
     await tx.delete(AuthUserTable).where(eq(AuthUserTable.id, userId))
   })
   await Promise.all(Array.from(new Set(memberships.map((membership) => membership.organizationId))).map((organizationId) => cache.org.deleteMembers(organizationId)))
+  // Auth session cache hits intentionally avoid a DB liveness check; user deletion must clear
+  // both token and session-id cache entries for every deleted session instead.
   await Promise.all(sessions.flatMap((session) => [
     cache.auth.deleteSession(session.token),
     cache.auth.deleteSessionId(session.id),
