@@ -16,6 +16,8 @@ import { getMcpResourceContext, verifyMcpRequest } from "./auth.js"
 import { DEN_MCP_APP_HOST_SCOPE, DEN_MCP_WRITE_SCOPE } from "./scopes.js"
 import { getCatalog, protectedResourceMetadata } from "./index.js"
 import { preflightMcpJsonRpcRequest } from "./json-rpc-preflight.js"
+import { appLogger } from "../observability/logger.js"
+import { normalizeMcpProtocolVersionHeader } from "./protocol-version.js"
 import {
   compareCapabilityMatches,
   EXECUTE_CAPABILITY_TOOL_NAME,
@@ -78,6 +80,8 @@ import {
 } from "./connect-mcp-server-index.js"
 import { registerAgentSkillCreatedApp } from "./skill-created-app.js"
 import { createPluginBundle, listPluginMemberships, PluginArchRouteFailure } from "../routes/org/plugin-system/store.js"
+
+const protocolVersionLogger = appLogger.child({ component: "mcp_protocol_version" })
 
 export { externalToolContent } from "./tool-content.js"
 export { externalCapabilityErrorToolResult, externalCapabilitySuccessToolResult }
@@ -424,6 +428,10 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
     if (preflightResponse) {
       return preflightResponse
     }
+
+    normalizeMcpProtocolVersionHeader(c.req.raw.headers, "agent", requestId, (message, fields) => {
+      protocolVersionLogger.warn(message, fields)
+    })
 
     const catalog = await getCatalog(app as unknown as Hono, c.env)
     // External MCP connections are scoped to the calling MEMBER (grants +
