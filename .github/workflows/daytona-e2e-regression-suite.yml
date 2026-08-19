@@ -249,6 +249,17 @@ jobs:
           pnpm install --frozen-lockfile
           pnpm --dir evals install --frozen-lockfile --ignore-scripts
 
+      # The opencode MCP OAuth spec (opencode-mcp-agent-oauth.e2e.test.ts)
+      # drives the real opencode CLI as an OAuth MCP client against the Den
+      # agent endpoint. Install the exact validated version without lifecycle
+      # scripts before Daytona credentials are provisioned on the runner.
+      - name: Install opencode CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm add --global --ignore-scripts opencode-ai@1.18.18
+          opencode --version
+
       # The eval harness shells out to the daytona CLI (testkit daytonaAvailable
       # gate and @openwork/hosts exec). The binary is pinned to a release tag
       # and checksum-verified before it can run with CI secrets. When bumping,
@@ -270,17 +281,6 @@ jobs:
           daytona --version
           # The CLI requires a stored profile; the env var alone is not enough.
           daytona login --api-key "$DAYTONA_API_KEY"
-
-      # The opencode MCP OAuth spec (opencode-mcp-agent-oauth.e2e.test.ts)
-      # drives the real opencode CLI as an OAuth MCP client against the Den
-      # agent endpoint. Pinned to the exact version the spec was validated
-      # against; pnpm enforces the registry's integrity metadata for the pin.
-      - name: Install opencode CLI
-        shell: bash
-        run: |
-          set -euo pipefail
-          pnpm add --global opencode-ai@1.18.18
-          opencode --version
 
       - name: Run batch
         id: run
