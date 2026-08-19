@@ -13,7 +13,7 @@ test(
 
     expect(reservationId).toHaveLength(43)
     expect(driverValue).toBe(reservationId)
-    evidence.fact(
+    evidence.recordAssertionEvidence(
       "Better Auth's SAML replay reservation reaches the verification table unchanged",
       `The 43-character reservation ID round-tripped as ${driverValue}.`,
       driverValue === reservationId,
