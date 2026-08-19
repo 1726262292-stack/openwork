@@ -78,6 +78,7 @@ async function findEnterpriseAuthRequirement(where: ReturnType<typeof and>) {
     .innerJoin(SsoProviderTable, and(
       eq(SsoConnectionTable.providerId, SsoProviderTable.providerId),
       eq(OrganizationTable.id, SsoProviderTable.organizationId),
+      eq(SsoProviderTable.domainVerified, true),
     ))
     .where(and(
       where,

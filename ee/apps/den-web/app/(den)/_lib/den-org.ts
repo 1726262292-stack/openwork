@@ -168,6 +168,8 @@ export type DenOrgSsoConnection = {
   acsUrl: string | null;
   metadataUrl: string | null;
   domainVerified: boolean;
+  domainVerificationHost: string;
+  domainVerificationDnsName: string;
   oidc: {
     clientId: string | null;
     scopes: string[];
@@ -1160,11 +1162,13 @@ export function parseOrgSsoPayload(payload: unknown): {
         const signInPath = asString(rawConnection.signInPath);
         const signInUrl = asString(rawConnection.signInUrl);
         const redirectUrl = asString(rawConnection.redirectUrl);
+        const domainVerificationHost = asString(rawConnection.domainVerificationHost);
+        const domainVerificationDnsName = asString(rawConnection.domainVerificationDnsName);
         const rawOidc = isRecord(rawConnection.oidc) ? rawConnection.oidc : null;
         const rawSaml = isRecord(rawConnection.saml) ? rawConnection.saml : null;
         const tokenEndpointAuthentication = asString(rawOidc?.tokenEndpointAuthentication);
 
-        if (!id || !providerId || !issuer || !domain || !status || !signInPath || !signInUrl || !redirectUrl || (kind !== "oidc" && kind !== "saml")) {
+        if (!id || !providerId || !issuer || !domain || !status || !signInPath || !signInUrl || !redirectUrl || !domainVerificationHost || !domainVerificationDnsName || (kind !== "oidc" && kind !== "saml")) {
           return null;
         }
 
@@ -1181,6 +1185,8 @@ export function parseOrgSsoPayload(payload: unknown): {
           acsUrl: asString(rawConnection.acsUrl),
           metadataUrl: asString(rawConnection.metadataUrl),
           domainVerified: asBoolean(rawConnection.domainVerified),
+          domainVerificationHost,
+          domainVerificationDnsName,
           oidc: rawOidc
             ? {
                 clientId: asString(rawOidc.clientId),

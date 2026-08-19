@@ -13,7 +13,7 @@ import {
   type EngineSpawnTemplate,
 } from "./engine-pool.js";
 import { createManagedOpencodeServer, type ManagedOpencodeServer } from "./managed-opencode.js";
-import { proxyOpencodeRequest } from "./server.js";
+import { proxyOpencodeRequest, startServer } from "./server.js";
 import type { ServerConfig, WorkspaceInfo } from "./types.js";
 
 const ENV_NAMES = [
@@ -265,6 +265,11 @@ describe("engine pool", () => {
     });
 
     expect(isEngineConnectionFailure(error)).toBe(true);
+  });
+
+  test("classifies a cause-less fetch failure only in the engine transport classifier", () => {
+    expect(isEngineConnectionFailure(new TypeError("fetch failed"))).toBe(true);
+    expect(isEngineConnectionFailure(new Error("fetch failed"))).toBe(false);
   });
 
   test("skips entirely when nothing the engine reads at build time changed", async () => {
@@ -532,6 +537,40 @@ describe("engine pool", () => {
       status: 502,
       code: "opencode_unreachable",
     });
+  });
+
+  test.serial("returns an uncaptured 502 for a cause-less loopback proxy fetch failure", async () => {
+    const fixture = await createFixture();
+    await createPool(fixture);
+    const originalFetch = globalThis.fetch;
+    const originalTelemetry = globalThis.__openworkDesktopTelemetry;
+    const captured: unknown[] = [];
+    const server = await startServer(fixture.config);
+    globalThis.__openworkDesktopTelemetry = {
+      captureException(error) {
+        captured.push(error);
+        return true;
+      },
+    };
+    globalThis.fetch = Object.assign(
+      async () => {
+        throw new TypeError("fetch failed");
+      },
+      { preconnect: originalFetch.preconnect },
+    );
+
+    try {
+      const response = await originalFetch(`http://127.0.0.1:${server.port}/opencode/config`, {
+        headers: { Authorization: `Bearer ${fixture.config.token}` },
+      });
+      expect(response.status).toBe(502);
+      expect(await response.json()).toMatchObject({ code: "opencode_unreachable" });
+      expect(captured).toEqual([]);
+    } finally {
+      globalThis.fetch = originalFetch;
+      globalThis.__openworkDesktopTelemetry = originalTelemetry;
+      await server.stop();
+    }
   });
 
   test("ends existing event fan-in leases when a generation flips", async () => {
