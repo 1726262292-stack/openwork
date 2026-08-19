@@ -49,7 +49,7 @@ import { useDesktopRestriction } from "@/react-app/domains/cloud/desktop-config-
 import { ConfirmModal } from "@/react-app/design-system/modals/confirm-modal"
 import { AutomationEditor } from "./automation-editor"
 import { dispatchAutomationsStateChanged } from "./automation-events"
-import { automationExecutionThreadRoute, automationExecutionIdentity } from "./automation-cloud-thread"
+import { automationExecutionThreadRoute, automationExecutionIdentity, automationLocalSessionRoute } from "./automation-cloud-thread"
 import { formatAutomationSchedule, formatAutomationTime } from "./automation-format"
 import type { AutomationProviderCatalog } from "./automation-model-options"
 import { automationModelOptions, describeAutomationModel } from "./automation-model-options"
@@ -351,8 +351,12 @@ export function AutomationsPage(props: { providerCatalog?: AutomationProviderCat
     const modelNeedsAttention = task.needsAttentionReason?.code === "model_access_lost"
       || task.needsAttentionReason?.code === "provider_unavailable"
     const runs = runsQuery.data?.items ?? []
-    const selectedReceipt = receiptQuery.data
+    const selectedReceipt = receiptQuery.data?.run.id === selectedRunId ? receiptQuery.data : undefined
+    const receiptIsLoading = receiptQuery.isLoading || (receiptQuery.isFetching && !selectedReceipt)
     const threadMatches = !selectedThreadId || selectedReceipt?.run.executionThread?.id === selectedThreadId
+    const localSessionRoute = selectedReceipt?.run.executionThread
+      ? automationLocalSessionRoute(selectedReceipt.run.executionThread)
+      : null
 
     if (editing && (detail.revision.executionTarget ?? "desktop") === "desktop") {
       return (
@@ -577,7 +581,7 @@ export function AutomationsPage(props: { providerCatalog?: AutomationProviderCat
             <CardContent>
               {!selectedRunId ? (
                 <div className="py-10 text-center text-sm text-muted-foreground">No run selected.</div>
-              ) : receiptQuery.isLoading ? (
+              ) : receiptIsLoading ? (
                 <Skeleton className="h-48 rounded-xl" />
               ) : receiptQuery.error || !selectedReceipt ? (
                 <Alert variant="warning"><AlertCircle /><AlertDescription>{describeError(receiptQuery.error)}</AlertDescription></Alert>
@@ -594,6 +598,17 @@ export function AutomationsPage(props: { providerCatalog?: AutomationProviderCat
                     ) : (
                       <Badge variant="outline">{selectedReceipt.run.executionTarget === "cloud" ? <Cloud className="mr-1 h-3 w-3" /> : <Monitor className="mr-1 h-3 w-3" />}{selectedReceipt.run.executionTarget === "cloud" ? "OpenWork Cloud" : "Desktop"}</Badge>
                     )}
+                    {localSessionRoute ? (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        data-automation-run-id={selectedReceipt.run.id}
+                        onClick={() => navigate(localSessionRoute)}
+                      >
+                        Open local thread
+                      </Button>
+                    ) : null}
                   </div>
                   {selectedReceipt.run.error ? (
                     <Alert variant="destructive"><AlertCircle /><AlertTitle>{selectedReceipt.run.error.code}</AlertTitle><AlertDescription>{selectedReceipt.run.error.message}</AlertDescription></Alert>
@@ -668,6 +683,7 @@ export function AutomationsPage(props: { providerCatalog?: AutomationProviderCat
             <button
               key={item.automation.id}
               type="button"
+              data-automation-id={item.automation.id}
               {...(item.automation.state === "needs_attention" ? { "data-automation-needs-attention": true } : {})}
               className="rounded-2xl border border-border bg-card p-4 text-left transition-colors hover:bg-muted/40"
               onClick={() => openAutomation(item.automation.id)}

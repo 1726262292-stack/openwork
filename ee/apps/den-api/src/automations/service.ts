@@ -443,6 +443,10 @@ export class AutomationService {
       resultSummary: result.resultSummary,
       usage: result.usage,
       error: result.error,
+      engineReceipt: {
+        ...(result.sessionId ? { nativeThreadId: result.sessionId } : {}),
+        ...(result.workspaceId ? { workspaceId: result.workspaceId } : {}),
+      },
       attempt: result.attempt,
       now,
     })
