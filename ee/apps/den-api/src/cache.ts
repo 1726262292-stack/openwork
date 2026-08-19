@@ -1,4 +1,4 @@
-import { asc, and, eq, gt, isNull } from "@openwork-ee/den-db/drizzle"
+import { asc, and, eq, gt, isNull, lt, lte } from "@openwork-ee/den-db/drizzle"
 import { AuthSessionTable, AuthUserTable, InvitationTable, MemberTable, OrganizationTable } from "@openwork-ee/den-db/schema"
 import { normalizeDenTypeId, type DenTypeId, type DenTypeIdName } from "@openwork-ee/utils/typeid"
 import { createHash } from "node:crypto"
@@ -6,6 +6,7 @@ import Redis from "ioredis"
 import { db } from "./db.js"
 import { env } from "./env.js"
 import { roleIncludesOwner } from "./organization-member-guards.js"
+import { getDenSessionExpiresAt, getDenSessionRefreshCutoff } from "./session-lifetime.js"
 
 type OrgId = typeof OrganizationTable.$inferSelect.id
 type MemberId = typeof MemberTable.$inferSelect.id
@@ -435,6 +436,20 @@ async function loadAuthSession(token: string, now: Date): Promise<CachedAuthSess
 }
 
 async function loadActiveSessionId(sessionId: DenTypeId<"session">, now: Date) {
+  const nextExpiresAt = getDenSessionExpiresAt(now)
+  await db
+    .update(AuthSessionTable)
+    .set({
+      expiresAt: nextExpiresAt,
+      updatedAt: now,
+    })
+    .where(and(
+      eq(AuthSessionTable.id, sessionId),
+      gt(AuthSessionTable.expiresAt, now),
+      lte(AuthSessionTable.expiresAt, getDenSessionRefreshCutoff(now)),
+      lt(AuthSessionTable.expiresAt, nextExpiresAt),
+    ))
+
   const rows = await db
     .select({
       id: AuthSessionTable.id,
@@ -508,7 +523,7 @@ async function getActiveSessionId(sessionId: DenTypeId<"session">) {
   if (redis) {
     try {
       const cached = parseCachedActiveSessionId(await redis.get(key))
-      if (cached) {
+      if (cached && cached.expiresAt > getDenSessionRefreshCutoff(now)) {
         return cached
       }
     } catch (error) {

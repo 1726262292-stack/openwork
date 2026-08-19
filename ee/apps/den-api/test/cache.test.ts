@@ -13,7 +13,7 @@ let selectCount = 0
 let membershipSelectCount = 0
 let authSelectCount = 0
 let authSessionIdSelectCount = 0
-let authSessionExpiresAt = new Date("2026-08-10T14:00:00.000Z")
+let authSessionExpiresAt = new Date("2026-08-17T12:00:00.000Z")
 let authSessionLive = true
 let cacheModule: typeof import("../src/cache.js")
 let restoreCacheDependencies: (() => void) | null = null
@@ -127,7 +127,7 @@ beforeEach(() => {
   membershipSelectCount = 0
   authSelectCount = 0
   authSessionIdSelectCount = 0
-  authSessionExpiresAt = new Date("2026-08-10T14:00:00.000Z")
+  authSessionExpiresAt = new Date("2026-08-17T12:00:00.000Z")
   authSessionLive = true
   setSystemTime(new Date("2026-08-10T12:00:00.000Z"))
 })
@@ -182,6 +182,19 @@ test("cache.auth.activeSessionId stores and reuses session id liveness", async (
     mode: "EX",
     ttl: 60,
   })
+})
+
+test("cache.auth.activeSessionId refreshes cached liveness inside the renewal window", async () => {
+  authSessionExpiresAt = new Date("2026-08-16T11:00:00.000Z")
+  const first = await cacheModule.cache.auth.activeSessionId(sessionId)
+  authSessionExpiresAt = new Date("2026-08-17T12:00:00.000Z")
+
+  const second = await cacheModule.cache.auth.activeSessionId(sessionId)
+
+  expect(first?.expiresAt).toEqual(new Date("2026-08-16T11:00:00.000Z"))
+  expect(second?.expiresAt).toEqual(new Date("2026-08-17T12:00:00.000Z"))
+  expect(authSessionIdSelectCount).toBe(2)
+  expect(setCalls).toHaveLength(2)
 })
 
 test("cache.auth.activeSessionId rejects missing database sessions", async () => {
