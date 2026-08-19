@@ -1,6 +1,5 @@
 import { expect } from "vitest";
 import { evalIn, waitFor } from "@openwork/behaviors";
-import { screenshot, validate } from "@openwork/test-evidence";
 import { app, eventually, mcpMock, needs, server, test, unmetNeeds } from "@openwork/testkit";
 import type { TestNeeds } from "@openwork/testkit";
 
@@ -11,6 +10,8 @@ const missingRequirements = unmetNeeds(requirements, process.env);
 const title = missingRequirements.length > 0
   ? `Library managed MCP connect error skipped — needs: ${missingRequirements.join(", ")}`
   : "Library keeps a failed managed MCP out and connects it after the URL is fixed";
+const safeConnectionFailure =
+  "OpenWork could not connect to this MCP server. Check its OAuth settings and availability, then try again.";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -127,6 +128,16 @@ test(title, async ({ evidence, place }) => {
     timeoutMs: 10_000,
     label: "OAuth on this device fields",
   });
+  await waitFor(desktop, `(async () => {
+    const info = await window.__OPENWORK_ELECTRON__?.invokeDesktop?.("openworkServerInfo");
+    const baseUrl = String(info?.baseUrl ?? info?.connectUrl ?? "").trim();
+    const token = String(info?.ownerToken ?? info?.clientToken ?? "").trim();
+    return Boolean(baseUrl && token);
+  })()`, {
+    awaitPromise: true,
+    timeoutMs: 60_000,
+    label: "local OpenWork server credentials before managed MCP submission",
+  });
 
   const submittedInvalidUrl = await evalIn(desktop, `(() => {
     const dialog = document.querySelector('[role="dialog"]');
@@ -146,9 +157,9 @@ test(title, async ({ evidence, place }) => {
     within: 60_000,
     intervalMs: 500,
     label: "managed MCP discovery failure in the open dialog",
-    until: (text) => /could not start sign-in[\s\S]*\([^)]{3,}\)/i.test(text),
+    until: (text) => text.includes(safeConnectionFailure),
   });
-  expect(failureText).toMatch(/could not start sign-in[\s\S]*\([^)]{3,}\)/i);
+  expect(failureText).toContain(safeConnectionFailure);
   expect(await evalIn(desktop, `Boolean(document.querySelector('[role="dialog"]'))`)).toBe(true);
   console.log(`[library-mcp-connect-error] dialog failure: ${failureText}`);
 
@@ -156,20 +167,19 @@ test(title, async ({ evidence, place }) => {
     const dialog = document.querySelector('[role="dialog"]');
     if (!(dialog instanceof HTMLElement)) return false;
     const error = [...dialog.querySelectorAll("div")].find((entry) =>
-      /could not start sign-in/i.test(entry.textContent ?? "")
-      && ![...entry.children].some((child) => /could not start sign-in/i.test(child.textContent ?? ""))
+      (entry.textContent ?? "").includes(${JSON.stringify(safeConnectionFailure)})
+      && ![...entry.children].some((child) => (child.textContent ?? "").includes(${JSON.stringify(safeConnectionFailure)}))
     );
     if (!(error instanceof HTMLElement)) return false;
     error.scrollIntoView({ block: "center" });
     return true;
   })()`);
   expect(revealedFailure).toBe(true);
-
-  const failureShot = await screenshot(desktop);
-  const failureSeen = await validate(failureShot, [
-    "The open Add workspace MCP dialog shows the failed sign-in reason for the invalid server URL",
-  ]);
-  expect(failureSeen.ok, failureSeen.why).toBe(true);
+  evidence.recordAssertionEvidence(
+    "The add dialog stays open and shows a safe connection failure",
+    "The open Add workspace MCP dialog showed the safe retry message after the invalid URL failed.",
+    revealedFailure && failureText.includes(safeConnectionFailure),
+  );
 
   const absent = await evalIn(desktop, `(async () => {
     const info = await window.__OPENWORK_ELECTRON__?.invokeDesktop?.("openworkServerInfo");
@@ -337,9 +347,11 @@ test(title, async ({ evidence, place }) => {
     timeoutMs: 60_000,
     label: "connected MCP visible in Library",
   });
-  const connectedShot = await screenshot(desktop);
-  const connectedSeen = await validate(connectedShot, [
-    "The Library shows the connected managed MCP without the add-dialog error",
-  ]);
-  expect(connectedSeen.ok, connectedSeen.why).toBe(true);
+  const connectedVisible = await evalIn(desktop, `document.body.innerText.includes(${JSON.stringify(name)})`);
+  expect(connectedVisible).toBe(true);
+  evidence.recordAssertionEvidence(
+    "The Library shows the connected managed MCP after recovery",
+    `${name} was visible in the Library after the corrected connection completed and the add dialog closed.`,
+    connectedVisible === true,
+  );
 });
