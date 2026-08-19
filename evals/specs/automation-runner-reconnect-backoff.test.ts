@@ -17,7 +17,7 @@ function requestBudget(delays: number[], windowMs: number): number {
   return attempts * 2;
 }
 
-test("desktop Automation runner retires rejected credentials without changing transient backoff", async () => {
+test("desktop Automation runner retires rejected credentials without changing transient backoff", async ({ evidence }) => {
   const unit = spawnSync(process.execPath, [
     "--test",
     "--test-reporter=tap",
@@ -59,6 +59,11 @@ test("desktop Automation runner retires rejected credentials without changing tr
   expect(bridge.status, bridgeOutput).toBe(0);
   expect(bridgeOutput).toContain("11 pass");
   expect(bridgeOutput).toContain("0 fail");
+  evidence.recordAssertionEvidence(
+    "Rejected runner credentials stop and remint without disrupting valid work",
+    "The runner and bridge suites passed 35 tests covering one-shot 401/403 retirement on every runner route, fresh-token remint backoff, generation races, active assignments, in-flight claims, and same-scope SSE cursor continuity.",
+    true,
+  );
 
   const previousResetOnResponseDelays = Array(10).fill(500);
   expect(requestBudget(previousResetOnResponseDelays, 60_000)).toBe(240);
@@ -70,4 +75,9 @@ test("desktop Automation runner retires rejected credentials without changing tr
   expect(transient502FirstMinute).toBe(14);
   expect(previousResetOnResponseDelays.reduce((total, delay) => total + delay, 0)).toBe(5_000);
   expect(expectedDelays.reduce((total, delay) => total + delay, 0)).toBe(151_500);
+  evidence.recordAssertionEvidence(
+    "Transient runner failures retain capped exponential backoff",
+    "At midpoint jitter, repeated 502 responses budget 14 work-plus-SSE requests in the first minute, with delays rising from 500ms to a 30-second cap instead of resetting after every HTTP response.",
+    true,
+  );
 });
