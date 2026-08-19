@@ -413,7 +413,7 @@ async function connectMcpClient(provider: HarnessOAuthProvider, fetchImpl: typeo
 
 async function expectAgentTools(client: Client) {
   const tools = await client.listTools()
-  expect(tools.tools.map((tool) => tool.name).sort()).toEqual(["execute_capability", "search_capabilities"])
+  expect(tools.tools.map((tool) => tool.name).sort()).toEqual(["create_skill", "execute_capability", "search_capabilities"])
 }
 
 childTest("SDK MCP client survives multiple serial access-token refresh and replay cycles", async () => {

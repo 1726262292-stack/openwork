@@ -16,7 +16,7 @@ import type { TestNeeds } from "@openwork/testkit";
 // rotation, and logout — and the minted token works on the /mcp/agent surface.
 const MCP_NAME = "openwork";
 const ORGANIZATION_NAME = "OAuth Lab";
-const EXPECTED_TOOLS = ["execute_capability", "search_capabilities"] as const;
+const EXPECTED_TOOLS = ["create_skill", "execute_capability", "search_capabilities"] as const;
 const OPENCODE_BIN = process.env.OPENWORK_EVAL_OPENCODE_BIN?.trim() || "opencode";
 const COMMAND_TIMEOUT_MS = 60_000;
 const AUTHORIZE_URL_TIMEOUT_MS = 90_000;
@@ -560,7 +560,7 @@ test.skipIf(missingRequirements.length > 0)(title, { timeout: 30 * 60_000 }, asy
   expect(mcpListSound, `opencode mcp list did not report connected:\n${mcpList.combined.slice(0, 1_000)}`).toBe(true);
 
   // Claim 4 — the opencode-minted OAuth token works on the MCP surface:
-  // exactly the two agent tools, and a real capability executes.
+  // exactly the three canonical agent tools, and a real capability executes.
   const toolNames = await listToolNames(mcpUrl, credential.accessToken);
   const skillSearch = await callAgentTool(mcpUrl, credential.accessToken, "search_capabilities", {
     query: "create skill",
