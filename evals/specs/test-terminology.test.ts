@@ -68,13 +68,18 @@ briefTest(testBrief({
     "nightly-mega-eval.yml",
   ];
   const ciWorkflow = await readFile(join(repoRoot, ".github", "workflows", "ci-tests.yml"), "utf8");
+  const regressionWorkflow = await readFile(
+    join(repoRoot, ".github", "workflows", "daytona-e2e-regression-suite.yml"),
+    "utf8",
+  );
 
   for (const workflow of currentWorkflows) expect(workflowFiles).toContain(workflow);
   for (const workflow of replacedWorkflows) expect(workflowFiles).not.toContain(workflow);
   expect(ciWorkflow).toContain("pnpm --dir evals run test:pr");
   expect(ciWorkflow).not.toContain("pnpm --dir evals run spec");
+  expect(regressionWorkflow).toContain("pnpm --dir evals install --frozen-lockfile --ignore-scripts");
   prove.workflows(
     true,
-    "active workflows name the Daytona E2E regression suite, E2E failure alerts, and nightly critical-path journey, and CI invokes test:pr",
+    "active workflows use the regression and critical-path names, CI invokes test:pr, and privileged E2E installs disable lifecycle scripts",
   );
 });

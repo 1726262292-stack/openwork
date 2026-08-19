@@ -247,7 +247,7 @@ jobs:
         run: |
           set -euo pipefail
           pnpm install --frozen-lockfile
-          pnpm --dir evals install --frozen-lockfile
+          pnpm --dir evals install --frozen-lockfile --ignore-scripts
 
       # The eval harness shells out to the daytona CLI (testkit daytonaAvailable
       # gate and @openwork/hosts exec). The binary is pinned to a release tag
