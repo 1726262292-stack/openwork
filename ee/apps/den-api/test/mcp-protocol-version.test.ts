@@ -2,7 +2,15 @@ import { expect, test } from "bun:test"
 import { StreamableHTTPTransport } from "@hono/mcp"
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { Hono } from "hono"
-import { normalizeMcpProtocolVersionHeader } from "../src/mcp/protocol-version.js"
+import { normalizeMcpProtocolVersionHeader, type McpProtocolVersionWarn } from "../src/mcp/protocol-version.js"
+
+function recordingWarn() {
+  const warnings: { message: string; fields: Record<string, string> }[] = []
+  const warn: McpProtocolVersionWarn = (message, fields) => {
+    warnings.push({ message, fields })
+  }
+  return { warn, warnings }
+}
 
 function requestHeaders(protocolVersion?: string) {
   const request = new Request("https://api.example.com/mcp/agent", {
@@ -16,35 +24,50 @@ function requestHeaders(protocolVersion?: string) {
 }
 
 test("supported and missing protocol versions pass through untouched", () => {
+  const { warn, warnings } = recordingWarn()
   const supported = requestHeaders("2025-06-18")
-  normalizeMcpProtocolVersionHeader(supported, "agent", "req_supported")
+  normalizeMcpProtocolVersionHeader(supported, "agent", "req_supported", warn)
   expect(supported.get("mcp-protocol-version")).toBe("2025-06-18")
 
   const missing = requestHeaders()
-  normalizeMcpProtocolVersionHeader(missing, "agent", "req_missing")
+  normalizeMcpProtocolVersionHeader(missing, "agent", "req_missing", warn)
   expect(missing.get("mcp-protocol-version")).toBeNull()
+  expect(warnings).toEqual([])
 })
 
 test("duplicated copies of a negotiated version collapse to one value", () => {
+  const { warn, warnings } = recordingWarn()
   const headers = requestHeaders("2025-06-18")
   headers.append("mcp-protocol-version", "2025-06-18")
   expect(headers.get("mcp-protocol-version")).toBe("2025-06-18, 2025-06-18")
 
-  normalizeMcpProtocolVersionHeader(headers, "agent", "req_duplicated")
+  normalizeMcpProtocolVersionHeader(headers, "agent", "req_duplicated", warn)
   expect(headers.get("mcp-protocol-version")).toBe("2025-06-18")
+  expect(warnings).toEqual([{
+    message: "mcp protocol version header collapsed",
+    fields: {
+      endpoint: "agent",
+      reference_id: "req_duplicated",
+      protocol_version: "2025-06-18",
+    },
+  }])
 })
 
-test("unknown protocol versions are removed from request-guarded headers", () => {
+test("unknown protocol versions are removed and logged from request-guarded headers", () => {
+  const { warn, warnings } = recordingWarn()
   const headers = requestHeaders("2026-03-26")
-  normalizeMcpProtocolVersionHeader(headers, "agent", "req_unknown")
+  normalizeMcpProtocolVersionHeader(headers, "agent", "req_unknown", warn)
   expect(headers.get("mcp-protocol-version")).toBeNull()
+  expect(warnings.length).toBe(1)
+  expect(warnings[0]?.message).toBe("mcp protocol version unsupported")
+  expect(warnings[0]?.fields.protocol_version).toBe("2026-03-26")
 })
 
 function statelessMcpApp(normalize: boolean) {
   const app = new Hono()
   app.all("/mcp/agent", async (c) => {
     if (normalize) {
-      normalizeMcpProtocolVersionHeader(c.req.raw.headers, "agent", "req_transport")
+      normalizeMcpProtocolVersionHeader(c.req.raw.headers, "agent", "req_transport", () => {})
     }
     const server = new McpServer({ name: "witness", version: "1.0.0" })
     const transport = new StreamableHTTPTransport()
