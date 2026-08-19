@@ -67,11 +67,14 @@ briefTest(testBrief({
     "slow-test-failure-alerts.yml",
     "nightly-mega-eval.yml",
   ];
+  const ciWorkflow = await readFile(join(repoRoot, ".github", "workflows", "ci-tests.yml"), "utf8");
 
   for (const workflow of currentWorkflows) expect(workflowFiles).toContain(workflow);
   for (const workflow of replacedWorkflows) expect(workflowFiles).not.toContain(workflow);
+  expect(ciWorkflow).toContain("pnpm --dir evals run test:pr");
+  expect(ciWorkflow).not.toContain("pnpm --dir evals run spec");
   prove.workflows(
     true,
-    "the active workflow files name the Daytona E2E regression suite, E2E failure alerts, and nightly critical-path journey",
+    "active workflows name the Daytona E2E regression suite, E2E failure alerts, and nightly critical-path journey, and CI invokes test:pr",
   );
 });
