@@ -7,7 +7,7 @@ import { createDenTypeId, type DenTypeId } from "@openwork-ee/utils/typeid"
 import { afterAll, beforeAll, expect, mock, test } from "bun:test"
 import { Hono } from "hono"
 import { z } from "zod"
-import type { ExternalMcpConnectionRow } from "../src/capability-sources/external-mcp-connections.js"
+import type { ExternalMcpConnectionRow } from "@openwork-ee/den-core/capability-sources/external-mcp-connections"
 
 function seedRequiredEnv() {
   process.env.DATABASE_URL = process.env.DATABASE_URL ?? "mysql://root:password@127.0.0.1:3306/openwork_test_searchdiv"
@@ -55,16 +55,16 @@ type ConnectionInput = {
   apiKey?: string | null
 }
 
-let db: typeof import("../src/db.js").db
+let db: typeof import("@openwork-ee/den-core/db").db
 let schema: typeof import("@openwork-ee/den-db/schema")
-let listExternalMcpTools: typeof import("../src/capability-sources/external-mcp-client.js").listExternalMcpTools
-let createExternalMcpConnection: typeof import("../src/capability-sources/external-mcp-connections.js").createExternalMcpConnection
-let getExternalMcpConnection: typeof import("../src/capability-sources/external-mcp-connections.js").getExternalMcpConnection
-let listUsableExternalMcpConnections: typeof import("../src/capability-sources/external-mcp-connections.js").listUsableExternalMcpConnections
-let saveExternalMcpTokens: typeof import("../src/capability-sources/external-mcp-connections.js").saveExternalMcpTokens
-let searchExternalCapabilities: typeof import("../src/mcp/external-capabilities.js").searchExternalCapabilities
-let executeExternalCapability: typeof import("../src/mcp/external-capabilities.js").executeExternalCapability
-let externalCapabilitySuccessToolResult: typeof import("../src/mcp/capability-registry.js").externalCapabilitySuccessToolResult
+let listExternalMcpTools: typeof import("@openwork-ee/den-core/capability-sources/external-mcp-client").listExternalMcpTools
+let createExternalMcpConnection: typeof import("@openwork-ee/den-core/capability-sources/external-mcp-connections").createExternalMcpConnection
+let getExternalMcpConnection: typeof import("@openwork-ee/den-core/capability-sources/external-mcp-connections").getExternalMcpConnection
+let listUsableExternalMcpConnections: typeof import("@openwork-ee/den-core/capability-sources/external-mcp-connections").listUsableExternalMcpConnections
+let saveExternalMcpTokens: typeof import("@openwork-ee/den-core/capability-sources/external-mcp-connections").saveExternalMcpTokens
+let searchExternalCapabilities: typeof import("@openwork-ee/den-core/mcp/external-capabilities").searchExternalCapabilities
+let executeExternalCapability: typeof import("@openwork-ee/den-core/mcp/external-capabilities").executeExternalCapability
+let externalCapabilitySuccessToolResult: typeof import("@openwork-ee/den-core/mcp/capability-registry").externalCapabilitySuccessToolResult
 let slackServer: FakeMcpServer | undefined
 let authedSlackServer: FakeMcpServer | undefined
 let notionServer: FakeMcpServer | undefined
@@ -476,16 +476,16 @@ beforeAll(async () => {
     databaseUrl: process.env.DATABASE_URL,
     mode: "mysql",
   }).db
-  mock.module("../src/db.js", () => ({ db: realDb }))
+  mock.module("@openwork-ee/den-core/db", () => ({ db: realDb }))
 
   const [dbMod, schemaMod, clientMod, connectionsMod, capabilitiesMod, registryMod, envMod] = await Promise.all([
-    import("../src/db.js"),
+    import("@openwork-ee/den-core/db"),
     import("@openwork-ee/den-db/schema"),
-    import("../src/capability-sources/external-mcp-client.js"),
-    import("../src/capability-sources/external-mcp-connections.js"),
-    import("../src/mcp/external-capabilities.js"),
-    import("../src/mcp/capability-registry.js"),
-    import("../src/env.js"),
+    import("@openwork-ee/den-core/capability-sources/external-mcp-client"),
+    import("@openwork-ee/den-core/capability-sources/external-mcp-connections"),
+    import("@openwork-ee/den-core/mcp/external-capabilities"),
+    import("@openwork-ee/den-core/mcp/capability-registry"),
+    import("@openwork-ee/den-core/env"),
   ])
   // Another co-run test file's static src import may have parsed env.ts before
   // this file's env seeding ran. buildTransport reads env.allowPrivateMcpUrls
@@ -635,7 +635,7 @@ test("control-healthy: Connections list and search_capabilities both see Slack t
 
 test("execute_capability shares one external MCP lifecycle budget across schema discovery and tool call", async () => {
   if (!slackServer) throw new Error("Slack MCP server was not started")
-  const { EXTERNAL_MCP_TOOL_LIFECYCLE_TIMEOUT_MS } = await import("../src/capability-sources/external-mcp-client.js")
+  const { EXTERNAL_MCP_TOOL_LIFECYCLE_TIMEOUT_MS } = await import("@openwork-ee/den-core/capability-sources/external-mcp-client")
   const seed = await seedOrganization("execute-shared-lifecycle")
   const connection = await createGrantedConnection(seed, {
     name: "Slack",
@@ -937,8 +937,8 @@ test("dead-url execution returns a structured connection diagnostic instead of t
 
 test("shared invalid_grant recovery cannot reuse the cleared in-memory refresh token", async () => {
   if (!slackServer) throw new Error("Slack MCP server was not started")
-  const { ExternalMcpOAuthProvider } = await import("../src/capability-sources/external-mcp-client.js")
-  const { ExternalMcpDiagnosticTracker } = await import("../src/capability-sources/external-mcp-diagnostics.js")
+  const { ExternalMcpOAuthProvider } = await import("@openwork-ee/den-core/capability-sources/external-mcp-client")
+  const { ExternalMcpDiagnosticTracker } = await import("@openwork-ee/den-core/capability-sources/external-mcp-diagnostics")
   const seed = await seedOrganization("shared-invalid-grant")
   const connection = await createGrantedConnection(seed, {
     name: "Shared OAuth",
@@ -974,8 +974,8 @@ test("shared invalid_grant recovery cannot reuse the cleared in-memory refresh t
 })
 
 test("per-member OAuth reads JSON scopes returned as text by MySQL", async () => {
-  const { ExternalMcpOAuthProvider } = await import("../src/capability-sources/external-mcp-client.js")
-  const { ExternalMcpDiagnosticTracker } = await import("../src/capability-sources/external-mcp-diagnostics.js")
+  const { ExternalMcpOAuthProvider } = await import("@openwork-ee/den-core/capability-sources/external-mcp-client")
+  const { ExternalMcpDiagnosticTracker } = await import("@openwork-ee/den-core/capability-sources/external-mcp-diagnostics")
   const seed = await seedOrganization("per-member-json-scopes")
   const connection = await createGrantedConnection(seed, {
     name: "Per-member OAuth",
@@ -1008,7 +1008,7 @@ test("per-member OAuth reads JSON scopes returned as text by MySQL", async () =>
 
 test("the 16-connection fanout reports incomplete coverage when the only match is connection 17", async () => {
   if (!slackServer || !needleServer) throw new Error("Coverage MCP servers were not started")
-  const { externalMcpSearchCoverageHint } = await import("../src/mcp/external-capabilities.js")
+  const { externalMcpSearchCoverageHint } = await import("@openwork-ee/den-core/mcp/external-capabilities")
   const seed = await seedOrganization("fanout-coverage")
   for (let index = 0; index < 17; index += 1) {
     await createGrantedConnection(seed, {

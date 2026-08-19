@@ -16,7 +16,7 @@ const denApiRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".
 
 function expectConfiguredOrigin(expectedOrigin: string, configuredOrigin?: string): void {
   const result = spawnSync(process.execPath, ["--conditions", "development", "--eval", `
-    const { env } = await import("./src/env.ts")
+    const { env } = await import("@openwork-ee/den-core/env")
     if (env.diagnostics.origin !== process.env.TEST_EXPECTED_ORIGIN) {
       throw new Error(\`Expected diagnostics origin \${process.env.TEST_EXPECTED_ORIGIN}, got \${env.diagnostics.origin}\`)
     }

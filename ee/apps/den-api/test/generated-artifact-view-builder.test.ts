@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto"
 import { expect, test } from "bun:test"
-import { buildGeneratedArtifactView } from "../src/generated-artifact-view-builder.js"
+import { buildGeneratedArtifactView } from "@openwork-ee/den-core/generated-artifact-view-builder"
 
 const schema = {
   type: "object",

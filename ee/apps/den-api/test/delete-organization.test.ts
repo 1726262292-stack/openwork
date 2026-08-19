@@ -110,7 +110,7 @@ const tx = {
   }),
 }
 
-mock.module("../src/db.js", () => ({
+mock.module("@openwork-ee/den-core/db", () => ({
   db: {
     ...tx,
     transaction: async (callback: (transaction: typeof tx) => Promise<void>) => {
@@ -120,7 +120,7 @@ mock.module("../src/db.js", () => ({
   },
 }))
 
-mock.module("../src/stripe-billing.js", () => ({
+mock.module("@openwork-ee/den-core/stripe-billing", () => ({
   cancelOrganizationSubscriptions: (input: { organizationId: string }) => {
     callOrder.push("cancel")
     cancelledOrganizationIds.push(input.organizationId)
@@ -128,7 +128,7 @@ mock.module("../src/stripe-billing.js", () => ({
   },
 }))
 
-mock.module("../src/orgs.js", () => ({
+mock.module("@openwork-ee/den-core/orgs", () => ({
   getOrganizationContextForUser: (input: { organizationId: string; userId: string }) => Promise.resolve(
     input.organizationId === organizationId && input.userId === userId
       ? {

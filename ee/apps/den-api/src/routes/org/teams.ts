@@ -16,20 +16,20 @@ import { createDenTypeId, normalizeDenTypeId } from "@openwork-ee/utils/typeid"
 import type { Hono } from "hono"
 import { describeRoute } from "hono-openapi"
 import { z } from "zod"
-import { db } from "../../db.js"
-import { isScimManagedTeam } from "../../scim-groups.js"
+import { db } from "@openwork-ee/den-core/db"
+import { isScimManagedTeam } from "@openwork-ee/den-core/scim-groups"
 import {
   jsonValidator,
   orgRoleRoute,
   paramValidator,
-} from "../../middleware/index.js"
-import { denTypeIdSchema, emptyResponse, forbiddenSchema, invalidRequestSchema, jsonResponse, notFoundSchema, unauthorizedSchema } from "../../openapi.js"
-import type { OrgRouteVariables } from "./shared.js"
+} from "@openwork-ee/den-core/middleware/index"
+import { denTypeIdSchema, emptyResponse, forbiddenSchema, invalidRequestSchema, jsonResponse, notFoundSchema, unauthorizedSchema } from "@openwork-ee/den-core/openapi"
+import type { OrgRouteVariables } from "@openwork-ee/den-core/routes/org/shared"
 import {
   ensureTeamManager,
   idParamSchema,
   orgAccessFailureStatus,
-} from "./shared.js"
+} from "@openwork-ee/den-core/routes/org/shared"
 
 const createTeamSchema = z.object({
   name: z.string().trim().min(1).max(255),

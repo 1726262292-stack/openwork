@@ -63,7 +63,7 @@ export function shortenToolName(operationId: string, taken?: ReadonlySet<string>
   return name
 }
 
-type OpenApiDocument = {
+export type OpenApiDocument = {
   paths?: Record<string, Record<string, OpenApiOperation>>
   components?: {
     parameters?: Record<string, unknown>
@@ -290,6 +290,42 @@ function buildDescription(input: McpToolOperation) {
 
 export function getToolDescription(operation: McpToolOperation) {
   return buildDescription(operation)
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+/**
+ * Keep only operations that can enter the MCP catalog, while preserving each
+ * included operation in full. Component parameters stay available for the
+ * same reference resolution performed by buildMcpCatalog.
+ */
+export function buildMcpCatalogSnapshot(document: unknown): OpenApiDocument {
+  const paths: Record<string, Record<string, OpenApiOperation>> = {}
+
+  if (isRecord(document) && isRecord(document.paths)) {
+    for (const [path, pathItem] of Object.entries(document.paths)) {
+      if (!isRecord(pathItem)) continue
+      const operations: Record<string, OpenApiOperation> = {}
+      for (const [method, operation] of Object.entries(pathItem)) {
+        if (!METHODS.has(method.toLowerCase()) || !isRecord(operation)) continue
+        if (isMcpOperationAllowed({ method, path, operation })) {
+          operations[method] = operation
+        }
+      }
+      if (Object.keys(operations).length > 0) {
+        paths[path] = operations
+      }
+    }
+  }
+
+  const components = isRecord(document) && isRecord(document.components) ? document.components : null
+  const parameters = components && isRecord(components.parameters) ? components.parameters : null
+  return {
+    paths,
+    ...(parameters ? { components: { parameters } } : {}),
+  }
 }
 
 export function buildMcpCatalog(document: OpenApiDocument): McpToolOperation[] {

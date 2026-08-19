@@ -8,15 +8,15 @@ function seedRequiredEnv() {
   process.env.DEN_SINGLE_ORG_ALLOW_PUBLIC_SIGNUP = process.env.DEN_SINGLE_ORG_ALLOW_PUBLIC_SIGNUP ?? "false"
 }
 
-let envModule: typeof import("../src/env.js")
-let singleOrgPolicy: typeof import("../src/single-org-policy.js")
-let signupPolicy: typeof import("../src/single-org-signup-policy.js")
+let envModule: typeof import("@openwork-ee/den-core/env")
+let singleOrgPolicy: typeof import("@openwork-ee/den-core/single-org-policy")
+let signupPolicy: typeof import("@openwork-ee/den-core/single-org-signup-policy")
 
 beforeAll(async () => {
   seedRequiredEnv()
-  envModule = await import("../src/env.js")
-  singleOrgPolicy = await import("../src/single-org-policy.js")
-  signupPolicy = await import("../src/single-org-signup-policy.js")
+  envModule = await import("@openwork-ee/den-core/env")
+  singleOrgPolicy = await import("@openwork-ee/den-core/single-org-policy")
+  signupPolicy = await import("@openwork-ee/den-core/single-org-signup-policy")
 })
 
 test("blank org mode resolves to single_org", () => {

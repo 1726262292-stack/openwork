@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { canManageSecurityConfiguration } from "../src/organization-access.js"
+import { canManageSecurityConfiguration } from "@openwork-ee/den-core/organization-access"
 
 test("settings mutation access is limited to owner and super-admin roles", () => {
   expect(canManageSecurityConfiguration({

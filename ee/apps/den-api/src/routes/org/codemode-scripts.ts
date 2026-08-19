@@ -18,33 +18,33 @@ import {
   listCodemodeScriptVersions,
   saveCodemodeScript,
   testCodemodeScriptDraft,
-} from "../../codemode-scripts.js"
-import { orgMemberRoute, jsonValidator, queryValidator } from "../../middleware/index.js"
-import { forbiddenSchema, invalidRequestSchema, jsonResponse, notFoundSchema, unauthorizedSchema } from "../../openapi.js"
-import { listTeamsForMember } from "../../orgs.js"
-import { env } from "../../env.js"
-import { getCatalog } from "../../mcp/index.js"
-import { buildCapabilityToolTree, createCapabilityRegistryContext } from "../../mcp/capability-registry.js"
+} from "@openwork-ee/den-core/codemode-scripts"
+import { orgMemberRoute, jsonValidator, queryValidator } from "@openwork-ee/den-core/middleware/index"
+import { forbiddenSchema, invalidRequestSchema, jsonResponse, notFoundSchema, unauthorizedSchema } from "@openwork-ee/den-core/openapi"
+import { listTeamsForMember } from "@openwork-ee/den-core/orgs"
+import { env } from "@openwork-ee/den-core/env"
+import { getCatalog } from "@openwork-ee/den-core/mcp/index"
+import { buildCapabilityToolTree, createCapabilityRegistryContext } from "@openwork-ee/den-core/mcp/capability-registry"
 import {
   executeMarketplaceCapability,
   listAccessibleSavedCodemodeScripts,
-} from "../../mcp/marketplace-capabilities.js"
-import { DEN_MCP_REQUESTED_SCOPES } from "../../mcp/scopes.js"
-import { codemodeScriptsEnabled } from "../../capability-sources/codemode-rollout.js"
-import { PluginArchAuthorizationError } from "./plugin-system/access.js"
-import type { OrgRouteVariables } from "./shared.js"
-import { codemodeCodeDigest } from "../../codemode-runs.js"
-import { getProgramDetail } from "../../program-library.js"
+} from "@openwork-ee/den-core/mcp/marketplace-capabilities"
+import { DEN_MCP_REQUESTED_SCOPES } from "@openwork-ee/den-core/mcp/scopes"
+import { codemodeScriptsEnabled } from "@openwork-ee/den-core/capability-sources/codemode-rollout"
+import { PluginArchAuthorizationError } from "@openwork-ee/den-core/routes/org/plugin-system/access"
+import type { OrgRouteVariables } from "@openwork-ee/den-core/routes/org/shared"
+import { codemodeCodeDigest } from "@openwork-ee/den-core/codemode-runs"
+import { getProgramDetail } from "@openwork-ee/den-core/program-library"
 import {
   activateArtifactViewRevision,
   listArtifactViewsForScript,
   retireArtifactView,
-} from "../../artifact-views.js"
+} from "@openwork-ee/den-core/artifact-views"
 import {
   clearProgramAgentSelection,
   getProgramAgentSelection,
   selectProgramForAgent,
-} from "../../program-agent-selection.js"
+} from "@openwork-ee/den-core/program-agent-selection"
 
 const capabilitySchema = z.object({ capabilityName: z.string(), scriptPath: z.string() })
 const scriptSchema = z.object({

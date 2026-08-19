@@ -26,7 +26,7 @@ import {
   TeamTable,
 } from "@openwork-ee/den-db/schema"
 import { createDenTypeId, normalizeDenTypeId, type DenTypeId } from "@openwork-ee/utils/typeid"
-import type { PluginArchActorContext } from "../src/routes/org/plugin-system/access.js"
+import type { PluginArchActorContext } from "@openwork-ee/den-core/routes/org/plugin-system/access"
 
 function seedRequiredEnv() {
   process.env.DATABASE_URL = process.env.DATABASE_URL ?? "mysql://root:password@127.0.0.1:3306/openwork_test_pr6"
@@ -36,8 +36,8 @@ function seedRequiredEnv() {
   process.env.CORS_ORIGINS = process.env.CORS_ORIGINS ?? "http://127.0.0.1:8790"
 }
 
-type Db = typeof import("../src/db.js").db
-type Store = typeof import("../src/routes/org/plugin-system/store.js")
+type Db = typeof import("@openwork-ee/den-core/db").db
+type Store = typeof import("@openwork-ee/den-core/routes/org/plugin-system/store")
 type ConfigObjectType = typeof ConfigObjectTable.$inferSelect.objectType
 
 type SeededOrg = {
@@ -81,9 +81,9 @@ beforeAll(async () => {
     databaseUrl: process.env.DATABASE_URL,
     mode: "mysql",
   }).db
-  mock.module("../src/db.js", () => ({ db }))
-  const { env } = await import("../src/env.js")
-  mock.module("../src/env.js", () => ({
+  mock.module("@openwork-ee/den-core/db", () => ({ db }))
+  const { env } = await import("@openwork-ee/den-core/env")
+  mock.module("@openwork-ee/den-core/env", () => ({
     env: {
       ...env,
       allowPrivateMcpUrls: true,
@@ -93,7 +93,7 @@ beforeAll(async () => {
       mcpConnectionsGatingEnabled: true, // Deprecated gate remains inert.
     },
   }))
-  mock.module("../src/capability-sources/external-mcp-client-runtime.js", () => ({
+  mock.module("@openwork-ee/den-core/capability-sources/external-mcp-client-runtime", () => ({
     abandonExternalMcpAuth: unsupportedExternalMcpRuntimeMock,
     abandonLegacyExternalMcpAuth: unsupportedExternalMcpRuntimeMock,
     callExternalMcpTool: unsupportedExternalMcpRuntimeMock,
@@ -104,7 +104,7 @@ beforeAll(async () => {
     inspectExternalMcpToolCall: unsupportedExternalMcpRuntimeMock,
     listExternalMcpTools: unsupportedExternalMcpRuntimeMock,
   }))
-  store = await import("../src/routes/org/plugin-system/store.js")
+  store = await import("@openwork-ee/den-core/routes/org/plugin-system/store")
 })
 
 afterAll(() => {
@@ -280,7 +280,7 @@ async function listUsableConnectionIds(input: {
   org: SeededOrg
   teamIds?: DenTypeId<"team">[]
 }) {
-  const { listUsableExternalMcpConnections } = await import("../src/capability-sources/external-mcp-connections.js")
+  const { listUsableExternalMcpConnections } = await import("@openwork-ee/den-core/capability-sources/external-mcp-connections")
   const rows = await listUsableExternalMcpConnections({
     organizationId: input.org.organizationId,
     orgMembershipId: input.memberId,

@@ -7,11 +7,11 @@ function seedRequiredEnv() {
   process.env.BETTER_AUTH_URL = process.env.BETTER_AUTH_URL ?? "http://127.0.0.1:8790"
 }
 
-let getRawBetterAuthMutationDenial: typeof import("../src/auth.js")["getRawBetterAuthMutationDenial"]
+let getRawBetterAuthMutationDenial: typeof import("@openwork-ee/den-core/auth")["getRawBetterAuthMutationDenial"]
 
 beforeAll(async () => {
   seedRequiredEnv()
-  getRawBetterAuthMutationDenial = (await import("../src/auth.js")).getRawBetterAuthMutationDenial
+  getRawBetterAuthMutationDenial = (await import("@openwork-ee/den-core/auth")).getRawBetterAuthMutationDenial
 })
 
 test("raw Better Auth organization governance and settings mutations are denied", () => {

@@ -12,11 +12,11 @@ type AdminToolResult = {
   content: { type: "text"; text: string }[]
 }
 
-let adminCapabilities: typeof import("../src/mcp/admin-capabilities.js")
+let adminCapabilities: typeof import("@openwork-ee/den-core/mcp/admin-capabilities")
 
 beforeAll(async () => {
   seedRequiredEnv()
-  adminCapabilities = await import("../src/mcp/admin-capabilities.js")
+  adminCapabilities = await import("@openwork-ee/den-core/mcp/admin-capabilities")
 })
 
 function contentText(result: AdminToolResult | null) {

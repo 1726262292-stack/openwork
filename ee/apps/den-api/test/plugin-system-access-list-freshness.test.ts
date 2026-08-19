@@ -2,12 +2,13 @@ import { readFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 import { expect, test } from "bun:test"
 
+const denCoreSourceRoot = new URL("../../../packages/den-core/src/", import.meta.url)
 const accessSource = readFileSync(
-  fileURLToPath(new URL("../src/routes/org/plugin-system/access.ts", import.meta.url)),
+  fileURLToPath(new URL("routes/org/plugin-system/access.ts", denCoreSourceRoot)),
   "utf8",
 )
 const storeSource = readFileSync(
-  fileURLToPath(new URL("../src/routes/org/plugin-system/store.ts", import.meta.url)),
+  fileURLToPath(new URL("routes/org/plugin-system/store.ts", denCoreSourceRoot)),
   "utf8",
 )
 

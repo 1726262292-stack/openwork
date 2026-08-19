@@ -15,7 +15,7 @@ function seedRequiredEnv() {
 
 function probeAccessTokenLifetime(overrides: Record<string, string>) {
   return spawnSync(process.execPath, ["--conditions", "development", "--eval", `
-    const { DEN_MCP_ACCESS_TOKEN_EXPIRES_IN_SECONDS } = await import("./src/mcp/token-lifetime.ts")
+    const { DEN_MCP_ACCESS_TOKEN_EXPIRES_IN_SECONDS } = await import("@openwork-ee/den-core/mcp/token-lifetime")
     console.log(DEN_MCP_ACCESS_TOKEN_EXPIRES_IN_SECONDS)
   `], {
     cwd: denApiRoot,
@@ -83,20 +83,20 @@ test("invalid MCP OAuth access-token test override is ignored outside dev mode",
 test("MCP OAuth access-token lifetime stays below the JWKS grace period", async () => {
   seedRequiredEnv()
   const [{ DEN_MCP_DEFAULT_ACCESS_TOKEN_EXPIRES_IN_SECONDS }, { DEN_JWKS_GRACE_PERIOD_SECONDS }] = await Promise.all([
-    import("../src/mcp/token-lifetime.js"),
-    import("../src/mcp/jwt-policy.js"),
+    import("@openwork-ee/den-core/mcp/token-lifetime"),
+    import("@openwork-ee/den-core/mcp/jwt-policy"),
   ])
   expect(DEN_MCP_DEFAULT_ACCESS_TOKEN_EXPIRES_IN_SECONDS).toBeLessThan(DEN_JWKS_GRACE_PERIOD_SECONDS)
 })
 
 test("rotating MCP refresh grants use a thirty-day inactivity window", async () => {
   seedRequiredEnv()
-  const { DEN_MCP_REFRESH_TOKEN_EXPIRES_IN_SECONDS } = await import("../src/mcp/token-lifetime.js")
+  const { DEN_MCP_REFRESH_TOKEN_EXPIRES_IN_SECONDS } = await import("@openwork-ee/den-core/mcp/token-lifetime")
   expect(DEN_MCP_REFRESH_TOKEN_EXPIRES_IN_SECONDS).toBe(30 * 24 * 60 * 60)
 })
 
 test("first-party MCP bearer tokens retain a bounded seven-day lifetime", async () => {
   seedRequiredEnv()
-  const { DEN_FIRST_PARTY_MCP_TOKEN_TTL_MS } = await import("../src/mcp/token-lifetime.js")
+  const { DEN_FIRST_PARTY_MCP_TOKEN_TTL_MS } = await import("@openwork-ee/den-core/mcp/token-lifetime")
   expect(DEN_FIRST_PARTY_MCP_TOKEN_TTL_MS).toBe(7 * 24 * 60 * 60 * 1000)
 })

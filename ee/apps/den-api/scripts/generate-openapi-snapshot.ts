@@ -1,7 +1,8 @@
-import { mkdir, writeFile } from "node:fs/promises"
+import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { STATUS_CODES } from "node:http"
 import { dirname, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
+import { buildMcpCatalogSnapshot } from "@openwork-ee/den-core/mcp/catalog"
 
 type NormalizationCounts = {
   descriptionsFilled: number
@@ -105,15 +106,43 @@ async function main() {
   const counts = normalizeOpenApiDocument(document)
   const scriptDir = dirname(fileURLToPath(import.meta.url))
   const repoRoot = resolve(scriptDir, "../../../..")
-  const outputPath = resolve(repoRoot, "packages/docs/openapi.json")
-  await mkdir(dirname(outputPath), { recursive: true })
-  await writeFile(outputPath, JSON.stringify(document))
+  const outputs = [
+    {
+      path: resolve(repoRoot, "packages/docs/openapi.json"),
+      content: JSON.stringify(document),
+    },
+    {
+      path: resolve(repoRoot, "ee/packages/den-core/src/generated/mcp-catalog-openapi.json"),
+      content: JSON.stringify(buildMcpCatalogSnapshot(document)),
+    },
+  ]
+  const check = process.argv.includes("--check")
+
+  for (const output of outputs) {
+    const displayPath = relative(repoRoot, output.path)
+    if (check) {
+      const committed = await readFile(output.path, "utf8").catch(() => null)
+      if (committed !== output.content) {
+        throw new Error(`OpenAPI snapshot is stale: ${displayPath}. Run pnpm --filter @openwork-ee/den-api openapi:snapshot.`)
+      }
+      console.log(`Checked ${displayPath}`)
+      continue
+    }
+    await mkdir(dirname(output.path), { recursive: true })
+    await writeFile(output.path, output.content)
+    console.log(`Wrote ${displayPath}`)
+  }
 
   console.log([
-    `Wrote ${relative(repoRoot, outputPath)}`,
     `descriptionsFilled=${counts.descriptionsFilled}`,
     `hideKeysDropped=${counts.hideKeysDropped}`,
   ].join(" "))
 }
 
-await main()
+main().then(
+  () => process.exit(0),
+  (error: unknown) => {
+    console.error(error)
+    process.exit(1)
+  },
+)

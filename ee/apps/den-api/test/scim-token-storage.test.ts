@@ -3,7 +3,7 @@ import {
   hashScimToken,
   SCIM_TOKEN_STORAGE_STRATEGY,
   verifyStoredScimToken,
-} from "../src/scim-token-storage.js"
+} from "@openwork-ee/den-core/scim-token-storage"
 
 test("SCIM token storage uses Better Auth compatible hashed storage", () => {
   expect(SCIM_TOKEN_STORAGE_STRATEGY).toBe("hashed")

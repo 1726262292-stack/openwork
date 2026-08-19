@@ -3,11 +3,11 @@ import { MemoryContextTable, MemoryTable } from "@openwork-ee/den-db/schema"
 import { createDenTypeId, normalizeDenTypeId } from "@openwork-ee/utils/typeid"
 import type { Hono } from "hono"
 import { describeRoute } from "hono-openapi"
-import { db } from "../../db.js"
-import { authenticatedRoute, jsonValidator, orgMemberRoute, paramValidator, queryValidator } from "../../middleware/index.js"
-import type { OrganizationContextVariables } from "../../middleware/index.js"
-import { emptyResponse, invalidRequestSchema, jsonResponse, notFoundSchema, unauthorizedSchema } from "../../openapi.js"
-import type { AuthContextVariables } from "../../session.js"
+import { db } from "@openwork-ee/den-core/db"
+import { authenticatedRoute, jsonValidator, orgMemberRoute, paramValidator, queryValidator } from "@openwork-ee/den-core/middleware/index"
+import type { OrganizationContextVariables } from "@openwork-ee/den-core/middleware/index"
+import { emptyResponse, invalidRequestSchema, jsonResponse, notFoundSchema, unauthorizedSchema } from "@openwork-ee/den-core/openapi"
+import type { AuthContextVariables } from "@openwork-ee/den-core/session"
 import {
   getMemoryByIdForUser,
   listMemoryQuerySchema,

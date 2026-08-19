@@ -9,11 +9,11 @@ function seedRequiredEnv() {
   process.env.DEN_API_PUBLIC_URL = process.env.DEN_API_PUBLIC_URL ?? "http://127.0.0.1:8790"
 }
 
-let registerAgentMcpRoutes: typeof import("../src/mcp/agent.js")["registerAgentMcpRoutes"]
+let registerAgentMcpRoutes: typeof import("@openwork-ee/den-core/mcp/agent")["registerAgentMcpRoutes"]
 
 beforeAll(async () => {
   seedRequiredEnv()
-  registerAgentMcpRoutes = (await import("../src/mcp/agent.js")).registerAgentMcpRoutes
+  registerAgentMcpRoutes = (await import("@openwork-ee/den-core/mcp/agent")).registerAgentMcpRoutes
 })
 
 function buildApp() {

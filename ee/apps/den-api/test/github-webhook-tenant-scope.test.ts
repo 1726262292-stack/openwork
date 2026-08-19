@@ -85,13 +85,13 @@ function resolveRows(innerJoinCalls: number, queryCall: number): QueryResult {
   return []
 }
 
-let storeModule: typeof import("../src/routes/org/plugin-system/store.js")
-let envModule: typeof import("../src/env.js")
+let storeModule: typeof import("@openwork-ee/den-core/routes/org/plugin-system/store")
+let envModule: typeof import("@openwork-ee/den-core/env")
 let githubModule: typeof import("../src/routes/webhooks/github.js")
 
 beforeAll(async () => {
   seedRequiredEnv()
-  mock.module("../src/db.js", () => ({
+  mock.module("@openwork-ee/den-core/db", () => ({
     db: {
       insert: () => {
         insertCalls += 1
@@ -112,8 +112,8 @@ beforeAll(async () => {
     },
   }))
 
-  storeModule = await import("../src/routes/org/plugin-system/store.js")
-  envModule = await import("../src/env.js")
+  storeModule = await import("@openwork-ee/den-core/routes/org/plugin-system/store")
+  envModule = await import("@openwork-ee/den-core/env")
   githubModule = await import("../src/routes/webhooks/github.js")
   envModule.env.githubConnectorApp.webhookSecret = "super-secret"
 })

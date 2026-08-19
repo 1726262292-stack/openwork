@@ -2,12 +2,12 @@ import type { Hono } from "hono"
 import { describeRoute, resolver } from "hono-openapi"
 import { z } from "zod"
 import { deleteOrganizationScimConnection, getOrganizationScimConnection, getOrganizationScimHealth, getScimBaseUrl, reconcileOrganizationScimDrift, rotateOrganizationScimToken } from "../../scim.js"
-import { setScimGroupMappingMode } from "../../scim-groups.js"
+import { setScimGroupMappingMode } from "@openwork-ee/den-core/scim-groups"
 import { hasEnabledOrganizationSsoConnection } from "../../sso.js"
 import { ORGANIZATION_AUDIT_ACTIONS, recordOrganizationAuditEvent } from "../../audit-events.js"
-import { jsonValidator, orgMemberRoute } from "../../middleware/index.js"
-import type { OrgRouteVariables } from "./shared.js"
-import { ensureScimManager, ensureScimReader, orgAccessFailureStatus } from "./shared.js"
+import { jsonValidator, orgMemberRoute } from "@openwork-ee/den-core/middleware/index"
+import type { OrgRouteVariables } from "@openwork-ee/den-core/routes/org/shared"
+import { ensureScimManager, ensureScimReader, orgAccessFailureStatus } from "@openwork-ee/den-core/routes/org/shared"
 
 const invalidRequestSchema = z.object({
   error: z.literal("invalid_request"),

@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { spawnSync } from "node:child_process"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
-import { deriveDenMcpResource, resolveMcpResourceFromRequest } from "../src/mcp/resource.js"
+import { deriveDenMcpResource, resolveMcpResourceFromRequest } from "@openwork-ee/den-core/mcp/resource"
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../..")
 const denApiRoot = path.join(repoRoot, "ee/apps/den-api")
@@ -31,8 +31,8 @@ if (!requestUrl || !expectedResource) {
   throw new Error("Missing MCP resource probe inputs")
 }
 
-const { DEN_MCP_OAUTH_VALID_AUDIENCES } = await import("./src/auth.js")
-const { getMcpResourceContext, getMcpResourceUrl } = await import("./src/mcp/auth.js")
+const { DEN_MCP_OAUTH_VALID_AUDIENCES } = await import("@openwork-ee/den-core/auth")
+const { getMcpResourceContext, getMcpResourceUrl } = await import("@openwork-ee/den-core/mcp/auth")
 const requestHeaders = JSON.parse(process.env.TEST_REQUEST_HEADERS ?? "{}")
 const requestInit = { headers: requestHeaders }
 const route = process.env.TEST_MCP_ROUTE
@@ -58,7 +58,7 @@ if (metadataUrl) {
     throw new Error("Missing MCP metadata probe expectations")
   }
 
-  const { protectedResourceMetadata } = await import("./src/mcp/index.js")
+  const { protectedResourceMetadata } = await import("@openwork-ee/den-core/mcp/index")
   const metadata = protectedResourceMetadata(new Request(metadataUrl, requestInit), route || "mcp")
   const authorizationServer = metadata.authorization_servers[0]
   if (metadata.resource !== expectedMetadataResource) {

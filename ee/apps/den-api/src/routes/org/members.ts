@@ -4,11 +4,11 @@ import type { Hono } from "hono"
 import { describeRoute } from "hono-openapi"
 import { z } from "zod"
 import { ORGANIZATION_AUDIT_ACTIONS, recordOrganizationAuditEvent } from "../../audit-events.js"
-import { jsonValidator, orgRoleRoute, paramValidator } from "../../middleware/index.js"
-import { emptyResponse, forbiddenSchema, invalidRequestSchema, jsonResponse, notFoundSchema, successSchema, unauthorizedSchema } from "../../openapi.js"
-import { listAssignableRoles, removeOrganizationMember, transferOrganizationOwnership, updateOrganizationMemberRole } from "../../orgs.js"
-import type { OrgRouteVariables } from "./shared.js"
-import { ensureMemberRemover, ensureOrganizationSuperAdmin, ensureOwner, idParamSchema, normalizeRoleName, orgAccessFailureStatus } from "./shared.js"
+import { jsonValidator, orgRoleRoute, paramValidator } from "@openwork-ee/den-core/middleware/index"
+import { emptyResponse, forbiddenSchema, invalidRequestSchema, jsonResponse, notFoundSchema, successSchema, unauthorizedSchema } from "@openwork-ee/den-core/openapi"
+import { listAssignableRoles, removeOrganizationMember, transferOrganizationOwnership, updateOrganizationMemberRole } from "@openwork-ee/den-core/orgs"
+import type { OrgRouteVariables } from "@openwork-ee/den-core/routes/org/shared"
+import { ensureMemberRemover, ensureOrganizationSuperAdmin, ensureOwner, idParamSchema, normalizeRoleName, orgAccessFailureStatus } from "@openwork-ee/den-core/routes/org/shared"
 
 const updateMemberRoleSchema = z.object({
   role: z.string().trim().min(1).max(64),

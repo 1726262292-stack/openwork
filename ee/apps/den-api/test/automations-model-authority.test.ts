@@ -5,7 +5,7 @@ import type {
   AutomationAuthorityModel,
   AutomationAuthorityProvider,
   AutomationModelAuthorityStore,
-} from "../src/automations/authority.js"
+} from "@openwork-ee/den-core/automations/authority"
 
 function seedRequiredEnv() {
   process.env.DATABASE_URL ??= "mysql://root:password@127.0.0.1:3306/openwork_test"
@@ -14,12 +14,12 @@ function seedRequiredEnv() {
   process.env.BETTER_AUTH_URL ??= "http://127.0.0.1:8790"
 }
 
-let resolveAutomationModelAccessWithStore: typeof import("../src/automations/authority.js")["resolveAutomationModelAccessWithStore"]
-let isActiveAutomationOwnerWithStore: typeof import("../src/automations/authority.js")["isActiveAutomationOwnerWithStore"]
+let resolveAutomationModelAccessWithStore: typeof import("@openwork-ee/den-core/automations/authority")["resolveAutomationModelAccessWithStore"]
+let isActiveAutomationOwnerWithStore: typeof import("@openwork-ee/den-core/automations/authority")["isActiveAutomationOwnerWithStore"]
 
 beforeAll(async () => {
   seedRequiredEnv()
-  ;({ resolveAutomationModelAccessWithStore, isActiveAutomationOwnerWithStore } = await import("../src/automations/authority.js"))
+  ;({ resolveAutomationModelAccessWithStore, isActiveAutomationOwnerWithStore } = await import("@openwork-ee/den-core/automations/authority"))
 })
 
 const member: AutomationAuthorityMember = { id: createDenTypeId("member") }

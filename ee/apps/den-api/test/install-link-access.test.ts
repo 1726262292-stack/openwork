@@ -42,7 +42,7 @@ let failInstallLinkInsert = false
 let sessionCreatedAt = new Date()
 let organizationMetadata = defaultOrganizationMetadata()
 
-mock.module("../src/auth.js", () => ({
+mock.module("@openwork-ee/den-core/auth", () => ({
   DEN_MCP_FIRST_PARTY_CLIENT_ID: "openwork-desktop",
   DEN_MCP_FIRST_PARTY_RESOURCES: [],
   DEN_MCP_LEGACY_PARENT_RESOURCES: [],
@@ -63,7 +63,7 @@ mock.module("../src/auth.js", () => ({
   normalizeMcpOAuthResource: () => null,
 }))
 
-mock.module("../src/db.js", () => ({
+mock.module("@openwork-ee/den-core/db", () => ({
   db: {
     insert: (_table: unknown) => ({
       values: (values: unknown) => {
@@ -131,7 +131,7 @@ function organizationContextMetadata() {
   }
 }
 
-mock.module("../src/orgs.js", () => ({
+mock.module("@openwork-ee/den-core/orgs", () => ({
   OrganizationEmailDomainRestrictionError: class OrganizationEmailDomainRestrictionError extends Error {},
   acceptInvitationForUser: () => Promise.resolve(null),
   createOrganizationForUser: () => Promise.resolve(null),
@@ -190,11 +190,11 @@ mock.module("../src/orgs.js", () => ({
 
 let installLinkModule: typeof import("../src/routes/org/install-links.js")
 let installLinkMintingModule: typeof import("../src/install-links.js")
-let envModule: typeof import("../src/env.js")
+let envModule: typeof import("@openwork-ee/den-core/env")
 
 beforeAll(async () => {
   seedRequiredEnv()
-  envModule = await import("../src/env.js")
+  envModule = await import("@openwork-ee/den-core/env")
   installLinkMintingModule = await import("../src/install-links.js")
   installLinkModule = await import("../src/routes/org/install-links.js")
   mock.restore()

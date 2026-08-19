@@ -2,13 +2,13 @@ import { and, eq, isNotNull, isNull } from "@openwork-ee/den-db/drizzle"
 import { AuthAccountTable, ExternalIdentityTable, SsoConnectionTable, SsoProviderTable } from "@openwork-ee/den-db/schema"
 import { createDenTypeId } from "@openwork-ee/utils/typeid"
 import { z } from "zod"
-import { auth } from "./auth.js"
-import { db } from "./db.js"
+import { auth } from "@openwork-ee/den-core/auth"
+import { db } from "@openwork-ee/den-core/db"
 import { isOrganizationSsoReady } from "./sso-readiness.js"
-import { env } from "./env.js"
+import { env } from "@openwork-ee/den-core/env"
 import { isMicrosoftEntraManagedDomain } from "./sso-entra-domain.js"
-import { SSO_IDENTITY_EXTRA_FIELDS } from "./sso-jit.js"
-import { ORGANIZATION_SAML_WANT_ASSERTIONS_SIGNED } from "./sso-saml-policy.js"
+import { SSO_IDENTITY_EXTRA_FIELDS } from "@openwork-ee/den-core/sso-jit"
+import { ORGANIZATION_SAML_WANT_ASSERTIONS_SIGNED } from "@openwork-ee/den-core/sso-saml-policy"
 
 type SsoConnection = typeof SsoConnectionTable.$inferSelect
 type OrganizationId = SsoConnection["organizationId"]

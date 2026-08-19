@@ -21,17 +21,17 @@ function isStringArray(value: unknown): value is string[] {
 }
 
 let app: typeof import("../src/app.js").default
-let db: typeof import("../src/db.js").db
+let db: typeof import("@openwork-ee/den-core/db").db
 let schema: typeof import("@openwork-ee/den-db/schema")
 let drizzle: typeof import("@openwork-ee/den-db/drizzle")
-let session: typeof import("../src/session.js")
-let createExternalMcpConnection: typeof import("../src/capability-sources/external-mcp-connections.js").createExternalMcpConnection
-let externalMcpIdentityBinding: typeof import("../src/capability-sources/external-mcp-connections.js").externalMcpIdentityBinding
-let isolateExternalMcpOAuthCallback: typeof import("../src/capability-sources/external-mcp-connections.js").isolateExternalMcpOAuthCallback
-let createOAuthStateToken: typeof import("../src/capability-sources/generic-oauth.js").createOAuthStateToken
-let verifyOAuthStateToken: typeof import("../src/capability-sources/generic-oauth.js").verifyOAuthStateToken
-let upsertOrgOAuthClient: typeof import("../src/capability-sources/oauth-credentials.js").upsertOrgOAuthClient
-let getOrgOAuthClient: typeof import("../src/capability-sources/oauth-credentials.js").getOrgOAuthClient
+let session: typeof import("@openwork-ee/den-core/session")
+let createExternalMcpConnection: typeof import("@openwork-ee/den-core/capability-sources/external-mcp-connections").createExternalMcpConnection
+let externalMcpIdentityBinding: typeof import("@openwork-ee/den-core/capability-sources/external-mcp-connections").externalMcpIdentityBinding
+let isolateExternalMcpOAuthCallback: typeof import("@openwork-ee/den-core/capability-sources/external-mcp-connections").isolateExternalMcpOAuthCallback
+let createOAuthStateToken: typeof import("@openwork-ee/den-core/capability-sources/generic-oauth").createOAuthStateToken
+let verifyOAuthStateToken: typeof import("@openwork-ee/den-core/capability-sources/generic-oauth").verifyOAuthStateToken
+let upsertOrgOAuthClient: typeof import("@openwork-ee/den-core/capability-sources/oauth-credentials").upsertOrgOAuthClient
+let getOrgOAuthClient: typeof import("@openwork-ee/den-core/capability-sources/oauth-credentials").getOrgOAuthClient
 
 const userId = createDenTypeId("user")
 const regularUserId = createDenTypeId("user")
@@ -50,17 +50,17 @@ beforeAll(async () => {
     databaseUrl: process.env.DATABASE_URL,
     mode: "mysql",
   }).db
-  mock.module("../src/db.js", () => ({ db: realDb }))
+  mock.module("@openwork-ee/den-core/db", () => ({ db: realDb }))
 
   const [appMod, dbMod, schemaMod, drizzleMod, sessionMod, connectionsMod, genericOAuthMod, oauthCredentialsMod] = await Promise.all([
     import("../src/app.js"),
-    import("../src/db.js"),
+    import("@openwork-ee/den-core/db"),
     import("@openwork-ee/den-db/schema"),
     import("@openwork-ee/den-db/drizzle"),
-    import("../src/session.js"),
-    import("../src/capability-sources/external-mcp-connections.js"),
-    import("../src/capability-sources/generic-oauth.js"),
-    import("../src/capability-sources/oauth-credentials.js"),
+    import("@openwork-ee/den-core/session"),
+    import("@openwork-ee/den-core/capability-sources/external-mcp-connections"),
+    import("@openwork-ee/den-core/capability-sources/generic-oauth"),
+    import("@openwork-ee/den-core/capability-sources/oauth-credentials"),
   ])
   app = appMod.default
   db = dbMod.db

@@ -62,7 +62,7 @@ function signJwt(overrides) {
   return signingInput + "." + signature
 }
 
-mock.module("./src/auth.js", () => ({
+mock.module("@openwork-ee/den-core/auth", () => ({
   auth: {
     handler: () => Promise.resolve(Response.json({ keys: [publicJwk] })),
   },
@@ -116,9 +116,9 @@ const db = {
   }),
 }
 
-mock.module("./src/db.js", () => ({ db }))
+mock.module("@openwork-ee/den-core/db", () => ({ db }))
 
-const { verifyMcpRequest } = await import("./src/mcp/auth.js")
+const { verifyMcpRequest } = await import("@openwork-ee/den-core/mcp/auth")
 
 function agentContext(requestId) {
   return {

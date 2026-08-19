@@ -27,7 +27,7 @@ function probe(script: string, value?: string) {
 
 function probeRemoteMcpApps(value?: string) {
   return probe(`
-    const { env } = await import("./src/env.ts")
+    const { env } = await import("@openwork-ee/den-core/env")
     console.log(JSON.stringify(env.remoteMcpAppsEnabled))
   `, value)
 }
@@ -38,9 +38,9 @@ function probeNativeMcpAppIndex(
   clientCapabilities?: string,
 ) {
   return probe(`
-    const { env } = await import("./src/env.ts")
-    const { remoteMcpAppsEnabled } = await import("./src/capability-sources/remote-mcp-apps-rollout.ts")
-    const { buildConnectMcpServerIndex, supportsConnectMcpAppHost } = await import("./src/mcp/connect-mcp-server-index.ts")
+    const { env } = await import("@openwork-ee/den-core/env")
+    const { remoteMcpAppsEnabled } = await import("@openwork-ee/den-core/capability-sources/remote-mcp-apps-rollout")
+    const { buildConnectMcpServerIndex, supportsConnectMcpAppHost } = await import("@openwork-ee/den-core/mcp/connect-mcp-server-index")
     const index = buildConnectMcpServerIndex({
       enabled: remoteMcpAppsEnabled(
         { capabilities: { remoteMcpApps: ${JSON.stringify(organizationEnabled)} } },

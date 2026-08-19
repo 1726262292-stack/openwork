@@ -24,7 +24,7 @@ type CapabilityInput = {
 
 let selectBatches: OrganizationRecord[][] = []
 let updates: UpdateValues[] = []
-let adminCapabilities: typeof import("../src/mcp/admin-capabilities.js") | null = null
+let adminCapabilities: typeof import("@openwork-ee/den-core/mcp/admin-capabilities") | null = null
 let testUnavailable: string | null = null
 
 function seedRequiredEnv() {
@@ -45,7 +45,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function installDbMock() {
-  mock.module("../src/db.js", () => ({
+  mock.module("@openwork-ee/den-core/db", () => ({
     db: {
       select: () => ({
         from: () => ({
@@ -68,7 +68,7 @@ function installDbMock() {
 }
 
 async function configureAdminCapabilityEnv() {
-  const { env } = await import("../src/env.js")
+  const { env } = await import("@openwork-ee/den-core/env")
   env.orgMode = "multi_org"
 }
 
@@ -146,7 +146,7 @@ beforeAll(async () => {
   seedRequiredEnv()
   await configureAdminCapabilityEnv()
   installDbMock()
-  adminCapabilities = await import("../src/mcp/admin-capabilities.js")
+  adminCapabilities = await import("@openwork-ee/den-core/mcp/admin-capabilities")
 })
 
 beforeEach(() => {

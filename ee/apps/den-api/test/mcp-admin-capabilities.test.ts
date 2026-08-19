@@ -8,11 +8,11 @@ function seedRequiredEnv() {
   process.env.CORS_ORIGINS = process.env.CORS_ORIGINS ?? "http://127.0.0.1:8790"
 }
 
-let capabilities: typeof import("../src/mcp/admin-capabilities.js")
+let capabilities: typeof import("@openwork-ee/den-core/mcp/admin-capabilities")
 
 beforeAll(async () => {
   seedRequiredEnv()
-  capabilities = await import("../src/mcp/admin-capabilities.js")
+  capabilities = await import("@openwork-ee/den-core/mcp/admin-capabilities")
 })
 
 test("admin capability search returns namespaced MCP tools", async () => {

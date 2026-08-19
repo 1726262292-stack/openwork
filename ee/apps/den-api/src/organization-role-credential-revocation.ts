@@ -1,8 +1,8 @@
 import { and, eq, isNull } from "@openwork-ee/den-db/drizzle"
 import { MemberTable } from "@openwork-ee/den-db/schema"
-import { revokeOrganizationApiKeysForMember } from "./api-keys.js"
-import { revokeMembershipSessionCredentials } from "./credential-revocation.js"
-import { db } from "./db.js"
+import { revokeOrganizationApiKeysForMember } from "@openwork-ee/den-core/api-keys"
+import { revokeMembershipSessionCredentials } from "@openwork-ee/den-core/credential-revocation"
+import { db } from "@openwork-ee/den-core/db"
 
 type OrganizationId = typeof MemberTable.$inferSelect.organizationId
 

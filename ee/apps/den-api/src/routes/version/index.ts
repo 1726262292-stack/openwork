@@ -1,9 +1,9 @@
 import type { Env, Hono } from "hono"
 import { describeRoute } from "hono-openapi"
 import { z } from "zod"
-import { publicRoute } from "../../middleware/index.js"
-import { jsonResponse } from "../../openapi.js"
-import { getDesktopReleaseMetadata } from "../../desktop-releases.js"
+import { publicRoute } from "@openwork-ee/den-core/middleware/index"
+import { jsonResponse } from "@openwork-ee/den-core/openapi"
+import { getDesktopReleaseMetadata } from "@openwork-ee/den-core/desktop-releases"
 
 const appVersionResponseSchema = z.object({
   minAppVersion: z.string(),

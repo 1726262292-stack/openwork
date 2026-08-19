@@ -15,13 +15,13 @@ const allowAdminMiddleware: MiddlewareHandler = async (_c, next) => {
   await next()
 }
 
-mock.module("../src/middleware/admin.js", () => ({
+mock.module("@openwork-ee/den-core/middleware/admin", () => ({
   isAdminEmailAllowed: () => Promise.resolve(true),
   isPlatformAdminUserId: () => Promise.resolve(true),
   requireAdminMiddleware: allowAdminMiddleware,
 }))
 
-mock.module("../src/db.js", () => ({
+mock.module("@openwork-ee/den-core/db", () => ({
   db: {
     select: (_selection: unknown) => ({
       from: (_table: unknown) => ({

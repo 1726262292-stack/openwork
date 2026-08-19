@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test"
 import { Hono } from "hono"
-import { normalizeOperationalErrorResponse, operationalErrorResponse } from "../src/operational-errors.js"
+import { normalizeOperationalErrorResponse, operationalErrorResponse } from "@openwork-ee/den-core/operational-errors"
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null

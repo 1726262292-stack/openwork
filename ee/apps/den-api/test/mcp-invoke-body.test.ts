@@ -10,13 +10,13 @@ function seedRequiredEnv() {
   process.env.BETTER_AUTH_URL = process.env.BETTER_AUTH_URL ?? "http://127.0.0.1:8790"
 }
 
-let invokeModule: typeof import("../src/mcp/invoke.js")
-let validationModule: typeof import("../src/middleware/validation.js")
+let invokeModule: typeof import("@openwork-ee/den-core/mcp/invoke")
+let validationModule: typeof import("@openwork-ee/den-core/middleware/validation")
 
 beforeAll(async () => {
   seedRequiredEnv()
-  invokeModule = await import("../src/mcp/invoke.js")
-  validationModule = await import("../src/middleware/validation.js")
+  invokeModule = await import("@openwork-ee/den-core/mcp/invoke")
+  validationModule = await import("@openwork-ee/den-core/middleware/validation")
 })
 
 const principal = {

@@ -3,7 +3,7 @@ import { createDenTypeId, normalizeDenTypeId } from "@openwork-ee/utils/typeid"
 import type { Hono } from "hono"
 import { describeRoute } from "hono-openapi"
 import { z } from "zod"
-import { resolvePublicOrigin } from "../../capability-sources/generic-oauth.js"
+import { resolvePublicOrigin } from "@openwork-ee/den-core/capability-sources/generic-oauth"
 import { switchTelegramConnectionSafely } from "../../capability-sources/telegram-connection-switch.js"
 import {
   deleteTelegramWebhook,
@@ -20,17 +20,17 @@ import {
   replaceTelegramConnection,
   telegramConnectionView,
 } from "../../capability-sources/telegram-store.js"
-import { loadTelegramWorkerAccess } from "../../capability-sources/telegram-worker.js"
-import { env } from "../../env.js"
-import { jsonValidator, orgMemberRoute } from "../../middleware/index.js"
+import { loadTelegramWorkerAccess } from "@openwork-ee/den-core/capability-sources/telegram-worker"
+import { env } from "@openwork-ee/den-core/env"
+import { jsonValidator, orgMemberRoute } from "@openwork-ee/den-core/middleware/index"
 import {
   forbiddenSchema,
   invalidRequestSchema,
   jsonResponse,
   unauthorizedSchema,
-} from "../../openapi.js"
-import { CONNECTIONS_READ_SESSION_MAX_AGE_MS, ensureOrganizationAdmin, orgAccessFailureStatus } from "./shared.js"
-import type { OrgRouteVariables } from "./shared.js"
+} from "@openwork-ee/den-core/openapi"
+import { CONNECTIONS_READ_SESSION_MAX_AGE_MS, ensureOrganizationAdmin, orgAccessFailureStatus } from "@openwork-ee/den-core/routes/org/shared"
+import type { OrgRouteVariables } from "@openwork-ee/den-core/routes/org/shared"
 
 const PAIRING_TTL_MS = 10 * 60 * 1_000
 

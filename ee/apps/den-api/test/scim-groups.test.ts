@@ -7,14 +7,14 @@ function seedRequiredEnv() {
   process.env.BETTER_AUTH_URL = process.env.BETTER_AUTH_URL ?? "http://127.0.0.1:8790"
 }
 
-let applyScimGroupPatch: typeof import("../src/scim-groups.js").applyScimGroupPatch
-let shouldDeleteGlobalUser: typeof import("../src/scim-deprovisioning.js").shouldDeleteGlobalUser
+let applyScimGroupPatch: typeof import("@openwork-ee/den-core/scim-groups").applyScimGroupPatch
+let shouldDeleteGlobalUser: typeof import("@openwork-ee/den-core/scim-deprovisioning").shouldDeleteGlobalUser
 
 beforeAll(async () => {
   seedRequiredEnv()
   const [groups, deprovisioning] = await Promise.all([
-    import("../src/scim-groups.js"),
-    import("../src/scim-deprovisioning.js"),
+    import("@openwork-ee/den-core/scim-groups"),
+    import("@openwork-ee/den-core/scim-deprovisioning"),
   ])
   applyScimGroupPatch = groups.applyScimGroupPatch
   shouldDeleteGlobalUser = deprovisioning.shouldDeleteGlobalUser

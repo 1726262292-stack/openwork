@@ -12,7 +12,7 @@ const {
   REMOTE_MCP_APP_MAX_BYTES,
   validateRemoteMcpAppContentType,
   validateRemoteMcpAppSourceUrl,
-} = await import("../src/remote-mcp-apps.js")
+} = await import("@openwork-ee/den-core/remote-mcp-apps")
 
 function appHtml(extra = "") {
   return `<!doctype html><html><head><title>Project Explorer</title><meta name="description" content="Browse connected projects."><style>body{font:14px sans-serif}</style></head><body><main id="app"></main>${extra}<script>document.querySelector('#app').textContent='Ready'</script></body></html>`

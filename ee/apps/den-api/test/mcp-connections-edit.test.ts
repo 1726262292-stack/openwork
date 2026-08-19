@@ -12,14 +12,14 @@ process.env.CORS_ORIGINS = process.env.CORS_ORIGINS ?? "http://127.0.0.1:8790"
 process.env.DEN_ALLOW_PRIVATE_MCP_URLS = "1"
 
 let app: typeof import("../src/app.js").default
-let db: typeof import("../src/db.js").db
+let db: typeof import("@openwork-ee/den-core/db").db
 let schema: typeof import("@openwork-ee/den-db/schema")
 let drizzle: typeof import("@openwork-ee/den-db/drizzle")
-let session: typeof import("../src/session.js")
-let connections: typeof import("../src/capability-sources/external-mcp-connections.js")
-let genericOAuth: typeof import("../src/capability-sources/generic-oauth.js")
-let oauthCredentials: typeof import("../src/capability-sources/oauth-credentials.js")
-let DenEnterpriseMcpOAuthPersistence: typeof import("../src/capability-sources/enterprise-mcp-oauth-persistence.js").DenEnterpriseMcpOAuthPersistence
+let session: typeof import("@openwork-ee/den-core/session")
+let connections: typeof import("@openwork-ee/den-core/capability-sources/external-mcp-connections")
+let genericOAuth: typeof import("@openwork-ee/den-core/capability-sources/generic-oauth")
+let oauthCredentials: typeof import("@openwork-ee/den-core/capability-sources/oauth-credentials")
+let DenEnterpriseMcpOAuthPersistence: typeof import("@openwork-ee/den-core/capability-sources/enterprise-mcp-oauth-persistence").DenEnterpriseMcpOAuthPersistence
 let fakeServer: ReturnType<typeof Bun.serve> | undefined
 
 const adminUserId = createDenTypeId("user")
@@ -66,18 +66,18 @@ beforeAll(async () => {
     databaseUrl: process.env.DATABASE_URL ?? "",
     mode: "mysql",
   }).db
-  mock.module("../src/db.js", () => ({ db: realDb }))
+  mock.module("@openwork-ee/den-core/db", () => ({ db: realDb }))
 
   const [appMod, dbMod, schemaMod, drizzleMod, sessionMod, connectionsMod, genericOAuthMod, oauthCredentialsMod, enterprisePersistenceMod] = await Promise.all([
     import("../src/app.js"),
-    import("../src/db.js"),
+    import("@openwork-ee/den-core/db"),
     import("@openwork-ee/den-db/schema"),
     import("@openwork-ee/den-db/drizzle"),
-    import("../src/session.js"),
-    import("../src/capability-sources/external-mcp-connections.js"),
-    import("../src/capability-sources/generic-oauth.js"),
-    import("../src/capability-sources/oauth-credentials.js"),
-    import("../src/capability-sources/enterprise-mcp-oauth-persistence.js"),
+    import("@openwork-ee/den-core/session"),
+    import("@openwork-ee/den-core/capability-sources/external-mcp-connections"),
+    import("@openwork-ee/den-core/capability-sources/generic-oauth"),
+    import("@openwork-ee/den-core/capability-sources/oauth-credentials"),
+    import("@openwork-ee/den-core/capability-sources/enterprise-mcp-oauth-persistence"),
   ])
   app = appMod.default
   db = dbMod.db

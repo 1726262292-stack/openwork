@@ -9,24 +9,24 @@ import type { Hono } from "hono"
 import { stream } from "hono/streaming"
 import { describeRoute } from "hono-openapi"
 import { z } from "zod"
-import { OPENWORK_DOWNLOAD_URL } from "../../CONSTS.js"
-import { resolvePublicOrigin } from "../../capability-sources/generic-oauth.js"
+import { OPENWORK_DOWNLOAD_URL } from "@openwork-ee/den-core/CONSTS"
+import { resolvePublicOrigin } from "@openwork-ee/den-core/capability-sources/generic-oauth"
 import { organizationInstallLinksEnabled } from "../../capability-sources/install-links-rollout.js"
-import { db } from "../../db.js"
+import { db } from "@openwork-ee/den-core/db"
 import { mintDesktopConnectLink } from "../../desktop-connect-link.js"
-import { resolveInstallerReleaseTag } from "../../desktop-releases.js"
+import { resolveInstallerReleaseTag } from "@openwork-ee/den-core/desktop-releases"
 import {
   consumeDesktopConnectGrant,
   inspectDesktopConnectGrant,
   mintDesktopConnectGrant,
   previewDesktopConnectGrant,
 } from "../../desktop-connect-grants.js"
-import { env } from "../../env.js"
+import { env } from "@openwork-ee/den-core/env"
 import { hashInstallLinkToken, mintOrganizationInstallLink } from "../../install-links.js"
-import { jsonValidator, orgMemberRoute, orgRoleRoute, publicRoute, queryValidator } from "../../middleware/index.js"
-import { denTypeIdSchema, emptyResponse, forbiddenSchema, invalidRequestSchema, jsonResponse, notFoundSchema, textResponse, unauthorizedSchema } from "../../openapi.js"
-import { organizationCapabilityKeySchema } from "../../organization-capabilities.js"
-import { normalizeOrganizationMetadata } from "../../organization-limits.js"
+import { jsonValidator, orgMemberRoute, orgRoleRoute, publicRoute, queryValidator } from "@openwork-ee/den-core/middleware/index"
+import { denTypeIdSchema, emptyResponse, forbiddenSchema, invalidRequestSchema, jsonResponse, notFoundSchema, textResponse, unauthorizedSchema } from "@openwork-ee/den-core/openapi"
+import { organizationCapabilityKeySchema } from "@openwork-ee/den-core/organization-capabilities"
+import { normalizeOrganizationMetadata } from "@openwork-ee/den-core/organization-limits"
 import {
   cloudDesktopReleaseAssetName,
   enterpriseDesktopReleaseAssetName,
@@ -34,8 +34,8 @@ import {
   resolveConfiguredInstallerArtifact,
 } from "../../utils/installer-artifacts.js"
 import { checkRateLimit, enforceRateLimit } from "../../utils/rate-limit.js"
-import type { OrgRouteVariables } from "./shared.js"
-import { ensureOrganizationAdmin, orgAccessFailureStatus } from "./shared.js"
+import type { OrgRouteVariables } from "@openwork-ee/den-core/routes/org/shared"
+import { ensureOrganizationAdmin, orgAccessFailureStatus } from "@openwork-ee/den-core/routes/org/shared"
 
 const INSTALL_LINK_RATE_LIMIT_WINDOW_MS = 1000 * 60 * 60
 const INSTALL_LINK_MINT_RATE_LIMIT_MAX = 30

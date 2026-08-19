@@ -65,7 +65,7 @@ describe("Automation runner credentials", () => {
   })
 
   test("trusts the Den Web proxy origin this API is actually served from", async () => {
-    const { env } = await import("../src/env.js")
+    const { env } = await import("@openwork-ee/den-core/env")
     const denWeb = new URL(env.betterAuthUrl)
     const request = new Request("http://api.internal/v1/automation-runners/token", {
       headers: {

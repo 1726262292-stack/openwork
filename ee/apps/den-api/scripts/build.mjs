@@ -8,7 +8,7 @@ const scriptDir = path.dirname(scriptPath)
 const serviceDir = path.resolve(scriptDir, "..")
 const repoRoot = path.resolve(serviceDir, "..", "..", "..")
 const desktopPackagePath = path.join(repoRoot, "apps", "desktop", "package.json")
-const generatedVersionPath = path.join(serviceDir, "src", "generated", "app-version.ts")
+const generatedVersionPath = path.join(repoRoot, "ee", "packages", "den-core", "src", "generated", "app-version.ts")
 const distDir = path.join(serviceDir, "dist")
 const pnpmCommand = process.platform === "win32" ? "pnpm.cmd" : "pnpm"
 const fallbackAppVersion = "0.0.0"
@@ -118,6 +118,7 @@ function main() {
   run(pnpmCommand, ["run", "build:codemode"])
   run(pnpmCommand, ["run", "build:headless-threads"])
   run(pnpmCommand, ["run", "build:den-db"])
+  run(pnpmCommand, ["run", "build:den-core"])
   run(pnpmCommand, ["exec", "tsc", "-p", "tsconfig.json"])
   maybeUploadSentrySourcemaps()
 }

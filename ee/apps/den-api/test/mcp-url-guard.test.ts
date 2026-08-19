@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { assertPublicUrl, createGuardedFetch, createRealmSafeFetch, isPrivateAddress, PrivateUrlError } from "../src/capability-sources/url-guard.js"
+import { assertPublicUrl, createGuardedFetch, createRealmSafeFetch, isPrivateAddress, PrivateUrlError } from "@openwork-ee/den-core/capability-sources/url-guard"
 
 describe("isPrivateAddress", () => {
   test.each([

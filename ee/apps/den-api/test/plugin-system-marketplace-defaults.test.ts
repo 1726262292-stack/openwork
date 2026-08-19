@@ -7,12 +7,12 @@ function seedRequiredEnv() {
   process.env.BETTER_AUTH_URL = process.env.BETTER_AUTH_URL ?? "http://127.0.0.1:8790"
 }
 
-let defaults: typeof import("../src/routes/org/plugin-system/default-marketplaces.js")
+let defaults: typeof import("@openwork-ee/den-core/routes/org/plugin-system/default-marketplaces")
 let schemas: typeof import("../src/routes/org/plugin-system/schemas.js")
 
 beforeAll(async () => {
   seedRequiredEnv()
-  defaults = await import("../src/routes/org/plugin-system/default-marketplaces.js")
+  defaults = await import("@openwork-ee/den-core/routes/org/plugin-system/default-marketplaces")
   schemas = await import("../src/routes/org/plugin-system/schemas.js")
 })
 

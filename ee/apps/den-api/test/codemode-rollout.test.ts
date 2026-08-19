@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { codemodeScriptsEnabled } from "../src/capability-sources/codemode-rollout.js"
+import { codemodeScriptsEnabled } from "@openwork-ee/den-core/capability-sources/codemode-rollout"
 
 describe("codemodeScriptsEnabled", () => {
   test("is enabled only by a literal nested capability true", () => {

@@ -12,13 +12,13 @@ const {
   createDisabledExternalConnectionProxyServer,
   createExternalConnectionProxyServer,
   handleExternalConnectionProxyRequest,
-} = await import("../src/mcp/external-connection-proxy.js")
+} = await import("@openwork-ee/den-core/mcp/external-connection-proxy")
 const {
   externalMcpConnectionReadyForMember,
   readyExternalMcpConnectionsForMember,
-} = await import("../src/capability-sources/external-mcp-connections.js")
-const { ExternalMcpDiagnosticError } = await import("../src/capability-sources/external-mcp-diagnostics.js")
-const { buildConnectMcpServerIndex } = await import("../src/mcp/connect-mcp-server-index.js")
+} = await import("@openwork-ee/den-core/capability-sources/external-mcp-connections")
+const { ExternalMcpDiagnosticError } = await import("@openwork-ee/den-core/capability-sources/external-mcp-diagnostics")
+const { buildConnectMcpServerIndex } = await import("@openwork-ee/den-core/mcp/connect-mcp-server-index")
 
 const resourceUri = "ui://fixture/healthy.html"
 const html = "<!doctype html><html><body>Healthy native MCP App</body></html>"

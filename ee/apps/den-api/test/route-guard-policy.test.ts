@@ -107,7 +107,7 @@ beforeAll(async () => {
 
   const [appModule, middlewareModule] = await Promise.all([
     import("../src/app.js"),
-    import("../src/middleware/index.js"),
+    import("@openwork-ee/den-core/middleware/index"),
   ])
 
   app = appModule.default

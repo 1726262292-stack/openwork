@@ -6,7 +6,7 @@ import {
   createExternalMcpDiagnosticFetch,
   externalMcpDiagnosticForLog,
   safeExternalMcpCauseChain,
-} from "../src/capability-sources/external-mcp-diagnostics.js"
+} from "@openwork-ee/den-core/capability-sources/external-mcp-diagnostics"
 
 const SAFE_SLACK_ERROR = "Slack-style provider error: invalid_refresh_token"
 const AUTHORIZATION_CODE = "SECRETVALUE123"

@@ -1,9 +1,9 @@
 import type { Env, Hono } from "hono"
 import { describeRoute } from "hono-openapi"
 import { z } from "zod"
-import { signedWebhookRoute } from "../../middleware/index.js"
-import { handleStripeWebhook } from "../../stripe-billing.js"
-import { jsonResponse } from "../../openapi.js"
+import { signedWebhookRoute } from "@openwork-ee/den-core/middleware/index"
+import { handleStripeWebhook } from "@openwork-ee/den-core/stripe-billing"
+import { jsonResponse } from "@openwork-ee/den-core/openapi"
 
 const stripeWebhookResponseSchema = z.object({
   received: z.literal(true),

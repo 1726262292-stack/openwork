@@ -4,20 +4,20 @@ import { createDenTypeId, normalizeDenTypeId } from "@openwork-ee/utils/typeid"
 import type { Hono } from "hono"
 import { describeRoute } from "hono-openapi"
 import { z } from "zod"
-import { DEN_MCP_FIRST_PARTY_CLIENT_ID, DEN_MCP_OPAQUE_ACCESS_TOKEN_PREFIX, DEN_MCP_RESOURCE } from "../../auth.js"
-import { db } from "../../db.js"
-import { env } from "../../env.js"
-import { hashOpaqueMcpSecret } from "../../mcp/auth.js"
-import { deriveFirstPartyMcpTokenResourceFromRequest } from "../../mcp/resource.js"
-import { DEN_MCP_APP_HOST_SCOPE, resolveMcpTokenScopes } from "../../mcp/scopes.js"
-import { DEN_FIRST_PARTY_MCP_TOKEN_TTL_MS } from "../../mcp/token-lifetime.js"
+import { DEN_MCP_FIRST_PARTY_CLIENT_ID, DEN_MCP_OPAQUE_ACCESS_TOKEN_PREFIX, DEN_MCP_RESOURCE } from "@openwork-ee/den-core/auth"
+import { db } from "@openwork-ee/den-core/db"
+import { env } from "@openwork-ee/den-core/env"
+import { hashOpaqueMcpSecret } from "@openwork-ee/den-core/mcp/auth"
+import { deriveFirstPartyMcpTokenResourceFromRequest } from "@openwork-ee/den-core/mcp/resource"
+import { DEN_MCP_APP_HOST_SCOPE, resolveMcpTokenScopes } from "@openwork-ee/den-core/mcp/scopes"
+import { DEN_FIRST_PARTY_MCP_TOKEN_TTL_MS } from "@openwork-ee/den-core/mcp/token-lifetime"
 import {
   jsonValidator,
   orgMemberRoute,
   type OrganizationContextVariables,
-} from "../../middleware/index.js"
-import { forbiddenSchema, invalidRequestSchema, jsonResponse, unauthorizedSchema } from "../../openapi.js"
-import type { AuthContextVariables } from "../../session.js"
+} from "@openwork-ee/den-core/middleware/index"
+import { forbiddenSchema, invalidRequestSchema, jsonResponse, unauthorizedSchema } from "@openwork-ee/den-core/openapi"
+import type { AuthContextVariables } from "@openwork-ee/den-core/session"
 
 /**
  * First-party MCP token exchange.

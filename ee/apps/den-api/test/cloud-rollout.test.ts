@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { organizationCloudEnabled } from "../src/capability-sources/cloud-rollout.js"
+import { organizationCloudEnabled } from "@openwork-ee/den-core/capability-sources/cloud-rollout"
 
 describe("organizationCloudEnabled", () => {
   test("is off when metadata is absent, empty, or unparseable", () => {

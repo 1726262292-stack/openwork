@@ -12,6 +12,12 @@ It carries the full migrated Den API route surface in a foldered Hono structure 
 pnpm --filter @openwork-ee/den-api dev:local
 ```
 
+Run the Bun suite from the package directory so `bunfig.toml` preloads the test setup:
+
+```bash
+cd ee/apps/den-api && bun test
+```
+
 ## Local demo org seed
 
 With a local Den MySQL database running, seed a demo organization:

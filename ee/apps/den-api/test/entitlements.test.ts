@@ -8,11 +8,11 @@ function seedRequiredEnv() {
   process.env.CORS_ORIGINS = process.env.CORS_ORIGINS ?? "http://127.0.0.1:8790"
 }
 
-let entitlements: typeof import("../src/entitlements.js")
+let entitlements: typeof import("@openwork-ee/den-core/entitlements")
 
 beforeAll(async () => {
   seedRequiredEnv()
-  entitlements = await import("../src/entitlements.js")
+  entitlements = await import("@openwork-ee/den-core/entitlements")
 })
 
 test("parseOrganizationPlan defaults to the free tier", () => {

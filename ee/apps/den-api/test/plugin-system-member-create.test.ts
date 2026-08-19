@@ -14,7 +14,7 @@ import {
   PluginTable,
 } from "@openwork-ee/den-db/schema"
 import { createDenTypeId } from "@openwork-ee/utils/typeid"
-import type { PluginArchActorContext } from "../src/routes/org/plugin-system/access.js"
+import type { PluginArchActorContext } from "@openwork-ee/den-core/routes/org/plugin-system/access"
 
 process.env.DATABASE_URL = process.env.DATABASE_URL ?? "mysql://root:password@127.0.0.1:3306/openwork_test_membercreate"
 process.env.DB_MODE ??= "mysql"
@@ -22,9 +22,9 @@ process.env.DEN_DB_ENCRYPTION_KEY ??= "member-create-test-key-123456789"
 process.env.BETTER_AUTH_SECRET ??= "member-create-test-secret-123456"
 process.env.BETTER_AUTH_URL ??= "http://127.0.0.1:8790"
 
-let db: typeof import("../src/db.js").db
-let store: typeof import("../src/routes/org/plugin-system/store.js")
-let marketplaceCapabilities: typeof import("../src/mcp/marketplace-capabilities.js")
+let db: typeof import("@openwork-ee/den-core/db").db
+let store: typeof import("@openwork-ee/den-core/routes/org/plugin-system/store")
+let marketplaceCapabilities: typeof import("@openwork-ee/den-core/mcp/marketplace-capabilities")
 
 const organizationId = createDenTypeId("organization")
 const memberId = createDenTypeId("member")
@@ -55,9 +55,9 @@ beforeAll(async () => {
     databaseUrl: process.env.DATABASE_URL,
     mode: "mysql",
   }).db
-  mock.module("../src/db.js", () => ({ db }))
-  store = await import("../src/routes/org/plugin-system/store.js")
-  marketplaceCapabilities = await import("../src/mcp/marketplace-capabilities.js")
+  mock.module("@openwork-ee/den-core/db", () => ({ db }))
+  store = await import("@openwork-ee/den-core/routes/org/plugin-system/store")
+  marketplaceCapabilities = await import("@openwork-ee/den-core/mcp/marketplace-capabilities")
   await clearRows()
 
   await db.insert(OrganizationTable).values({

@@ -12,11 +12,11 @@ function seedRequiredEnv() {
 
 seedRequiredEnv()
 
-let externalCapabilities: typeof import("../src/mcp/external-capabilities.js")
+let externalCapabilities: typeof import("@openwork-ee/den-core/mcp/external-capabilities")
 
 beforeAll(async () => {
   seedRequiredEnv()
-  externalCapabilities = await import("../src/mcp/external-capabilities.js")
+  externalCapabilities = await import("@openwork-ee/den-core/mcp/external-capabilities")
 })
 
 test("upstreamErrorMessage unwraps JSON-RPC errors from the SDK wrapper", () => {
@@ -158,7 +158,7 @@ test("provider installation failures route to the provider admin console", () =>
 })
 
 test("structured diagnostics remain the single source of truth for fix ownership", async () => {
-  const { ExternalMcpDiagnosticTracker } = await import("../src/capability-sources/external-mcp-diagnostics.js")
+  const { ExternalMcpDiagnosticTracker } = await import("@openwork-ee/den-core/capability-sources/external-mcp-diagnostics")
   const cause = Object.assign(new Error("connection refused"), { code: "ECONNREFUSED" })
   const diagnostic = new ExternalMcpDiagnosticTracker("req_network_owner").error(
     new Error("fetch failed", { cause }),

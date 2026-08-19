@@ -17,10 +17,11 @@ import {
   capRunnerNotificationPollDelayForKeepalive,
   nextRunnerNotificationPollDelay,
 } from "../src/automations/runner-notification-poll.js"
-import { automationUpdateChangedRows } from "../src/automations/update-result.js"
-import { isMcpOperationAllowed } from "../src/mcp/policy.js"
+import { automationUpdateChangedRows } from "@openwork-ee/den-core/automations/update-result"
+import { isMcpOperationAllowed } from "@openwork-ee/den-core/mcp/policy"
 
-const repositorySource = readFileSync(join(import.meta.dir, "../src/automations/repository.ts"), "utf8")
+const denCoreSourceRoot = "../../../packages/den-core/src"
+const repositorySource = readFileSync(join(import.meta.dir, denCoreSourceRoot, "automations/repository.ts"), "utf8")
 
 test("runner notifications contain only a resumable cursor and wake-up type", () => {
   assert.deepEqual(automationRunnerNotificationSchema.parse({
@@ -209,8 +210,8 @@ test("idle runner notification polling backs off without delaying keepalives", (
 
 test("idle runner keepalives do not persist liveness in the database", () => {
   const routesSource = readFileSync(join(import.meta.dir, "../src/routes/automations/index.ts"), "utf8")
-  const serviceSource = readFileSync(join(import.meta.dir, "../src/automations/service.ts"), "utf8")
-  const repositorySource = readFileSync(join(import.meta.dir, "../src/automations/repository.ts"), "utf8")
+  const serviceSource = readFileSync(join(import.meta.dir, denCoreSourceRoot, "automations/service.ts"), "utf8")
+  const repositorySource = readFileSync(join(import.meta.dir, denCoreSourceRoot, "automations/repository.ts"), "utf8")
   const sse = routesSource.slice(
     routesSource.indexOf("/v1/automation-runners/events\", async"),
     routesSource.indexOf("/v1/automation-runner/work"),
@@ -229,7 +230,7 @@ test("idle runner keepalives do not persist liveness in the database", () => {
 })
 
 test("work polling tolerates non-critical runner presence touch failures", () => {
-  const serviceSource = readFileSync(join(import.meta.dir, "../src/automations/service.ts"), "utf8")
+  const serviceSource = readFileSync(join(import.meta.dir, denCoreSourceRoot, "automations/service.ts"), "utf8")
   const discover = serviceSource.slice(
     serviceSource.indexOf("async discoverDesktopRunnerWork"),
     serviceSource.indexOf("async claimDesktopRunner"),
@@ -241,7 +242,7 @@ test("work polling tolerates non-critical runner presence touch failures", () =>
 })
 
 test("every dispatch path revalidates the owner's model access", () => {
-  const serviceSource = readFileSync(join(import.meta.dir, "../src/automations/service.ts"), "utf8")
+  const serviceSource = readFileSync(join(import.meta.dir, denCoreSourceRoot, "automations/service.ts"), "utf8")
   const tick = serviceSource.slice(serviceSource.indexOf("async tick"), serviceSource.indexOf("async stop"))
   assert.match(tick, /resolveAutomationModelAccess\(\{\s*organizationId: item\.automation\.organizationId/)
   assert.match(tick, /shouldApplyAutomationModelAccessFailure\(\{[\s\S]*modelAttentionCapable: \(item\.revision\.executionTarget \?\? "desktop"\) === "cloud"/)
@@ -257,7 +258,7 @@ test("every dispatch path revalidates the owner's model access", () => {
   assert.match(runNow, /resolveAutomationModelAccess\(\{ \.\.\.scope, \.\.\.current\.revision\.model \}\)/)
   assert.match(runNow, /shouldApplyAutomationModelAccessFailure\(\{[\s\S]*supportsModelAttention\(scope\)/)
 
-  const executorSource = readFileSync(join(import.meta.dir, "../src/automations/cloud-agent-executor.ts"), "utf8")
+  const executorSource = readFileSync(join(import.meta.dir, denCoreSourceRoot, "automations/cloud-agent-executor.ts"), "utf8")
   const execution = executorSource.slice(executorSource.indexOf("export async function executeCloudAgent"))
   assert.match(executorSource, /currentAgentAuthority[\s\S]*resolveAutomationModelAccess\(/)
   assert.match(execution, /currentAgentAuthority\(input\)[\s\S]*readyWorker/)
@@ -267,7 +268,7 @@ test("every dispatch path revalidates the owner's model access", () => {
 })
 
 test("Cloud placement never inherits the legacy Desktop model exception", () => {
-  const serviceSource = readFileSync(join(import.meta.dir, "../src/automations/service.ts"), "utf8")
+  const serviceSource = readFileSync(join(import.meta.dir, denCoreSourceRoot, "automations/service.ts"), "utf8")
   const create = serviceSource.slice(serviceSource.indexOf("async create"), serviceSource.indexOf("async update"))
   const update = serviceSource.slice(serviceSource.indexOf("async update"), serviceSource.indexOf("async activate"))
   const reconcile = serviceSource.slice(serviceSource.indexOf("private async reconcileModelAttention"))

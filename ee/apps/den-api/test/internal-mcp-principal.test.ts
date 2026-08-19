@@ -9,13 +9,13 @@ function seedRequiredEnv() {
   process.env.BETTER_AUTH_URL = process.env.BETTER_AUTH_URL ?? "http://127.0.0.1:8790"
 }
 
-let sessionModule: typeof import("../src/session.js")
+let sessionModule: typeof import("@openwork-ee/den-core/session")
 const userId = createDenTypeId("user")
 const organizationId = createDenTypeId("organization")
 
 beforeAll(async () => {
   seedRequiredEnv()
-  sessionModule = await import("../src/session.js")
+  sessionModule = await import("@openwork-ee/den-core/session")
 })
 
 function forgeHeaderWithSecret(secret: string, principal: { userId: string; organizationId: string; expiresAt: number }) {

@@ -1,11 +1,11 @@
 import type { Hono } from "hono"
 import { describeRoute, resolver } from "hono-openapi"
 import { z } from "zod"
-import { auth } from "../../auth.js"
+import { auth } from "@openwork-ee/den-core/auth"
 import { ORGANIZATION_AUDIT_ACTIONS, recordOrganizationAuditEvent } from "../../audit-events.js"
-import { checkEntitlement } from "../../entitlements.js"
-import { env } from "../../env.js"
-import { enterprisePlanRequiredSchema } from "../../openapi.js"
+import { checkEntitlement } from "@openwork-ee/den-core/entitlements"
+import { env } from "@openwork-ee/den-core/env"
+import { enterprisePlanRequiredSchema } from "@openwork-ee/den-core/openapi"
 import {
   deleteOrganizationSsoConnection,
   getOrganizationSsoConnection,
@@ -16,9 +16,9 @@ import {
   getSsoProviderForConnection,
   registerOrganizationSsoConnection,
 } from "../../sso.js"
-import { orgMemberRoute } from "../../middleware/index.js"
-import type { OrgRouteVariables } from "./shared.js"
-import { ensureSsoManager, ensureSsoReader, orgAccessFailureStatus } from "./shared.js"
+import { orgMemberRoute } from "@openwork-ee/den-core/middleware/index"
+import type { OrgRouteVariables } from "@openwork-ee/den-core/routes/org/shared"
+import { ensureSsoManager, ensureSsoReader, orgAccessFailureStatus } from "@openwork-ee/den-core/routes/org/shared"
 
 const invalidRequestSchema = z.object({
   error: z.literal("invalid_request"),

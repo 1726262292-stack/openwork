@@ -38,9 +38,9 @@ import {
   loadTelegramWorkerAccess,
   runTelegramWorkerPrompt,
   TelegramWorkerTimeoutError,
-} from "../../capability-sources/telegram-worker.js"
-import { paramValidator, signedWebhookRoute } from "../../middleware/index.js"
-import { invalidRequestSchema, jsonResponse } from "../../openapi.js"
+} from "@openwork-ee/den-core/capability-sources/telegram-worker"
+import { paramValidator, signedWebhookRoute } from "@openwork-ee/den-core/middleware/index"
+import { invalidRequestSchema, jsonResponse } from "@openwork-ee/den-core/openapi"
 
 const telegramWebhookParamsSchema = z.object({
   connectionId: z.string().trim().min(1).max(64),

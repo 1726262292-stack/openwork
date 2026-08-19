@@ -1,6 +1,6 @@
 import { and, eq, inArray, isNull, or } from "@openwork-ee/den-db/drizzle"
 import { LlmProviderAccessTable, LlmProviderTable } from "@openwork-ee/den-db/schema"
-import { db } from "../../db.js"
+import { db } from "@openwork-ee/den-core/db"
 
 type MemberId = NonNullable<typeof LlmProviderAccessTable.$inferSelect.orgMembershipId>
 type TeamId = NonNullable<typeof LlmProviderAccessTable.$inferSelect.teamId>

@@ -6,7 +6,7 @@ import {
   setExternalToolsSearchCache,
   type ExternalToolsSearchCacheKey,
   type ExternalToolsSearchProbeResult,
-} from "../src/mcp/external-tools-search-cache.js"
+} from "@openwork-ee/den-core/mcp/external-tools-search-cache"
 
 const updatedAt = new Date("2026-08-16T12:00:00.000Z")
 const success: ExternalToolsSearchProbeResult = { outcome: "success", tools: [] }

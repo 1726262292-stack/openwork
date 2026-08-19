@@ -3,7 +3,7 @@ import {
   normalizeOrganizationCapabilities,
   organizationHasCapability,
   readOrganizationCapabilityOverrides,
-} from "../src/organization-capabilities.js"
+} from "@openwork-ee/den-core/organization-capabilities"
 
 const defaultCapabilities = { installLinks: false, mcpConnections: false, codemodeScripts: false, remoteMcpApps: false, cloud: false }
 

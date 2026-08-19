@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, expect, mock, test } from "bun:test"
 import { createDenTypeId } from "@openwork-ee/utils/typeid"
 import { Hono } from "hono"
-import type { McpAuthResourceContext } from "../src/mcp/auth.js"
+import type { McpAuthResourceContext } from "@openwork-ee/den-core/mcp/auth"
 
 function seedRequiredEnv() {
   process.env.DATABASE_URL = process.env.DATABASE_URL ?? "mysql://root:password@127.0.0.1:3306/openwork_test"
@@ -28,9 +28,9 @@ let selectedRowBatches: SelectedRow[][] = []
 let sessionUpdates: Array<{ expiresAt: Date; updatedAt: Date }> = []
 let jwtPayload: Record<string, unknown> = {}
 let platformAdmin = false
-let mcpAuth: typeof import("../src/mcp/auth.js")
-let registerMcpRoutes: typeof import("../src/mcp/index.js")["registerMcpRoutes"]
-let registerAgentMcpRoutes: typeof import("../src/mcp/agent.js")["registerAgentMcpRoutes"]
+let mcpAuth: typeof import("@openwork-ee/den-core/mcp/auth")
+let registerMcpRoutes: typeof import("@openwork-ee/den-core/mcp/index")["registerMcpRoutes"]
+let registerAgentMcpRoutes: typeof import("@openwork-ee/den-core/mcp/agent")["registerAgentMcpRoutes"]
 let registerAdminMcpRoutes: typeof import("../src/mcp/admin.js")["registerAdminMcpRoutes"]
 
 const OPAQUE_SECRET = "mcp_test_secret"
@@ -43,7 +43,7 @@ function nextSelectedRows() {
 beforeAll(async () => {
   seedRequiredEnv()
 
-  mock.module("../src/auth.js", () => ({
+  mock.module("@openwork-ee/den-core/auth", () => ({
     auth: {
       handler: () => Promise.resolve(new Response(JSON.stringify({ keys: [] }), { status: 200 })),
     },
@@ -62,7 +62,7 @@ beforeAll(async () => {
     DEN_MCP_TOKEN_USE_CLAIM: "https://openworklabs.com/token_use",
   }))
 
-  mock.module("../src/db.js", () => ({
+  mock.module("@openwork-ee/den-core/db", () => ({
     db: {
       update: () => ({
         set: (values: { expiresAt: Date; updatedAt: Date }) => ({
@@ -86,13 +86,16 @@ beforeAll(async () => {
     verifyJwsAccessToken: () => Promise.resolve(jwtPayload),
   }))
 
-  mock.module("../src/middleware/admin.js", () => ({
+  mock.module("@openwork-ee/den-core/middleware/admin", () => ({
     isPlatformAdminUserId: () => Promise.resolve(platformAdmin),
+    requireAdminMiddleware: async (_context: unknown, next: () => Promise<void>) => {
+      await next()
+    },
   }))
 
-  mcpAuth = await import("../src/mcp/auth.js")
-  registerMcpRoutes = (await import("../src/mcp/index.js")).registerMcpRoutes
-  registerAgentMcpRoutes = (await import("../src/mcp/agent.js")).registerAgentMcpRoutes
+  mcpAuth = await import("@openwork-ee/den-core/mcp/auth")
+  registerMcpRoutes = (await import("@openwork-ee/den-core/mcp/index")).registerMcpRoutes
+  registerAgentMcpRoutes = (await import("@openwork-ee/den-core/mcp/agent")).registerAgentMcpRoutes
   registerAdminMcpRoutes = (await import("../src/mcp/admin.js")).registerAdminMcpRoutes
 })
 

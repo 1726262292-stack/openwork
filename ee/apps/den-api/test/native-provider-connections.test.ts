@@ -58,16 +58,16 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null
 }
 
-let mod: typeof import("../src/capability-sources/native-provider-connections.js")
-let registry: typeof import("../src/capability-sources/provider-registry.js")
-let db: typeof import("../src/db.js").db
+let mod: typeof import("@openwork-ee/den-core/capability-sources/native-provider-connections")
+let registry: typeof import("@openwork-ee/den-core/capability-sources/provider-registry")
+let db: typeof import("@openwork-ee/den-core/db").db
 let schema: typeof import("@openwork-ee/den-db/schema")
 let drizzle: typeof import("@openwork-ee/den-db/drizzle")
-let oauthCredentials: typeof import("../src/capability-sources/oauth-credentials.js")
+let oauthCredentials: typeof import("@openwork-ee/den-core/capability-sources/oauth-credentials")
 let app: typeof import("../src/app.js").default
-let session: typeof import("../src/session.js")
-let createExternalMcpConnection: typeof import("../src/capability-sources/external-mcp-connections.js").createExternalMcpConnection
-let genericOAuth: typeof import("../src/capability-sources/generic-oauth.js")
+let session: typeof import("@openwork-ee/den-core/session")
+let createExternalMcpConnection: typeof import("@openwork-ee/den-core/capability-sources/external-mcp-connections").createExternalMcpConnection
+let genericOAuth: typeof import("@openwork-ee/den-core/capability-sources/generic-oauth")
 
 const cleanupOrganizationIds: DenTypeId<"organization">[] = []
 const cleanupUserIds: DenTypeId<"user">[] = []
@@ -75,16 +75,16 @@ const cleanupUserIds: DenTypeId<"user">[] = []
 beforeAll(async () => {
   seedRequiredEnv()
   const [modImport, registryImport, dbImport, schemaImport, drizzleImport, oauthImport, appImport, sessionImport, externalImport, genericOAuthImport] = await Promise.all([
-    import("../src/capability-sources/native-provider-connections.js"),
-    import("../src/capability-sources/provider-registry.js"),
-    import("../src/db.js"),
+    import("@openwork-ee/den-core/capability-sources/native-provider-connections"),
+    import("@openwork-ee/den-core/capability-sources/provider-registry"),
+    import("@openwork-ee/den-core/db"),
     import("@openwork-ee/den-db/schema"),
     import("@openwork-ee/den-db/drizzle"),
-    import("../src/capability-sources/oauth-credentials.js"),
+    import("@openwork-ee/den-core/capability-sources/oauth-credentials"),
     import("../src/app.js"),
-    import("../src/session.js"),
-    import("../src/capability-sources/external-mcp-connections.js"),
-    import("../src/capability-sources/generic-oauth.js"),
+    import("@openwork-ee/den-core/session"),
+    import("@openwork-ee/den-core/capability-sources/external-mcp-connections"),
+    import("@openwork-ee/den-core/capability-sources/generic-oauth"),
   ])
   mod = modImport
   registry = registryImport

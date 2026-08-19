@@ -2,7 +2,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import type { JSONRPCMessage } from "@modelcontextprotocol/sdk/types.js"
 import type { Transport, TransportSendOptions } from "@modelcontextprotocol/sdk/shared/transport.js"
 import { beforeAll, expect, test } from "bun:test"
-import type { ExecuteCapabilityToolResult } from "../src/mcp/agent.js"
+import type { ExecuteCapabilityToolResult } from "@openwork-ee/den-core/mcp/agent"
 import {
   BUILTIN_ADD_TO_MARKETPLACE_CAPABILITY,
   BUILTIN_ADD_USER_TO_MARKETPLACE_CAPABILITY,
@@ -11,8 +11,8 @@ import {
   BUILTIN_SKILL_DESCRIPTORS,
   executeBuiltinSkillCapability,
   searchBuiltinSkillCapabilities,
-} from "../src/mcp/builtin-skills.js"
-import { compareCapabilityMatches, type CapabilityMatch } from "../src/mcp/search.js"
+} from "@openwork-ee/den-core/mcp/builtin-skills"
+import { compareCapabilityMatches, type CapabilityMatch } from "@openwork-ee/den-core/mcp/search"
 
 function seedRequiredEnv() {
   process.env.DATABASE_URL = process.env.DATABASE_URL ?? "mysql://root:password@127.0.0.1:3306/openwork_test"
@@ -52,15 +52,15 @@ function createMemoryTransportPair() {
   return { client, server }
 }
 
-let agentModule: typeof import("../src/mcp/agent.js")
+let agentModule: typeof import("@openwork-ee/den-core/mcp/agent")
 
 beforeAll(async () => {
   seedRequiredEnv()
-  agentModule = await import("../src/mcp/agent.js")
+  agentModule = await import("@openwork-ee/den-core/mcp/agent")
 })
 
 test("executeCapabilityWithBudget returns a structured timeout result", async () => {
-  const { EXTERNAL_MCP_TOOL_LIFECYCLE_TIMEOUT_MS } = await import("../src/capability-sources/external-mcp-client.js")
+  const { EXTERNAL_MCP_TOOL_LIFECYCLE_TIMEOUT_MS } = await import("@openwork-ee/den-core/capability-sources/external-mcp-client")
   expect(agentModule.EXECUTE_CAPABILITY_TIMEOUT_MS).toBeGreaterThan(EXTERNAL_MCP_TOOL_LIFECYCLE_TIMEOUT_MS)
 
   const result = await agentModule.executeCapabilityWithBudget({

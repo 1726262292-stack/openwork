@@ -1,12 +1,12 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { StreamableHTTPTransport } from "@hono/mcp"
 import type { Hono } from "hono"
-import { isPlatformAdminUserId } from "../middleware/admin.js"
-import { publicRoute, tokenRoute } from "../middleware/index.js"
-import { getMcpResourceContext, verifyMcpRequest } from "./auth.js"
-import { protectedResourceMetadata } from "./index.js"
-import { preflightMcpJsonRpcRequest } from "./json-rpc-preflight.js"
-import { DEN_ADMIN_MCP_VERSION, registerAdminMcpTools } from "./admin-tools.js"
+import { isPlatformAdminUserId } from "@openwork-ee/den-core/middleware/admin"
+import { publicRoute, tokenRoute } from "@openwork-ee/den-core/middleware/index"
+import { getMcpResourceContext, verifyMcpRequest } from "@openwork-ee/den-core/mcp/auth"
+import { protectedResourceMetadata } from "@openwork-ee/den-core/mcp/index"
+import { preflightMcpJsonRpcRequest } from "@openwork-ee/den-core/mcp/json-rpc-preflight"
+import { DEN_ADMIN_MCP_VERSION, registerAdminMcpTools } from "@openwork-ee/den-core/mcp/admin-tools"
 
 /**
  * Streamable-HTTP MCP endpoint for the den-admin analytics toolset.

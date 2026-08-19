@@ -387,7 +387,11 @@ export function registerAgentSkillResources(input: {
  * not create a second execution or scheduling path. The other ~127 operations
  * are not individually callable on this endpoint.
  */
-export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables & Record<string, unknown> }>(app: Hono<T>) {
+export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables & Record<string, unknown> }>(
+  app: Hono<T>,
+  options: { catalogSource?: typeof getCatalog } = {},
+) {
+  const catalogSource = options.catalogSource ?? getCatalog
   app.get("/.well-known/oauth-protected-resource/mcp/agent", publicRoute, (c) =>
     c.json(protectedResourceMetadata(c.req.raw, "agent")))
   app.get("/mcp/agent/.well-known/oauth-protected-resource", publicRoute, (c) =>
@@ -409,7 +413,7 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
       return preflightResponse
     }
 
-    const catalog = await getCatalog(app as unknown as Hono, c.env)
+    const catalog = await catalogSource(app as unknown as Hono, c.env)
     // External MCP connections are scoped to the calling MEMBER (grants +
     // per-member credentials), not just the org — resolve who this token's
     // user is within the org once per request.

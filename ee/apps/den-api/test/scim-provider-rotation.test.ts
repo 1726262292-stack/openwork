@@ -17,7 +17,7 @@ const legacyProviderRowId = createDenTypeId("scimProvider")
 const generatedProviderRowId = createDenTypeId("scimProvider")
 const groupId = createDenTypeId("scimGroup")
 
-let db: typeof import("../src/db.js").db
+let db: typeof import("@openwork-ee/den-core/db").db
 let schema: typeof import("@openwork-ee/den-db/schema")
 let drizzle: typeof import("@openwork-ee/den-db/drizzle")
 let rotateOrganizationScimToken: typeof import("../src/scim.js").rotateOrganizationScimToken
@@ -41,8 +41,8 @@ beforeAll(async () => {
     databaseUrl: process.env.DATABASE_URL,
     mode: "mysql",
   }).db
-  mock.module("../src/db.js", () => ({ db: realDb }))
-  mock.module("../src/auth.js", () => ({
+  mock.module("@openwork-ee/den-core/db", () => ({ db: realDb }))
+  mock.module("@openwork-ee/den-core/auth", () => ({
     auth: {
       api: {
         generateSCIMToken: async (input: {
@@ -64,7 +64,7 @@ beforeAll(async () => {
   }))
 
   const [dbModule, schemaModule, drizzleModule, scimModule] = await Promise.all([
-    import("../src/db.js"),
+    import("@openwork-ee/den-core/db"),
     import("@openwork-ee/den-db/schema"),
     import("@openwork-ee/den-db/drizzle"),
     import("../src/scim.js"),

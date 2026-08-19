@@ -11,13 +11,13 @@ function seedRequiredEnv() {
 
 let invitationModule: typeof import("../src/routes/org/invitations.js")
 let orgRoutesModule: typeof import("../src/routes/org/index.js")
-let userOrganizationsModule: typeof import("../src/middleware/user-organizations.js")
+let userOrganizationsModule: typeof import("@openwork-ee/den-core/middleware/user-organizations")
 
 beforeAll(async () => {
   seedRequiredEnv()
   invitationModule = await import("../src/routes/org/invitations.js")
   orgRoutesModule = await import("../src/routes/org/index.js")
-  userOrganizationsModule = await import("../src/middleware/user-organizations.js")
+  userOrganizationsModule = await import("@openwork-ee/den-core/middleware/user-organizations")
 })
 
 function createOrgApp() {

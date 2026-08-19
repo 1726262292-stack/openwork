@@ -1,7 +1,7 @@
 import { createDenTypeId } from "@openwork-ee/utils/typeid"
 import { beforeAll, describe, expect, test } from "bun:test"
 
-type DaytonaModule = typeof import("../src/workers/daytona.js")
+type DaytonaModule = typeof import("@openwork-ee/den-core/workers/daytona")
 
 function seedRequiredEnv() {
   process.env.DATABASE_URL = process.env.DATABASE_URL ?? "mysql://root:password@127.0.0.1:3306/openwork_test"
@@ -24,7 +24,7 @@ let daytona: DaytonaModule
 
 beforeAll(async () => {
   seedRequiredEnv()
-  daytona = await import("../src/workers/daytona.js")
+  daytona = await import("@openwork-ee/den-core/workers/daytona")
 })
 
 describe("Daytona OpenWork checkpoint start command", () => {

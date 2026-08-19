@@ -11,6 +11,8 @@ export const DEFAULT_DEN_DIAGNOSTICS_ORIGIN = "https://diagnostic.openworklabs.c
 
 const EnvSchema = z.object({
   DATABASE_URL: z.string().min(1).optional(),
+  DATABASE_REPLICA_URL: z.string().optional(),
+  DEN_DB_ROUTING_SERVICE: z.literal("cloud-mcp").optional(),
   DATABASE_HOST: z.string().min(1).optional(),
   DATABASE_USERNAME: z.string().min(1).optional(),
   DATABASE_PASSWORD: z.string().optional(),
@@ -22,6 +24,7 @@ const EnvSchema = z.object({
   DATABASE_REDIS_ALLOW_INSECURE_INTERNAL: z.string().optional(),
   DEN_MCP_RESOURCE_URL: z.string().optional(),
   DEN_MCP_ADDITIONAL_RESOURCES: z.string().optional(),
+  DEN_MCP_OAUTH_RESOURCE_SEEDING: z.enum(["enabled", "disabled"]).optional(),
   DEN_BETTER_AUTH_TRUSTED_ORIGINS: z.string().optional(),
   DEN_WEB_APP_HOSTS: z.string().optional(),
   GITHUB_CLIENT_ID: z.string().optional(),
@@ -516,6 +519,8 @@ const planetscaleCredentials =
 
 export const env = {
   databaseUrl: parsed.DATABASE_URL,
+  databaseReplicaUrl: optionalString(parsed.DATABASE_REPLICA_URL),
+  dbRoutingService: parsed.DEN_DB_ROUTING_SERVICE,
   dbEncryptionKey: optionalString(parsed.DEN_DB_ENCRYPTION_KEY),
   dbMode: parsed.DB_MODE ?? (parsed.DATABASE_URL ? "mysql" : "planetscale"),
   planetscale: planetscaleCredentials,
@@ -534,6 +539,7 @@ export const env = {
       ? `http://127.0.0.1:${port}/mcp`
       : undefined,
   mcpAdditionalResources,
+  mcpOauthResourceSeedingEnabled: parsed.DEN_MCP_OAUTH_RESOURCE_SEEDING !== "disabled",
   betterAuthTrustedOrigins: betterAuthTrustedOrigins.length > 0 ? betterAuthTrustedOrigins : corsOrigins,
   // Extra hostnames that serve the den-web frontend (and therefore expose
   // the Den API behind the /api/den proxy path). Entries starting with "."

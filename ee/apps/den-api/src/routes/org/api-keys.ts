@@ -7,13 +7,13 @@ import {
   DEN_API_KEY_RATE_LIMIT_MAX,
   DEN_API_KEY_RATE_LIMIT_TIME_WINDOW_MS,
   listOrganizationApiKeys,
-} from "../../api-keys.js"
+} from "@openwork-ee/den-core/api-keys"
 import { ORGANIZATION_AUDIT_ACTIONS, recordOrganizationAuditEvent } from "../../audit-events.js"
-import { jsonValidator, orgMemberRoute, paramValidator } from "../../middleware/index.js"
-import { denTypeIdSchema } from "../../openapi.js"
-import { auth } from "../../auth.js"
-import type { OrgRouteVariables } from "./shared.js"
-import { ensureApiKeyManager, ensureApiKeyReader, idParamSchema, orgAccessFailureStatus } from "./shared.js"
+import { jsonValidator, orgMemberRoute, paramValidator } from "@openwork-ee/den-core/middleware/index"
+import { denTypeIdSchema } from "@openwork-ee/den-core/openapi"
+import { auth } from "@openwork-ee/den-core/auth"
+import type { OrgRouteVariables } from "@openwork-ee/den-core/routes/org/shared"
+import { ensureApiKeyManager, ensureApiKeyReader, idParamSchema, orgAccessFailureStatus } from "@openwork-ee/den-core/routes/org/shared"
 
 const createOrganizationApiKeySchema = z.object({
   name: z.string().trim().min(2).max(64),

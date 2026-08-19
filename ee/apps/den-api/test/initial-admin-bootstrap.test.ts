@@ -7,10 +7,10 @@ function seedRequiredEnv() {
   process.env.BETTER_AUTH_URL = process.env.BETTER_AUTH_URL ?? "http://127.0.0.1:8790"
 }
 
-let bootstrap: typeof import("../src/initial-admin-bootstrap.js")
+let bootstrap: typeof import("@openwork-ee/den-core/initial-admin-bootstrap")
 beforeAll(async () => {
   seedRequiredEnv()
-  bootstrap = await import("../src/initial-admin-bootstrap.js")
+  bootstrap = await import("@openwork-ee/den-core/initial-admin-bootstrap")
 })
 
 test("initial admin bootstrap normalizes emails like auth login", () => {

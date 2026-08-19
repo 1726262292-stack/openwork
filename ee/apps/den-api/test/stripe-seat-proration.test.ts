@@ -30,11 +30,11 @@ function queryChain() {
 
 mock.module("stripe", () => ({ default: FakeStripe }))
 
-mock.module("../src/db.js", () => ({
+mock.module("@openwork-ee/den-core/db", () => ({
   db: { select: () => queryChain() },
 }))
 
-mock.module("../src/env.js", () => ({
+mock.module("@openwork-ee/den-core/env", () => ({
   env: {
     stripe: {
       secretKey: "sk_test_fake",
@@ -47,7 +47,7 @@ mock.module("../src/env.js", () => ({
   },
 }))
 
-mock.module("../src/inference.js", () => ({
+mock.module("@openwork-ee/den-core/inference", () => ({
   setInferenceEnabled: () => Promise.resolve(),
 }))
 
@@ -59,12 +59,12 @@ const loggerStub = {
   error: () => undefined,
 }
 
-mock.module("../src/observability/logger.js", () => ({ appLogger: loggerStub }))
+mock.module("@openwork-ee/den-core/observability/logger", () => ({ appLogger: loggerStub }))
 
 const {
   syncInferenceSubscriptionQuantityAfterMemberChange,
   syncSeatSubscriptionQuantityAfterMemberChange,
-} = await import("../src/stripe-billing.js")
+} = await import("@openwork-ee/den-core/stripe-billing")
 
 beforeEach(() => {
   updateCalls.length = 0

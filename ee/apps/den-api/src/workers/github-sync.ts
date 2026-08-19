@@ -6,16 +6,16 @@ import {
   ConnectorTargetTable,
 } from "@openwork-ee/den-db/schema"
 import { createDenTypeId } from "@openwork-ee/utils/typeid"
-import { db } from "../db.js"
-import { env } from "../env.js"
-import { appLogger } from "../observability/logger.js"
-import { captureException } from "../observability/runtime.js"
+import { db } from "@openwork-ee/den-core/db"
+import { env } from "@openwork-ee/den-core/env"
+import { appLogger } from "@openwork-ee/den-core/observability/logger"
+import { captureException } from "@openwork-ee/den-core/observability/runtime"
 import {
   getGithubConnectorAppConfig,
   GithubConnectorRequestError,
   getGithubRepositoryHeadSha,
-} from "../routes/org/plugin-system/github-app.js"
-import { executeGithubConnectorSyncEvent } from "../routes/org/plugin-system/store.js"
+} from "@openwork-ee/den-core/routes/org/plugin-system/github-app"
+import { executeGithubConnectorSyncEvent } from "@openwork-ee/den-core/routes/org/plugin-system/store"
 
 const logger = appLogger.child({ component: "github_sync_worker" })
 const MAX_BACKOFF_MS = 15 * 60_000

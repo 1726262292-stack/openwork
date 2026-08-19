@@ -3,7 +3,7 @@ import {
   getOrganizationSsoJitRole,
   ORGANIZATION_SSO_JIT_ROLE,
   SSO_IDENTITY_EXTRA_FIELDS,
-} from "../src/sso-jit.js"
+} from "@openwork-ee/den-core/sso-jit"
 
 test("SSO JIT provisioning always assigns the baseline member role", async () => {
   const role = await getOrganizationSsoJitRole({

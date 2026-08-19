@@ -5,8 +5,8 @@ type QueryRow = Record<string, unknown>
 let queryRows: QueryRow[] = []
 let fromTable: unknown = null
 let joinedTables: unknown[] = []
-let findEnterpriseAuthRequirementForEmailDomain: typeof import("../src/enterprise-auth-requirement.js").findEnterpriseAuthRequirementForEmailDomain
-let resolveNonSsoSignInMethodForEmail: typeof import("../src/enterprise-auth-requirement.js").resolveNonSsoSignInMethodForEmail
+let findEnterpriseAuthRequirementForEmailDomain: typeof import("@openwork-ee/den-core/enterprise-auth-requirement").findEnterpriseAuthRequirementForEmailDomain
+let resolveNonSsoSignInMethodForEmail: typeof import("@openwork-ee/den-core/enterprise-auth-requirement").resolveNonSsoSignInMethodForEmail
 let schema: typeof import("@openwork-ee/den-db/schema")
 
 function createQueryBuilder() {
@@ -32,7 +32,7 @@ function createQueryBuilder() {
   return builder
 }
 
-mock.module("../src/db.js", () => ({
+mock.module("@openwork-ee/den-core/db", () => ({
   db: {
     select: () => createQueryBuilder(),
   },
@@ -41,7 +41,7 @@ mock.module("../src/db.js", () => ({
 beforeAll(async () => {
   const [schemaModule, requirementModule] = await Promise.all([
     import("@openwork-ee/den-db/schema"),
-    import("../src/enterprise-auth-requirement.js"),
+    import("@openwork-ee/den-core/enterprise-auth-requirement"),
   ])
   schema = schemaModule
   findEnterpriseAuthRequirementForEmailDomain = requirementModule.findEnterpriseAuthRequirementForEmailDomain

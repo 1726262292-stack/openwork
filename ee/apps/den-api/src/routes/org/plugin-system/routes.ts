@@ -2,9 +2,9 @@ import type { Context, Hono } from "hono"
 import { describeRoute } from "hono-openapi"
 import { z } from "zod"
 import { normalizeDenTypeId } from "@openwork-ee/utils/typeid"
-import { queryValidator, jsonValidator, orgMemberRoute, paramValidator, resolveMemberTeamsMiddleware } from "../../../middleware/index.js"
-import { emptyResponse, forbiddenSchema, invalidRequestSchema, jsonResponse, notFoundSchema, unauthorizedSchema } from "../../../openapi.js"
-import type { OrgRouteVariables } from "../shared.js"
+import { queryValidator, jsonValidator, orgMemberRoute, paramValidator, resolveMemberTeamsMiddleware } from "@openwork-ee/den-core/middleware/index"
+import { emptyResponse, forbiddenSchema, invalidRequestSchema, jsonResponse, notFoundSchema, unauthorizedSchema } from "@openwork-ee/den-core/openapi"
+import type { OrgRouteVariables } from "@openwork-ee/den-core/routes/org/shared"
 import {
   accessGrantListResponseSchema,
   accessGrantMutationResponseSchema,
@@ -112,12 +112,12 @@ import {
   teamParamsSchema,
   teamPluginAccessListResponseSchema,
 } from "./schemas.js"
-import { isPluginArchOrgAdmin, requirePluginArchCapability, type PluginArchActorContext, PluginArchAuthorizationError } from "./access.js"
+import { isPluginArchOrgAdmin, requirePluginArchCapability, type PluginArchActorContext, PluginArchAuthorizationError } from "@openwork-ee/den-core/routes/org/plugin-system/access"
 import { pluginArchRoutePaths } from "./contracts.js"
-import { ensureOrganizationAdmin, orgAccessFailureStatus } from "../shared.js"
-import { isAgentOAuthClientConnection, listMemberUsableConnectionFacts } from "../mcp-connections.js"
-import { codemodeScriptsEnabled } from "../../../capability-sources/codemode-rollout.js"
-import { listProgramLibraryItems } from "../../../program-library.js"
+import { ensureOrganizationAdmin, orgAccessFailureStatus } from "@openwork-ee/den-core/routes/org/shared"
+import { isAgentOAuthClientConnection, listMemberUsableConnectionFacts } from "@openwork-ee/den-core/routes/org/mcp-connections"
+import { codemodeScriptsEnabled } from "@openwork-ee/den-core/capability-sources/codemode-rollout"
+import { listProgramLibraryItems } from "@openwork-ee/den-core/program-library"
 import {
   PluginArchRouteFailure,
   addPluginMembership,
@@ -192,7 +192,7 @@ import {
   updateMarketplace,
   updatePlugin,
   validateGithubTarget,
-} from "./store.js"
+} from "@openwork-ee/den-core/routes/org/plugin-system/store"
 
 type OrgContext = Context<{ Variables: OrgRouteVariables }>
 type PluginCreateBody = z.infer<typeof pluginCreateSchema>

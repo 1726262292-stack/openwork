@@ -5,7 +5,7 @@ import {
   denOrganizationStaticRoles,
   resolveOrganizationPermissionRecord,
   type OrganizationPermissionRecord,
-} from "../src/organization-access.js"
+} from "@openwork-ee/den-core/organization-access"
 
 function actions(permission: OrganizationPermissionRecord, resource: string) {
   return permission[resource] ?? []

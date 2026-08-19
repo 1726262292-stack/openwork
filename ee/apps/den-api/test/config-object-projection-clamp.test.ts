@@ -4,7 +4,7 @@ import {
   clampUtf8Bytes,
   PROJECTION_TEXT_MAX_BYTES,
   PROJECTION_TITLE_MAX_CHARS,
-} from "../src/routes/org/plugin-system/projection-text.js"
+} from "@openwork-ee/den-core/routes/org/plugin-system/projection-text"
 
 const MYSQL_TEXT_MAX_BYTES = 65_535
 

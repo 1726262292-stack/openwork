@@ -4,7 +4,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js"
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { ResourceListChangedNotificationSchema, ToolListChangedNotificationSchema } from "@modelcontextprotocol/sdk/types.js"
 import { expect, test } from "bun:test"
-import { dynamicArtifactAppServerCapabilities } from "../src/mcp/dynamic-artifact-app.js"
+import { dynamicArtifactAppServerCapabilities } from "@openwork-ee/den-core/mcp/dynamic-artifact-app"
 
 process.env.DEN_DB_ENCRYPTION_KEY ??= "x".repeat(32)
 process.env.BETTER_AUTH_SECRET ??= "y".repeat(32)
@@ -16,8 +16,8 @@ const {
   IMPORT_REMOTE_MCP_APP_TOOL_NAME,
   registerAgentRemoteMcpApps,
   remoteMcpAppLaunchToolName,
-} = await import("../src/mcp/remote-mcp-apps.js")
-const { remoteMcpAppResourceUri } = await import("../src/remote-mcp-apps.js")
+} = await import("@openwork-ee/den-core/mcp/remote-mcp-apps")
+const { remoteMcpAppResourceUri } = await import("@openwork-ee/den-core/remote-mcp-apps")
 
 const configObjectId = "cob_01k28e8q8pf8r9sff9mhyqxved"
 const versionId = "cov_01k28e8q8pf8r9sff9mhyqxved"

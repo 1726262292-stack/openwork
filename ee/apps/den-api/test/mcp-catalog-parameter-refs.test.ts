@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test"
-import { buildMcpCatalog } from "../src/mcp/catalog.js"
-import { searchCapabilities } from "../src/mcp/search.js"
+import { buildMcpCatalog } from "@openwork-ee/den-core/mcp/catalog"
+import { searchCapabilities } from "@openwork-ee/den-core/mcp/search"
 
 test("MCP catalog resolves OpenAPI parameter refs for discovery", () => {
   const document = {

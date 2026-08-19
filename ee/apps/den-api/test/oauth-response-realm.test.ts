@@ -2,12 +2,12 @@ import { describe, expect, test } from "bun:test"
 import { createServer, type Server } from "node:http"
 import { getRequestListener } from "@hono/node-server"
 import { parseErrorResponse } from "@modelcontextprotocol/sdk/client/auth.js"
-import { createRealmSafeFetch, normalizeResponseRealm } from "../src/capability-sources/url-guard.js"
+import { createRealmSafeFetch, normalizeResponseRealm } from "@openwork-ee/den-core/capability-sources/url-guard"
 import {
   EXTERNAL_MCP_JSON_RESPONSE_LIMIT_BYTES,
   ExternalMcpDiagnosticTracker,
   createExternalMcpDiagnosticFetch,
-} from "../src/capability-sources/external-mcp-diagnostics.js"
+} from "@openwork-ee/den-core/capability-sources/external-mcp-diagnostics"
 
 getRequestListener(async () => new globalThis.Response("ok"))
 

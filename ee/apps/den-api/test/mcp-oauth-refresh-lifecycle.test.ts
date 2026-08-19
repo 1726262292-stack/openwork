@@ -166,10 +166,10 @@ class HarnessOAuthProvider implements OAuthClientProvider {
 const childTest = RUN_REFRESH_LIFECYCLE_CHILD ? test : test.skip
 
 let app: typeof import("../src/app.js").default
-let db: typeof import("../src/db.js").db
+let db: typeof import("@openwork-ee/den-core/db").db
 let schema: typeof import("@openwork-ee/den-db/schema")
 let drizzle: typeof import("@openwork-ee/den-db/drizzle")
-let setMcpSessionLivenessDependenciesForTest: typeof import("../src/mcp/session-liveness.js").setMcpSessionLivenessDependenciesForTest
+let setMcpSessionLivenessDependenciesForTest: typeof import("@openwork-ee/den-core/mcp/session-liveness").setMcpSessionLivenessDependenciesForTest
 
 const userId = createDenTypeId("user")
 const organizationId = createDenTypeId("organization")
@@ -185,14 +185,14 @@ beforeAll(async () => {
     databaseUrl: process.env.DATABASE_URL,
     mode: "mysql",
   }).db
-  mock.module("../src/db.js", () => ({ db: realDb }))
+  mock.module("@openwork-ee/den-core/db", () => ({ db: realDb }))
 
   const modules = await Promise.all([
     import("../src/app.js"),
-    import("../src/db.js"),
+    import("@openwork-ee/den-core/db"),
     import("@openwork-ee/den-db/schema"),
     import("@openwork-ee/den-db/drizzle"),
-    import("../src/mcp/session-liveness.js"),
+    import("@openwork-ee/den-core/mcp/session-liveness"),
   ])
   app = modules[0].default
   db = modules[1].db

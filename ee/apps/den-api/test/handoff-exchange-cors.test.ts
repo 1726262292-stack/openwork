@@ -53,7 +53,7 @@ describe("handoff exchange CORS", () => {
     // Read the allowlist that env actually resolved: when this file runs
     // alongside others, an earlier import may have frozen CORS_ORIGINS before
     // our seed ran, so asserting a hard-coded origin is order-dependent.
-    const { env } = await import("../src/env.js")
+    const { env } = await import("@openwork-ee/den-core/env")
     const allowlisted = env.corsOrigins[0]
     if (!allowlisted) return
 

@@ -20,7 +20,7 @@ import {
   TeamTable,
 } from "@openwork-ee/den-db/schema"
 import { createDenTypeId, type DenTypeId } from "@openwork-ee/utils/typeid"
-import type { McpMemberIdentity } from "../src/mcp/external-capabilities.js"
+import type { McpMemberIdentity } from "@openwork-ee/den-core/mcp/external-capabilities"
 
 function seedRequiredEnv() {
   process.env.DATABASE_URL = process.env.DATABASE_URL ?? "mysql://root:password@127.0.0.1:3306/openwork_test_grantnative"
@@ -30,8 +30,8 @@ function seedRequiredEnv() {
   process.env.CORS_ORIGINS = process.env.CORS_ORIGINS ?? "http://127.0.0.1:8790"
 }
 
-type Db = typeof import("../src/db.js").db
-type MarketplaceCapabilities = typeof import("../src/mcp/marketplace-capabilities.js")
+type Db = typeof import("@openwork-ee/den-core/db").db
+type MarketplaceCapabilities = typeof import("@openwork-ee/den-core/mcp/marketplace-capabilities")
 
 type SeededMember = {
   member: McpMemberIdentity
@@ -66,8 +66,8 @@ beforeAll(async () => {
     databaseUrl: process.env.DATABASE_URL,
     mode: "mysql",
   }).db
-  mock.module("../src/db.js", () => ({ db }))
-  marketplaceCapabilities = await import("../src/mcp/marketplace-capabilities.js")
+  mock.module("@openwork-ee/den-core/db", () => ({ db }))
+  marketplaceCapabilities = await import("@openwork-ee/den-core/mcp/marketplace-capabilities")
 })
 
 afterAll(() => {

@@ -1,9 +1,9 @@
 import { and, asc, eq, isNull, lt } from "@openwork-ee/den-db/drizzle"
 import { WorkerTable, WorkerTokenTable } from "@openwork-ee/den-db/schema"
-import { db } from "../db.js"
-import { env } from "../env.js"
-import { appLogger } from "../observability/logger.js"
-import { captureException } from "../observability/runtime.js"
+import { db } from "@openwork-ee/den-core/db"
+import { env } from "@openwork-ee/den-core/env"
+import { appLogger } from "@openwork-ee/den-core/observability/logger"
+import { captureException } from "@openwork-ee/den-core/observability/runtime"
 import { continueCloudProvisioning } from "../routes/workers/shared.js"
 
 type ProvisioningWorker = typeof WorkerTable.$inferSelect

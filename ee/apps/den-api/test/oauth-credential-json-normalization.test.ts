@@ -1,13 +1,13 @@
 import { beforeAll, describe, expect, test } from "bun:test"
 
-let normalization: typeof import("../src/capability-sources/oauth-credentials.js")
+let normalization: typeof import("@openwork-ee/den-core/capability-sources/oauth-credentials")
 
 beforeAll(async () => {
   process.env.DATABASE_URL = process.env.DATABASE_URL ?? "mysql://root:password@127.0.0.1:3306/openwork_test_gwsreconnect"
   process.env.DEN_DB_ENCRYPTION_KEY = process.env.DEN_DB_ENCRYPTION_KEY ?? "x".repeat(32)
   process.env.BETTER_AUTH_SECRET = process.env.BETTER_AUTH_SECRET ?? "y".repeat(32)
   process.env.BETTER_AUTH_URL = process.env.BETTER_AUTH_URL ?? "http://127.0.0.1:8790"
-  normalization = await import("../src/capability-sources/oauth-credentials.js")
+  normalization = await import("@openwork-ee/den-core/capability-sources/oauth-credentials")
 })
 
 describe("OAuth credential JSON normalization", () => {

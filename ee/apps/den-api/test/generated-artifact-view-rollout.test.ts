@@ -7,7 +7,7 @@ const denApiRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".
 
 function probeGeneratedArtifactViews(value?: string) {
   return spawnSync(process.execPath, ["--conditions", "development", "--eval", `
-    const { env } = await import("./src/env.ts")
+    const { env } = await import("@openwork-ee/den-core/env")
     console.log(JSON.stringify(env.generatedArtifactViewsEnabled))
   `], {
     cwd: denApiRoot,

@@ -7,11 +7,11 @@ function seedRequiredEnv() {
   process.env.BETTER_AUTH_URL = process.env.BETTER_AUTH_URL ?? "http://127.0.0.1:8790"
 }
 
-let adminTools: typeof import("../src/mcp/admin-tools.js")
+let adminTools: typeof import("@openwork-ee/den-core/mcp/admin-tools")
 
 beforeAll(async () => {
   seedRequiredEnv()
-  adminTools = await import("../src/mcp/admin-tools.js")
+  adminTools = await import("@openwork-ee/den-core/mcp/admin-tools")
 })
 
 describe("assertReadOnlySql", () => {

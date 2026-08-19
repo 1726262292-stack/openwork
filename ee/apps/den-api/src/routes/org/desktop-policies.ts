@@ -16,12 +16,12 @@ import {
 import type { Hono } from "hono"
 import { describeRoute } from "hono-openapi"
 import { z } from "zod"
-import { db } from "../../db.js"
-import { checkEntitlement } from "../../entitlements.js"
-import { jsonValidator, orgRoleRoute, paramValidator } from "../../middleware/index.js"
-import { denTypeIdSchema, emptyResponse, enterprisePlanRequiredSchema, forbiddenSchema, invalidRequestSchema, jsonResponse, notFoundSchema, unauthorizedSchema } from "../../openapi.js"
-import type { OrgRouteVariables } from "./shared.js"
-import { ensureOrganizationSuperAdmin, idParamSchema, orgAccessFailureStatus } from "./shared.js"
+import { db } from "@openwork-ee/den-core/db"
+import { checkEntitlement } from "@openwork-ee/den-core/entitlements"
+import { jsonValidator, orgRoleRoute, paramValidator } from "@openwork-ee/den-core/middleware/index"
+import { denTypeIdSchema, emptyResponse, enterprisePlanRequiredSchema, forbiddenSchema, invalidRequestSchema, jsonResponse, notFoundSchema, unauthorizedSchema } from "@openwork-ee/den-core/openapi"
+import type { OrgRouteVariables } from "@openwork-ee/den-core/routes/org/shared"
+import { ensureOrganizationSuperAdmin, idParamSchema, orgAccessFailureStatus } from "@openwork-ee/den-core/routes/org/shared"
 
 type DesktopPolicyId = typeof DesktopPolicyTable.$inferSelect.id
 type MemberId = typeof MemberTable.$inferSelect.id

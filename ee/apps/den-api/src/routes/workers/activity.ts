@@ -3,9 +3,9 @@ import { WorkerTable, WorkerTokenTable } from "@openwork-ee/den-db/schema"
 import type { Hono } from "hono"
 import { describeRoute } from "hono-openapi"
 import { z } from "zod"
-import { db } from "../../db.js"
-import { jsonValidator, paramValidator, tokenRoute } from "../../middleware/index.js"
-import { invalidRequestSchema, jsonResponse, notFoundSchema, unauthorizedSchema } from "../../openapi.js"
+import { db } from "@openwork-ee/den-core/db"
+import { jsonValidator, paramValidator, tokenRoute } from "@openwork-ee/den-core/middleware/index"
+import { invalidRequestSchema, jsonResponse, notFoundSchema, unauthorizedSchema } from "@openwork-ee/den-core/openapi"
 import {
   activityHeartbeatSchema,
   newerDate,

@@ -5,12 +5,12 @@ import { ResourceListChangedNotificationSchema, ToolListChangedNotificationSchem
 import { expect, test } from "bun:test"
 import { createHash } from "node:crypto"
 import type { DynamicArtifactAppPayload, GeneratedArtifactView } from "@openwork/types/dynamic-artifacts"
-import { artifactViewResourceUri } from "../src/artifact-view-resource.js"
-import { dynamicArtifactAppServerCapabilities } from "../src/mcp/dynamic-artifact-app.js"
+import { artifactViewResourceUri } from "@openwork-ee/den-core/artifact-view-resource"
+import { dynamicArtifactAppServerCapabilities } from "@openwork-ee/den-core/mcp/dynamic-artifact-app"
 import {
   registerAgentGeneratedArtifactViews,
   registerSelectedGeneratedArtifactRenderTool,
-} from "../src/mcp/generated-artifact-views.js"
+} from "@openwork-ee/den-core/mcp/generated-artifact-views"
 
 const viewId = "arv_01k28e8vz5e5svgkde54dgqy0c"
 const activeRevisionId = "avr_01k28e91dcf6ftyz9e90pcrv7p"

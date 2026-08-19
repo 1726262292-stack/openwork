@@ -7,7 +7,7 @@ const denApiRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".
 
 function probeConnectLinkEnv(overrides: Record<string, string>) {
   return spawnSync(process.execPath, ["--conditions", "development", "--eval", `
-    const { env } = await import("./src/env.ts")
+    const { env } = await import("@openwork-ee/den-core/env")
     console.log(JSON.stringify(env.connectLink))
   `], {
     cwd: denApiRoot,

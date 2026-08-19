@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 import {
   normalizeConfiguredPublicApiBaseUrl,
   publicRequestUrl,
-} from "../src/request-url.js"
+} from "@openwork-ee/den-core/request-url"
 
 describe("public API URL configuration", () => {
   test("callback base resolution keeps the configured prefix", async () => {
@@ -10,7 +10,7 @@ describe("public API URL configuration", () => {
     process.env.DEN_DB_ENCRYPTION_KEY = process.env.DEN_DB_ENCRYPTION_KEY ?? "x".repeat(32)
     process.env.BETTER_AUTH_SECRET = process.env.BETTER_AUTH_SECRET ?? "y".repeat(32)
     process.env.BETTER_AUTH_URL = process.env.BETTER_AUTH_URL ?? "http://127.0.0.1:8790"
-    const { resolvePublicApiBaseUrl } = await import("../src/capability-sources/generic-oauth.js")
+    const { resolvePublicApiBaseUrl } = await import("@openwork-ee/den-core/capability-sources/generic-oauth")
 
     expect(resolvePublicApiBaseUrl(
       new Request("http://den-api.internal:8790/v1/example"),

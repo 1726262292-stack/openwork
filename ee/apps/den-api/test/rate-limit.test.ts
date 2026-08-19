@@ -68,7 +68,7 @@ function claimActiveKey() {
   return { affectedRows: 1 }
 }
 
-mock.module("../src/db.js", () => ({
+mock.module("@openwork-ee/den-core/db", () => ({
   db: {
     select: (_selection: unknown) => ({
       from: (_table: unknown) => ({

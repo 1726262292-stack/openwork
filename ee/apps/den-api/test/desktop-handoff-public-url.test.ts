@@ -15,7 +15,7 @@ async function loadDesktopHandoffRoutes() {
 async function configureDesktopHandoffEnv(input: {
   gatewayOrigin?: string
 }) {
-  const { env } = await import("../src/env.js")
+  const { env } = await import("@openwork-ee/den-core/env")
   env.orgMode = "multi_org"
   env.gatewayOrigin = input.gatewayOrigin
 }

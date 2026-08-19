@@ -35,10 +35,10 @@ function seedRequiredEnv() {
   process.env.DEN_SINGLE_ORG_OWNER_EMAILS = ownerEmail
 }
 
-let db: typeof import("../src/db.js").db | null = null
+let db: typeof import("@openwork-ee/den-core/db").db | null = null
 let schema: typeof import("@openwork-ee/den-db/schema") | null = null
 let drizzle: typeof import("@openwork-ee/den-db/drizzle") | null = null
-let orgs: typeof import("../src/orgs.js") | null = null
+let orgs: typeof import("@openwork-ee/den-core/orgs") | null = null
 let scim: typeof import("../src/scim.js") | null = null
 
 async function cleanup() {
@@ -128,10 +128,10 @@ async function membersForUser(userId: string) {
 beforeAll(async () => {
   seedRequiredEnv()
   const [dbModule, schemaModule, drizzleModule, orgsModule, scimModule] = await Promise.all([
-    import("../src/db.js"),
+    import("@openwork-ee/den-core/db"),
     import("@openwork-ee/den-db/schema"),
     import("@openwork-ee/den-db/drizzle"),
-    import("../src/orgs.js"),
+    import("@openwork-ee/den-core/orgs"),
     import("../src/scim.js"),
   ])
   db = dbModule.db

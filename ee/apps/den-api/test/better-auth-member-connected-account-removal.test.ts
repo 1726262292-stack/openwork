@@ -4,10 +4,10 @@ import { createDenTypeId, normalizeDenTypeId, type DenTypeId } from "@openwork-e
 const cleanupOrganizationIds: DenTypeId<"organization">[] = []
 const cleanupUserIds: DenTypeId<"user">[] = []
 
-let authModule: typeof import("../src/auth.js")
-let dbModule: typeof import("../src/db.js")
+let authModule: typeof import("@openwork-ee/den-core/auth")
+let dbModule: typeof import("@openwork-ee/den-core/db")
 let drizzle: typeof import("@openwork-ee/den-db/drizzle")
-let oauthCredentials: typeof import("../src/capability-sources/oauth-credentials.js")
+let oauthCredentials: typeof import("@openwork-ee/den-core/capability-sources/oauth-credentials")
 let schema: typeof import("@openwork-ee/den-db/schema")
 
 beforeAll(async () => {
@@ -17,10 +17,10 @@ beforeAll(async () => {
   process.env.BETTER_AUTH_URL = process.env.BETTER_AUTH_URL ?? "http://127.0.0.1:8790"
   process.env.DEN_ORG_MODE = "multi_org"
 
-  authModule = await import("../src/auth.js")
-  dbModule = await import("../src/db.js")
+  authModule = await import("@openwork-ee/den-core/auth")
+  dbModule = await import("@openwork-ee/den-core/db")
   drizzle = await import("@openwork-ee/den-db/drizzle")
-  oauthCredentials = await import("../src/capability-sources/oauth-credentials.js")
+  oauthCredentials = await import("@openwork-ee/den-core/capability-sources/oauth-credentials")
   schema = await import("@openwork-ee/den-db/schema")
 })
 

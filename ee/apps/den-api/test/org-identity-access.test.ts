@@ -7,11 +7,11 @@ function seedRequiredEnv() {
   process.env.BETTER_AUTH_URL = process.env.BETTER_AUTH_URL ?? "http://127.0.0.1:8790"
 }
 
-let sharedModule: typeof import("../src/routes/org/shared.js")
+let sharedModule: typeof import("@openwork-ee/den-core/routes/org/shared")
 
 beforeAll(async () => {
   seedRequiredEnv()
-  sharedModule = await import("../src/routes/org/shared.js")
+  sharedModule = await import("@openwork-ee/den-core/routes/org/shared")
 })
 
 test("identity configuration management requires owner or super-admin", () => {

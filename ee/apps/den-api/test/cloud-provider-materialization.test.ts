@@ -1,8 +1,8 @@
 import { createDenTypeId } from "@openwork-ee/utils/typeid"
 import { beforeAll, describe, expect, test } from "bun:test"
-import type { CloudProviderMaterializationProvider } from "../src/llm/cloud-provider-materialization.js"
+import type { CloudProviderMaterializationProvider } from "@openwork-ee/den-core/llm/cloud-provider-materialization"
 
-type MaterializerModule = typeof import("../src/llm/cloud-provider-materialization.js")
+type MaterializerModule = typeof import("@openwork-ee/den-core/llm/cloud-provider-materialization")
 type MaterializeInput = Parameters<MaterializerModule["materializeCloudWorkerProviders"]>[0]
 type Store = NonNullable<MaterializeInput["store"]>
 type FetchImpl = NonNullable<MaterializeInput["fetchImpl"]>
@@ -29,7 +29,7 @@ function seedRequiredEnv() {
 
 beforeAll(async () => {
   seedRequiredEnv()
-  const materializer = await import("../src/llm/cloud-provider-materialization.js")
+  const materializer = await import("@openwork-ee/den-core/llm/cloud-provider-materialization")
   materializeCloudWorkerProviders = materializer.materializeCloudWorkerProviders
   computeCloudProviderMaterializationFingerprint = materializer.computeCloudProviderMaterializationFingerprint
 })

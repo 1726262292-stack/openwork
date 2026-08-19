@@ -4,7 +4,7 @@ import test from "node:test"
 import {
   AGENT_AUTOMATION_INDEX_LIMIT,
   buildAgentAutomationIndex,
-} from "../src/mcp/automation-index.js"
+} from "@openwork-ee/den-core/mcp/automation-index"
 
 const FETCHED_AT = Date.UTC(2026, 7, 5, 9, 0, 0)
 

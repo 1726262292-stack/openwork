@@ -14,8 +14,8 @@ import {
   ScimSyncEventTable,
   WorkerTable,
 } from "@openwork-ee/den-db/schema"
-import { cache } from "./cache.js"
-import { db } from "./db.js"
+import { cache } from "@openwork-ee/den-core/cache"
+import { db } from "@openwork-ee/den-core/db"
 
 type UserId = typeof AuthUserTable.$inferSelect.id
 

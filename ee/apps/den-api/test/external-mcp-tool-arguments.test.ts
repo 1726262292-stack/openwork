@@ -2,7 +2,7 @@ import { expect, test } from "bun:test"
 import {
   externalMcpToolSchemaDigest,
   validateExternalMcpToolArguments,
-} from "../src/mcp/external-mcp-tool-arguments.js"
+} from "@openwork-ee/den-core/mcp/external-mcp-tool-arguments"
 
 test("schema digests are stable across object key order", () => {
   const first = externalMcpToolSchemaDigest({

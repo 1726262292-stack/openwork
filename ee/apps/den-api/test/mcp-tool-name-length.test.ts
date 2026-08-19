@@ -5,7 +5,7 @@ import {
   MAX_CLIENT_PREFIX,
   MAX_TOOL_NAME_LENGTH,
   shortenToolName,
-} from "../src/mcp/catalog.js"
+} from "@openwork-ee/den-core/mcp/catalog"
 
 // AWS Bedrock's Converse API rejects toolConfig.tools.*.member.toolSpec.name
 // longer than 64 chars. MCP clients namespace tools as `<serverName>_<name>`;

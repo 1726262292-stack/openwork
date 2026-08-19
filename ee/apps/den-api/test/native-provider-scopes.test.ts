@@ -1,7 +1,7 @@
 import { createDenTypeId } from "@openwork-ee/utils/typeid"
 import { beforeAll, describe, expect, test } from "bun:test"
 
-import type { OrgOAuthClientRow } from "../src/capability-sources/oauth-credentials.js"
+import type { OrgOAuthClientRow } from "@openwork-ee/den-core/capability-sources/oauth-credentials"
 
 const GOOGLE_WORKSPACE_IDENTITY_SCOPES = [
   "openid",
@@ -24,13 +24,13 @@ function seedRequiredEnv() {
   process.env.CORS_ORIGINS = process.env.CORS_ORIGINS ?? "http://127.0.0.1:8790"
 }
 
-let registry: typeof import("../src/capability-sources/provider-registry.js")
-let oauth: typeof import("../src/capability-sources/generic-oauth.js")
+let registry: typeof import("@openwork-ee/den-core/capability-sources/provider-registry")
+let oauth: typeof import("@openwork-ee/den-core/capability-sources/generic-oauth")
 
 beforeAll(async () => {
   seedRequiredEnv()
-  registry = await import("../src/capability-sources/provider-registry.js")
-  oauth = await import("../src/capability-sources/generic-oauth.js")
+  registry = await import("@openwork-ee/den-core/capability-sources/provider-registry")
+  oauth = await import("@openwork-ee/den-core/capability-sources/generic-oauth")
 })
 
 function googleWorkspaceProvider() {

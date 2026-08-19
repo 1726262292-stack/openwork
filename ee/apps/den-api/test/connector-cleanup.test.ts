@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { planConnectorImportedResourceCleanup } from "../src/routes/org/plugin-system/connector-cleanup.js"
+import { planConnectorImportedResourceCleanup } from "@openwork-ee/den-core/routes/org/plugin-system/connector-cleanup"
 
 describe("connector cleanup planning", () => {
   test("deletes connector-owned plugins and marketplaces when only connector memberships remain", () => {

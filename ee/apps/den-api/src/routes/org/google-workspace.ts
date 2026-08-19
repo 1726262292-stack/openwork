@@ -5,14 +5,14 @@ import { bodyLimit } from "hono/body-limit"
 import { describeRoute } from "hono-openapi"
 import { z } from "zod"
 import type { DenTypeId } from "@openwork-ee/utils/typeid"
-import { env } from "../../env.js"
-import { cloudTransportRoute, jsonValidator, orgMemberRoute, paramValidator, queryValidator } from "../../middleware/index.js"
-import { invalidRequestSchema, jsonResponse, unauthorizedSchema } from "../../openapi.js"
+import { env } from "@openwork-ee/den-core/env"
+import { cloudTransportRoute, jsonValidator, orgMemberRoute, paramValidator, queryValidator } from "@openwork-ee/den-core/middleware/index"
+import { invalidRequestSchema, jsonResponse, unauthorizedSchema } from "@openwork-ee/den-core/openapi"
 import { decodeFileContent } from "../../capability-sources/binary-content.js"
 import { buildGmailDraftRaw, gmailDraftUrl, gmailThreadUrl, readGmailDraftIds } from "../../capability-sources/gmail.js"
 import type { GmailDraftAttachment } from "../../capability-sources/gmail.js"
-import { getValidAccessToken } from "../../capability-sources/generic-oauth.js"
-import { listNativeProviderUsableEntries, resolveDefaultNativeProviderCredentialId } from "../../capability-sources/native-provider-connections.js"
+import { getValidAccessToken } from "@openwork-ee/den-core/capability-sources/generic-oauth"
+import { listNativeProviderUsableEntries, resolveDefaultNativeProviderCredentialId } from "@openwork-ee/den-core/capability-sources/native-provider-connections"
 import {
   buildDriveMultipartUpload,
   buildDriveSearchQuery,
@@ -28,11 +28,11 @@ import {
   gmailBodyHasQuotedHistory,
   truncateText,
 } from "../../capability-sources/google-workspace-api.js"
-import type { ConnectedAccountRow } from "../../capability-sources/oauth-credentials.js"
-import { getNativeOAuthProvider } from "../../capability-sources/provider-registry.js"
-import { listTeamsForMember } from "../../orgs.js"
-import { readInternalCapabilityConnectorId } from "../../session.js"
-import type { OrgRouteVariables } from "./shared.js"
+import type { ConnectedAccountRow } from "@openwork-ee/den-core/capability-sources/oauth-credentials"
+import { getNativeOAuthProvider } from "@openwork-ee/den-core/capability-sources/provider-registry"
+import { listTeamsForMember } from "@openwork-ee/den-core/orgs"
+import { readInternalCapabilityConnectorId } from "@openwork-ee/den-core/session"
+import type { OrgRouteVariables } from "@openwork-ee/den-core/routes/org/shared"
 
 const GMAIL_READ_SCOPE = "https://www.googleapis.com/auth/gmail.readonly"
 const CALENDAR_READ_SCOPE = "https://www.googleapis.com/auth/calendar.readonly"

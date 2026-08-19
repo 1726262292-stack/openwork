@@ -6,7 +6,7 @@ import type { Hono } from "hono"
 import type { Context } from "hono"
 import { describeRoute } from "hono-openapi"
 import { z } from "zod"
-import { auth, DEN_MCP_OAUTH_RESOURCE, normalizeMcpOAuthResource } from "../../auth.js"
+import { auth, DEN_MCP_OAUTH_RESOURCE, normalizeMcpOAuthResource } from "@openwork-ee/den-core/auth"
 import { normalizeLoginEmail, resolveLoginOptionKind } from "../../auth-login-options.js"
 import { verifyBotProtection } from "../../bot-protection.js"
 import {
@@ -18,9 +18,9 @@ import {
   readEmailSignInAttempt,
   recordEmailSignInResult,
 } from "../../auth-protection.js"
-import { db } from "../../db.js"
-import { env } from "../../env.js"
-import { findEnterpriseAuthRequirementForEmailDomain } from "../../enterprise-auth-requirement.js"
+import { db } from "@openwork-ee/den-core/db"
+import { env } from "@openwork-ee/den-core/env"
+import { findEnterpriseAuthRequirementForEmailDomain } from "@openwork-ee/den-core/enterprise-auth-requirement"
 import {
   authorizeInitialAdminBootstrapSignup,
   completeInitialAdminBootstrapSignup,
@@ -28,16 +28,16 @@ import {
   initialAdminBootstrapSignupRejectedResponse,
   readInitialAdminBootstrapGrantFromBody,
   verifyInitialAdminBootstrap,
-} from "../../initial-admin-bootstrap.js"
+} from "@openwork-ee/den-core/initial-admin-bootstrap"
 import { getInvalidMcpOAuthRedirectUris, isAllowedMcpOAuthRedirectUri, MCP_OAUTH_REDIRECT_URI_ERROR_DESCRIPTION } from "../../mcp/oauth-client-policy.js"
-import { normalizeMcpOAuthClientScope } from "../../mcp/scopes.js"
-import { publicRoute, queryValidator, tokenRoute } from "../../middleware/index.js"
-import { emptyResponse, jsonResponse } from "../../openapi.js"
-import { getSingletonSsoStatus } from "../../orgs.js"
-import { cache } from "../../cache.js"
-import { getAuthRequestEmail, getSingleOrgEmailSignupPolicyViolation, type SingleOrgEmailSignupPolicyViolation } from "../../single-org-signup-policy.js"
+import { normalizeMcpOAuthClientScope } from "@openwork-ee/den-core/mcp/scopes"
+import { publicRoute, queryValidator, tokenRoute } from "@openwork-ee/den-core/middleware/index"
+import { emptyResponse, jsonResponse } from "@openwork-ee/den-core/openapi"
+import { getSingletonSsoStatus } from "@openwork-ee/den-core/orgs"
+import { cache } from "@openwork-ee/den-core/cache"
+import { getAuthRequestEmail, getSingleOrgEmailSignupPolicyViolation, type SingleOrgEmailSignupPolicyViolation } from "@openwork-ee/den-core/single-org-signup-policy"
 import { samlResponsePolicyMiddleware } from "../../sso-saml-response-middleware.js"
-import { getRequestSession, readSignedSessionCookieToken, revokeBearerSession, type AuthContextVariables } from "../../session.js"
+import { getRequestSession, readSignedSessionCookieToken, revokeBearerSession, type AuthContextVariables } from "@openwork-ee/den-core/session"
 import { checkRateLimit } from "../../utils/rate-limit.js"
 import { registerDesktopAuthRoutes } from "./desktop-handoff.js"
 import { normalizeOAuthAuthorizeRedirect } from "./oauth-redirect.js"

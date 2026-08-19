@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test"
 import {
   externalMcpOAuthConfigurationDefaults,
-} from "../src/capability-sources/external-mcp-auth-policy.js"
+} from "@openwork-ee/den-core/capability-sources/external-mcp-auth-policy"
 import {
   EXTERNAL_MCP_PRESETS,
   externalMcpPresetListResponseSchema,
-} from "../src/capability-sources/external-mcp-presets.js"
+} from "@openwork-ee/den-core/capability-sources/external-mcp-presets"
 
 const slackDefaultScopes = [
   "search:read.public",

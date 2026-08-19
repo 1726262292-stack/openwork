@@ -2,7 +2,7 @@ import { eq } from "@openwork-ee/den-db/drizzle"
 import { SsoProviderTable } from "@openwork-ee/den-db/schema"
 import type { MiddlewareHandler } from "hono"
 import { z } from "zod"
-import { db } from "./db.js"
+import { db } from "@openwork-ee/den-core/db"
 import { validateSamlResponsePolicy } from "./sso-saml-response-policy.js"
 
 const samlProviderConfigSchema = z.object({

@@ -1,6 +1,6 @@
 import { createDenTypeId, type DenTypeId } from "@openwork-ee/utils/typeid"
 import { afterAll, beforeAll, describe, expect, test } from "bun:test"
-import type { OpenApiOperation } from "../src/mcp/policy.js"
+import type { OpenApiOperation } from "@openwork-ee/den-core/mcp/policy"
 
 function seedRequiredEnv() {
   process.env.DATABASE_URL = process.env.DATABASE_URL ?? "mysql://root:password@127.0.0.1:3306/openwork_test_nativecaps"
@@ -42,14 +42,14 @@ function isOpenApiDocument(value: unknown): value is TestOpenApiDocument {
 }
 
 let app: typeof import("../src/app.js").default
-let db: typeof import("../src/db.js").db
+let db: typeof import("@openwork-ee/den-core/db").db
 let schema: typeof import("@openwork-ee/den-db/schema")
 let drizzle: typeof import("@openwork-ee/den-db/drizzle")
-let catalog: ReturnType<typeof import("../src/mcp/catalog.js").buildMcpCatalog>
-let nativeCapabilities: typeof import("../src/mcp/native-capabilities.js")
-let session: typeof import("../src/session.js")
-let oauthCredentials: typeof import("../src/capability-sources/oauth-credentials.js")
-let createExternalMcpConnection: typeof import("../src/capability-sources/external-mcp-connections.js").createExternalMcpConnection
+let catalog: ReturnType<typeof import("@openwork-ee/den-core/mcp/catalog").buildMcpCatalog>
+let nativeCapabilities: typeof import("@openwork-ee/den-core/mcp/native-capabilities")
+let session: typeof import("@openwork-ee/den-core/session")
+let oauthCredentials: typeof import("@openwork-ee/den-core/capability-sources/oauth-credentials")
+let createExternalMcpConnection: typeof import("@openwork-ee/den-core/capability-sources/external-mcp-connections").createExternalMcpConnection
 
 const organizationId = createDenTypeId("organization")
 const userId = createDenTypeId("user")
@@ -93,14 +93,14 @@ async function seedCredential(providerId: string, token: string, externalAccount
 beforeAll(async () => {
   const [appImport, dbImport, schemaImport, drizzleImport, catalogImport, nativeImport, sessionImport, oauthImport, connectionsImport] = await Promise.all([
     import("../src/app.js"),
-    import("../src/db.js"),
+    import("@openwork-ee/den-core/db"),
     import("@openwork-ee/den-db/schema"),
     import("@openwork-ee/den-db/drizzle"),
-    import("../src/mcp/catalog.js"),
-    import("../src/mcp/native-capabilities.js"),
-    import("../src/session.js"),
-    import("../src/capability-sources/oauth-credentials.js"),
-    import("../src/capability-sources/external-mcp-connections.js"),
+    import("@openwork-ee/den-core/mcp/catalog"),
+    import("@openwork-ee/den-core/mcp/native-capabilities"),
+    import("@openwork-ee/den-core/session"),
+    import("@openwork-ee/den-core/capability-sources/oauth-credentials"),
+    import("@openwork-ee/den-core/capability-sources/external-mcp-connections"),
   ])
   app = appImport.default
   db = dbImport.db

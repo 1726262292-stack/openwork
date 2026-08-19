@@ -2,7 +2,7 @@ import { createHash, createHmac, timingSafeEqual } from "node:crypto"
 import type { DenTypeId } from "@openwork-ee/utils/typeid"
 import path from "node:path"
 import sharp from "sharp"
-import type { ManagedBrandAssetMetadata } from "./organization-limits.js"
+import type { ManagedBrandAssetMetadata } from "@openwork-ee/den-core/organization-limits"
 
 export const BRAND_ASSET_MAX_BYTES = 2 * 1024 * 1024
 export const BRAND_ASSET_REQUEST_MAX_BYTES = BRAND_ASSET_MAX_BYTES * 2 + 128 * 1024

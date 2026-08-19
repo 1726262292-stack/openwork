@@ -7,12 +7,12 @@ function seedRequiredEnv() {
   process.env.BETTER_AUTH_URL = process.env.BETTER_AUTH_URL ?? "http://127.0.0.1:8790"
 }
 
-let marketplaceConfigObjectExecutionMode: typeof import("../src/mcp/marketplace-capabilities.js")["marketplaceConfigObjectExecutionMode"]
-let marketplaceConfigObjectReadyWhenSynced: typeof import("../src/mcp/marketplace-capabilities.js")["marketplaceConfigObjectReadyWhenSynced"]
+let marketplaceConfigObjectExecutionMode: typeof import("@openwork-ee/den-core/mcp/marketplace-capabilities")["marketplaceConfigObjectExecutionMode"]
+let marketplaceConfigObjectReadyWhenSynced: typeof import("@openwork-ee/den-core/mcp/marketplace-capabilities")["marketplaceConfigObjectReadyWhenSynced"]
 
 beforeAll(async () => {
   seedRequiredEnv()
-  const marketplaceCapabilities = await import("../src/mcp/marketplace-capabilities.js")
+  const marketplaceCapabilities = await import("@openwork-ee/den-core/mcp/marketplace-capabilities")
   marketplaceConfigObjectExecutionMode = marketplaceCapabilities.marketplaceConfigObjectExecutionMode
   marketplaceConfigObjectReadyWhenSynced = marketplaceCapabilities.marketplaceConfigObjectReadyWhenSynced
 })

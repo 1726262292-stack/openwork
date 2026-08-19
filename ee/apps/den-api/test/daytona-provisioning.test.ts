@@ -1,9 +1,9 @@
 import { DaytonaConflictError } from "@daytonaio/sdk"
 import { createDenTypeId } from "@openwork-ee/utils/typeid"
 import { beforeAll, describe, expect, test } from "bun:test"
-import type { DaytonaProvisioningRuntime, DaytonaSandboxRuntime } from "../src/workers/daytona.js"
+import type { DaytonaProvisioningRuntime, DaytonaSandboxRuntime } from "@openwork-ee/den-core/workers/daytona"
 
-type DaytonaModule = typeof import("../src/workers/daytona.js")
+type DaytonaModule = typeof import("@openwork-ee/den-core/workers/daytona")
 type ProvisionInput = Parameters<DaytonaModule["provisionWorkerOnDaytonaWithRuntime"]>[0]
 type UpsertInput = Parameters<DaytonaProvisioningRuntime["upsertSandbox"]>[0]
 type CreateInput = Parameters<DaytonaProvisioningRuntime["createSandbox"]>[0]
@@ -23,7 +23,7 @@ let daytona: DaytonaModule
 
 beforeAll(async () => {
   seedRequiredEnv()
-  daytona = await import("../src/workers/daytona.js")
+  daytona = await import("@openwork-ee/den-core/workers/daytona")
 })
 
 function provisionInput(): ProvisionInput {

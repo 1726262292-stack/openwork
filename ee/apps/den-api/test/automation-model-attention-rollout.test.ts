@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { shouldApplyAutomationModelAccessFailure } from "../src/automations/model-attention-rollout.js"
+import { shouldApplyAutomationModelAccessFailure } from "@openwork-ee/den-core/automations/model-attention-rollout"
 
 const legacyFreeModel = { providerId: "opencode", modelId: "big-pickle" }
 

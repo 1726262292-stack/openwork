@@ -7,8 +7,8 @@ import {
   normalizeQueryText,
   resolveCandidateUrls,
   suggestConnectionName,
-} from "../src/capability-sources/external-mcp-resolve.js"
-import { EXTERNAL_MCP_PRESETS } from "../src/capability-sources/external-mcp-presets.js"
+} from "@openwork-ee/den-core/capability-sources/external-mcp-resolve"
+import { EXTERNAL_MCP_PRESETS } from "@openwork-ee/den-core/capability-sources/external-mcp-presets"
 
 describe("classifyResolveQuery", () => {
   test("classifies full URLs", () => {

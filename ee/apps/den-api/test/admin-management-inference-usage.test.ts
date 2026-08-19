@@ -2,7 +2,7 @@ import { createDenTypeId } from "@openwork-ee/utils/typeid"
 import { afterAll, beforeAll, expect, test } from "bun:test"
 import { Hono } from "hono"
 import { connect } from "node:net"
-import type { AuthContextVariables } from "../src/session.js"
+import type { AuthContextVariables } from "@openwork-ee/den-core/session"
 
 const adminUserId = createDenTypeId("user")
 const targetUserId = createDenTypeId("user")
@@ -67,7 +67,7 @@ async function databaseIsAvailable() {
 }
 
 let app: Hono<{ Variables: AuthContextVariables }> | null = null
-let db: typeof import("../src/db.js").db | null = null
+let db: typeof import("@openwork-ee/den-core/db").db | null = null
 let schema: typeof import("@openwork-ee/den-db/schema") | null = null
 let drizzle: typeof import("@openwork-ee/den-db/drizzle") | null = null
 let routeTestUnavailable: string | null = null
@@ -119,12 +119,12 @@ beforeAll(async () => {
     return
   }
   let adminRoutesModule: typeof import("../src/routes/admin/index.js")
-  let dbModule: typeof import("../src/db.js")
+  let dbModule: typeof import("@openwork-ee/den-core/db")
   let schemaModule: typeof import("@openwork-ee/den-db/schema")
   let drizzleModule: typeof import("@openwork-ee/den-db/drizzle")
   try {
     [dbModule, schemaModule, drizzleModule] = await Promise.all([
-      import("../src/db.js"),
+      import("@openwork-ee/den-core/db"),
       import("@openwork-ee/den-db/schema"),
       import("@openwork-ee/den-db/drizzle"),
     ])

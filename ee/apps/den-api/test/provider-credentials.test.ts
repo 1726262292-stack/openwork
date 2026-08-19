@@ -6,7 +6,7 @@ import {
   listConfiguredEnvKeys,
   readProviderEnvNames,
   resolveProviderCredential,
-} from "../src/llm/provider-credentials.js"
+} from "@openwork-ee/den-core/llm/provider-credentials"
 
 const AWS_ENV = [
   "AWS_ACCESS_KEY_ID",

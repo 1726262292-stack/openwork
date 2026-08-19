@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { preflightMcpJsonRpcRequest } from "../src/mcp/json-rpc-preflight.js"
+import { preflightMcpJsonRpcRequest } from "@openwork-ee/den-core/mcp/json-rpc-preflight"
 
 function jsonRequest(body: string) {
   return new Request("http://127.0.0.1:8790/mcp/agent", {

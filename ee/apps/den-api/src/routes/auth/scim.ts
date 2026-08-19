@@ -3,7 +3,7 @@ import type { Hono } from "hono"
 import { resolver } from "hono-openapi"
 import { normalizeDenTypeId } from "@openwork-ee/utils/typeid"
 import { z } from "zod"
-import { auth } from "../../auth.js"
+import { auth } from "@openwork-ee/den-core/auth"
 import { deleteScimProvisionedAccessForProvider, recordScimSyncFailure, recordScimSyncFailureFromBearerToken, resolveScimProviderFromBearerToken, syncExternalIdentityFromScimResource, syncExternalIdentityFromScimUserId } from "../../scim.js"
 import {
   applyScimGroupPatch,
@@ -16,10 +16,10 @@ import {
   SCIM_PATCH_SCHEMA,
   serializeScimGroup,
   updateScimGroup,
-} from "../../scim-groups.js"
-import { authenticatedRoute, tokenRoute } from "../../middleware/index.js"
-import { appLogger } from "../../observability/logger.js"
-import type { AuthContextVariables } from "../../session.js"
+} from "@openwork-ee/den-core/scim-groups"
+import { authenticatedRoute, tokenRoute } from "@openwork-ee/den-core/middleware/index"
+import { appLogger } from "@openwork-ee/den-core/observability/logger"
+import type { AuthContextVariables } from "@openwork-ee/den-core/session"
 
 const scimErrorSchema = z.object({
   detail: z.string(),

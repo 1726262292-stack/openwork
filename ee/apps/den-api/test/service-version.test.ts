@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { resolveDenServiceVersion } from "../src/service-version.js"
+import { resolveDenServiceVersion } from "@openwork-ee/den-core/service-version"
 
 describe("Den service version", () => {
   test("prefers an explicitly configured release version", () => {

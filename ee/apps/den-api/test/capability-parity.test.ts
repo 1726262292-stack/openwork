@@ -11,8 +11,8 @@ import type {
   CapabilitySourceKind,
   ExecuteCapabilityToolResult,
   ParsedCapability,
-} from "../src/mcp/capability-registry.js"
-import type { CapabilityMatch } from "../src/mcp/search.js"
+} from "@openwork-ee/den-core/mcp/capability-registry"
+import type { CapabilityMatch } from "@openwork-ee/den-core/mcp/search"
 
 function seedRequiredEnv() {
   process.env.DATABASE_URL = process.env.DATABASE_URL ?? "mysql://root:password@127.0.0.1:3306/openwork_test"
@@ -22,20 +22,20 @@ function seedRequiredEnv() {
   process.env.DEN_API_PUBLIC_URL = process.env.DEN_API_PUBLIC_URL ?? "http://127.0.0.1:8790"
 }
 
-let CAPABILITY_SOURCE_KINDS: typeof import("../src/mcp/capability-registry.js")["CAPABILITY_SOURCE_KINDS"]
-let catalogOperationAvailableToCapabilities: typeof import("../src/mcp/capability-registry.js")["catalogOperationAvailableToCapabilities"]
-let catalogOperationChangesRemoteMcpAppDiscovery: typeof import("../src/mcp/capability-registry.js")["catalogOperationChangesRemoteMcpAppDiscovery"]
-let createCapabilityRegistry: typeof import("../src/mcp/capability-registry.js")["createCapabilityRegistry"]
-let codemodeScriptPath: typeof import("../src/mcp/codemode-namespaces.js")["codemodeScriptPath"]
+let CAPABILITY_SOURCE_KINDS: typeof import("@openwork-ee/den-core/mcp/capability-registry")["CAPABILITY_SOURCE_KINDS"]
+let catalogOperationAvailableToCapabilities: typeof import("@openwork-ee/den-core/mcp/capability-registry")["catalogOperationAvailableToCapabilities"]
+let catalogOperationChangesRemoteMcpAppDiscovery: typeof import("@openwork-ee/den-core/mcp/capability-registry")["catalogOperationChangesRemoteMcpAppDiscovery"]
+let createCapabilityRegistry: typeof import("@openwork-ee/den-core/mcp/capability-registry")["createCapabilityRegistry"]
+let codemodeScriptPath: typeof import("@openwork-ee/den-core/mcp/codemode-namespaces")["codemodeScriptPath"]
 
 beforeAll(async () => {
   seedRequiredEnv()
-  const capabilityRegistry = await import("../src/mcp/capability-registry.js")
+  const capabilityRegistry = await import("@openwork-ee/den-core/mcp/capability-registry")
   CAPABILITY_SOURCE_KINDS = capabilityRegistry.CAPABILITY_SOURCE_KINDS
   catalogOperationAvailableToCapabilities = capabilityRegistry.catalogOperationAvailableToCapabilities
   catalogOperationChangesRemoteMcpAppDiscovery = capabilityRegistry.catalogOperationChangesRemoteMcpAppDiscovery
   createCapabilityRegistry = capabilityRegistry.createCapabilityRegistry
-  codemodeScriptPath = (await import("../src/mcp/codemode-namespaces.js")).codemodeScriptPath
+  codemodeScriptPath = (await import("@openwork-ee/den-core/mcp/codemode-namespaces")).codemodeScriptPath
 })
 
 const FIXTURES: Record<CapabilitySourceKind, { capabilityName: string; namespace: string; toolName: string }> = {

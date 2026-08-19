@@ -1,6 +1,6 @@
 import { createDenTypeId } from "@openwork-ee/utils/typeid"
 import { describe, expect, test } from "bun:test"
-import { revokeAccountsBeforeOAuthClientIdentityChange } from "../src/capability-sources/oauth-client-rotation.js"
+import { revokeAccountsBeforeOAuthClientIdentityChange } from "@openwork-ee/den-core/capability-sources/oauth-client-rotation"
 
 describe("OAuth client identity rotation", () => {
   test("immediately revokes connected accounts after tenant or client-id changes", async () => {

@@ -36,7 +36,7 @@ mock.module("../src/utils/rate-limit.js", () => ({
   enforceRateLimit: async () => retryAfter,
 }))
 
-mock.module("../src/enterprise-auth-requirement.js", () => ({
+mock.module("@openwork-ee/den-core/enterprise-auth-requirement", () => ({
   findEnterpriseAuthRequirementForEmail: async () => null,
   findEnterpriseAuthRequirementForEmailDomain: async () => requirement,
   findEnterpriseAuthRequirementForUserId: async () => null,

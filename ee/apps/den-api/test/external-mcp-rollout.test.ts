@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { memberFacingMcpConnectionsEnabled } from "../src/capability-sources/external-mcp-rollout.js"
+import { memberFacingMcpConnectionsEnabled } from "@openwork-ee/den-core/capability-sources/external-mcp-rollout"
 
 type MetadataInput = Parameters<typeof memberFacingMcpConnectionsEnabled>[0]
 

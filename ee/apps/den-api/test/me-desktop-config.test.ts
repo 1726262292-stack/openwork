@@ -15,12 +15,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 let app: typeof import("../src/app.js").default
-let db: typeof import("../src/db.js").db
+let db: typeof import("@openwork-ee/den-core/db").db
 let schema: typeof import("@openwork-ee/den-db/schema")
 let drizzle: typeof import("@openwork-ee/den-db/drizzle")
-let session: typeof import("../src/session.js")
-let env: typeof import("../src/env.js").env
-let memberFacingMcpConnectionsEnabled: typeof import("../src/capability-sources/external-mcp-rollout.js")["memberFacingMcpConnectionsEnabled"]
+let session: typeof import("@openwork-ee/den-core/session")
+let env: typeof import("@openwork-ee/den-core/env").env
+let memberFacingMcpConnectionsEnabled: typeof import("@openwork-ee/den-core/capability-sources/external-mcp-rollout")["memberFacingMcpConnectionsEnabled"]
 
 const userId = createDenTypeId("user")
 const organizationId = createDenTypeId("organization")
@@ -57,12 +57,12 @@ beforeAll(async () => {
   seedRequiredEnv()
   const [appMod, dbMod, schemaMod, drizzleMod, sessionMod, envMod, rolloutMod] = await Promise.all([
     import("../src/app.js"),
-    import("../src/db.js"),
+    import("@openwork-ee/den-core/db"),
     import("@openwork-ee/den-db/schema"),
     import("@openwork-ee/den-db/drizzle"),
-    import("../src/session.js"),
-    import("../src/env.js"),
-    import("../src/capability-sources/external-mcp-rollout.js"),
+    import("@openwork-ee/den-core/session"),
+    import("@openwork-ee/den-core/env"),
+    import("@openwork-ee/den-core/capability-sources/external-mcp-rollout"),
   ])
   app = appMod.default
   db = dbMod.db

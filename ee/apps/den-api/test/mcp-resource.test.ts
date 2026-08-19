@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 
-import { deriveDenMcpResource, deriveFirstPartyMcpTokenResourceFromRequest, isHostedWebAppHost } from "../src/mcp/resource.js"
+import { deriveDenMcpResource, deriveFirstPartyMcpTokenResourceFromRequest, isHostedWebAppHost } from "@openwork-ee/den-core/mcp/resource"
 
 const DIRECT_API_MCP_RESOURCE = "https://api.example.com/mcp"
 const TRUSTED_WEB_ORIGINS = ["https://app.example.com"]

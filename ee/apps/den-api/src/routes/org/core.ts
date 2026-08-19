@@ -5,21 +5,21 @@ import { normalizeDenTypeId, type DenTypeId } from "@openwork-ee/utils/typeid"
 import type { Hono } from "hono"
 import { describeRoute } from "hono-openapi"
 import { z } from "zod"
-import { auth } from "../../auth.js"
+import { auth } from "@openwork-ee/den-core/auth"
 import { verifyBotProtection } from "../../bot-protection.js"
 import { validateBrandIconUrl } from "../../brand-icon-validation.js"
-import { organizationCloudEnabled } from "../../capability-sources/cloud-rollout.js"
-import { codemodeScriptsEnabled } from "../../capability-sources/codemode-rollout.js"
-import { memberFacingMcpConnectionsEnabled } from "../../capability-sources/external-mcp-rollout.js"
+import { organizationCloudEnabled } from "@openwork-ee/den-core/capability-sources/cloud-rollout"
+import { codemodeScriptsEnabled } from "@openwork-ee/den-core/capability-sources/codemode-rollout"
+import { memberFacingMcpConnectionsEnabled } from "@openwork-ee/den-core/capability-sources/external-mcp-rollout"
 import { organizationInstallLinksEnabled } from "../../capability-sources/install-links-rollout.js"
-import { db } from "../../db.js"
-import { checkEntitlement, getOrganizationEntitlements, parseOrganizationPlan } from "../../entitlements.js"
-import { env } from "../../env.js"
-import { findEnterpriseAuthRequirementForEmailDomain, resolveNonSsoSignInMethodForEmail } from "../../enterprise-auth-requirement.js"
-import { authenticatedRoute, jsonValidator, orgMemberRoute, orgRoleRoute, publicRoute, queryValidator, resolveMemberTeamsMiddleware } from "../../middleware/index.js"
-import { denTypeIdSchema, enterprisePlanRequiredSchema, forbiddenSchema, invalidRequestSchema, jsonResponse, notFoundSchema, unauthorizedSchema } from "../../openapi.js"
+import { db } from "@openwork-ee/den-core/db"
+import { checkEntitlement, getOrganizationEntitlements, parseOrganizationPlan } from "@openwork-ee/den-core/entitlements"
+import { env } from "@openwork-ee/den-core/env"
+import { findEnterpriseAuthRequirementForEmailDomain, resolveNonSsoSignInMethodForEmail } from "@openwork-ee/den-core/enterprise-auth-requirement"
+import { authenticatedRoute, jsonValidator, orgMemberRoute, orgRoleRoute, publicRoute, queryValidator, resolveMemberTeamsMiddleware } from "@openwork-ee/den-core/middleware/index"
+import { denTypeIdSchema, enterprisePlanRequiredSchema, forbiddenSchema, invalidRequestSchema, jsonResponse, notFoundSchema, unauthorizedSchema } from "@openwork-ee/den-core/openapi"
 import { validateInvitationAcceptVerification } from "../../organization-join-verification.js"
-import { normalizeOrganizationMetadata } from "../../organization-limits.js"
+import { normalizeOrganizationMetadata } from "@openwork-ee/den-core/organization-limits"
 import {
   acceptInvitationForUser,
   createOrganizationForUser,
@@ -33,11 +33,11 @@ import {
   setSessionActiveOrganization,
   type AcceptInvitationForUserResult,
   updateOrganizationSettings,
-} from "../../orgs.js"
+} from "@openwork-ee/den-core/orgs"
 import { getRequiredUserEmail } from "../../user.js"
 import { checkRateLimit } from "../../utils/rate-limit.js"
-import type { OrgRouteVariables } from "./shared.js"
-import { ensureOrganizationAdminRole, ensureOrganizationSuperAdmin, orgAccessFailureStatus } from "./shared.js"
+import type { OrgRouteVariables } from "@openwork-ee/den-core/routes/org/shared"
+import { ensureOrganizationAdminRole, ensureOrganizationSuperAdmin, orgAccessFailureStatus } from "@openwork-ee/den-core/routes/org/shared"
 
 const createOrganizationSchema = z.object({
   name: z.string().trim().min(2).max(120),

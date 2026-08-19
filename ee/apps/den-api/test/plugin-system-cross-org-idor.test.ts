@@ -27,12 +27,12 @@ function emptyQuery() {
   return chain
 }
 
-let storeModule: typeof import("../src/routes/org/plugin-system/store.js")
+let storeModule: typeof import("@openwork-ee/den-core/routes/org/plugin-system/store")
 
 beforeAll(async () => {
   seedRequiredEnv()
 
-  mock.module("../src/db.js", () => ({
+  mock.module("@openwork-ee/den-core/db", () => ({
     db: {
       select: () => emptyQuery(),
       insert: () => {
@@ -46,7 +46,7 @@ beforeAll(async () => {
     },
   }))
 
-  storeModule = await import("../src/routes/org/plugin-system/store.js")
+  storeModule = await import("@openwork-ee/den-core/routes/org/plugin-system/store")
 })
 
 // An org ADMIN (worst case: resolvePluginArchResourceRole short-circuits to

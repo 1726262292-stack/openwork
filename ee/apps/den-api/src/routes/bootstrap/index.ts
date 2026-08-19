@@ -20,20 +20,20 @@ import { createHash, randomBytes } from "node:crypto"
 import type { Hono } from "hono"
 import { describeRoute } from "hono-openapi"
 import { z } from "zod"
-import { db } from "../../db.js"
-import { ensureDefaultDesktopPolicyForOrganization } from "../../desktop-policies.js"
-import { env } from "../../env.js"
-import { jsonValidator, publicRoute, authenticatedRoute } from "../../middleware/index.js"
-import { DEFAULT_ORGANIZATION_LIMITS } from "../../organization-limits.js"
-import { denTypeIdSchema, forbiddenSchema, invalidRequestSchema, jsonResponse, notFoundSchema, unauthorizedSchema } from "../../openapi.js"
-import { seedDefaultOrganizationRoles, setSessionActiveOrganization } from "../../orgs.js"
-import { clampUtf8Bytes, PROJECTION_TEXT_MAX_BYTES } from "../org/plugin-system/projection-text.js"
-import type { AuthContextVariables } from "../../session.js"
+import { db } from "@openwork-ee/den-core/db"
+import { ensureDefaultDesktopPolicyForOrganization } from "@openwork-ee/den-core/desktop-policies"
+import { env } from "@openwork-ee/den-core/env"
+import { jsonValidator, publicRoute, authenticatedRoute } from "@openwork-ee/den-core/middleware/index"
+import { DEFAULT_ORGANIZATION_LIMITS } from "@openwork-ee/den-core/organization-limits"
+import { denTypeIdSchema, forbiddenSchema, invalidRequestSchema, jsonResponse, notFoundSchema, unauthorizedSchema } from "@openwork-ee/den-core/openapi"
+import { seedDefaultOrganizationRoles, setSessionActiveOrganization } from "@openwork-ee/den-core/orgs"
+import { clampUtf8Bytes, PROJECTION_TEXT_MAX_BYTES } from "@openwork-ee/den-core/routes/org/plugin-system/projection-text"
+import type { AuthContextVariables } from "@openwork-ee/den-core/session"
 import {
   DEFAULT_OPENWORK_MARKETPLACE_DESCRIPTION,
   DEFAULT_OPENWORK_MARKETPLACE_LOGO_URL,
   DEFAULT_OPENWORK_MARKETPLACE_NAME,
-} from "../org/plugin-system/default-marketplaces.js"
+} from "@openwork-ee/den-core/routes/org/plugin-system/default-marketplaces"
 
 const BOOTSTRAP_TTL_MS = 1000 * 60 * 60 * 24
 const BOOTSTRAP_RATE_LIMIT_WINDOW_MS = 1000 * 60 * 60

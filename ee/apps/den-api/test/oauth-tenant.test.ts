@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 import {
   normalizeEntraTenantId,
   resolveTenantEndpointTemplate,
-} from "../src/capability-sources/oauth-tenant.js"
+} from "@openwork-ee/den-core/capability-sources/oauth-tenant"
 
 describe("Entra tenant identifiers", () => {
   test("accepts canonical directory GUIDs without UUID version assumptions", () => {

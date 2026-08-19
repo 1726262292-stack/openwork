@@ -13,9 +13,9 @@ import {
   externalMcpDiagnosticForLog,
   safeExternalMcpEndpointForLog,
   safeExternalMcpCauseChain,
-} from "../src/capability-sources/external-mcp-diagnostics.js"
-import { PrivateUrlError } from "../src/capability-sources/url-guard.js"
-import { connectCallbackPage } from "../src/capability-sources/oauth-callback-page.js"
+} from "@openwork-ee/den-core/capability-sources/external-mcp-diagnostics"
+import { PrivateUrlError } from "@openwork-ee/den-core/capability-sources/url-guard"
+import { connectCallbackPage } from "@openwork-ee/den-core/capability-sources/oauth-callback-page"
 
 process.env.DATABASE_URL ??= "mysql://root:password@127.0.0.1:3306/openwork_test"
 process.env.DEN_DB_ENCRYPTION_KEY ??= "local-dev-db-encryption-key-please-change-1234567890"
@@ -1188,7 +1188,7 @@ describe("external MCP diagnostics", () => {
   })
 
   test("exhausts paginated tool catalogs exactly once", async () => {
-    const { collectExternalMcpToolPages } = await import("../src/capability-sources/external-mcp-client.js")
+    const { collectExternalMcpToolPages } = await import("@openwork-ee/den-core/capability-sources/external-mcp-client")
     const diagnostic = new ExternalMcpDiagnosticTracker("req_pages")
     diagnostic.passed("MCP_INITIALIZED", "protocol_ready")
     const cursors: (string | undefined)[] = []
@@ -1207,7 +1207,7 @@ describe("external MCP diagnostics", () => {
   })
 
   test("stops repeated tool cursors without disclosing the cursor", async () => {
-    const { collectExternalMcpToolPages } = await import("../src/capability-sources/external-mcp-client.js")
+    const { collectExternalMcpToolPages } = await import("@openwork-ee/den-core/capability-sources/external-mcp-client")
     const diagnostic = new ExternalMcpDiagnosticTracker("req_loop")
     diagnostic.passed("MCP_INITIALIZED", "protocol_ready")
     let caught: unknown
@@ -1230,7 +1230,7 @@ describe("external MCP diagnostics", () => {
   })
 
   test("rejects duplicate tool names across catalog pages", async () => {
-    const { collectExternalMcpToolPages } = await import("../src/capability-sources/external-mcp-client.js")
+    const { collectExternalMcpToolPages } = await import("@openwork-ee/den-core/capability-sources/external-mcp-client")
     const diagnostic = new ExternalMcpDiagnosticTracker("req_duplicate")
     await expect(collectExternalMcpToolPages({
       diagnostic,
@@ -1245,7 +1245,7 @@ describe("external MCP diagnostics", () => {
     ["title", { name: "valid", title: "t".repeat(4 * 1024 + 1), inputSchema: { type: "object" } }, "MCP_CATALOG_TOOL_TITLE_LIMIT"],
     ["description", { name: "valid", description: "d".repeat(64 * 1024 + 1), inputSchema: { type: "object" } }, "MCP_CATALOG_TOOL_DESCRIPTION_LIMIT"],
   ])("rejects an oversized tool %s with a stable catalog diagnostic", async (_field, tool, code) => {
-    const { collectExternalMcpToolPages } = await import("../src/capability-sources/external-mcp-client.js")
+    const { collectExternalMcpToolPages } = await import("@openwork-ee/den-core/capability-sources/external-mcp-client")
     const diagnostic = new ExternalMcpDiagnosticTracker(`req_${String(_field)}_limit`)
     await expect(collectExternalMcpToolPages({
       diagnostic,
@@ -1254,7 +1254,7 @@ describe("external MCP diagnostics", () => {
   })
 
   test("rejects oversized and deeply nested schemas before retaining the catalog", async () => {
-    const { collectExternalMcpToolPages } = await import("../src/capability-sources/external-mcp-client.js")
+    const { collectExternalMcpToolPages } = await import("@openwork-ee/den-core/capability-sources/external-mcp-client")
 
     const oversizedDiagnostic = new ExternalMcpDiagnosticTracker("req_schema_size")
     await expect(collectExternalMcpToolPages({
@@ -1277,7 +1277,7 @@ describe("external MCP diagnostics", () => {
   })
 
   test("rejects oversized cursors without retaining or disclosing their value", async () => {
-    const { collectExternalMcpToolPages } = await import("../src/capability-sources/external-mcp-client.js")
+    const { collectExternalMcpToolPages } = await import("@openwork-ee/den-core/capability-sources/external-mcp-client")
     const diagnostic = new ExternalMcpDiagnosticTracker("req_cursor_size")
     const secretCursor = `secret-${"c".repeat(16 * 1024)}`
     let caught: unknown
@@ -1294,7 +1294,7 @@ describe("external MCP diagnostics", () => {
   })
 
   test("bounds cumulative serialized tool-catalog bytes across individually valid tools", async () => {
-    const { collectExternalMcpToolPages } = await import("../src/capability-sources/external-mcp-client.js")
+    const { collectExternalMcpToolPages } = await import("@openwork-ee/den-core/capability-sources/external-mcp-client")
     const diagnostic = new ExternalMcpDiagnosticTracker("req_catalog_bytes")
     const tools = Array.from({ length: 129 }, (_, index) => ({
       name: `large-valid-${index}`,
@@ -1311,7 +1311,7 @@ describe("external MCP diagnostics", () => {
     const {
       collectExternalMcpToolPages,
       createExternalMcpLifecycleDeadline,
-    } = await import("../src/capability-sources/external-mcp-client.js")
+    } = await import("@openwork-ee/den-core/capability-sources/external-mcp-client")
     const diagnostic = new ExternalMcpDiagnosticTracker("req_deadline_options")
     const totals: number[] = []
     const resetFlags: (boolean | undefined)[] = []
@@ -1339,7 +1339,7 @@ describe("external MCP diagnostics", () => {
     const {
       createExternalMcpLifecycleDeadline,
       runExternalMcpRequestWithinDeadline,
-    } = await import("../src/capability-sources/external-mcp-client.js")
+    } = await import("@openwork-ee/den-core/capability-sources/external-mcp-client")
     const diagnostic = new ExternalMcpDiagnosticTracker("req_tool_timeout")
     const options = await runExternalMcpRequestWithinDeadline({
       diagnostic,
@@ -1359,7 +1359,7 @@ describe("external MCP diagnostics", () => {
     const {
       collectExternalMcpToolPages,
       createExternalMcpLifecycleDeadline,
-    } = await import("../src/capability-sources/external-mcp-client.js")
+    } = await import("@openwork-ee/den-core/capability-sources/external-mcp-client")
     const diagnostic = new ExternalMcpDiagnosticTracker("req_deadline")
     await expect(collectExternalMcpToolPages({
       diagnostic,
@@ -1379,7 +1379,7 @@ describe("external MCP diagnostics", () => {
     const {
       EXTERNAL_MCP_JSON_RESPONSE_LIMIT_BYTES,
       EXTERNAL_MCP_SSE_RESPONSE_LIMIT_BYTES,
-    } = await import("../src/capability-sources/external-mcp-diagnostics.js")
+    } = await import("@openwork-ee/den-core/capability-sources/external-mcp-diagnostics")
     const tracker = new ExternalMcpDiagnosticTracker("req_response_limit")
     const diagnosticFetch = createExternalMcpDiagnosticFetch({
       endpoint: "https://mcp.example.invalid/mcp",
@@ -1420,7 +1420,7 @@ describe("external MCP diagnostics", () => {
   })
 
   test("aborts an unadvertised streaming response once decoded bytes cross the ceiling", async () => {
-    const { EXTERNAL_MCP_JSON_RESPONSE_LIMIT_BYTES } = await import("../src/capability-sources/external-mcp-diagnostics.js")
+    const { EXTERNAL_MCP_JSON_RESPONSE_LIMIT_BYTES } = await import("@openwork-ee/den-core/capability-sources/external-mcp-diagnostics")
     const tracker = new ExternalMcpDiagnosticTracker("req_stream_limit")
     const diagnosticFetch = createExternalMcpDiagnosticFetch({
       endpoint: "https://mcp.example.invalid/mcp",
@@ -1461,7 +1461,7 @@ describe("external MCP diagnostics", () => {
     const {
       EXTERNAL_MCP_SEARCH_CONNECTION_LIMIT,
       selectExternalMcpSearchConnections,
-    } = await import("../src/mcp/external-capabilities.js")
+    } = await import("@openwork-ee/den-core/mcp/external-capabilities")
     const connections = Array.from({ length: 100 }, (_, index) => ({
       name: index === 99 ? "Priority ServiceNow" : `Unrelated ${index}`,
       index,
@@ -1476,11 +1476,11 @@ describe("external MCP diagnostics", () => {
     const {
       createExternalMcpLifecycleDeadline,
       runExternalMcpRequestWithinDeadline,
-    } = await import("../src/capability-sources/external-mcp-client.js")
+    } = await import("@openwork-ee/den-core/capability-sources/external-mcp-client")
     const {
       collectBoundedExternalMcpSearchMatches,
       EXTERNAL_MCP_SEARCH_CONCURRENCY,
-    } = await import("../src/mcp/external-capabilities.js")
+    } = await import("@openwork-ee/den-core/mcp/external-capabilities")
     let active = 0
     let maximumActive = 0
     let started = 0
@@ -1523,8 +1523,8 @@ describe("external MCP diagnostics", () => {
     const {
       EXTERNAL_MCP_SEARCH_MATCH_LIMIT,
       mergeBoundedExternalCapabilityMatches,
-    } = await import("../src/mcp/external-capabilities.js")
-    const retained: import("../src/mcp/external-capabilities.js").ExternalCapabilityMatch[] = []
+    } = await import("@openwork-ee/den-core/mcp/external-capabilities")
+    const retained: import("@openwork-ee/den-core/mcp/external-capabilities").ExternalCapabilityMatch[] = []
     const largeSummary = "enterprise-description ".repeat(2_000)
     for (let batch = 0; batch < 16; batch += 1) {
       const candidates = Array.from({ length: 128 }, (_, index) => ({
@@ -1558,7 +1558,7 @@ describe("external MCP diagnostics", () => {
   })
 
   test("OAuth completion validates MCP before success and invalidates unusable tokens", async () => {
-    const { runExternalMcpAuthCompletionLifecycle } = await import("../src/capability-sources/external-mcp-client.js")
+    const { runExternalMcpAuthCompletionLifecycle } = await import("@openwork-ee/den-core/capability-sources/external-mcp-client")
     const diagnostic = new ExternalMcpDiagnosticTracker("req_post_exchange")
     const events: string[] = []
     let caught: unknown
@@ -1582,7 +1582,7 @@ describe("external MCP diagnostics", () => {
   })
 
   test("OAuth completion reports success only after token, initialize, and close", async () => {
-    const { runExternalMcpAuthCompletionLifecycle } = await import("../src/capability-sources/external-mcp-client.js")
+    const { runExternalMcpAuthCompletionLifecycle } = await import("@openwork-ee/den-core/capability-sources/external-mcp-client")
     const diagnostic = new ExternalMcpDiagnosticTracker("req_post_exchange_ok")
     const events: string[] = []
     await runExternalMcpAuthCompletionLifecycle({
@@ -1600,7 +1600,7 @@ describe("external MCP diagnostics", () => {
       bindExternalMcpFetchToLifecycle,
       createExternalMcpLifecycleDeadline,
       runExternalMcpAuthCompletionLifecycle,
-    } = await import("../src/capability-sources/external-mcp-client.js")
+    } = await import("@openwork-ee/den-core/capability-sources/external-mcp-client")
     const { StreamableHTTPClientTransport } = await import("@modelcontextprotocol/sdk/client/streamableHttp.js")
 
     let tokenRequests = 0
@@ -1676,7 +1676,7 @@ describe("external MCP diagnostics", () => {
       bindExternalMcpFetchToLifecycle,
       createExternalMcpLifecycleDeadline,
       runExternalMcpRequestWithinDeadline,
-    } = await import("../src/capability-sources/external-mcp-client.js")
+    } = await import("@openwork-ee/den-core/capability-sources/external-mcp-client")
     const { auth } = await import("@modelcontextprotocol/sdk/client/auth.js")
 
     let registrationRequests = 0

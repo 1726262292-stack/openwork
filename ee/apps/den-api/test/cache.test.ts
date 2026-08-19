@@ -14,7 +14,7 @@ let authSelectCount = 0
 let authLivenessCount = 0
 let authSessionExpiresAt = new Date("2026-08-10T14:00:00.000Z")
 let authSessionLive = true
-let cacheModule: typeof import("../src/cache.js")
+let cacheModule: typeof import("@openwork-ee/den-core/cache")
 let restoreCacheDependencies: (() => void) | null = null
 
 const redis = {
@@ -83,7 +83,7 @@ beforeAll(async () => {
   process.env.BETTER_AUTH_SECRET = process.env.BETTER_AUTH_SECRET ?? "y".repeat(32)
   process.env.BETTER_AUTH_URL = process.env.BETTER_AUTH_URL ?? "http://127.0.0.1:8790"
 
-  cacheModule = await import("../src/cache.js")
+  cacheModule = await import("@openwork-ee/den-core/cache")
   restoreCacheDependencies = cacheModule.setCacheDependenciesForTest({
     redis,
     orgMembersLoader: () => {

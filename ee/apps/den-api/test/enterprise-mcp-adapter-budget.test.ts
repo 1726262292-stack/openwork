@@ -1,7 +1,7 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import type { RequestOptions } from "@modelcontextprotocol/sdk/shared/protocol.js"
 import { expect, test } from "bun:test"
-import type { ExternalMcpConnectionRow } from "../src/capability-sources/external-mcp-connections.js"
+import type { ExternalMcpConnectionRow } from "@openwork-ee/den-core/capability-sources/external-mcp-connections"
 
 function seedRequiredEnv() {
   process.env.DATABASE_URL = process.env.DATABASE_URL ?? "mysql://root:password@127.0.0.1:3306/openwork_test"
@@ -72,8 +72,8 @@ test("enterprise adapter forwards the external tool lifecycle to live MCP reques
       EXTERNAL_MCP_TOOL_LIFECYCLE_TIMEOUT_MS,
       createExternalMcpLifecycleDeadline,
     }] = await Promise.all([
-      import("../src/capability-sources/enterprise-mcp-client-adapter.js"),
-      import("../src/capability-sources/external-mcp-client.js"),
+      import("@openwork-ee/den-core/capability-sources/enterprise-mcp-client-adapter"),
+      import("@openwork-ee/den-core/capability-sources/external-mcp-client"),
     ])
     const result = await callExternalMcpTool({
       connection: standaloneConnection(),

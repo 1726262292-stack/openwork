@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import { cloudArtifactStateUpdate } from "../src/automations/cloud-artifact-state.js"
+import { cloudArtifactStateUpdate } from "@openwork-ee/den-core/automations/cloud-artifact-state"
 
 test("a failed cloud refresh preserves the last good artifact by leaving it untouched", () => {
   const failed = cloudArtifactStateUpdate({

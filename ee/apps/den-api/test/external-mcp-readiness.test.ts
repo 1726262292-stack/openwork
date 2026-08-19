@@ -88,7 +88,7 @@ function queueSelectResults(results: QueryRows[]): void {
   transactionCalls = 0
 }
 
-mock.module("../src/db.js", () => ({
+mock.module("@openwork-ee/den-core/db", () => ({
   db: {
     select: () => fakeQuery(selectResults.shift() ?? []),
     transaction: () => {
@@ -102,7 +102,7 @@ const {
   readConnectedAccountForExternalMcpIdentity,
   readOrgOAuthClientForExternalMcpIdentity,
   readyExternalMcpConnectionsForMember,
-} = await import("../src/capability-sources/external-mcp-connections.js")
+} = await import("@openwork-ee/den-core/capability-sources/external-mcp-connections")
 
 test("per-member connection list readiness reads credentials without row locks", async () => {
   queueSelectResults([[connection], [account], [connection]])

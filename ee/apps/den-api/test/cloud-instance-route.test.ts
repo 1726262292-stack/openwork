@@ -1,8 +1,8 @@
 import { createDenTypeId } from "@openwork-ee/utils/typeid"
 import { beforeAll, describe, expect, test } from "bun:test"
 import { Hono, type MiddlewareHandler } from "hono"
-import type { OrganizationContext } from "../src/orgs.js"
-import type { OrgRouteVariables } from "../src/routes/org/shared.js"
+import type { OrganizationContext } from "@openwork-ee/den-core/orgs"
+import type { OrgRouteVariables } from "@openwork-ee/den-core/routes/org/shared"
 
 type CloudWorkerStatus = "provisioning" | "healthy" | "failed" | "stopped"
 type CloudInstanceStatus = "provisioning" | "waking" | "ready" | "failed"

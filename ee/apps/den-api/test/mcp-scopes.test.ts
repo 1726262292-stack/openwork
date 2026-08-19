@@ -7,7 +7,7 @@ import {
   DEN_MCP_REQUESTED_SCOPES,
   normalizeMcpOAuthClientScope,
   resolveMcpTokenScopes,
-} from "../src/mcp/scopes.js"
+} from "@openwork-ee/den-core/mcp/scopes"
 
 test("MCP OAuth requested scopes include read, write, and offline refresh access", () => {
   expect(DEN_MCP_REQUESTED_SCOPES).toEqual(["mcp:read", "mcp:write", "offline_access"])

@@ -1,5 +1,5 @@
-import { env } from "../env.js"
-import { sendSubscribedToDenEvent } from "../loops.js"
+import { env } from "@openwork-ee/den-core/env"
+import { sendSubscribedToDenEvent } from "@openwork-ee/den-core/loops"
 
 type PolarCustomerState = {
   granted_benefits?: Array<{

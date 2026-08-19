@@ -23,7 +23,7 @@ const canonicalProviderIds = {
   recovery: `openwork-sso-${recoveryOrganizationId}`,
 }
 
-let db: typeof import("../src/db.js").db
+let db: typeof import("@openwork-ee/den-core/db").db
 let schema: typeof import("@openwork-ee/den-db/schema")
 let drizzle: typeof import("@openwork-ee/den-db/drizzle")
 let registerOrganizationSsoConnection: typeof import("../src/sso.js").registerOrganizationSsoConnection
@@ -45,8 +45,8 @@ beforeAll(async () => {
     databaseUrl: process.env.DATABASE_URL,
     mode: "mysql",
   }).db
-  mock.module("../src/db.js", () => ({ db: realDb }))
-  mock.module("../src/auth.js", () => ({
+  mock.module("@openwork-ee/den-core/db", () => ({ db: realDb }))
+  mock.module("@openwork-ee/den-core/auth", () => ({
     auth: {
       api: {
         registerSSOProvider: async (input: {
@@ -74,7 +74,7 @@ beforeAll(async () => {
   }))
 
   const [dbModule, schemaModule, drizzleModule, ssoModule] = await Promise.all([
-    import("../src/db.js"),
+    import("@openwork-ee/den-core/db"),
     import("@openwork-ee/den-db/schema"),
     import("@openwork-ee/den-db/drizzle"),
     import("../src/sso.js"),

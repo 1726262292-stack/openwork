@@ -7,12 +7,12 @@ function seedRequiredEnv() {
   process.env.BETTER_AUTH_URL = process.env.BETTER_AUTH_URL ?? "http://127.0.0.1:8790"
 }
 
-let store: typeof import("../src/routes/org/plugin-system/store.js")
+let store: typeof import("@openwork-ee/den-core/routes/org/plugin-system/store")
 
 beforeAll(async () => {
   seedRequiredEnv()
-  mock.module("../src/db.js", () => ({ db: {} }))
-  store = await import("../src/routes/org/plugin-system/store.js")
+  mock.module("@openwork-ee/den-core/db", () => ({ db: {} }))
+  store = await import("@openwork-ee/den-core/routes/org/plugin-system/store")
 })
 
 afterAll(() => {

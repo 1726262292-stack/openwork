@@ -3,7 +3,7 @@ import { eq, sql } from "@openwork-ee/den-db/drizzle"
 import { CodemodeRunTable } from "@openwork-ee/den-db/schema"
 import { createDenTypeId } from "@openwork-ee/utils/typeid"
 import { afterAll, beforeAll, expect, test } from "bun:test"
-import { codemodeCodeDigest, listCodemodeRuns, recordCodemodeRun, type RecordCodemodeRunInput } from "../src/codemode-runs.js"
+import { codemodeCodeDigest, listCodemodeRuns, recordCodemodeRun, type RecordCodemodeRunInput } from "@openwork-ee/den-core/codemode-runs"
 
 const databaseUrl = "mysql://root:password@127.0.0.1:3306/openwork_test_codemode_runs"
 const database = createDenDb({ databaseUrl, mode: "mysql" }).db

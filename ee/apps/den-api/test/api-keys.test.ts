@@ -7,11 +7,11 @@ function seedRequiredEnv() {
   process.env.BETTER_AUTH_URL = process.env.BETTER_AUTH_URL ?? "http://127.0.0.1:8790"
 }
 
-let apiKeyModule: typeof import("../src/api-keys.js")
+let apiKeyModule: typeof import("@openwork-ee/den-core/api-keys")
 
 beforeAll(async () => {
   seedRequiredEnv()
-  apiKeyModule = await import("../src/api-keys.js")
+  apiKeyModule = await import("@openwork-ee/den-core/api-keys")
 })
 
 test("organization API key TTL is finite", () => {

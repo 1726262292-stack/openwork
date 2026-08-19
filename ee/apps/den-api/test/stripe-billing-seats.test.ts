@@ -20,8 +20,8 @@ function seedRequiredEnv() {
   delete process.env.STRIPE_SEAT_PRICE_ID
 }
 
-let stripeBillingModule: typeof import("../src/stripe-billing.js")
-let db: typeof import("../src/db.js").db | null = null
+let stripeBillingModule: typeof import("@openwork-ee/den-core/stripe-billing")
+let db: typeof import("@openwork-ee/den-core/db").db | null = null
 let schema: typeof import("@openwork-ee/den-db/schema") | null = null
 let drizzle: typeof import("@openwork-ee/den-db/drizzle") | null = null
 
@@ -38,8 +38,8 @@ async function cleanup() {
 beforeAll(async () => {
   seedRequiredEnv()
   const [stripeBilling, dbModule, schemaModule, drizzleModule] = await Promise.all([
-    import("../src/stripe-billing.js"),
-    import("../src/db.js"),
+    import("@openwork-ee/den-core/stripe-billing"),
+    import("@openwork-ee/den-core/db"),
     import("@openwork-ee/den-db/schema"),
     import("@openwork-ee/den-db/drizzle"),
   ])

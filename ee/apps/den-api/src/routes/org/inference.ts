@@ -1,12 +1,12 @@
 import type { Hono } from "hono"
 import { describeRoute } from "hono-openapi"
 import { z } from "zod"
-import { getInferenceStatus, setInferenceEnabled } from "../../inference.js"
-import { organizationHasActiveInferenceSubscription } from "../../stripe-billing.js"
-import { jsonValidator, orgRoleRoute } from "../../middleware/index.js"
-import { forbiddenSchema, invalidRequestSchema, jsonResponse, unauthorizedSchema } from "../../openapi.js"
-import type { OrgRouteVariables } from "./shared.js"
-import { ensureOrganizationAdmin, orgAccessFailureStatus } from "./shared.js"
+import { getInferenceStatus, setInferenceEnabled } from "@openwork-ee/den-core/inference"
+import { organizationHasActiveInferenceSubscription } from "@openwork-ee/den-core/stripe-billing"
+import { jsonValidator, orgRoleRoute } from "@openwork-ee/den-core/middleware/index"
+import { forbiddenSchema, invalidRequestSchema, jsonResponse, unauthorizedSchema } from "@openwork-ee/den-core/openapi"
+import type { OrgRouteVariables } from "@openwork-ee/den-core/routes/org/shared"
+import { ensureOrganizationAdmin, orgAccessFailureStatus } from "@openwork-ee/den-core/routes/org/shared"
 
 const inferenceSettingsSchema = z.object({
   enabled: z.boolean(),

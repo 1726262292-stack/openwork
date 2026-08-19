@@ -1,6 +1,6 @@
-import { env } from "./env.js"
-import { appLogger } from "./observability/logger.js"
-import { captureException } from "./observability/runtime.js"
+import { env } from "@openwork-ee/den-core/env"
+import { appLogger } from "@openwork-ee/den-core/observability/logger"
+import { captureException } from "@openwork-ee/den-core/observability/runtime"
 import { SCIM_MAINTENANCE_FAILED_OPERATIONAL_MARKER } from "./operational-log-markers.js"
 import { listScimProviders, reconcileOrganizationScimDrift, retryPendingScimSyncEvents } from "./scim.js"
 

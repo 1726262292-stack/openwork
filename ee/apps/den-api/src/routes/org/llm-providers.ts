@@ -12,7 +12,7 @@ import { createDenTypeId, normalizeDenTypeId } from "@openwork-ee/utils/typeid"
 import type { Hono } from "hono"
 import { describeRoute } from "hono-openapi"
 import { z } from "zod"
-import { db } from "../../db.js"
+import { db } from "@openwork-ee/den-core/db"
 import { CustomProviderConfigError, normalizeCustomProviderConfig } from "../../llm/custom-provider.js"
 import { probeEndpoint, verifyModels } from "../../llm/endpoint-probe.js"
 import {
@@ -21,21 +21,21 @@ import {
   listConfiguredEnvKeys,
   readProviderEnvNames,
   resolveProviderCredential,
-} from "../../llm/provider-credentials.js"
+} from "@openwork-ee/den-core/llm/provider-credentials"
 import {
   jsonValidator,
   orgMemberRoute,
   paramValidator,
   queryValidator,
   resolveMemberTeamsMiddleware,
-} from "../../middleware/index.js"
+} from "@openwork-ee/den-core/middleware/index"
 import { getModelsDevProvider, listModelsDevProviders } from "../../llm/models-dev.js"
-import type { MemberTeamsContext } from "../../middleware/member-teams.js"
-import { denTypeIdSchema, emptyResponse, forbiddenSchema, invalidRequestSchema, jsonResponse, notFoundSchema, unauthorizedSchema } from "../../openapi.js"
-import { repairMemberInferenceAccessIfNeeded } from "../../inference.js"
+import type { MemberTeamsContext } from "@openwork-ee/den-core/middleware/member-teams"
+import { denTypeIdSchema, emptyResponse, forbiddenSchema, invalidRequestSchema, jsonResponse, notFoundSchema, unauthorizedSchema } from "@openwork-ee/den-core/openapi"
+import { repairMemberInferenceAccessIfNeeded } from "@openwork-ee/den-core/inference"
 import { listAccessibleLlmProviderAccess } from "./llm-provider-access.js"
-import type { OrgRouteVariables } from "./shared.js"
-import { ensureOrganizationAdmin, idParamSchema, memberHasRole, orgAccessFailureStatus } from "./shared.js"
+import type { OrgRouteVariables } from "@openwork-ee/den-core/routes/org/shared"
+import { ensureOrganizationAdmin, idParamSchema, memberHasRole, orgAccessFailureStatus } from "@openwork-ee/den-core/routes/org/shared"
 
 type LlmProviderId = typeof LlmProviderTable.$inferSelect.id
 type LlmProviderAccessId = typeof LlmProviderAccessTable.$inferSelect.id

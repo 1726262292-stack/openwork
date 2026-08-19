@@ -1,7 +1,7 @@
 import { stat } from "node:fs/promises"
 import path from "node:path"
-import { resolveInstallerReleaseTag } from "../desktop-releases.js"
-import { env } from "../env.js"
+import { resolveInstallerReleaseTag } from "@openwork-ee/den-core/desktop-releases"
+import { env } from "@openwork-ee/den-core/env"
 
 export type ConfiguredInstallerArtifact = {
   filePath: string

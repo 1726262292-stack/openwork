@@ -1,6 +1,6 @@
 import { createDenTypeId } from "@openwork-ee/utils/typeid"
 import { afterAll, beforeAll, beforeEach, expect, mock, test } from "bun:test"
-import type { OpenApiOperation } from "../src/mcp/policy.js"
+import type { OpenApiOperation } from "@openwork-ee/den-core/mcp/policy"
 
 function seedRequiredEnv() {
   process.env.DATABASE_URL = process.env.DATABASE_URL ?? "mysql://root:password@127.0.0.1:3306/openwork_test_gwscaps"
@@ -384,13 +384,13 @@ seedRequiredEnv()
 process.env.DEN_GOOGLE_API_BASE_URL = fakeGoogleServer.url.origin
 
 let app: typeof import("../src/app.js").default
-let db: typeof import("../src/db.js").db
+let db: typeof import("@openwork-ee/den-core/db").db
 let schema: typeof import("@openwork-ee/den-db/schema")
 let drizzle: typeof import("@openwork-ee/den-db/drizzle")
-let session: typeof import("../src/session.js")
-let upsertConnectedAccount: typeof import("../src/capability-sources/oauth-credentials.js").upsertConnectedAccount
-let buildMcpCatalog: typeof import("../src/mcp/catalog.js").buildMcpCatalog
-let searchCapabilities: typeof import("../src/mcp/search.js").searchCapabilities
+let session: typeof import("@openwork-ee/den-core/session")
+let upsertConnectedAccount: typeof import("@openwork-ee/den-core/capability-sources/oauth-credentials").upsertConnectedAccount
+let buildMcpCatalog: typeof import("@openwork-ee/den-core/mcp/catalog").buildMcpCatalog
+let searchCapabilities: typeof import("@openwork-ee/den-core/mcp/search").searchCapabilities
 
 const userId = createDenTypeId("user")
 const organizationId = createDenTypeId("organization")
@@ -448,17 +448,17 @@ beforeAll(async () => {
     databaseUrl: process.env.DATABASE_URL,
     mode: "mysql",
   }).db
-  mock.module("../src/db.js", () => ({ db: realDb }))
+  mock.module("@openwork-ee/den-core/db", () => ({ db: realDb }))
 
   const [appMod, dbMod, schemaMod, drizzleMod, sessionMod, credentialsMod, catalogMod, searchMod] = await Promise.all([
     import("../src/app.js"),
-    import("../src/db.js"),
+    import("@openwork-ee/den-core/db"),
     import("@openwork-ee/den-db/schema"),
     import("@openwork-ee/den-db/drizzle"),
-    import("../src/session.js"),
-    import("../src/capability-sources/oauth-credentials.js"),
-    import("../src/mcp/catalog.js"),
-    import("../src/mcp/search.js"),
+    import("@openwork-ee/den-core/session"),
+    import("@openwork-ee/den-core/capability-sources/oauth-credentials"),
+    import("@openwork-ee/den-core/mcp/catalog"),
+    import("@openwork-ee/den-core/mcp/search"),
   ])
   app = appMod.default
   db = dbMod.db

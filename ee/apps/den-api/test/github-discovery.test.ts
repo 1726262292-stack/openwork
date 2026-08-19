@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { buildGithubRepoDiscovery, type GithubDiscoveryTreeEntry } from "../src/routes/org/plugin-system/github-discovery.js"
+import { buildGithubRepoDiscovery, type GithubDiscoveryTreeEntry } from "@openwork-ee/den-core/routes/org/plugin-system/github-discovery"
 
 function blob(path: string): GithubDiscoveryTreeEntry {
   return { id: path, kind: "blob", path, sha: null, size: null }

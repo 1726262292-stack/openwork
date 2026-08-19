@@ -1,6 +1,6 @@
 import { beforeAll, expect, test } from "bun:test"
-import { buildOperationId } from "../src/openapi.js"
-import { isMcpOperationAllowed, requiredScopeForMethod } from "../src/mcp/policy.js"
+import { buildOperationId } from "@openwork-ee/den-core/openapi"
+import { isMcpOperationAllowed, requiredScopeForMethod } from "@openwork-ee/den-core/mcp/policy"
 
 function seedRequiredEnv() {
   process.env.DATABASE_URL = process.env.DATABASE_URL ?? "mysql://root:password@127.0.0.1:3306/openwork_test"

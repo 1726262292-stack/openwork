@@ -28,11 +28,11 @@ import {
   paramValidator,
   queryValidator,
   type OrganizationContextVariables,
-} from "../../middleware/index.js"
-import { invalidRequestSchema, jsonResponse, notFoundSchema, unauthorizedSchema } from "../../openapi.js"
-import { automationService, type AutomationService } from "../../automations/service.js"
+} from "@openwork-ee/den-core/middleware/index"
+import { invalidRequestSchema, jsonResponse, notFoundSchema, unauthorizedSchema } from "@openwork-ee/den-core/openapi"
+import { automationService, type AutomationService } from "@openwork-ee/den-core/automations/service"
 import { automationRunnerAudienceFromRequest, automationRunnerAuth } from "../../automations/runner-auth.js"
-import { env } from "../../env.js"
+import { env } from "@openwork-ee/den-core/env"
 import {
   RUNNER_KEEPALIVE_INTERVAL_MS,
   RUNNER_NOTIFICATION_POLL_MIN_MS,

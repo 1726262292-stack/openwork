@@ -10,7 +10,7 @@ import {
   PluginTable,
 } from "@openwork-ee/den-db/schema"
 import { createDenTypeId, normalizeDenTypeId } from "@openwork-ee/utils/typeid"
-import type { PluginArchActorContext } from "../src/routes/org/plugin-system/access.js"
+import type { PluginArchActorContext } from "@openwork-ee/den-core/routes/org/plugin-system/access"
 
 function seedRequiredEnv() {
   process.env.DATABASE_URL = process.env.DATABASE_URL ?? "mysql://root:password@127.0.0.1:3306/openwork_test"
@@ -191,13 +191,13 @@ const transactionStub: TransactionStub = {
   update: updateBuilder,
 }
 
-let storeModule: typeof import("../src/routes/org/plugin-system/store.js")
+let storeModule: typeof import("@openwork-ee/den-core/routes/org/plugin-system/store")
 let schemas: typeof import("../src/routes/org/plugin-system/schemas.js")
 
 beforeAll(async () => {
   seedRequiredEnv()
 
-  mock.module("../src/db.js", () => ({
+  mock.module("@openwork-ee/den-core/db", () => ({
     db: {
       insert: insertBuilder,
       select: queryChain,
@@ -207,7 +207,7 @@ beforeAll(async () => {
   }))
 
   schemas = await import("../src/routes/org/plugin-system/schemas.js")
-  storeModule = await import("../src/routes/org/plugin-system/store.js")
+  storeModule = await import("@openwork-ee/den-core/routes/org/plugin-system/store")
 })
 
 afterAll(() => {

@@ -11,12 +11,12 @@ function seedRequiredEnv(): void {
   process.env.DEN_ALLOW_PRIVATE_MCP_URLS = "1"
 }
 
-let db: typeof import("../src/db.js").db
+let db: typeof import("@openwork-ee/den-core/db").db
 let schema: typeof import("@openwork-ee/den-db/schema")
 let drizzle: typeof import("@openwork-ee/den-db/drizzle")
-let DenEnterpriseMcpOAuthPersistence: typeof import("../src/capability-sources/enterprise-mcp-oauth-persistence.js").DenEnterpriseMcpOAuthPersistence
-let createExternalMcpConnection: typeof import("../src/capability-sources/external-mcp-connections.js").createExternalMcpConnection
-let confirmExternalMcpIssuerReview: typeof import("../src/capability-sources/external-mcp-connections.js").confirmExternalMcpIssuerReview
+let DenEnterpriseMcpOAuthPersistence: typeof import("@openwork-ee/den-core/capability-sources/enterprise-mcp-oauth-persistence").DenEnterpriseMcpOAuthPersistence
+let createExternalMcpConnection: typeof import("@openwork-ee/den-core/capability-sources/external-mcp-connections").createExternalMcpConnection
+let confirmExternalMcpIssuerReview: typeof import("@openwork-ee/den-core/capability-sources/external-mcp-connections").confirmExternalMcpIssuerReview
 
 const userId = createDenTypeId("user")
 const organizationId = createDenTypeId("organization")
@@ -26,11 +26,11 @@ let connection: Awaited<ReturnType<typeof createExternalMcpConnection>>
 beforeAll(async () => {
   seedRequiredEnv()
   const modules = await Promise.all([
-    import("../src/db.js"),
+    import("@openwork-ee/den-core/db"),
     import("@openwork-ee/den-db/schema"),
     import("@openwork-ee/den-db/drizzle"),
-    import("../src/capability-sources/enterprise-mcp-oauth-persistence.js"),
-    import("../src/capability-sources/external-mcp-connections.js"),
+    import("@openwork-ee/den-core/capability-sources/enterprise-mcp-oauth-persistence"),
+    import("@openwork-ee/den-core/capability-sources/external-mcp-connections"),
   ])
   db = modules[0].db
   schema = modules[1]
@@ -469,7 +469,7 @@ describe("Den enterprise MCP OAuth persistence adapter", () => {
       createdByOrgMembershipId: memberId,
       access: { orgWide: true, memberIds: [], teamIds: [] },
     })
-    const adapter = await import("../src/capability-sources/enterprise-mcp-client-adapter.js")
+    const adapter = await import("@openwork-ee/den-core/capability-sources/enterprise-mcp-client-adapter")
     const persistence = new DenEnterpriseMcpOAuthPersistence(
       perMemberConnection,
       { orgMembershipId: memberId },
@@ -606,7 +606,7 @@ describe("Den enterprise MCP OAuth persistence adapter", () => {
         createdByOrgMembershipId: memberId,
         access: { orgWide: true, memberIds: [], teamIds: [] },
       })
-      const adapter = await import("../src/capability-sources/enterprise-mcp-client-adapter.js")
+      const adapter = await import("@openwork-ee/den-core/capability-sources/enterprise-mcp-client-adapter")
       const redirectUri = "https://den.example.test/v1/mcp-connections/callback"
       const signedState = "signed-den-state-end-to-end"
       const started = await adapter.connectExternalMcp(

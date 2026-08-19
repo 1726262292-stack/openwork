@@ -1,9 +1,9 @@
 import type { Context, Hono } from "hono"
 import { describeRoute } from "hono-openapi"
 import { z } from "zod"
-import { jsonValidator, orgMemberRoute, paramValidator } from "../../middleware/index.js"
-import { invalidRequestSchema, jsonResponse, notFoundSchema, unauthorizedSchema } from "../../openapi.js"
-import { listTeamsForMember } from "../../orgs.js"
+import { jsonValidator, orgMemberRoute, paramValidator } from "@openwork-ee/den-core/middleware/index"
+import { invalidRequestSchema, jsonResponse, notFoundSchema, unauthorizedSchema } from "@openwork-ee/den-core/openapi"
+import { listTeamsForMember } from "@openwork-ee/den-core/orgs"
 import {
   activateRemoteMcpAppRevision,
   getRemoteMcpApp,
@@ -13,10 +13,10 @@ import {
   refreshRemoteMcpApp,
   RemoteMcpAppError,
   setRemoteMcpAppRetired,
-} from "../../remote-mcp-apps.js"
-import { PluginArchAuthorizationError, type PluginArchActorContext } from "./plugin-system/access.js"
-import { PluginArchRouteFailure } from "./plugin-system/store.js"
-import type { OrgRouteVariables } from "./shared.js"
+} from "@openwork-ee/den-core/remote-mcp-apps"
+import { PluginArchAuthorizationError, type PluginArchActorContext } from "@openwork-ee/den-core/routes/org/plugin-system/access"
+import { PluginArchRouteFailure } from "@openwork-ee/den-core/routes/org/plugin-system/store"
+import type { OrgRouteVariables } from "@openwork-ee/den-core/routes/org/shared"
 
 const sourceSchema = z.object({ sourceUrl: z.string().trim().url().max(2048) })
 const importSchema = sourceSchema.extend({

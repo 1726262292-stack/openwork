@@ -1,10 +1,10 @@
 import { createHmac, timingSafeEqual } from "node:crypto"
 import type { Env, Hono } from "hono"
 import { describeRoute } from "hono-openapi"
-import { env } from "../../env.js"
-import { signedWebhookRoute } from "../../middleware/index.js"
-import { emptyResponse, jsonResponse } from "../../openapi.js"
-import { enqueueGithubWebhookSync } from "../org/plugin-system/store.js"
+import { env } from "@openwork-ee/den-core/env"
+import { signedWebhookRoute } from "@openwork-ee/den-core/middleware/index"
+import { emptyResponse, jsonResponse } from "@openwork-ee/den-core/openapi"
+import { enqueueGithubWebhookSync } from "@openwork-ee/den-core/routes/org/plugin-system/store"
 import {
   githubWebhookAcceptedResponseSchema,
   githubWebhookIgnoredResponseSchema,

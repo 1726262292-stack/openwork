@@ -2,7 +2,7 @@ import { beforeAll, expect, test } from "bun:test"
 import { Tool } from "@openwork/codemode"
 import { Effect } from "effect"
 import { Hono } from "hono"
-import { buildMcpCatalog } from "../src/mcp/catalog.js"
+import { buildMcpCatalog } from "@openwork-ee/den-core/mcp/catalog"
 
 function seedRequiredEnv() {
   process.env.DATABASE_URL = process.env.DATABASE_URL ?? "mysql://root:password@127.0.0.1:3306/openwork_test"
@@ -11,23 +11,23 @@ function seedRequiredEnv() {
   process.env.BETTER_AUTH_URL = process.env.BETTER_AUTH_URL ?? "http://127.0.0.1:8790"
 }
 
-let buildExternalNamespaceMap: typeof import("../src/mcp/codemode-tools.js")["buildExternalNamespaceMap"]
-let buildCodemodeConnectionNamespaceMaps: typeof import("../src/mcp/codemode-tools.js")["buildCodemodeConnectionNamespaceMaps"]
-let buildDenCatalogToolTree: typeof import("../src/mcp/codemode-tools.js")["buildDenCatalogToolTree"]
-let buildNativeProviderManifest: typeof import("../src/mcp/codemode-tools.js")["buildNativeProviderManifest"]
-let CAPABILITY_SOURCE_KINDS: typeof import("../src/mcp/capability-registry.js")["CAPABILITY_SOURCE_KINDS"]
-let CAPABILITY_SOURCES: typeof import("../src/mcp/capability-registry.js")["CAPABILITY_SOURCES"]
-let isCodemodeEligibleConnection: typeof import("../src/mcp/codemode-tools.js")["isCodemodeEligibleConnection"]
-let firstUnattendedUnsafeCapability: typeof import("../src/mcp/codemode-tools.js")["firstUnattendedUnsafeCapability"]
-let restrictCodemodeToolTree: typeof import("../src/mcp/codemode-tools.js")["restrictCodemodeToolTree"]
-let sanitizeNamespaceSegment: typeof import("../src/mcp/codemode-tools.js")["sanitizeNamespaceSegment"]
-let parseNativeCapabilityName: typeof import("../src/mcp/native-capabilities.js")["parseNativeCapabilityName"]
+let buildExternalNamespaceMap: typeof import("@openwork-ee/den-core/mcp/codemode-tools")["buildExternalNamespaceMap"]
+let buildCodemodeConnectionNamespaceMaps: typeof import("@openwork-ee/den-core/mcp/codemode-tools")["buildCodemodeConnectionNamespaceMaps"]
+let buildDenCatalogToolTree: typeof import("@openwork-ee/den-core/mcp/codemode-tools")["buildDenCatalogToolTree"]
+let buildNativeProviderManifest: typeof import("@openwork-ee/den-core/mcp/codemode-tools")["buildNativeProviderManifest"]
+let CAPABILITY_SOURCE_KINDS: typeof import("@openwork-ee/den-core/mcp/capability-registry")["CAPABILITY_SOURCE_KINDS"]
+let CAPABILITY_SOURCES: typeof import("@openwork-ee/den-core/mcp/capability-registry")["CAPABILITY_SOURCES"]
+let isCodemodeEligibleConnection: typeof import("@openwork-ee/den-core/mcp/codemode-tools")["isCodemodeEligibleConnection"]
+let firstUnattendedUnsafeCapability: typeof import("@openwork-ee/den-core/mcp/codemode-tools")["firstUnattendedUnsafeCapability"]
+let restrictCodemodeToolTree: typeof import("@openwork-ee/den-core/mcp/codemode-tools")["restrictCodemodeToolTree"]
+let sanitizeNamespaceSegment: typeof import("@openwork-ee/den-core/mcp/codemode-tools")["sanitizeNamespaceSegment"]
+let parseNativeCapabilityName: typeof import("@openwork-ee/den-core/mcp/native-capabilities")["parseNativeCapabilityName"]
 
 beforeAll(async () => {
   seedRequiredEnv()
-  const codemodeTools = await import("../src/mcp/codemode-tools.js")
-  const capabilityRegistry = await import("../src/mcp/capability-registry.js")
-  const nativeCapabilities = await import("../src/mcp/native-capabilities.js")
+  const codemodeTools = await import("@openwork-ee/den-core/mcp/codemode-tools")
+  const capabilityRegistry = await import("@openwork-ee/den-core/mcp/capability-registry")
+  const nativeCapabilities = await import("@openwork-ee/den-core/mcp/native-capabilities")
   buildExternalNamespaceMap = codemodeTools.buildExternalNamespaceMap
   buildCodemodeConnectionNamespaceMaps = codemodeTools.buildCodemodeConnectionNamespaceMaps
   buildDenCatalogToolTree = codemodeTools.buildDenCatalogToolTree

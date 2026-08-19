@@ -9,7 +9,7 @@ import {
 } from "@openwork/connect-link"
 import { and, eq, gt, isNull, lt } from "@openwork-ee/den-db/drizzle"
 import { DesktopConnectGrantTable, InstallLinkTable } from "@openwork-ee/den-db/schema"
-import { db } from "./db.js"
+import { db } from "@openwork-ee/den-core/db"
 import type { DesktopConnectLinkInput } from "./desktop-connect-link.js"
 
 export type DesktopConnectGrantFailureCode = "invalid_token" | "expired" | "replayed"

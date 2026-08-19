@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
-import { verifyOrgRole } from "../src/middleware/route-access.js"
-import { isProtectedOrganizationRoleName, organizationRoleValueSatisfies } from "../src/organization-role-hierarchy.js"
+import { verifyOrgRole } from "@openwork-ee/den-core/middleware/route-access"
+import { isProtectedOrganizationRoleName, organizationRoleValueSatisfies } from "@openwork-ee/den-core/organization-role-hierarchy"
 
 describe("organization role hierarchy", () => {
   test("owner satisfies owner, super-admin, and admin gates", () => {

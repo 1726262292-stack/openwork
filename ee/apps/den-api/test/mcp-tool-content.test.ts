@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto"
 import { expect, test } from "bun:test"
 import sharp from "sharp"
-import { buildRestToolContent, externalToolContent, isKnownToolContentPart } from "../src/mcp/tool-content.js"
+import { buildRestToolContent, externalToolContent, isKnownToolContentPart } from "@openwork-ee/den-core/mcp/tool-content"
 
 test("buildRestToolContent returns a plain object as one text part", async () => {
   const payload = { ok: true, count: 2 }

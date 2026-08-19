@@ -7,7 +7,7 @@ import {
   type ConnectLinkClaims,
 } from "@openwork/connect-link"
 import { signConnectLinkToken } from "@openwork/connect-link/node"
-import { env } from "./env.js"
+import { env } from "@openwork-ee/den-core/env"
 
 export type DesktopConnectLinkInput = {
   organizationName: string

@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 import {
   declaredPluginMcpAuthType,
   resolveGithubPluginMcpImportAuthType,
-} from "../src/capability-sources/external-mcp-auth-policy.js"
+} from "@openwork-ee/den-core/capability-sources/external-mcp-auth-policy"
 
 describe("GitHub plugin MCP authentication", () => {
   test("preserves an explicit OAuth declaration from the plugin", () => {

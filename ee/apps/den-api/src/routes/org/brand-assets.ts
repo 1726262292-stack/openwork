@@ -13,14 +13,14 @@ import {
   type BrandAssetStorageKey,
 } from "../../brand-assets.js"
 import { databaseBrandAssetStorage } from "../../brand-asset-storage.js"
-import { checkEntitlement } from "../../entitlements.js"
-import { env } from "../../env.js"
-import { forbiddenSchema, jsonResponse, notFoundSchema, unauthorizedSchema } from "../../openapi.js"
-import { updateOrganizationSettings } from "../../orgs.js"
-import type { ManagedBrandAssetMetadata } from "../../organization-limits.js"
-import { orgRoleRoute, publicRoute } from "../../middleware/index.js"
-import type { OrgRouteVariables } from "./shared.js"
-import { ensureOrganizationSuperAdmin, orgAccessFailureStatus } from "./shared.js"
+import { checkEntitlement } from "@openwork-ee/den-core/entitlements"
+import { env } from "@openwork-ee/den-core/env"
+import { forbiddenSchema, jsonResponse, notFoundSchema, unauthorizedSchema } from "@openwork-ee/den-core/openapi"
+import { updateOrganizationSettings } from "@openwork-ee/den-core/orgs"
+import type { ManagedBrandAssetMetadata } from "@openwork-ee/den-core/organization-limits"
+import { orgRoleRoute, publicRoute } from "@openwork-ee/den-core/middleware/index"
+import type { OrgRouteVariables } from "@openwork-ee/den-core/routes/org/shared"
+import { ensureOrganizationSuperAdmin, orgAccessFailureStatus } from "@openwork-ee/den-core/routes/org/shared"
 
 const managedBrandAssetSchema = z.object({
   kind: z.enum(["logo", "icon"]),

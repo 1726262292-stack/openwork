@@ -20,8 +20,8 @@ import {
   TeamTable,
 } from "@openwork-ee/den-db/schema"
 import { createDenTypeId, type DenTypeId } from "@openwork-ee/utils/typeid"
-import { memberFacingMcpConnectionsEnabled } from "../src/capability-sources/external-mcp-rollout.js"
-import type { McpMemberIdentity } from "../src/mcp/external-capabilities.js"
+import { memberFacingMcpConnectionsEnabled } from "@openwork-ee/den-core/capability-sources/external-mcp-rollout"
+import type { McpMemberIdentity } from "@openwork-ee/den-core/mcp/external-capabilities"
 
 function seedRequiredEnv() {
   process.env.DATABASE_URL = process.env.DATABASE_URL ?? "mysql://root:password@127.0.0.1:3306/openwork_test_pr3"
@@ -31,9 +31,9 @@ function seedRequiredEnv() {
   process.env.CORS_ORIGINS = process.env.CORS_ORIGINS ?? "http://127.0.0.1:8790"
 }
 
-type Db = typeof import("../src/db.js").db
-type MarketplaceCapabilities = typeof import("../src/mcp/marketplace-capabilities.js")
-type ExternalCapabilities = typeof import("../src/mcp/external-capabilities.js")
+type Db = typeof import("@openwork-ee/den-core/db").db
+type MarketplaceCapabilities = typeof import("@openwork-ee/den-core/mcp/marketplace-capabilities")
+type ExternalCapabilities = typeof import("@openwork-ee/den-core/mcp/external-capabilities")
 type ConfigObjectType = typeof ConfigObjectTable.$inferSelect.objectType
 
 type SeededMember = {
@@ -63,9 +63,9 @@ beforeAll(async () => {
     databaseUrl: process.env.DATABASE_URL,
     mode: "mysql",
   }).db
-  mock.module("../src/db.js", () => ({ db }))
-  marketplaceCapabilities = await import("../src/mcp/marketplace-capabilities.js")
-  externalCapabilities = await import("../src/mcp/external-capabilities.js")
+  mock.module("@openwork-ee/den-core/db", () => ({ db }))
+  marketplaceCapabilities = await import("@openwork-ee/den-core/mcp/marketplace-capabilities")
+  externalCapabilities = await import("@openwork-ee/den-core/mcp/external-capabilities")
 })
 
 afterAll(() => {
@@ -1224,7 +1224,7 @@ describe("marketplace capabilities source", () => {
       },
     ])
 
-    const { listUsableExternalMcpConnections } = await import("../src/capability-sources/external-mcp-connections.js")
+    const { listUsableExternalMcpConnections } = await import("@openwork-ee/den-core/capability-sources/external-mcp-connections")
     const usableIds = (await listUsableExternalMcpConnections({ organizationId: owner.organizationId, orgMembershipId: owner.memberId, teamIds: [] })).map((connection) => connection.id)
     expect(usableIds).toContain(directConnectionId)
     expect(usableIds).toContain(validConnectionId)
@@ -1309,7 +1309,7 @@ describe("marketplace capabilities source", () => {
       })
     }
     const usableIds = async () => {
-      const { listUsableExternalMcpConnections } = await import("../src/capability-sources/external-mcp-connections.js")
+      const { listUsableExternalMcpConnections } = await import("@openwork-ee/den-core/capability-sources/external-mcp-connections")
       return (await listUsableExternalMcpConnections({ organizationId: owner.organizationId, orgMembershipId: owner.memberId, teamIds: [] })).map((connection) => connection.id)
     }
     const execute = (connectionId: DenTypeId<"externalMcpConnection">) => externalCapabilities.executeExternalCapability({

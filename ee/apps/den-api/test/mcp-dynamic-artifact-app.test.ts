@@ -9,7 +9,7 @@ import {
   dynamicArtifactAppPayloadSchema,
   dynamicArtifactAppServerCapabilities,
   registerAgentDynamicArtifactApp,
-} from "../src/mcp/dynamic-artifact-app.js"
+} from "@openwork-ee/den-core/mcp/dynamic-artifact-app"
 
 const payload = dynamicArtifactAppPayloadSchema.parse({
   schemaVersion: "1",

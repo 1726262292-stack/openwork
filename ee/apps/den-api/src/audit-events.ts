@@ -1,7 +1,7 @@
 import { AuditEventTable } from "@openwork-ee/den-db/schema"
 import type { DenTypeId } from "@openwork-ee/utils/typeid"
 import { createDenTypeId, normalizeDenTypeId } from "@openwork-ee/utils/typeid"
-import { appLogger } from "./observability/logger.js"
+import { appLogger } from "@openwork-ee/den-core/observability/logger"
 import { AUDIT_ALERT_OPERATIONAL_MARKER } from "./operational-log-markers.js"
 
 export const ORGANIZATION_AUDIT_ACTIONS = {
@@ -80,7 +80,7 @@ export function buildOrganizationAuditAlertLogLine(event: OrganizationAuditEvent
 }
 
 export async function recordOrganizationAuditEvent(input: Parameters<typeof buildOrganizationAuditEvent>[0]) {
-  const { db } = await import("./db.js")
+  const { db } = await import("@openwork-ee/den-core/db")
   const event = buildOrganizationAuditEvent(input)
   await db.insert(AuditEventTable).values(event)
   if (isOrganizationAuditAlertAction(event.action)) {

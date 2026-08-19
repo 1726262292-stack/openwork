@@ -15,11 +15,11 @@ let desktopReleaseAssetName: typeof import("../src/utils/installer-artifacts.js"
 let cloudDesktopReleaseAssetName: typeof import("../src/utils/installer-artifacts.js")["cloudDesktopReleaseAssetName"]
 let enterpriseDesktopReleaseAssetName: typeof import("../src/utils/installer-artifacts.js")["enterpriseDesktopReleaseAssetName"]
 let resolveConfiguredInstallerArtifact: typeof import("../src/utils/installer-artifacts.js")["resolveConfiguredInstallerArtifact"]
-let envModule: typeof import("../src/env.js")
+let envModule: typeof import("@openwork-ee/den-core/env")
 
 beforeAll(async () => {
   seedRequiredEnv()
-  envModule = await import("../src/env.js")
+  envModule = await import("@openwork-ee/den-core/env")
   ;({
     desktopReleaseAssetName,
     cloudDesktopReleaseAssetName,

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { createPreviewFetch, fetchWithConnectRetry, type FetchLike } from "../src/workers/preview-fetch.js"
+import { createPreviewFetch, fetchWithConnectRetry, type FetchLike } from "@openwork-ee/den-core/workers/preview-fetch"
 
 function connectError() {
   return Object.assign(new Error("connect failed"), { code: "ECONNRESET" })

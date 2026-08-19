@@ -6,12 +6,12 @@ import {
   canonicalArtifactJson,
   renderSavedScriptMarkdown,
   savedScriptArtifactSource,
-} from "../src/saved-script-artifacts.js"
-import { recordCodemodeRun } from "../src/codemode-runs.js"
+} from "@openwork-ee/den-core/saved-script-artifacts"
+import { recordCodemodeRun } from "@openwork-ee/den-core/codemode-runs"
 import {
   redactSavedScriptNormalizedPayloadAuthoringDetails,
   redactSavedScriptVersionAuthoringDetails,
-} from "../src/saved-script-projections.js"
+} from "@openwork-ee/den-core/saved-script-projections"
 
 test("canonical JSON and digests are stable across object key order", () => {
   assert.equal(canonicalArtifactJson({ b: 2, a: { d: 4, c: 3 } }), '{"a":{"c":3,"d":4},"b":2}')

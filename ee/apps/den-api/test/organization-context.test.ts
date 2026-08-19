@@ -45,9 +45,9 @@ type TestState = {
 
 const stateByUserId = new Map<string, TestState>()
 const stateBySessionId = new Map<string, TestState>()
-let organizationContextModule: typeof import("../src/middleware/organization-context.js")
+let organizationContextModule: typeof import("@openwork-ee/den-core/middleware/organization-context")
 
-mock.module("../src/orgs.js", () => ({
+mock.module("@openwork-ee/den-core/orgs", () => ({
   getOrganizationContextForUser: (input: { organizationId: string; userId: string }) => {
     const state = stateByUserId.get(input.userId)
     return Promise.resolve(state?.contextByOrgId.get(input.organizationId) ?? null)
@@ -77,7 +77,7 @@ mock.module("../src/orgs.js", () => ({
 
 beforeAll(async () => {
   seedRequiredEnv()
-  organizationContextModule = await import("../src/middleware/organization-context.js")
+  organizationContextModule = await import("@openwork-ee/den-core/middleware/organization-context")
 })
 
 function createTestState(userId: string): TestState {

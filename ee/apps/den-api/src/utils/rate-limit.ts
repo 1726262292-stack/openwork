@@ -1,7 +1,7 @@
 import { and, eq, lt, or, sql } from "@openwork-ee/den-db/drizzle"
 import { RateLimitTable } from "@openwork-ee/den-db/schema"
 import { createDenTypeId } from "@openwork-ee/utils/typeid"
-import { db } from "../db.js"
+import { db } from "@openwork-ee/den-core/db"
 
 type RateLimitRow = {
   count: number

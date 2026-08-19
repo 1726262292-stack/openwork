@@ -2,7 +2,7 @@ import { expect, test } from "bun:test"
 import {
   diagnoseExternalMcpToolCall,
   ExternalMcpToolCallInspector,
-} from "../src/capability-sources/external-mcp-tool-inspection.js"
+} from "@openwork-ee/den-core/capability-sources/external-mcp-tool-inspection"
 
 test("captures the real tools/call exchange while redacting credentials and query values", async () => {
   const inspector = new ExternalMcpToolCallInspector()

@@ -28,7 +28,7 @@ const agentResource = process.env.AGENT_RESOURCE
 if (!apiOrigin || !agentResource) throw new Error("Missing probe environment")
 const { mock } = await import("bun:test")
 
-mock.module("./src/db.js", () => ({
+mock.module("@openwork-ee/den-core/db", () => ({
   db: {
     select: () => ({
       from: () => ({

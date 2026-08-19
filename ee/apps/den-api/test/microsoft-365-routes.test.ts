@@ -1,8 +1,8 @@
 import { createDenTypeId } from "@openwork-ee/utils/typeid"
 import { beforeAll, describe, expect, test } from "bun:test"
 import { Hono, type MiddlewareHandler } from "hono"
-import type { OrganizationContext } from "../src/orgs.js"
-import type { OrgRouteVariables } from "../src/routes/org/shared.js"
+import type { OrganizationContext } from "@openwork-ee/den-core/orgs"
+import type { OrgRouteVariables } from "@openwork-ee/den-core/routes/org/shared"
 
 function seedRequiredEnv() {
   process.env.DATABASE_URL = process.env.DATABASE_URL ?? "mysql://root:password@127.0.0.1:3306/openwork_test"

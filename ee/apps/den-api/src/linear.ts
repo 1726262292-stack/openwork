@@ -1,4 +1,4 @@
-import { env } from "./env.js"
+import { env } from "@openwork-ee/den-core/env"
 import {
   completeLinearIssue as completeLinearIssueWithConfig,
   createLinearIssue as createLinearIssueWithConfig,

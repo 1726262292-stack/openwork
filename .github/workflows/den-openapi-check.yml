@@ -1,0 +1,53 @@
+name: Den OpenAPI Check
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/den-openapi-check.yml"
+      - "ee/apps/den-api/package.json"
+      - "ee/apps/den-api/scripts/generate-openapi-snapshot.ts"
+      - "ee/apps/den-api/src/app.ts"
+      - "ee/apps/den-api/src/routes/**"
+      - "ee/apps/den-api/src/**"
+      - "ee/packages/den-core/package.json"
+      - "ee/packages/den-core/src/generated/mcp-catalog-openapi.json"
+      - "ee/packages/den-core/src/**"
+      - "ee/packages/den-core/test/**"
+      - "packages/docs/openapi.json"
+      - "pnpm-lock.yaml"
+
+permissions:
+  contents: read
+
+jobs:
+  snapshots-in-sync:
+    name: OpenAPI snapshots in sync
+    runs-on: blacksmith-4vcpu-ubuntu-2204
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.4.0
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.10
+
+      - name: Install dependencies
+        run: pnpm install --filter "@openwork-ee/den-api..."
+
+      - name: Check OpenAPI snapshots
+        run: pnpm --filter @openwork-ee/den-api openapi:snapshot:check
+
+      - name: Compare live and snapshot catalogs
+        run: pnpm --filter @openwork-ee/den-core test

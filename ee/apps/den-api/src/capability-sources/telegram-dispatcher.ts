@@ -4,8 +4,8 @@ import {
   setTelegramUpdateStatus,
   type TelegramUpdateRow,
 } from "./telegram-store.js"
-import { appLogger } from "../observability/logger.js"
-import { captureException } from "../observability/runtime.js"
+import { appLogger } from "@openwork-ee/den-core/observability/logger"
+import { captureException } from "@openwork-ee/den-core/observability/runtime"
 
 const DISPATCH_INTERVAL_MS = 2_000
 const MAX_UPDATES_PER_DRAIN = 20

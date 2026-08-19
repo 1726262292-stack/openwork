@@ -14,14 +14,14 @@ const userId = createDenTypeId("user")
 const organizationId = createDenTypeId("organization")
 let organizationMetadata: Record<string, unknown> | null = null
 let selectCount = 0
-let registerAgentMcpRoutes: typeof import("../src/mcp/agent.js")["registerAgentMcpRoutes"]
+let registerAgentMcpRoutes: typeof import("@openwork-ee/den-core/mcp/agent")["registerAgentMcpRoutes"]
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
 function installMocks() {
-  mock.module("../src/db.js", () => ({
+  mock.module("@openwork-ee/den-core/db", () => ({
     db: {
       insert: () => ({
         values: () => ({
@@ -41,7 +41,7 @@ function installMocks() {
       transaction: () => Promise.resolve(null),
     },
   }))
-  mock.module("../src/mcp/auth.js", () => ({
+  mock.module("@openwork-ee/den-core/mcp/auth", () => ({
     getMcpResourceContext: (_request: Request, _route: string, requestId?: string) => ({
       route: "agent",
       resourceUrl: "http://127.0.0.1:8790/mcp/agent",
@@ -133,7 +133,7 @@ function firstText(payload: Record<string, unknown>): string {
 beforeAll(async () => {
   seedRequiredEnv()
   installMocks()
-  registerAgentMcpRoutes = (await import("../src/mcp/agent.js")).registerAgentMcpRoutes
+  registerAgentMcpRoutes = (await import("@openwork-ee/den-core/mcp/agent")).registerAgentMcpRoutes
 })
 
 beforeEach(() => {

@@ -44,22 +44,22 @@ function organizationContext() {
   }
 }
 
-mock.module("../src/entitlements.js", () => ({
+mock.module("@openwork-ee/den-core/entitlements", () => ({
   checkEntitlement: () => ({ ok: true }),
 }))
 
-mock.module("../src/db.js", () => ({
+mock.module("@openwork-ee/den-core/db", () => ({
   db: {},
 }))
 
-mock.module("../src/env.js", () => ({
+mock.module("@openwork-ee/den-core/env", () => ({
   env: {
     apiPublicUrl: "https://den.examplecorp.test",
     port: 8788,
   },
 }))
 
-mock.module("../src/orgs.js", () => ({
+mock.module("@openwork-ee/den-core/orgs", () => ({
   getOrganizationContextForUser: () => Promise.resolve(organizationContext()),
   listTeamsForMember: () => Promise.resolve([]),
   resolveUserOrganizations: () => Promise.resolve({

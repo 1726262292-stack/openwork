@@ -2,8 +2,8 @@ import { createDenTypeId } from "@openwork-ee/utils/typeid"
 import { afterAll, beforeAll, expect, mock, test } from "bun:test"
 import { Effect } from "effect"
 import { Hono } from "hono"
-import type { NativeProviderConnectionEntry } from "../src/capability-sources/native-provider-connections.js"
-import { buildMcpCatalog } from "../src/mcp/catalog.js"
+import type { NativeProviderConnectionEntry } from "@openwork-ee/den-core/capability-sources/native-provider-connections"
+import { buildMcpCatalog } from "@openwork-ee/den-core/mcp/catalog"
 
 function seedRequiredEnv() {
   process.env.DATABASE_URL = process.env.DATABASE_URL ?? "mysql://root:password@127.0.0.1:3306/openwork_test"
@@ -40,14 +40,14 @@ const entry: NativeProviderConnectionEntry = {
   access: null,
 }
 let observedInvocation: unknown
-let codemodeTools: typeof import("../src/mcp/codemode-tools.js")
+let codemodeTools: typeof import("@openwork-ee/den-core/mcp/codemode-tools")
 
 beforeAll(async () => {
   seedRequiredEnv()
-  mock.module("../src/capability-sources/native-provider-connections.js", () => ({
+  mock.module("@openwork-ee/den-core/capability-sources/native-provider-connections", () => ({
     listNativeProviderUsableEntries: () => Promise.resolve([entry]),
   }))
-  mock.module("../src/mcp/invoke.js", () => ({
+  mock.module("@openwork-ee/den-core/mcp/invoke", () => ({
     invokeMcpOperation: (input: unknown) => {
       observedInvocation = input
       return Promise.resolve({ content: [{ type: "text", text: "{\"bound\":true}" }] })
@@ -55,7 +55,7 @@ beforeAll(async () => {
     normalizeToolBody: (value: unknown) => value,
     normalizeToolRecord: normalizeRecord,
   }))
-  codemodeTools = await import("../src/mcp/codemode-tools.js")
+  codemodeTools = await import("@openwork-ee/den-core/mcp/codemode-tools")
 })
 
 afterAll(() => {

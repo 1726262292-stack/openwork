@@ -1,14 +1,14 @@
 import { WorkerTable } from "@openwork-ee/den-db/schema"
-import { env } from "../env.js"
-import { appLogger } from "../observability/logger.js"
+import { env } from "@openwork-ee/den-core/env"
+import { appLogger } from "@openwork-ee/den-core/observability/logger"
 import {
   deprovisionWorkerOnDaytona,
   provisionWorkerOnDaytona,
-} from "./daytona.js"
+} from "@openwork-ee/den-core/workers/daytona"
 import {
   customDomainForWorker,
   ensureVercelDnsRecord,
-} from "./vanity-domain.js"
+} from "@openwork-ee/den-core/workers/vanity-domain"
 
 type WorkerId = typeof WorkerTable.$inferSelect.id
 const logger = appLogger.child({ component: "worker_provisioner" })

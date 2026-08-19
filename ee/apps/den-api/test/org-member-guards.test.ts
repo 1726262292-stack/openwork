@@ -4,7 +4,7 @@ import {
   validateOrganizationMemberRemoval,
   validateOrganizationMemberRoleChange,
   type MemberLifecycleGuardRow,
-} from "../src/organization-member-guards.js"
+} from "@openwork-ee/den-core/organization-member-guards"
 
 function member(id: string, role: string, userId: string | null): MemberLifecycleGuardRow {
   return { id, role, userId }

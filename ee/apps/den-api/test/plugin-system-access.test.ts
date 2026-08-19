@@ -7,11 +7,11 @@ function seedRequiredEnv() {
   process.env.BETTER_AUTH_URL = process.env.BETTER_AUTH_URL ?? "http://127.0.0.1:8790"
 }
 
-let accessModule: typeof import("../src/routes/org/plugin-system/access.js")
+let accessModule: typeof import("@openwork-ee/den-core/routes/org/plugin-system/access")
 
 beforeAll(async () => {
   seedRequiredEnv()
-  accessModule = await import("../src/routes/org/plugin-system/access.js")
+  accessModule = await import("@openwork-ee/den-core/routes/org/plugin-system/access")
 })
 
 function createActorContext(input?: { automation?: true; isOwner?: boolean; role?: string; teamIds?: string[] }) {

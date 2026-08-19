@@ -12,7 +12,7 @@ import {
   validateOrganizationPermissionRecord,
   type OrganizationPermissionRecord,
   type OrganizationRolePermission,
-} from "../src/organization-access.js"
+} from "@openwork-ee/den-core/organization-access"
 
 function role(roleName: string, permission: OrganizationPermissionRecord): OrganizationRolePermission {
   return {

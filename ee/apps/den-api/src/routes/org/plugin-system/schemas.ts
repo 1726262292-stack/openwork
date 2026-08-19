@@ -16,8 +16,8 @@ import {
   pluginStatusValues,
 } from "@openwork-ee/den-db/schema"
 import { z } from "zod"
-import { denTypeIdSchema } from "../../../openapi.js"
-import { idParamSchema } from "../shared.js"
+import { denTypeIdSchema } from "@openwork-ee/den-core/openapi"
+import { idParamSchema } from "@openwork-ee/den-core/routes/org/shared"
 
 const cursorSchema = z.string().trim().min(1).max(255)
 const jsonObjectSchema = z.object({}).passthrough()

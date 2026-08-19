@@ -1,6 +1,6 @@
 import type { Hono } from "hono"
-import type { OrganizationContextVariables } from "../../middleware/index.js"
-import type { AuthContextVariables } from "../../session.js"
+import type { OrganizationContextVariables } from "@openwork-ee/den-core/middleware/index"
+import type { AuthContextVariables } from "@openwork-ee/den-core/session"
 import { registerMemoryCoreRoutes } from "./core.js"
 
 export function registerMemoryRoutes<T extends { Variables: AuthContextVariables & Partial<OrganizationContextVariables> }>(

@@ -2,11 +2,11 @@ import { and, eq, gt, isNull, or } from "@openwork-ee/den-db/drizzle"
 import { InstallLinkTable } from "@openwork-ee/den-db/schema"
 import { createDenTypeId, normalizeDenTypeId } from "@openwork-ee/utils/typeid"
 import { createHash, randomBytes } from "node:crypto"
-import { OPENWORK_DOWNLOAD_URL } from "./CONSTS.js"
+import { OPENWORK_DOWNLOAD_URL } from "@openwork-ee/den-core/CONSTS"
 import { organizationInstallLinksEnabled } from "./capability-sources/install-links-rollout.js"
-import { db } from "./db.js"
-import { env } from "./env.js"
-import { appLogger } from "./observability/logger.js"
+import { db } from "@openwork-ee/den-core/db"
+import { env } from "@openwork-ee/den-core/env"
+import { appLogger } from "@openwork-ee/den-core/observability/logger"
 
 type InstallLinkInsert = typeof InstallLinkTable.$inferInsert
 const logger = appLogger.child({ component: "install_links" })

@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test"
 import {
   evaluateToolPolicy,
   isToolDisabled,
-} from "../src/capability-sources/external-mcp-tool-policy.js"
+} from "@openwork-ee/den-core/capability-sources/external-mcp-tool-policy"
 
 const policy: ExternalMcpToolPolicy = {
   version: 1,

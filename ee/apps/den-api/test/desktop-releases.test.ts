@@ -1,8 +1,8 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test"
-import { MIN_SUPPORTED_DESKTOP_VERSION, PUBLISHED_DESKTOP_VERSIONS } from "../src/generated/desktop-versions.js"
+import { MIN_SUPPORTED_DESKTOP_VERSION, PUBLISHED_DESKTOP_VERSIONS } from "@openwork-ee/den-core/generated/desktop-versions"
 
-type EnvModule = typeof import("../src/env.js")
-type DesktopReleasesModule = typeof import("../src/desktop-releases.js")
+type EnvModule = typeof import("@openwork-ee/den-core/env")
+type DesktopReleasesModule = typeof import("@openwork-ee/den-core/desktop-releases")
 
 let envModule: EnvModule
 let desktopReleases: DesktopReleasesModule
@@ -44,8 +44,8 @@ beforeAll(async () => {
     },
   })
 
-  envModule = await import("../src/env.js")
-  desktopReleases = await import("../src/desktop-releases.js")
+  envModule = await import("@openwork-ee/den-core/env")
+  desktopReleases = await import("@openwork-ee/den-core/desktop-releases")
 })
 
 beforeEach(() => {

@@ -1,10 +1,10 @@
 import { DaytonaConflictError } from "@daytonaio/sdk"
 import { createDenTypeId } from "@openwork-ee/utils/typeid"
 import { beforeAll, describe, expect, test } from "bun:test"
-import type { DaytonaProvisioningRuntime, DaytonaSandboxRuntime } from "../src/workers/daytona.js"
+import type { DaytonaProvisioningRuntime, DaytonaSandboxRuntime } from "@openwork-ee/den-core/workers/daytona"
 
-type CloudLifecycleModule = typeof import("../src/workers/cloud-lifecycle.js")
-type DaytonaModule = typeof import("../src/workers/daytona.js")
+type CloudLifecycleModule = typeof import("@openwork-ee/den-core/workers/cloud-lifecycle")
+type DaytonaModule = typeof import("@openwork-ee/den-core/workers/daytona")
 type WakeCloudWorkerOptions = NonNullable<Parameters<CloudLifecycleModule["wakeCloudWorker"]>[1]>
 type Store = NonNullable<WakeCloudWorkerOptions["store"]>
 type TestWorker = NonNullable<Awaited<ReturnType<Store["getWorker"]>>>
@@ -26,8 +26,8 @@ let daytona: DaytonaModule
 
 beforeAll(async () => {
   seedRequiredEnv()
-  lifecycle = await import("../src/workers/cloud-lifecycle.js")
-  daytona = await import("../src/workers/daytona.js")
+  lifecycle = await import("@openwork-ee/den-core/workers/cloud-lifecycle")
+  daytona = await import("@openwork-ee/den-core/workers/daytona")
 })
 
 function makeWorker(input: {

@@ -1,9 +1,9 @@
 import type { EmailTemplate } from "@openwork/email"
 import type { Hono } from "hono"
-import { env } from "../../env.js"
-import { publicRoute } from "../../middleware/index.js"
-import type { AuthContextVariables } from "../../session.js"
-import { getLastDevEmail, listDevEmails } from "../../utils/email/send-email.js"
+import { env } from "@openwork-ee/den-core/env"
+import { publicRoute } from "@openwork-ee/den-core/middleware/index"
+import type { AuthContextVariables } from "@openwork-ee/den-core/session"
+import { getLastDevEmail, listDevEmails } from "@openwork-ee/den-core/utils/email/send-email"
 
 function normalizeEmailTemplate(value: string | null): EmailTemplate | null | undefined {
   if (!value) {

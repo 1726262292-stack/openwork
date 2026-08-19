@@ -34,10 +34,10 @@ function resetCalls() {
   selectCalls = 0
 }
 
-let credentialRevocationModule: typeof import("../src/credential-revocation.js")
+let credentialRevocationModule: typeof import("@openwork-ee/den-core/credential-revocation")
 
 beforeAll(async () => {
-  mock.module("../src/db.js", () => ({
+  mock.module("@openwork-ee/den-core/db", () => ({
     db: {
       select: () => ({
         from: (table: unknown) => ({
@@ -64,7 +64,7 @@ beforeAll(async () => {
     },
   }))
 
-  credentialRevocationModule = await import("../src/credential-revocation.js")
+  credentialRevocationModule = await import("@openwork-ee/den-core/credential-revocation")
 })
 
 test("membership credential revocation deletes sessions and org-scoped OAuth access tokens", async () => {

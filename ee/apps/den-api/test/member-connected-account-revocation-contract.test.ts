@@ -1,9 +1,10 @@
 import { expect, test } from "bun:test"
 
-const sourcePath = new URL("../src/orgs.ts", import.meta.url)
-const authSourcePath = new URL("../src/auth.ts", import.meta.url)
-const credentialsSourcePath = new URL("../src/capability-sources/oauth-credentials.ts", import.meta.url)
-const callbackSourcePath = new URL("../src/routes/org/oauth-providers.ts", import.meta.url)
+const denCoreSourceRoot = new URL("../../../packages/den-core/src/", import.meta.url)
+const sourcePath = new URL("orgs.ts", denCoreSourceRoot)
+const authSourcePath = new URL("auth.ts", denCoreSourceRoot)
+const credentialsSourcePath = new URL("capability-sources/oauth-credentials.ts", denCoreSourceRoot)
+const callbackSourcePath = new URL("routes/org/oauth-providers.ts", denCoreSourceRoot)
 const adminSourcePath = new URL("../src/routes/admin/index.ts", import.meta.url)
 
 test("member removal deletes every per-member connected account before anonymizing the membership", async () => {
@@ -90,7 +91,7 @@ test("OAuth refresh persistence is update-only and tied to the exact active gran
   expect(implementation).toContain("existing.refreshToken !== input.expectedRefreshToken")
   expect(implementation).not.toContain("tx.insert(ConnectedAccountTable)")
 
-  const oauthSource = await Bun.file(new URL("../src/capability-sources/generic-oauth.ts", import.meta.url)).text()
+  const oauthSource = await Bun.file(new URL("capability-sources/generic-oauth.ts", denCoreSourceRoot)).text()
   expect(oauthSource).toContain("refreshConnectedAccountForActiveMember({")
   expect(oauthSource).toContain("expectedAccountId: account.id")
   expect(oauthSource).toContain('return { error: "not_connected" }')

@@ -5,7 +5,7 @@ import {
   DEN_SESSION_UPDATE_AGE_IN_SECONDS,
   getDenSessionExpiresAt,
   getDenSessionRefreshCutoff,
-} from "../src/session-lifetime.js"
+} from "@openwork-ee/den-core/session-lifetime"
 
 test("den auth sessions have explicit finite lifetimes", () => {
   expect(DEN_SESSION_EXPIRES_IN_DAYS).toBe(7)

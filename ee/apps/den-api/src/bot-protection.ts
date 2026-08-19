@@ -1,5 +1,5 @@
 import { checkBotId } from "botid/server"
-import { env } from "./env.js"
+import { env } from "@openwork-ee/den-core/env"
 
 export type BotProtectionResult =
   | { ok: true }

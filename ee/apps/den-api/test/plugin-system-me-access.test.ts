@@ -16,8 +16,8 @@ import {
 } from "@openwork-ee/den-db/schema"
 import { createDenTypeId } from "@openwork-ee/utils/typeid"
 import { Hono, type MiddlewareHandler } from "hono"
-import type { PluginArchActorContext } from "../src/routes/org/plugin-system/access.js"
-import type { OrgRouteVariables } from "../src/routes/org/shared.js"
+import type { PluginArchActorContext } from "@openwork-ee/den-core/routes/org/plugin-system/access"
+import type { OrgRouteVariables } from "@openwork-ee/den-core/routes/org/shared"
 
 const API_ORIGIN = "http://127.0.0.1:8790"
 
@@ -30,7 +30,7 @@ process.env.CORS_ORIGINS ??= API_ORIGIN
 
 let app: Hono<{ Variables: OrgRouteVariables }>
 let mePluginAccessListResponseSchema: typeof import("../src/routes/org/plugin-system/schemas.js").mePluginAccessListResponseSchema
-let db: typeof import("../src/db.js").db
+let db: typeof import("@openwork-ee/den-core/db").db
 
 const organizationId = createDenTypeId("organization")
 const teamId = createDenTypeId("team")
@@ -114,12 +114,12 @@ beforeAll(async () => {
     mode: "mysql",
   }).db
   db = realDb
-  mock.module("../src/db.js", () => ({ db: realDb }))
-  const middleware = await import("../src/middleware/index.js")
+  mock.module("@openwork-ee/den-core/db", () => ({ db: realDb }))
+  const middleware = await import("@openwork-ee/den-core/middleware/index")
   const passThroughMiddleware: MiddlewareHandler = async (_c, next) => {
     await next()
   }
-  mock.module("../src/middleware/index.js", () => ({
+  mock.module("@openwork-ee/den-core/middleware/index", () => ({
     ...middleware,
     orgMemberRoute: () => passThroughMiddleware,
     resolveMemberTeamsMiddleware: passThroughMiddleware,

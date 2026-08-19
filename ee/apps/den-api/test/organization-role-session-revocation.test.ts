@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { shouldRevokeSessionsForRoleChange } from "../src/organization-role-hierarchy.js"
+import { shouldRevokeSessionsForRoleChange } from "@openwork-ee/den-core/organization-role-hierarchy"
 
 describe("organization role change session revocation", () => {
   test("preserves sessions only for unchanged roles and unambiguous built-in upgrades", () => {

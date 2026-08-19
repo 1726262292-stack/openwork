@@ -8,8 +8,8 @@ import {
   TelegramUpdateTable,
 } from "@openwork-ee/den-db/schema/telegram"
 import { createDenTypeId, type DenTypeId } from "@openwork-ee/utils/typeid"
-import { db } from "../db.js"
-import { loadTelegramWorkerAccess } from "./telegram-worker.js"
+import { db } from "@openwork-ee/den-core/db"
+import { loadTelegramWorkerAccess } from "@openwork-ee/den-core/capability-sources/telegram-worker"
 
 export type TelegramConnectionRow = typeof TelegramConnectionTable.$inferSelect
 export type TelegramChatBindingRow = typeof TelegramChatBindingTable.$inferSelect

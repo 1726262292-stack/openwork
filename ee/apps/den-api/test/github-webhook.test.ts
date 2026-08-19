@@ -8,12 +8,12 @@ function seedRequiredEnv() {
   process.env.BETTER_AUTH_URL = process.env.BETTER_AUTH_URL ?? "http://127.0.0.1:8790"
 }
 
-let envModule: typeof import("../src/env.js")
+let envModule: typeof import("@openwork-ee/den-core/env")
 let githubModule: typeof import("../src/routes/webhooks/github.js")
 
 beforeAll(async () => {
   seedRequiredEnv()
-  envModule = await import("../src/env.js")
+  envModule = await import("@openwork-ee/den-core/env")
   githubModule = await import("../src/routes/webhooks/github.js")
 })
 

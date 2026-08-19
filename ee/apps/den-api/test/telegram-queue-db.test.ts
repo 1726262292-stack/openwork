@@ -7,7 +7,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:tes
 //   DEN_DB_ENCRYPTION_KEY=telegram-test-encryption-key-1234567890 \
 //   pnpm --filter @openwork-ee/den-db db:push
 
-let db: typeof import("../src/db.js").db
+let db: typeof import("@openwork-ee/den-core/db").db
 let drizzle: typeof import("@openwork-ee/den-db/drizzle")
 let schema: typeof import("@openwork-ee/den-db/schema/telegram")
 let store: typeof import("../src/capability-sources/telegram-store.js")
@@ -33,7 +33,7 @@ async function clearTelegramTables() {
 beforeAll(async () => {
   seedEnv()
   const [dbModule, drizzleModule, schemaModule, storeModule] = await Promise.all([
-    import("../src/db.js"),
+    import("@openwork-ee/den-core/db"),
     import("@openwork-ee/den-db/drizzle"),
     import("@openwork-ee/den-db/schema/telegram"),
     import("../src/capability-sources/telegram-store.js"),

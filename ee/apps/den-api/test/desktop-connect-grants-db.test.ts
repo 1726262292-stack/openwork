@@ -15,7 +15,7 @@ const organizationId = createDenTypeId("organization")
 const installLinkId = createDenTypeId("installLink")
 const createdByUserId = createDenTypeId("user")
 
-let db: typeof import("../src/db.js").db
+let db: typeof import("@openwork-ee/den-core/db").db
 let drizzle: typeof import("@openwork-ee/den-db/drizzle")
 let schema: typeof import("@openwork-ee/den-db/schema")
 let grants: typeof import("../src/desktop-connect-grants.js")
@@ -31,7 +31,7 @@ async function clearRows() {
 
 beforeAll(async () => {
   const modules = await Promise.all([
-    import("../src/db.js"),
+    import("@openwork-ee/den-core/db"),
     import("@openwork-ee/den-db/drizzle"),
     import("@openwork-ee/den-db/schema"),
     import("../src/desktop-connect-grants.js"),

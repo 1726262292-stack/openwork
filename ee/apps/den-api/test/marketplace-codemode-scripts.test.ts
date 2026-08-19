@@ -19,7 +19,7 @@ import {
 import { createDenTypeId, type DenTypeId } from "@openwork-ee/utils/typeid"
 import { Effect } from "effect"
 import { Hono } from "hono"
-import type { PluginArchActorContext } from "../src/routes/org/plugin-system/access.js"
+import type { PluginArchActorContext } from "@openwork-ee/den-core/routes/org/plugin-system/access"
 
 function seedRequiredEnv() {
   process.env.DATABASE_URL = process.env.DATABASE_URL ?? "mysql://root:password@127.0.0.1:3306/openwork_test_codemode_scripts"
@@ -29,13 +29,13 @@ function seedRequiredEnv() {
   process.env.CORS_ORIGINS = process.env.CORS_ORIGINS ?? "http://127.0.0.1:8790"
 }
 
-type Db = typeof import("../src/db.js").db
-type MarketplaceCapabilities = typeof import("../src/mcp/marketplace-capabilities.js")
-type CapabilityRegistry = typeof import("../src/mcp/capability-registry.js")
-type PluginStore = typeof import("../src/routes/org/plugin-system/store.js")
-type SavedScripts = typeof import("../src/codemode-scripts.js")
-type CodemodeRuns = typeof import("../src/codemode-runs.js")
-type ProgramLibrary = typeof import("../src/program-library.js")
+type Db = typeof import("@openwork-ee/den-core/db").db
+type MarketplaceCapabilities = typeof import("@openwork-ee/den-core/mcp/marketplace-capabilities")
+type CapabilityRegistry = typeof import("@openwork-ee/den-core/mcp/capability-registry")
+type PluginStore = typeof import("@openwork-ee/den-core/routes/org/plugin-system/store")
+type SavedScripts = typeof import("@openwork-ee/den-core/codemode-scripts")
+type CodemodeRuns = typeof import("@openwork-ee/den-core/codemode-runs")
+type ProgramLibrary = typeof import("@openwork-ee/den-core/program-library")
 
 type SeededScript = {
   configObjectId: DenTypeId<"configObject">
@@ -61,13 +61,13 @@ beforeAll(async () => {
     databaseUrl: process.env.DATABASE_URL,
     mode: "mysql",
   }).db
-  mock.module("../src/db.js", () => ({ db }))
-  pluginStore = await import("../src/routes/org/plugin-system/store.js")
-  marketplaceCapabilities = await import("../src/mcp/marketplace-capabilities.js")
-  savedScripts = await import("../src/codemode-scripts.js")
-  codemodeRuns = await import("../src/codemode-runs.js")
-  programLibrary = await import("../src/program-library.js")
-  capabilityRegistry = await import("../src/mcp/capability-registry.js")
+  mock.module("@openwork-ee/den-core/db", () => ({ db }))
+  pluginStore = await import("@openwork-ee/den-core/routes/org/plugin-system/store")
+  marketplaceCapabilities = await import("@openwork-ee/den-core/mcp/marketplace-capabilities")
+  savedScripts = await import("@openwork-ee/den-core/codemode-scripts")
+  codemodeRuns = await import("@openwork-ee/den-core/codemode-runs")
+  programLibrary = await import("@openwork-ee/den-core/program-library")
+  capabilityRegistry = await import("@openwork-ee/den-core/mcp/capability-registry")
 })
 
 afterAll(() => {

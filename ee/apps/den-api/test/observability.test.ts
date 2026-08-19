@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test"
 import { Hono } from "hono"
 
-import { parseDenApiObservabilityConfig } from "../src/observability/config.js"
-import { createRequestAccessLogMiddleware, createTelemetryErrorSanitizerMiddleware } from "../src/observability/hono.js"
-import { createAppLogger } from "../src/observability/logger.js"
-import { getRuntimeState, parseSentryTraceHeader, sanitizeSentryEvent, sanitizeSentryLog, sanitizeSentrySpan } from "../src/observability/runtime.js"
-import { sanitizeExceptionForTelemetry } from "../src/observability/safe-fields.js"
+import { parseDenApiObservabilityConfig } from "@openwork-ee/den-core/observability/config"
+import { createRequestAccessLogMiddleware, createTelemetryErrorSanitizerMiddleware } from "@openwork-ee/den-core/observability/hono"
+import { createAppLogger } from "@openwork-ee/den-core/observability/logger"
+import { getRuntimeState, parseSentryTraceHeader, sanitizeSentryEvent, sanitizeSentryLog, sanitizeSentrySpan } from "@openwork-ee/den-core/observability/runtime"
+import { sanitizeExceptionForTelemetry } from "@openwork-ee/den-core/observability/safe-fields"
 import {
   AUDIT_ALERT_OPERATIONAL_MARKER,
   SCIM_MAINTENANCE_FAILED_OPERATIONAL_MARKER,

@@ -8,13 +8,13 @@ import { OrganizationDiagnosticCredentialTable } from "@openwork-ee/den-db/schem
 import type { Hono } from "hono"
 import { describeRoute } from "hono-openapi"
 import { z } from "zod"
-import { env } from "../../env.js"
-import { db } from "../../db.js"
-import { orgRoleRoute } from "../../middleware/index.js"
-import { forbiddenSchema, jsonResponse, unauthorizedSchema } from "../../openapi.js"
+import { env } from "@openwork-ee/den-core/env"
+import { db } from "@openwork-ee/den-core/db"
+import { orgRoleRoute } from "@openwork-ee/den-core/middleware/index"
+import { forbiddenSchema, jsonResponse, unauthorizedSchema } from "@openwork-ee/den-core/openapi"
 import { runEgressDiagnostic } from "../../egress-diagnostics.js"
-import type { OrgRouteVariables } from "./shared.js"
-import { ensureOrganizationSuperAdmin, orgAccessFailureStatus } from "./shared.js"
+import type { OrgRouteVariables } from "@openwork-ee/den-core/routes/org/shared"
+import { ensureOrganizationSuperAdmin, orgAccessFailureStatus } from "@openwork-ee/den-core/routes/org/shared"
 
 const unavailableSchema = z.object({
   error: z.literal("egress_diagnostics_not_configured"),

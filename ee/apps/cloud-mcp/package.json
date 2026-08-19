@@ -1,0 +1,27 @@
+{
+  "name": "@openwork-ee/cloud-mcp",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "NODE_OPTIONS=--conditions=development DEN_DB_ROUTING_SERVICE=cloud-mcp DEN_MCP_OAUTH_RESOURCE_SEEDING=disabled OTEL_SERVICE_NAME=${OTEL_SERVICE_NAME:-cloud-mcp} OPENWORK_DEV_MODE=1 tsx watch src/server.ts",
+    "dev:local": "NODE_OPTIONS=--conditions=development DEN_DB_ROUTING_SERVICE=cloud-mcp DEN_MCP_OAUTH_RESOURCE_SEEDING=disabled OTEL_SERVICE_NAME=${OTEL_SERVICE_NAME:-cloud-mcp} OPENWORK_DEV_MODE=1 PORT=${CLOUD_MCP_PORT:-8791} tsx watch src/server.ts",
+    "test": "DEN_DB_ROUTING_SERVICE=cloud-mcp DEN_MCP_OAUTH_RESOURCE_SEEDING=disabled OTEL_SERVICE_NAME=${OTEL_SERVICE_NAME:-cloud-mcp} bun test --conditions development test/*.test.mjs",
+    "build": "pnpm run build:den-core && tsc -p tsconfig.json",
+    "build:den-core": "pnpm --filter @openwork-ee/den-core build",
+    "start": "DEN_DB_ROUTING_SERVICE=cloud-mcp DEN_MCP_OAUTH_RESOURCE_SEEDING=disabled OTEL_SERVICE_NAME=${OTEL_SERVICE_NAME:-cloud-mcp} node dist/server.js"
+  },
+  "dependencies": {
+    "@hono/node-server": "2.0.12",
+    "@openwork-ee/den-core": "workspace:*",
+    "@openwork-ee/den-db": "workspace:*",
+    "@openwork-ee/utils": "workspace:*",
+    "dotenv": "^16.4.5",
+    "hono": "4.12.34",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.30",
+    "tsx": "^4.23.1",
+    "typescript": "^5.5.4"
+  }
+}

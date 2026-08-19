@@ -1,8 +1,8 @@
 import type { Hono } from "hono"
 import { describeRoute } from "hono-openapi"
 import { z } from "zod"
-import { authenticatedRoute } from "../../middleware/index.js"
-import { jsonResponse, unauthorizedSchema } from "../../openapi.js"
+import { authenticatedRoute } from "@openwork-ee/den-core/middleware/index"
+import { jsonResponse, unauthorizedSchema } from "@openwork-ee/den-core/openapi"
 import type { WorkerRouteVariables } from "./shared.js"
 
 const workerBillingRetiredSchema = z.object({

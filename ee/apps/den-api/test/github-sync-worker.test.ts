@@ -10,12 +10,12 @@ function seedRequiredEnv() {
 }
 
 let workerModule: typeof import("../src/workers/github-sync.js")
-let githubModule: typeof import("../src/routes/org/plugin-system/github-app.js")
+let githubModule: typeof import("@openwork-ee/den-core/routes/org/plugin-system/github-app")
 
 beforeAll(async () => {
   seedRequiredEnv()
   workerModule = await import("../src/workers/github-sync.js")
-  githubModule = await import("../src/routes/org/plugin-system/github-app.js")
+  githubModule = await import("@openwork-ee/den-core/routes/org/plugin-system/github-app")
 })
 
 test("GitHub sync backoff applies exponential jitter bounds and the 15 minute cap", () => {

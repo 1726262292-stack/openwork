@@ -1,12 +1,12 @@
 import type { Hono } from "hono"
 import { describeRoute } from "hono-openapi"
 import { z } from "zod"
-import { listCodemodeRuns } from "../../codemode-runs.js"
-import { db } from "../../db.js"
-import { orgMemberRoute, queryValidator } from "../../middleware/index.js"
-import { denTypeIdSchema, invalidRequestSchema, jsonResponse, unauthorizedSchema } from "../../openapi.js"
-import type { OrgRouteVariables } from "./shared.js"
-import { memberHasRole } from "./shared.js"
+import { listCodemodeRuns } from "@openwork-ee/den-core/codemode-runs"
+import { db } from "@openwork-ee/den-core/db"
+import { orgMemberRoute, queryValidator } from "@openwork-ee/den-core/middleware/index"
+import { denTypeIdSchema, invalidRequestSchema, jsonResponse, unauthorizedSchema } from "@openwork-ee/den-core/openapi"
+import type { OrgRouteVariables } from "@openwork-ee/den-core/routes/org/shared"
+import { memberHasRole } from "@openwork-ee/den-core/routes/org/shared"
 
 const listCodemodeRunsQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(200).optional().default(50),

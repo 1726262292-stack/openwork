@@ -2,7 +2,7 @@ import { afterAll, afterEach, beforeAll, expect, mock, setSystemTime, test } fro
 import { createDenTypeId } from "@openwork-ee/utils/typeid"
 import { Hono } from "hono"
 import { generateSignedCookie } from "hono/cookie"
-import { getDenSessionExpiresAt, getDenSessionRefreshCutoff } from "../src/session-lifetime.js"
+import { getDenSessionExpiresAt, getDenSessionRefreshCutoff } from "@openwork-ee/den-core/session-lifetime"
 
 type StoredSession = {
   session: {
@@ -45,7 +45,7 @@ const updates: CapturedUpdate[] = []
 const deletes: unknown[] = []
 const cacheSets: StoredSession[] = []
 const cacheDeletes: string[] = []
-let sessionModule: typeof import("../src/session.js")
+let sessionModule: typeof import("@openwork-ee/den-core/session")
 
 function seedRequiredEnv() {
   process.env.DATABASE_URL = process.env.DATABASE_URL ?? "mysql://root:password@127.0.0.1:3306/openwork_test"
@@ -169,7 +169,7 @@ function expectAtomicRenewal(update: CapturedUpdate, now: Date) {
 beforeAll(async () => {
   seedRequiredEnv()
 
-  mock.module("../src/auth.js", () => ({
+  mock.module("@openwork-ee/den-core/auth", () => ({
     auth: {
       api: {
         getSession: () => Promise.resolve(null),
@@ -184,7 +184,7 @@ beforeAll(async () => {
     DEN_MCP_TOKEN_USE_CLAIM: "https://openworklabs.com/token_use",
   }))
 
-  mock.module("../src/db.js", () => ({
+  mock.module("@openwork-ee/den-core/db", () => ({
     db: {
       select: () => {
         selects += 1
@@ -222,7 +222,7 @@ beforeAll(async () => {
     },
   }))
 
-  mock.module("../src/cache.js", () => ({
+  mock.module("@openwork-ee/den-core/cache", () => ({
     cache: {
       auth: {
         session: (requestedToken: string) => {
@@ -249,7 +249,7 @@ beforeAll(async () => {
     },
   }))
 
-  sessionModule = await import("../src/session.js")
+  sessionModule = await import("@openwork-ee/den-core/session")
 })
 
 afterEach(() => {

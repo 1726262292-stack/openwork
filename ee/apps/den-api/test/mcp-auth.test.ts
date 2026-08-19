@@ -1,5 +1,5 @@
 import { beforeAll, expect, test } from "bun:test"
-import { DEN_MCP_ACCESS_TOKEN_EXPIRES_IN_SECONDS } from "../src/mcp/token-lifetime.js"
+import { DEN_MCP_ACCESS_TOKEN_EXPIRES_IN_SECONDS } from "@openwork-ee/den-core/mcp/token-lifetime"
 import {
   DEN_JWKS_GRACE_PERIOD_SECONDS,
   DEN_JWKS_ROTATION_INTERVAL_SECONDS,
@@ -7,7 +7,7 @@ import {
   DEN_JWT_SIGNING_ALGORITHM,
   getDenAuthIssuer,
   getDenJwtOptions,
-} from "../src/mcp/jwt-policy.js"
+} from "@openwork-ee/den-core/mcp/jwt-policy"
 
 function seedRequiredEnv() {
   process.env.DATABASE_URL = process.env.DATABASE_URL ?? "mysql://root:password@127.0.0.1:3306/openwork_test"
@@ -16,14 +16,14 @@ function seedRequiredEnv() {
   process.env.BETTER_AUTH_URL = process.env.BETTER_AUTH_URL ?? "http://127.0.0.1:8790"
 }
 
-let mcpAuth: typeof import("../src/mcp/auth.js")
-let mcpRoutes: typeof import("../src/mcp/index.js")
+let mcpAuth: typeof import("@openwork-ee/den-core/mcp/auth")
+let mcpRoutes: typeof import("@openwork-ee/den-core/mcp/index")
 
 beforeAll(async () => {
   seedRequiredEnv()
   ;[mcpAuth, mcpRoutes] = await Promise.all([
-    import("../src/mcp/auth.js"),
-    import("../src/mcp/index.js"),
+    import("@openwork-ee/den-core/mcp/auth"),
+    import("@openwork-ee/den-core/mcp/index"),
   ])
 })
 

@@ -1,6 +1,6 @@
-import { env } from "../env.js"
-import { appLogger } from "../observability/logger.js"
-import { automationService, type AutomationService } from "./service.js"
+import { env } from "@openwork-ee/den-core/env"
+import { appLogger } from "@openwork-ee/den-core/observability/logger"
+import { automationService, type AutomationService } from "@openwork-ee/den-core/automations/service"
 
 export type AutomationSchedulerLoopHandle = { stop(): Promise<void> }
 

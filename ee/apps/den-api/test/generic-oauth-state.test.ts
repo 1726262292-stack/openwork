@@ -2,7 +2,7 @@ import { createHmac } from "node:crypto"
 import { beforeAll, describe, expect, test } from "bun:test"
 
 const secret = "oauth-state-test-secret"
-let verifyOAuthStateToken: typeof import("../src/capability-sources/generic-oauth.js")["verifyOAuthStateToken"]
+let verifyOAuthStateToken: typeof import("@openwork-ee/den-core/capability-sources/generic-oauth")["verifyOAuthStateToken"]
 
 beforeAll(async () => {
   process.env.DATABASE_URL = process.env.DATABASE_URL ?? "mysql://root:password@127.0.0.1:3306/openwork_test"
@@ -10,7 +10,7 @@ beforeAll(async () => {
   process.env.BETTER_AUTH_SECRET = process.env.BETTER_AUTH_SECRET ?? "y".repeat(32)
   process.env.BETTER_AUTH_URL = process.env.BETTER_AUTH_URL ?? "http://127.0.0.1:8790"
   process.env.CORS_ORIGINS = process.env.CORS_ORIGINS ?? "http://127.0.0.1:8790"
-  verifyOAuthStateToken = (await import("../src/capability-sources/generic-oauth.js")).verifyOAuthStateToken
+  verifyOAuthStateToken = (await import("@openwork-ee/den-core/capability-sources/generic-oauth")).verifyOAuthStateToken
 })
 
 function signedState(payload: Record<string, unknown>) {

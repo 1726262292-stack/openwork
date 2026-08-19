@@ -12,14 +12,14 @@ type OpenApiDocument = {
   paths: Record<string, Record<string, { operationId?: string; tags?: string[] }>>
 }
 
-let isMcpOperationAllowed: typeof import("../src/mcp/policy.js")["isMcpOperationAllowed"]
-let isAgentApiKeyConnection: typeof import("../src/routes/org/mcp-connections.js")["isAgentApiKeyConnection"]
-let isAgentOAuthClientConnection: typeof import("../src/routes/org/mcp-connections.js")["isAgentOAuthClientConnection"]
+let isMcpOperationAllowed: typeof import("@openwork-ee/den-core/mcp/policy")["isMcpOperationAllowed"]
+let isAgentApiKeyConnection: typeof import("@openwork-ee/den-core/routes/org/mcp-connections")["isAgentApiKeyConnection"]
+let isAgentOAuthClientConnection: typeof import("@openwork-ee/den-core/routes/org/mcp-connections")["isAgentOAuthClientConnection"]
 let isAgentPluginMcpSecretSetup: typeof import("../src/routes/org/plugin-system/routes.js")["isAgentPluginMcpSecretSetup"]
-let buildMcpCatalog: typeof import("../src/mcp/catalog.js")["buildMcpCatalog"]
-let requiredScopeForMethod: typeof import("../src/mcp/policy.js")["requiredScopeForMethod"]
-let searchCapabilities: typeof import("../src/mcp/search.js")["searchCapabilities"]
-let searchCapabilitySourceFilter: typeof import("../src/mcp/search.js")["searchCapabilitySourceFilter"]
+let buildMcpCatalog: typeof import("@openwork-ee/den-core/mcp/catalog")["buildMcpCatalog"]
+let requiredScopeForMethod: typeof import("@openwork-ee/den-core/mcp/policy")["requiredScopeForMethod"]
+let searchCapabilities: typeof import("@openwork-ee/den-core/mcp/search")["searchCapabilities"]
+let searchCapabilitySourceFilter: typeof import("@openwork-ee/den-core/mcp/search")["searchCapabilitySourceFilter"]
 let document: OpenApiDocument
 
 function findOperation(operationId: string) {
@@ -40,13 +40,13 @@ function allowed(operationId: string) {
 
 beforeAll(async () => {
   seedRequiredEnv()
-  const policy = await import("../src/mcp/policy.js")
+  const policy = await import("@openwork-ee/den-core/mcp/policy")
   isMcpOperationAllowed = policy.isMcpOperationAllowed
   requiredScopeForMethod = policy.requiredScopeForMethod
-  buildMcpCatalog = (await import("../src/mcp/catalog.js")).buildMcpCatalog
-  searchCapabilities = (await import("../src/mcp/search.js")).searchCapabilities
-  searchCapabilitySourceFilter = (await import("../src/mcp/search.js")).searchCapabilitySourceFilter
-  const mcpConnections = await import("../src/routes/org/mcp-connections.js")
+  buildMcpCatalog = (await import("@openwork-ee/den-core/mcp/catalog")).buildMcpCatalog
+  searchCapabilities = (await import("@openwork-ee/den-core/mcp/search")).searchCapabilities
+  searchCapabilitySourceFilter = (await import("@openwork-ee/den-core/mcp/search")).searchCapabilitySourceFilter
+  const mcpConnections = await import("@openwork-ee/den-core/routes/org/mcp-connections")
   isAgentApiKeyConnection = mcpConnections.isAgentApiKeyConnection
   isAgentOAuthClientConnection = mcpConnections.isAgentOAuthClientConnection
   isAgentPluginMcpSecretSetup = (await import("../src/routes/org/plugin-system/routes.js")).isAgentPluginMcpSecretSetup

@@ -20,7 +20,7 @@ function resetCalls() {
 let roleCredentialRevocationModule: typeof import("../src/organization-role-credential-revocation.js")
 
 beforeAll(async () => {
-  mock.module("../src/db.js", () => ({
+  mock.module("@openwork-ee/den-core/db", () => ({
     db: {
       select: () => ({
         from: (table: unknown) => ({
@@ -33,14 +33,14 @@ beforeAll(async () => {
     },
   }))
 
-  mock.module("../src/api-keys.js", () => ({
+  mock.module("@openwork-ee/den-core/api-keys", () => ({
     revokeOrganizationApiKeysForMember: (input: unknown) => {
       apiKeyRevocations.push(input)
       return Promise.resolve(1)
     },
   }))
 
-  mock.module("../src/credential-revocation.js", () => ({
+  mock.module("@openwork-ee/den-core/credential-revocation", () => ({
     revokeMembershipSessionCredentials: (input: unknown) => {
       credentialRevocations.push(input)
       return Promise.resolve({

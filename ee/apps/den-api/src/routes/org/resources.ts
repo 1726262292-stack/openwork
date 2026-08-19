@@ -12,19 +12,19 @@ import { normalizeDenTypeId } from "@openwork-ee/utils/typeid"
 import type { Hono } from "hono"
 import { describeRoute } from "hono-openapi"
 import { z } from "zod"
-import { db } from "../../db.js"
-import { env } from "../../env.js"
-import { memberFacingMcpConnectionsEnabled } from "../../capability-sources/external-mcp-rollout.js"
-import { listAccessibleMarketplaceCapabilityReferences } from "../../mcp/marketplace-capabilities.js"
+import { db } from "@openwork-ee/den-core/db"
+import { env } from "@openwork-ee/den-core/env"
+import { memberFacingMcpConnectionsEnabled } from "@openwork-ee/den-core/capability-sources/external-mcp-rollout"
+import { listAccessibleMarketplaceCapabilityReferences } from "@openwork-ee/den-core/mcp/marketplace-capabilities"
 import {
   type MemberTeamsContext,
   orgMemberRoute,
   resolveMemberTeamsMiddleware,
-} from "../../middleware/index.js"
-import { jsonResponse, unauthorizedSchema } from "../../openapi.js"
+} from "@openwork-ee/den-core/middleware/index"
+import { jsonResponse, unauthorizedSchema } from "@openwork-ee/den-core/openapi"
 import { listAccessibleLlmProviderAccess } from "./llm-provider-access.js"
-import { resolvePluginArchResourceRole, type PluginArchActorContext } from "./plugin-system/access.js"
-import type { OrgRouteVariables } from "./shared.js"
+import { resolvePluginArchResourceRole, type PluginArchActorContext } from "@openwork-ee/den-core/routes/org/plugin-system/access"
+import type { OrgRouteVariables } from "@openwork-ee/den-core/routes/org/shared"
 
 type OrganizationId = typeof LlmProviderTable.$inferSelect.organizationId
 type MemberId = NonNullable<typeof LlmProviderAccessTable.$inferSelect.orgMembershipId>

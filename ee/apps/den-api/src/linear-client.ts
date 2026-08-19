@@ -1,4 +1,4 @@
-import { appLogger } from "./observability/logger.js"
+import { appLogger } from "@openwork-ee/den-core/observability/logger"
 
 export type LinearConfig = {
   apiKey?: string

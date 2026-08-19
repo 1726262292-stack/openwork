@@ -15,7 +15,17 @@ import { SEARCH_CAPABILITIES_TOOL_NAME, searchCapabilities } from "./search.js"
 
 const CATALOG_CACHE_TTL_MS = 5 * 60 * 1000
 
-let catalogCache: { catalog: McpToolOperation[]; expiresAt: number } | null = null
+const catalogCache = new Map<"live" | "snapshot", { catalog: McpToolOperation[]; expiresAt: number }>()
+
+async function getCachedCatalog(source: "live" | "snapshot", build: () => McpToolOperation[] | Promise<McpToolOperation[]>) {
+  const cached = catalogCache.get(source)
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.catalog
+  }
+  const catalog = await build()
+  catalogCache.set(source, { catalog, expiresAt: Date.now() + CATALOG_CACHE_TTL_MS })
+  return catalog
+}
 
 /**
  * The tool catalog is derived from the OpenAPI document, which only changes
@@ -26,13 +36,17 @@ let catalogCache: { catalog: McpToolOperation[]; expiresAt: number } | null = nu
  * exact cache instead of re-fetching/rebuilding the catalog separately.
  */
 export async function getCatalog(app: Hono, env: unknown) {
-  if (catalogCache && catalogCache.expiresAt > Date.now()) {
-    return catalogCache.catalog
-  }
-  const document = await loadOpenApiDocument(app, env)
-  const catalog = buildMcpCatalog(document)
-  catalogCache = { catalog, expiresAt: Date.now() + CATALOG_CACHE_TTL_MS }
-  return catalog
+  return getCachedCatalog("live", async () => {
+    const document = await loadOpenApiDocument(app, env)
+    return buildMcpCatalog(document)
+  })
+}
+
+export async function getSnapshotCatalog() {
+  return getCachedCatalog("snapshot", async () => {
+    const { mcpCatalogSnapshot } = await import("./snapshot.js")
+    return buildMcpCatalog(mcpCatalogSnapshot)
+  })
 }
 
 export function protectedResourceMetadata(request: Request, route: "mcp" | "agent" | "admin" = "mcp") {

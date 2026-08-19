@@ -16,7 +16,7 @@ import {
   normalizeGithubPrivateKey,
   validateGithubInstallationTarget,
   verifyGithubInstallStateToken,
-} from "../src/routes/org/plugin-system/github-app.js"
+} from "@openwork-ee/den-core/routes/org/plugin-system/github-app"
 
 const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 })
 const privateKeyPem = privateKey.export({ format: "pem", type: "pkcs8" }).toString()

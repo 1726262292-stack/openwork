@@ -2,9 +2,9 @@ import { and, desc, eq, inArray, type SQL, sql } from "@openwork-ee/den-db/drizz
 import { MemoryContextOrigin, MemoryContextTable, MemoryTable } from "@openwork-ee/den-db/schema"
 import { type DenTypeId, normalizeDenTypeId } from "@openwork-ee/utils/typeid"
 import { z } from "zod"
-import { db } from "../../db.js"
-import { denTypeIdSchema } from "../../openapi.js"
-import { appLogger } from "../../observability/logger.js"
+import { db } from "@openwork-ee/den-core/db"
+import { denTypeIdSchema } from "@openwork-ee/den-core/openapi"
+import { appLogger } from "@openwork-ee/den-core/observability/logger"
 
 // Input bounds — a cheap abuse guard (§8); full per-user quota/rate-limiting is deferred.
 export const MAX_CONTENT_LENGTH = 8_000

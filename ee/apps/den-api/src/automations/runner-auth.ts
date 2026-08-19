@@ -3,8 +3,8 @@ import {
   AUTOMATION_MODEL_ATTENTION_CAPABILITY,
   type AutomationDesktopRunnerCapability,
 } from "@openwork/types/automations"
-import { env } from "../env.js"
-import { firstForwardedValue, publicRequestUrl, trustedForwardedOrigin } from "../request-url.js"
+import { env } from "@openwork-ee/den-core/env"
+import { firstForwardedValue, publicRequestUrl, trustedForwardedOrigin } from "@openwork-ee/den-core/request-url"
 
 const TOKEN_TTL_MS = 12 * 60 * 60_000
 const TOKEN_ROUTE_SUFFIX = "/v1/automation-runners/token"

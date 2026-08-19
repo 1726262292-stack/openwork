@@ -1,6 +1,6 @@
 import { createDenTypeId } from "@openwork-ee/utils/typeid"
 import { afterEach, beforeAll, describe, expect, test } from "bun:test"
-import type { OrgOAuthClientRow } from "../src/capability-sources/oauth-credentials.js"
+import type { OrgOAuthClientRow } from "@openwork-ee/den-core/capability-sources/oauth-credentials"
 
 function seedRequiredEnv() {
   process.env.DATABASE_URL = process.env.DATABASE_URL ?? "mysql://root:password@127.0.0.1:3306/openwork_test"
@@ -10,16 +10,16 @@ function seedRequiredEnv() {
   process.env.CORS_ORIGINS = process.env.CORS_ORIGINS ?? "http://127.0.0.1:8790"
 }
 
-let registry: typeof import("../src/capability-sources/provider-registry.js")
-let oauth: typeof import("../src/capability-sources/generic-oauth.js")
+let registry: typeof import("@openwork-ee/den-core/capability-sources/provider-registry")
+let oauth: typeof import("@openwork-ee/den-core/capability-sources/generic-oauth")
 const originalFetch = globalThis.fetch
-let nativeConnections: typeof import("../src/capability-sources/native-provider-connections.js")
+let nativeConnections: typeof import("@openwork-ee/den-core/capability-sources/native-provider-connections")
 
 beforeAll(async () => {
   seedRequiredEnv()
-  registry = await import("../src/capability-sources/provider-registry.js")
-  oauth = await import("../src/capability-sources/generic-oauth.js")
-  nativeConnections = await import("../src/capability-sources/native-provider-connections.js")
+  registry = await import("@openwork-ee/den-core/capability-sources/provider-registry")
+  oauth = await import("@openwork-ee/den-core/capability-sources/generic-oauth")
+  nativeConnections = await import("@openwork-ee/den-core/capability-sources/native-provider-connections")
 })
 
 afterEach(() => {

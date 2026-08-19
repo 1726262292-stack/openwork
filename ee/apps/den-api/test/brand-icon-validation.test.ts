@@ -42,7 +42,7 @@ class OrganizationEmailDomainRestrictionError extends Error {
   allowedEmailDomains: string[] = []
 }
 
-mock.module("../src/auth.js", () => ({
+mock.module("@openwork-ee/den-core/auth", () => ({
   auth: {
     api: {
       setActiveOrganization: () => Promise.resolve(),
@@ -50,17 +50,17 @@ mock.module("../src/auth.js", () => ({
   },
 }))
 
-mock.module("../src/db.js", () => ({
+mock.module("@openwork-ee/den-core/db", () => ({
   db: {},
 }))
 
-mock.module("../src/entitlements.js", () => ({
+mock.module("@openwork-ee/den-core/entitlements", () => ({
   checkEntitlement: () => ({ ok: true }),
   getOrganizationEntitlements: () => ({}),
   parseOrganizationPlan: () => ({}),
 }))
 
-mock.module("../src/env.js", () => ({
+mock.module("@openwork-ee/den-core/env", () => ({
   env: {
     orgMode: "multi_org",
     betterAuthTrustedOrigins: ["http://den.local"],
@@ -68,7 +68,7 @@ mock.module("../src/env.js", () => ({
   },
 }))
 
-mock.module("../src/enterprise-auth-requirement.js", () => ({
+mock.module("@openwork-ee/den-core/enterprise-auth-requirement", () => ({
   findEnterpriseAuthRequirementForEmail: () => Promise.resolve(null),
 }))
 
@@ -76,11 +76,11 @@ mock.module("../src/organization-join-verification.js", () => ({
   validateInvitationAcceptVerification: () => ({ ok: true }),
 }))
 
-mock.module("../src/organization-limits.js", () => ({
+mock.module("@openwork-ee/den-core/organization-limits", () => ({
   normalizeOrganizationMetadata: () => ({ metadata: {} }),
 }))
 
-mock.module("../src/orgs.js", () => ({
+mock.module("@openwork-ee/den-core/orgs", () => ({
   acceptInvitationForUser: () => Promise.resolve(null),
   createOrganizationForUser: () => Promise.resolve(organization),
   getInvitationPreview: () => Promise.resolve(null),

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { sanitizePublicResponseHeaders } from "../src/public-response-headers.js"
+import { sanitizePublicResponseHeaders } from "@openwork-ee/den-core/public-response-headers"
 
 describe("public response headers", () => {
   test("strips internal and custom x-* headers from public responses", () => {
