@@ -1456,7 +1456,7 @@ export function registerAdminRoutes<T extends { Variables: AuthContextVariables 
         .where(eq(MemberTable.userId, userId))
       const activeMembershipRows = membershipRows.filter((member) => !member.removedAt)
       const sessionRows = await db
-        .select({ token: AuthSessionTable.token })
+        .select({ id: AuthSessionTable.id, token: AuthSessionTable.token })
         .from(AuthSessionTable)
         .where(eq(AuthSessionTable.userId, userId))
 
@@ -1483,9 +1483,15 @@ export function registerAdminRoutes<T extends { Variables: AuthContextVariables 
         await tx.update(WorkerTable).set({ created_by_user_id: null }).where(eq(WorkerTable.created_by_user_id, userId))
         await tx.delete(AuthUserTable).where(eq(AuthUserTable.id, userId))
       })
-      await Promise.all(sessionRows.map((session) => cache.auth.deleteSession(session.token)))
+      // Auth session cache hits intentionally avoid a DB liveness check; user deletion must clear
+      // both token and session-id cache entries for every deleted session instead.
+      await Promise.all(sessionRows.flatMap((session) => [
+        cache.auth.revokeSession(session.token),
+        cache.auth.revokeSessionId(session.id),
+      ]))
 
       const organizationIds = Array.from(new Set(activeMembershipRows.map((row) => row.organizationId).filter(isOrganizationId)))
+      // Admin user deletion soft-removes memberships; clear affected org membership caches.
       await Promise.all(organizationIds.map((organizationId) => cache.org.deleteMembers(organizationId)))
       for (const organizationId of organizationIds) {
         const seatCounts = await getOrganizationSeatBillingCounts({ organizationId })

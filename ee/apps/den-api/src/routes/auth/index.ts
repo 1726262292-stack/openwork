@@ -670,7 +670,7 @@ async function handleAuthRequest(c: Context) {
   if (isBetterAuthSignOutRequest(authRequest)) {
     const cookieToken = await readSignedSessionCookieToken(c)
     if (cookieToken) {
-      await cache.auth.deleteSession(cookieToken)
+      await cache.auth.revokeSession(cookieToken)
     }
     await revokeBearerSession(authRequest.headers)
   }

@@ -252,9 +252,13 @@ function sessionRequestContext(context?: Context): SessionRequestContext | undef
 }
 
 async function getSessionFromToken(token: string, requestContext?: SessionRequestContext): Promise<AuthSessionLike> {
-  const row = await cache.auth.session(token)
+  const result = await cache.auth.sessionResult(token)
+  const row = result.value
   if (!row) {
     return null
+  }
+  if (result.source === "cache") {
+    return bearerSessionValue(row)
   }
 
   const now = new Date()
@@ -312,8 +316,18 @@ export async function revokeBearerSession(headers: Headers) {
     return false
   }
 
+  const rows = await db
+    .select({ id: AuthSessionTable.id })
+    .from(AuthSessionTable)
+    .where(eq(AuthSessionTable.token, token))
+    .limit(1)
   await db.delete(AuthSessionTable).where(eq(AuthSessionTable.token, token))
-  await cache.auth.deleteSession(token)
+  // Sign-out/revocation is the authoritative point that invalidates cached auth.
+  await cache.auth.revokeSession(token)
+  const session = rows[0]
+  if (session) {
+    await cache.auth.revokeSessionId(normalizeDenTypeId("session", session.id))
+  }
   return true
 }
 

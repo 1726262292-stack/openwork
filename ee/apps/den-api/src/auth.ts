@@ -534,7 +534,7 @@ async function getOrganizationMemberRole(input: {
   organizationId: string;
   userId: string;
 }) {
-  const member = await getOrganizationContextForUser({
+  const member = await cache.org.membership({
     organizationId: normalizeDenTypeId("organization", input.organizationId),
     userId: normalizeDenTypeId("user", input.userId),
   });
@@ -542,8 +542,8 @@ async function getOrganizationMemberRole(input: {
     return null;
   }
   return {
-    role: member.currentMember.role,
-    isOwner: member.currentMember.isOwner,
+    role: member.role,
+    isOwner: member.isOwner,
   };
 }
 
@@ -600,6 +600,7 @@ export const auth = betterAuth({
         }),
         after: async (user) => {
           if (typeof user.id === "string") {
+            // User profile changes can stale cached auth payloads; clear all sessions here.
             await cache.auth.deleteSessionsForUser(normalizeDenTypeId("user", user.id));
           }
         },
@@ -652,14 +653,22 @@ export const auth = betterAuth({
       update: {
         after: async (session) => {
           if (typeof session.token === "string") {
+            // Better Auth session updates are the explicit invalidation point for cached sessions.
             await cache.auth.deleteSession(session.token);
+          }
+          if (typeof session.id === "string") {
+            await cache.auth.deleteSessionId(normalizeDenTypeId("session", session.id));
           }
         },
       },
       delete: {
         after: async (session) => {
           if (typeof session.token === "string") {
-            await cache.auth.deleteSession(session.token);
+            // Sign-out deletes the backing session row, so cached hits must be cleared here.
+            await cache.auth.revokeSession(session.token);
+          }
+          if (typeof session.id === "string") {
+            await cache.auth.revokeSessionId(normalizeDenTypeId("session", session.id));
           }
         },
       },
@@ -821,7 +830,8 @@ export const auth = betterAuth({
       }
 
       await ctx.context.internalAdapter.deleteSession(newSession.session.token);
-      await cache.auth.deleteSession(newSession.session.token);
+      // Enterprise auth rejection deletes the just-created session outside hooks in some adapters.
+      await cache.auth.revokeSession(newSession.session.token);
       deleteSessionCookie(ctx);
       throw ctx.redirect(getEnterpriseAuthRedirectUrl({
         signInPath: requirement.signInPath,
