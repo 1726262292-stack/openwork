@@ -19,6 +19,50 @@ function legacyRunnerToken() {
   return `${payload}.test-signature`
 }
 
+const EXPECTED_RECONNECT_DELAYS = [500, 1_000, 2_000, 4_000, 8_000, 16_000, 30_000, 30_000, 30_000, 30_000]
+
+async function observeHttpFailureBackoff(status) {
+  const paths = []
+  const delays = []
+  const done = new AbortController()
+  let runner = null
+  runner = createDesktopAutomationRunner({
+    getLocalRuntime: async () => ({ baseUrl: "http://127.0.0.1:3000", token: "local" }),
+    fetchImpl: async (url) => {
+      paths.push(new URL(url).pathname)
+      return Response.json({ message: "injected HTTP failure" }, { status })
+    },
+    random: () => 0.5,
+    waitBeforeReconnect: async (ms) => {
+      delays.push(ms)
+      await new Promise((resolve) => setImmediate(resolve))
+      if (delays.length === EXPECTED_RECONNECT_DELAYS.length) {
+        runner.stop()
+        done.abort()
+      }
+    },
+  })
+  runner.configure({
+    baseUrl: "https://den.example.com",
+    token: runnerTokenFor("https://den.example.com"),
+    runnerId: "runner-1",
+  })
+  if (!done.signal.aborted) {
+    await new Promise((resolve) => done.signal.addEventListener("abort", resolve, { once: true }))
+  }
+  return { paths, delays }
+}
+
+function requestBudget(delays, windowMs) {
+  let attempts = 0
+  let nextAttemptAt = 0
+  while (nextAttemptAt < windowMs) {
+    nextAttemptAt += delays[Math.min(attempts, delays.length - 1)]
+    attempts += 1
+  }
+  return attempts * 2
+}
+
 test("model-not-found failures become a repairable Automation error", () => {
   assert.deepEqual(classifyAutomationExecutionError({
     name: "ProviderModelNotFoundError",
@@ -150,6 +194,100 @@ test("a runner credential bound elsewhere reports why this desktop stays disconn
     "rejected runner credential for https://den.example.com/api/den"
       + ": token audience https://api.example.com",
   ])
+})
+
+for (const status of [502, 401]) {
+  test(`repeated HTTP ${status} responses retain exponential runner reconnect backoff`, async () => {
+    const { paths, delays } = await observeHttpFailureBackoff(status)
+    assert.deepEqual(delays, EXPECTED_RECONNECT_DELAYS)
+    assert.equal(paths.filter((path) => path === "/v1/automation-runner/work").length, 10)
+    assert.equal(paths.filter((path) => path === "/v1/automation-runners/events").length, 10)
+  })
+}
+
+test("runner HTTP failure request budget drops from the reset-on-response baseline", () => {
+  const previousResetOnResponseDelays = Array(10).fill(500)
+  assert.equal(requestBudget(previousResetOnResponseDelays, 60_000), 240)
+  assert.equal(requestBudget(EXPECTED_RECONNECT_DELAYS, 60_000), 14)
+  assert.equal(previousResetOnResponseDelays.reduce((total, delay) => total + delay, 0), 5_000)
+  assert.equal(EXPECTED_RECONNECT_DELAYS.reduce((total, delay) => total + delay, 0), 151_500)
+})
+
+test("a healthy SSE response resets runner reconnect backoff", async () => {
+  const delays = []
+  let eventRequests = 0
+  const done = new AbortController()
+  let runner = null
+  runner = createDesktopAutomationRunner({
+    getLocalRuntime: async () => ({ baseUrl: "http://127.0.0.1:3000", token: "local" }),
+    fetchImpl: async (url) => {
+      const path = new URL(url).pathname
+      if (path === "/v1/automation-runner/work") return Response.json({ items: [] })
+      eventRequests += 1
+      if (eventRequests <= 3) return new Response(null, { status: 502 })
+      return new Response("event: keepalive\ndata: {}\n\n", {
+        headers: { "Content-Type": "text/event-stream" },
+      })
+    },
+    random: () => 0.5,
+    waitBeforeReconnect: async (ms) => {
+      delays.push(ms)
+      await new Promise((resolve) => setImmediate(resolve))
+      if (delays.length === 4) {
+        runner.stop()
+        done.abort()
+      }
+    },
+  })
+  runner.configure({
+    baseUrl: "https://den.example.com",
+    token: runnerTokenFor("https://den.example.com"),
+    runnerId: "runner-1",
+  })
+  if (!done.signal.aborted) {
+    await new Promise((resolve) => done.signal.addEventListener("abort", resolve, { once: true }))
+  }
+  assert.deepEqual(delays, [500, 1_000, 2_000, 500])
+})
+
+test("a parsed SSE event resets backoff before an abrupt stream error", async () => {
+  const delays = []
+  let eventRequests = 0
+  const done = new AbortController()
+  let runner = null
+  runner = createDesktopAutomationRunner({
+    getLocalRuntime: async () => ({ baseUrl: "http://127.0.0.1:3000", token: "local" }),
+    fetchImpl: async (url) => {
+      const path = new URL(url).pathname
+      if (path === "/v1/automation-runner/work") return Response.json({ items: [] })
+      eventRequests += 1
+      if (eventRequests <= 3) return new Response(null, { status: 502 })
+      return new Response(new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode("event: keepalive\ndata: {}\n\n"))
+          setImmediate(() => controller.error(new Error("injected stream failure")))
+        },
+      }), { headers: { "Content-Type": "text/event-stream" } })
+    },
+    random: () => 0.5,
+    waitBeforeReconnect: async (ms) => {
+      delays.push(ms)
+      await new Promise((resolve) => setImmediate(resolve))
+      if (delays.length === 4) {
+        runner.stop()
+        done.abort()
+      }
+    },
+  })
+  runner.configure({
+    baseUrl: "https://den.example.com",
+    token: runnerTokenFor("https://den.example.com"),
+    runnerId: "runner-1",
+  })
+  if (!done.signal.aborted) {
+    await new Promise((resolve) => done.signal.addEventListener("abort", resolve, { once: true }))
+  }
+  assert.deepEqual(delays, [500, 1_000, 2_000, 500])
 })
 
 test("desktop Automation execution creates a normal visible local OpenWork thread", async () => {
