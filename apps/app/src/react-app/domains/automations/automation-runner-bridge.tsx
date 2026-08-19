@@ -8,7 +8,7 @@ import { isDesktopRuntime } from "@/app/utils"
 import { useDenAuth } from "@/react-app/domains/cloud/den-auth-provider"
 import { createAutomationRunnerConnectCoordinator } from "./automation-runner-connect-coordinator"
 
-const RUNNER_TOKEN_REFRESH_MS = 5 * 60_000
+const RUNNER_TOKEN_REFRESH_MS = 30 * 60_000
 const RUNNER_ID_KEY = "openwork.automations.desktop-runner-id"
 
 function desktopRunnerId() {
