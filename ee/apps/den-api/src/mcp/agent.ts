@@ -85,6 +85,23 @@ export { EXECUTE_CAPABILITY_TOOL_NAME }
 export const EXECUTE_CAPABILITY_SCRIPT_TOOL_NAME = "execute_capability_script"
 const searchCapabilityTypeSchema = z.enum(["all", "api", "admin", "mcp", "marketplace", "skills"])
 export const EXECUTE_CAPABILITY_TIMEOUT_MS = 180_000
+function unsupportedStandaloneSseResponse() {
+  return new Response(JSON.stringify({
+    jsonrpc: "2.0",
+    error: {
+      code: ErrorCode.ConnectionClosed,
+      message: "Method not allowed.",
+    },
+    id: null,
+  }), {
+    status: 405,
+    headers: {
+      "allow": "POST",
+      "content-type": "application/json",
+    },
+  })
+}
+
 export const SEARCH_CAPABILITIES_ANNOTATIONS: ToolAnnotations = {
   readOnlyHint: true,
   destructiveHint: false,
@@ -394,6 +411,10 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
     c.json(protectedResourceMetadata(c.req.raw, "agent")))
 
   app.all("/mcp/agent", tokenRoute, async (c) => {
+    if (c.req.method === "GET") {
+      return unsupportedStandaloneSseResponse()
+    }
+
     const requestIdValue = c.get("requestId")
     const requestId = typeof requestIdValue === "string" ? requestIdValue : "unknown"
     const principal = await verifyMcpRequest(

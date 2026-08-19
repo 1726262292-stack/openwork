@@ -49,4 +49,21 @@ describe("agent MCP OAuth protected-resource discovery", () => {
     const body = await res.json()
     expect(body).toMatchObject({ error: "missing_mcp_token", referenceId: "req_agent_route" })
   })
+
+  test("GET /mcp/agent rejects the optional standalone SSE listener", async () => {
+    const app = buildApp()
+    const res = await app.request(`${ORIGIN}/mcp/agent`, {
+      method: "GET",
+      headers: { accept: "text/event-stream" },
+    })
+
+    expect(res.status).toBe(405)
+    expect(res.headers.get("allow")).toBe("POST")
+    expect(res.headers.get("content-type")).toBe("application/json")
+    await expect(res.json()).resolves.toMatchObject({
+      jsonrpc: "2.0",
+      error: { message: "Method not allowed." },
+      id: null,
+    })
+  })
 })
