@@ -442,6 +442,11 @@ export type DenAppVersionMetadata = {
   minAppVersion: string;
   latestAppVersion: string;
   publishedDesktopVersions: string[];
+  /**
+   * This deployment's web app base URL, as advertised by `GET /v1/app-version`.
+   * Null when talking to a den-api that predates the field.
+   */
+  webUrl: string | null;
 };
 
 type RawJsonResponse<T> = {
@@ -521,6 +526,7 @@ function getDenAppVersionMetadata(payload: unknown): DenAppVersionMetadata | nul
     latestAppVersion,
     publishedDesktopVersions:
       publishedDesktopVersions.length > 0 ? publishedDesktopVersions : [latestAppVersion],
+    webUrl: normalizeDenBaseUrl(typeof payload.webUrl === "string" ? payload.webUrl : ""),
   };
 }
 
