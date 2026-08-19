@@ -665,10 +665,10 @@ export const auth = betterAuth({
         after: async (session) => {
           if (typeof session.token === "string") {
             // Sign-out deletes the backing session row, so cached hits must be cleared here.
-            await cache.auth.deleteSession(session.token);
+            await cache.auth.revokeSession(session.token);
           }
           if (typeof session.id === "string") {
-            await cache.auth.deleteSessionId(normalizeDenTypeId("session", session.id));
+            await cache.auth.revokeSessionId(normalizeDenTypeId("session", session.id));
           }
         },
       },
@@ -831,7 +831,7 @@ export const auth = betterAuth({
 
       await ctx.context.internalAdapter.deleteSession(newSession.session.token);
       // Enterprise auth rejection deletes the just-created session outside hooks in some adapters.
-      await cache.auth.deleteSession(newSession.session.token);
+      await cache.auth.revokeSession(newSession.session.token);
       deleteSessionCookie(ctx);
       throw ctx.redirect(getEnterpriseAuthRedirectUrl({
         signInPath: requirement.signInPath,

@@ -48,7 +48,7 @@ export async function deleteGlobalAuthUser(userId: UserId) {
   // Auth session cache hits intentionally avoid a DB liveness check; user deletion must clear
   // both token and session-id cache entries for every deleted session instead.
   await Promise.all(sessions.flatMap((session) => [
-    cache.auth.deleteSession(session.token),
-    cache.auth.deleteSessionId(session.id),
+    cache.auth.revokeSession(session.token),
+    cache.auth.revokeSessionId(session.id),
   ]))
 }

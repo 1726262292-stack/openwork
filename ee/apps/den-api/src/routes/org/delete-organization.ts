@@ -531,8 +531,8 @@ export function registerDeleteOrganizationRoutes<T extends { Variables: OrgRoute
       // Org deletion removes every member row; clear aggregate and per-user membership cache keys.
       await cache.org.deleteMembers(organizationId)
       await Promise.all(affectedSessions.flatMap((session) => [
-        cache.auth.deleteSession(session.token),
-        cache.auth.deleteSessionId(session.id),
+        cache.auth.revokeSession(session.token),
+        cache.auth.revokeSessionId(session.id),
       ]))
 
       logger.info("organization deleted", {

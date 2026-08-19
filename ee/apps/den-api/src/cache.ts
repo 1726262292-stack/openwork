@@ -13,7 +13,7 @@ type MemberId = typeof MemberTable.$inferSelect.id
 type UserId = typeof AuthUserTable.$inferSelect.id
 
 type CacheParent = "auth" | "org"
-type CacheChild = "member" | "members" | "session" | "session-id"
+type CacheChild = "member" | "members" | "session" | "session-id" | "session-revoked" | "session-id-revoked"
 
 type CacheKeyInput = {
   parent: CacheParent
@@ -25,6 +25,7 @@ type CacheRedisClient = {
   get(key: string): Promise<string | null>
   set(key: string, value: string, mode: "EX", ttl: number): Promise<unknown>
   del(...keys: string[]): Promise<unknown>
+  eval?(script: string, numberOfKeys: number, ...args: Array<string | number>): Promise<unknown>
   scan?(cursor: string, mode: "MATCH", pattern: string, countMode: "COUNT", count: number): Promise<[string, string[]]>
 }
 
@@ -108,9 +109,39 @@ function hashCacheId(id: string) {
 }
 
 function cacheLogDetails(input: CacheKeyInput) {
-  return input.parent === "auth" && input.child === "session"
+  return input.parent === "auth" && (input.child === "session" || input.child === "session-revoked")
     ? { cacheParent: input.parent, cacheChild: input.child, idHash: hashCacheId(input.id) }
     : { cacheParent: input.parent, cacheChild: input.child, id: input.id }
+}
+
+async function setUnlessRevoked(input: {
+  redis: CacheRedisClient
+  key: string
+  revokedKey: string
+  value: string
+  ttlSeconds: number
+}) {
+  if (input.redis.eval) {
+    const result = await input.redis.eval(
+      "if redis.call('exists', KEYS[2]) == 1 then return 0 else redis.call('set', KEYS[1], ARGV[1], 'EX', ARGV[2]) return 1 end",
+      2,
+      input.key,
+      input.revokedKey,
+      input.value,
+      input.ttlSeconds,
+    )
+    return result === 1
+  }
+
+  if (await input.redis.get(input.revokedKey)) {
+    return false
+  }
+  await input.redis.set(input.key, input.value, "EX", input.ttlSeconds)
+  if (await input.redis.get(input.revokedKey)) {
+    await input.redis.del(input.key)
+    return false
+  }
+  return true
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -491,10 +522,15 @@ async function loadOrgMembership(input: { organizationId: OrgId; userId: UserId 
 async function getAuthSessionResult(token: string): Promise<CacheResult<CachedAuthSession | null>> {
   const now = new Date()
   const keyInput = { parent: "auth", child: "session", id: token } as const
+  const revokedKeyInput = { parent: "auth", child: "session-revoked", id: token } as const
   const key = cacheKey(keyInput)
+  const revokedKey = cacheKey(revokedKeyInput)
   const redis = activeRedisClient
   if (redis) {
     try {
+      if (await redis.get(revokedKey)) {
+        return { value: null, source: "cache" }
+      }
       const cached = parseCachedAuthSession(await redis.get(key), now)
       if (cached) {
         return { value: cached, source: "cache" }
@@ -512,7 +548,7 @@ async function getAuthSessionResult(token: string): Promise<CacheResult<CachedAu
   const ttl = Math.min(AUTH_SESSION_MAX_TTL_SECONDS, Math.ceil((loaded.session.expiresAt.getTime() - now.getTime()) / 1000))
   if (ttl > 0) {
     try {
-      await redis.set(key, JSON.stringify(loaded), "EX", ttl)
+      await setUnlessRevoked({ redis, key, revokedKey, value: JSON.stringify(loaded), ttlSeconds: ttl })
     } catch (error) {
       console.error("openwork_cache_set_failed", { ...cacheLogDetails(keyInput), error })
     }
@@ -527,10 +563,15 @@ async function getAuthSession(token: string) {
 async function getActiveSessionId(sessionId: DenTypeId<"session">) {
   const now = new Date()
   const keyInput = { parent: "auth", child: "session-id", id: sessionId } as const
+  const revokedKeyInput = { parent: "auth", child: "session-id-revoked", id: sessionId } as const
   const key = cacheKey(keyInput)
+  const revokedKey = cacheKey(revokedKeyInput)
   const redis = activeRedisClient
   if (redis) {
     try {
+      if (await redis.get(revokedKey)) {
+        return null
+      }
       const cached = parseCachedActiveSessionId(await redis.get(key))
       if (cached) {
         return cached
@@ -548,7 +589,7 @@ async function getActiveSessionId(sessionId: DenTypeId<"session">) {
   const ttl = Math.min(DEFAULT_CACHE_TTL_SECONDS, Math.ceil((loaded.expiresAt.getTime() - now.getTime()) / 1000))
   if (ttl > 0) {
     try {
-      await redis.set(key, JSON.stringify(loaded), "EX", ttl)
+      await setUnlessRevoked({ redis, key, revokedKey, value: JSON.stringify(loaded), ttlSeconds: ttl })
     } catch (error) {
       console.error("openwork_cache_set_failed", { ...cacheLogDetails(keyInput), error })
     }
@@ -570,12 +611,34 @@ async function deleteAuthSession(token: string) {
   }
 }
 
+async function revokeAuthSession(token: string) {
+  const revokedKeyInput = { parent: "auth", child: "session-revoked", id: token } as const
+  try {
+    // Revocation tombstones stop a concurrent cache-miss loader from repopulating
+    // a deleted session without adding a live DB check to cache hits.
+    await activeRedisClient?.set(cacheKey(revokedKeyInput), "1", "EX", AUTH_SESSION_MAX_TTL_SECONDS)
+    await deleteAuthSession(token)
+  } catch (error) {
+    console.error("openwork_cache_delete_failed", { ...cacheLogDetails(revokedKeyInput), error })
+  }
+}
+
 async function deleteAuthSessionId(sessionId: DenTypeId<"session">) {
   const keyInput = { parent: "auth", child: "session-id", id: sessionId } as const
   try {
     await activeRedisClient?.del(cacheKey(keyInput))
   } catch (error) {
     console.error("openwork_cache_delete_failed", { ...cacheLogDetails(keyInput), error })
+  }
+}
+
+async function revokeAuthSessionId(sessionId: DenTypeId<"session">) {
+  const revokedKeyInput = { parent: "auth", child: "session-id-revoked", id: sessionId } as const
+  try {
+    await activeRedisClient?.set(cacheKey(revokedKeyInput), "1", "EX", AUTH_SESSION_MAX_TTL_SECONDS)
+    await deleteAuthSessionId(sessionId)
+  } catch (error) {
+    console.error("openwork_cache_delete_failed", { ...cacheLogDetails(revokedKeyInput), error })
   }
 }
 
@@ -664,7 +727,9 @@ export const cache = {
     sessionResult: getAuthSessionResult,
     activeSessionId: getActiveSessionId,
     deleteSession: deleteAuthSession,
+    revokeSession: revokeAuthSession,
     deleteSessionId: deleteAuthSessionId,
+    revokeSessionId: revokeAuthSessionId,
     deleteSessionsForUser: deleteAuthSessionsForUser,
   },
   org: {

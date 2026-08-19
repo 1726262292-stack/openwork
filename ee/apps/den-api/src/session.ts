@@ -323,10 +323,10 @@ export async function revokeBearerSession(headers: Headers) {
     .limit(1)
   await db.delete(AuthSessionTable).where(eq(AuthSessionTable.token, token))
   // Sign-out/revocation is the authoritative point that invalidates cached auth.
-  await cache.auth.deleteSession(token)
+  await cache.auth.revokeSession(token)
   const session = rows[0]
   if (session) {
-    await cache.auth.deleteSessionId(normalizeDenTypeId("session", session.id))
+    await cache.auth.revokeSessionId(normalizeDenTypeId("session", session.id))
   }
   return true
 }

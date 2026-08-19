@@ -236,6 +236,17 @@ test("cache.auth.deleteSession invalidates the exact Den cache key", async () =>
   expect(deleteCalls).toEqual([`cache:auth:session:${sessionToken}`, `cache:auth:session-id:${sessionId}`])
 })
 
+test("cache.auth.revokeSession blocks stale session cache repopulation", async () => {
+  await cacheModule.cache.auth.revokeSession(sessionToken)
+  authSessionLive = true
+
+  const resolved = await cacheModule.cache.auth.session(sessionToken)
+
+  expect(resolved).toBeNull()
+  expect(authSelectCount).toBe(0)
+  expect(cachedValues.has(`cache:auth:session:${sessionToken}`)).toBe(false)
+})
+
 test("cache.auth.deleteSessionId invalidates liveness without a token cache entry", async () => {
   await cacheModule.cache.auth.activeSessionId(sessionId)
   deleteCalls.length = 0
@@ -243,6 +254,17 @@ test("cache.auth.deleteSessionId invalidates liveness without a token cache entr
   await cacheModule.cache.auth.deleteSessionId(sessionId)
 
   expect(deleteCalls).toEqual([`cache:auth:session-id:${sessionId}`])
+})
+
+test("cache.auth.revokeSessionId blocks stale liveness cache repopulation", async () => {
+  await cacheModule.cache.auth.revokeSessionId(sessionId)
+  authSessionLive = true
+
+  const resolved = await cacheModule.cache.auth.activeSessionId(sessionId)
+
+  expect(resolved).toBeNull()
+  expect(authSessionIdSelectCount).toBe(0)
+  expect(cachedValues.has(`cache:auth:session-id:${sessionId}`)).toBe(false)
 })
 
 test("cache.org.membership stores and reuses user organization membership checks", async () => {

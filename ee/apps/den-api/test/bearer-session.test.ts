@@ -253,7 +253,18 @@ beforeAll(async () => {
           }
           return Promise.resolve()
         },
+        revokeSession: (requestedToken: string) => {
+          cacheDeletes.push(requestedToken)
+          if (cached?.session.token === requestedToken) {
+            cached = null
+          }
+          return Promise.resolve()
+        },
         deleteSessionId: (requestedSessionId: string) => {
+          cacheDeletes.push(requestedSessionId)
+          return Promise.resolve()
+        },
+        revokeSessionId: (requestedSessionId: string) => {
           cacheDeletes.push(requestedSessionId)
           return Promise.resolve()
         },
