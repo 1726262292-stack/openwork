@@ -85,21 +85,11 @@ export { EXECUTE_CAPABILITY_TOOL_NAME }
 export const EXECUTE_CAPABILITY_SCRIPT_TOOL_NAME = "execute_capability_script"
 const searchCapabilityTypeSchema = z.enum(["all", "api", "admin", "mcp", "marketplace", "skills"])
 export const EXECUTE_CAPABILITY_TIMEOUT_MS = 180_000
-function unsupportedStandaloneSseResponse() {
-  return new Response(JSON.stringify({
-    jsonrpc: "2.0",
-    error: {
-      code: ErrorCode.ConnectionClosed,
-      message: "Method not allowed.",
-    },
-    id: null,
-  }), {
-    status: 405,
-    headers: {
-      "allow": "POST",
-      "content-type": "application/json",
-    },
-  })
+function closeStandaloneSseResponse() {
+  // Some published OpenCode clients treat 405 as a connection failure even
+  // though standalone SSE is optional. 204 closes the unused listener without
+  // turning the probe into a protocol error.
+  return new Response(null, { status: 204 })
 }
 
 export const SEARCH_CAPABILITIES_ANNOTATIONS: ToolAnnotations = {
@@ -422,7 +412,7 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
     }
 
     if (c.req.method === "GET") {
-      return unsupportedStandaloneSseResponse()
+      return closeStandaloneSseResponse()
     }
 
     const preflightResponse = await preflightMcpJsonRpcRequest(c.req.raw, requestId)
