@@ -1,7 +1,7 @@
 import { test } from "@openwork/testkit";
 import { expect } from "vitest";
 
-import { createDenDb } from "../../ee/packages/den-db/src/client.js";
+import { createRetryingPlanetScaleFetch } from "../../ee/packages/den-db/src/transient-retry.js";
 
 function successfulQueryResponse(): Response {
   return new Response(
@@ -26,10 +26,6 @@ function unavailableResponse(): Response {
   });
 }
 
-function hasStatus(error: unknown, status: number): boolean {
-  return typeof error === "object" && error !== null && "status" in error && error.status === status;
-}
-
 test("Den retries transient PlanetScale reads without replaying writes", async ({ evidence }) => {
   const originalFetch = globalThis.fetch;
   const originalWarn = console.warn;
@@ -41,13 +37,15 @@ test("Den retries transient PlanetScale reads without replaying writes", async (
   console.warn = () => undefined;
 
   try {
-    const { client } = createDenDb({
-      mode: "planetscale",
-      planetscale: { host: "example.test", username: "user", password: "password" },
+    const databaseFetch = createRetryingPlanetScaleFetch();
+    const readResponse = await databaseFetch("https://example.test/psdb.v1alpha1.Database/Execute", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ query: "select 1", session: null }),
     });
-    await client.execute("select 1");
+    expect(readResponse.ok).toBe(true);
     expect(attempts).toBe(2);
-    evidence.fact(
+    evidence.recordAssertionEvidence(
       "Transient PlanetScale reads recover after one retry",
       "A SELECT receiving HTTP 503 once completed on the second attempt, with exactly two requests.",
       true,
@@ -58,11 +56,14 @@ test("Den retries transient PlanetScale reads without replaying writes", async (
       attempts += 1;
       return unavailableResponse();
     };
-    await expect(client.execute("insert into example values (1)")).rejects.toSatisfy(
-      (error: unknown) => hasStatus(error, 503),
-    );
+    const writeResponse = await databaseFetch("https://example.test/psdb.v1alpha1.Database/Execute", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ query: "insert into example values (1)", session: null }),
+    });
+    expect(writeResponse.status).toBe(503);
     expect(attempts).toBe(1);
-    evidence.fact(
+    evidence.recordAssertionEvidence(
       "Transient failures never replay writes",
       "An INSERT receiving HTTP 503 failed after exactly one request, so the write was not retried.",
       true,
