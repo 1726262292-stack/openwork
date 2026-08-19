@@ -9,6 +9,7 @@ import { getMcpResourceContext, verifyMcpRequest } from "./auth.js"
 import { buildMcpCatalog, getToolDescription, loadOpenApiDocument, type McpToolOperation } from "./catalog.js"
 import { invokeMcpOperation } from "./invoke.js"
 import { preflightMcpJsonRpcRequest } from "./json-rpc-preflight.js"
+import { normalizeMcpProtocolVersionHeader } from "./protocol-version.js"
 import { getDenAuthIssuer } from "./jwt-policy.js"
 import { DEN_MCP_REQUESTED_SCOPES } from "./scopes.js"
 import { SEARCH_CAPABILITIES_TOOL_NAME, searchCapabilities } from "./search.js"
@@ -76,6 +77,8 @@ export function registerMcpRoutes<T extends { Variables: RequestIdVariables & Re
     if (preflightResponse) {
       return preflightResponse
     }
+
+    normalizeMcpProtocolVersionHeader(c.req.raw.headers, "mcp", requestId)
 
     const catalog = await getCatalog(app as unknown as Hono, c.env)
     const server = new McpServer({

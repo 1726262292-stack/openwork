@@ -16,6 +16,7 @@ import { getMcpResourceContext, verifyMcpRequest } from "./auth.js"
 import { DEN_MCP_APP_HOST_SCOPE, DEN_MCP_WRITE_SCOPE } from "./scopes.js"
 import { getCatalog, protectedResourceMetadata } from "./index.js"
 import { preflightMcpJsonRpcRequest } from "./json-rpc-preflight.js"
+import { normalizeMcpProtocolVersionHeader } from "./protocol-version.js"
 import {
   compareCapabilityMatches,
   EXECUTE_CAPABILITY_TOOL_NAME,
@@ -424,6 +425,8 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
     if (preflightResponse) {
       return preflightResponse
     }
+
+    normalizeMcpProtocolVersionHeader(c.req.raw.headers, "agent", requestId)
 
     const catalog = await getCatalog(app as unknown as Hono, c.env)
     // External MCP connections are scoped to the calling MEMBER (grants +
