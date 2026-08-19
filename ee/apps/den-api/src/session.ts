@@ -312,8 +312,17 @@ export async function revokeBearerSession(headers: Headers) {
     return false
   }
 
+  const rows = await db
+    .select({ id: AuthSessionTable.id })
+    .from(AuthSessionTable)
+    .where(eq(AuthSessionTable.token, token))
+    .limit(1)
   await db.delete(AuthSessionTable).where(eq(AuthSessionTable.token, token))
   await cache.auth.deleteSession(token)
+  const session = rows[0]
+  if (session) {
+    await cache.auth.deleteSessionId(normalizeDenTypeId("session", session.id))
+  }
   return true
 }
 

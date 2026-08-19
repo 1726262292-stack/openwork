@@ -223,6 +223,15 @@ test("cache.auth.deleteSession invalidates the exact Den cache key", async () =>
   expect(deleteCalls).toEqual([`cache:auth:session:${sessionToken}`, `cache:auth:session-id:${sessionId}`])
 })
 
+test("cache.auth.deleteSessionId invalidates liveness without a token cache entry", async () => {
+  await cacheModule.cache.auth.activeSessionId(sessionId)
+  deleteCalls.length = 0
+
+  await cacheModule.cache.auth.deleteSessionId(sessionId)
+
+  expect(deleteCalls).toEqual([`cache:auth:session-id:${sessionId}`])
+})
+
 test("cache.org.membership stores and reuses user organization membership checks", async () => {
   const first = await cacheModule.cache.org.membership({ organizationId, userId })
   const second = await cacheModule.cache.org.membership({ organizationId, userId })
