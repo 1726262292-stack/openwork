@@ -1,5 +1,5 @@
 import { asc, and, eq, gt, isNull, lt, lte } from "@openwork-ee/den-db/drizzle"
-import { AuthSessionTable, AuthUserTable, InvitationTable, MemberTable, OrganizationTable } from "@openwork-ee/den-db/schema"
+import { AuthSessionTable, AuthUserTable, InvitationTable, MemberTable, OAuthConsentTable, OrganizationTable } from "@openwork-ee/den-db/schema"
 import { normalizeDenTypeId, type DenTypeId, type DenTypeIdName } from "@openwork-ee/utils/typeid"
 import { createHash } from "node:crypto"
 import Redis from "ioredis"
@@ -11,9 +11,10 @@ import { getDenSessionExpiresAt, getDenSessionRefreshCutoff } from "./session-li
 type OrgId = typeof OrganizationTable.$inferSelect.id
 type MemberId = typeof MemberTable.$inferSelect.id
 type UserId = typeof AuthUserTable.$inferSelect.id
+type OAuthConsentId = typeof OAuthConsentTable.$inferSelect.id
 
 type CacheParent = "auth" | "org"
-type CacheChild = "member" | "members" | "session" | "session-id" | "session-revoked" | "session-id-revoked"
+type CacheChild = "grant" | "grant-revoked" | "member" | "members" | "session" | "session-id" | "session-revoked" | "session-id-revoked"
 
 type CacheKeyInput = {
   parent: CacheParent
@@ -99,6 +100,7 @@ let activeOrgMembersLoader = loadOrgMembers
 let activeOrgMembershipLoader = loadOrgMembership
 let activeAuthSessionLoader = loadAuthSession
 let activeAuthSessionIdLoader = loadActiveSessionId
+let activeAuthGrantLoader = loadActiveGrant
 
 function cacheKey(input: CacheKeyInput) {
   return `cache:${input.parent}:${input.child}:${input.id}`
@@ -281,6 +283,25 @@ function parseCachedActiveSessionId(raw: string | null) {
   const id = readDenId("session", parsed.id)
   const expiresAt = readDate(parsed.expiresAt)
   return id && expiresAt && expiresAt > new Date() ? { id, expiresAt } : null
+}
+
+function parseCachedActiveGrant(raw: string | null) {
+  if (!raw) {
+    return null
+  }
+
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    return null
+  }
+  if (!isRecord(parsed)) {
+    return null
+  }
+
+  const id = readDenId("oauthConsent", parsed.id)
+  return id ? { id } : null
 }
 
 function parseCachedAuthSession(raw: string | null, now: Date): CachedAuthSession | null {
@@ -505,6 +526,17 @@ async function loadActiveSessionId(sessionId: DenTypeId<"session">, now: Date) {
   }
 }
 
+async function loadActiveGrant(grantId: OAuthConsentId) {
+  const rows = await db
+    .select({ id: OAuthConsentTable.id })
+    .from(OAuthConsentTable)
+    .where(eq(OAuthConsentTable.id, grantId))
+    .limit(1)
+
+  const row = rows[0]
+  return row ? { id: normalizeDenTypeId("oauthConsent", row.id) } : null
+}
+
 async function loadOrgMembership(input: { organizationId: OrgId; userId: UserId }): Promise<CachedOrgMembership | null> {
   const rows = await db
     .select({ id: MemberTable.id, role: MemberTable.role })
@@ -597,6 +629,39 @@ async function getActiveSessionId(sessionId: DenTypeId<"session">) {
   return loaded
 }
 
+async function getActiveGrant(grantId: OAuthConsentId) {
+  const keyInput: CacheKeyInput = { parent: "auth", child: "grant", id: grantId }
+  const revokedKeyInput: CacheKeyInput = { parent: "auth", child: "grant-revoked", id: grantId }
+  const key = cacheKey(keyInput)
+  const revokedKey = cacheKey(revokedKeyInput)
+  const redis = activeRedisClient
+  if (redis) {
+    try {
+      if (await redis.get(revokedKey)) {
+        return null
+      }
+      const cached = parseCachedActiveGrant(await redis.get(key))
+      if (cached) {
+        return cached
+      }
+    } catch (error) {
+      console.error("openwork_cache_get_failed", { ...cacheLogDetails(keyInput), error })
+    }
+  }
+
+  const loaded = await activeAuthGrantLoader(grantId)
+  if (!loaded || !redis) {
+    return loaded
+  }
+
+  try {
+    await setUnlessRevoked({ redis, key, revokedKey, value: JSON.stringify(loaded), ttlSeconds: DEFAULT_CACHE_TTL_SECONDS })
+  } catch (error) {
+    console.error("openwork_cache_set_failed", { ...cacheLogDetails(keyInput), error })
+  }
+  return loaded
+}
+
 async function deleteAuthSession(token: string) {
   const keyInput = { parent: "auth", child: "session", id: token } as const
   const key = cacheKey(keyInput)
@@ -637,6 +702,17 @@ async function revokeAuthSessionId(sessionId: DenTypeId<"session">) {
   try {
     await activeRedisClient?.set(cacheKey(revokedKeyInput), "1", "EX", AUTH_SESSION_MAX_TTL_SECONDS)
     await deleteAuthSessionId(sessionId)
+  } catch (error) {
+    console.error("openwork_cache_delete_failed", { ...cacheLogDetails(revokedKeyInput), error })
+  }
+}
+
+async function revokeAuthGrant(grantId: OAuthConsentId) {
+  const keyInput: CacheKeyInput = { parent: "auth", child: "grant", id: grantId }
+  const revokedKeyInput: CacheKeyInput = { parent: "auth", child: "grant-revoked", id: grantId }
+  try {
+    await activeRedisClient?.set(cacheKey(revokedKeyInput), "1", "EX", AUTH_SESSION_MAX_TTL_SECONDS)
+    await activeRedisClient?.del(cacheKey(keyInput))
   } catch (error) {
     console.error("openwork_cache_delete_failed", { ...cacheLogDetails(revokedKeyInput), error })
   }
@@ -718,18 +794,21 @@ async function deleteAuthSessionsForUser(userId: UserId) {
  * way. Auth sessions are DB-authoritative and cached for at most one hour;
  * Cached hits must not perform live DB checks. Any operation that changes the
  * source rows instead calls the dedicated invalidators below: user sign-out and
- * session mutation clear auth session keys; org deletion, member removal, member
- * addition, role transfer, and role edits clear org member/membership keys.
+ * session mutation clear auth session keys; consent deletion writes grant
+ * tombstones; org deletion, member removal, member addition, role transfer, and
+ * role edits clear org member/membership keys.
  */
 export const cache = {
   auth: {
     session: getAuthSession,
     sessionResult: getAuthSessionResult,
     activeSessionId: getActiveSessionId,
+    grant: getActiveGrant,
     deleteSession: deleteAuthSession,
     revokeSession: revokeAuthSession,
     deleteSessionId: deleteAuthSessionId,
     revokeSessionId: revokeAuthSessionId,
+    revokeGrant: revokeAuthGrant,
     deleteSessionsForUser: deleteAuthSessionsForUser,
   },
   org: {
@@ -755,12 +834,14 @@ export function setCacheDependenciesForTest(input: {
   orgMembersLoader?: (organizationId: OrgId) => Promise<CachedOrgMember[]>
   authSessionLoader?: (token: string, now: Date) => Promise<CachedAuthSession | null>
   authSessionIdLoader?: (sessionId: DenTypeId<"session">, now: Date) => Promise<{ id: DenTypeId<"session">; expiresAt: Date } | null>
+  authGrantLoader?: (grantId: OAuthConsentId) => Promise<{ id: OAuthConsentId } | null>
   orgMembershipLoader?: (input: { organizationId: OrgId; userId: UserId }) => Promise<CachedOrgMembership | null>
 }) {
   const previousRedis = activeRedisClient
   const previousOrgMembersLoader = activeOrgMembersLoader
   const previousAuthSessionLoader = activeAuthSessionLoader
   const previousAuthSessionIdLoader = activeAuthSessionIdLoader
+  const previousAuthGrantLoader = activeAuthGrantLoader
   const previousOrgMembershipLoader = activeOrgMembershipLoader
   if ("redis" in input) {
     activeRedisClient = input.redis ?? null
@@ -774,6 +855,9 @@ export function setCacheDependenciesForTest(input: {
   if (input.authSessionIdLoader) {
     activeAuthSessionIdLoader = input.authSessionIdLoader
   }
+  if (input.authGrantLoader) {
+    activeAuthGrantLoader = input.authGrantLoader
+  }
   if (input.orgMembershipLoader) {
     activeOrgMembershipLoader = input.orgMembershipLoader
   }
@@ -782,6 +866,7 @@ export function setCacheDependenciesForTest(input: {
     activeOrgMembersLoader = previousOrgMembersLoader
     activeAuthSessionLoader = previousAuthSessionLoader
     activeAuthSessionIdLoader = previousAuthSessionIdLoader
+    activeAuthGrantLoader = previousAuthGrantLoader
     activeOrgMembershipLoader = previousOrgMembershipLoader
   }
 }

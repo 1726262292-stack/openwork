@@ -1459,6 +1459,10 @@ export function registerAdminRoutes<T extends { Variables: AuthContextVariables 
         .select({ id: AuthSessionTable.id, token: AuthSessionTable.token })
         .from(AuthSessionTable)
         .where(eq(AuthSessionTable.userId, userId))
+      const oauthConsentRows = await db
+        .select({ id: OAuthConsentTable.id })
+        .from(OAuthConsentTable)
+        .where(eq(OAuthConsentTable.userId, userId))
 
       await db.transaction(async (tx) => {
         const removedAt = new Date()
@@ -1489,6 +1493,7 @@ export function registerAdminRoutes<T extends { Variables: AuthContextVariables 
         cache.auth.revokeSession(session.token),
         cache.auth.revokeSessionId(session.id),
       ]))
+      await Promise.all(oauthConsentRows.map((consent) => cache.auth.revokeGrant(consent.id)))
 
       const organizationIds = Array.from(new Set(activeMembershipRows.map((row) => row.organizationId).filter(isOrganizationId)))
       // Admin user deletion soft-removes memberships; clear affected org membership caches.

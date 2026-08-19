@@ -28,6 +28,10 @@ export async function deleteGlobalAuthUser(userId: UserId) {
     .select({ id: AuthSessionTable.id, token: AuthSessionTable.token })
     .from(AuthSessionTable)
     .where(eq(AuthSessionTable.userId, userId))
+  const oauthConsents = await db
+    .select({ id: OAuthConsentTable.id })
+    .from(OAuthConsentTable)
+    .where(eq(OAuthConsentTable.userId, userId))
 
   await db.transaction(async (tx) => {
     await tx.delete(OAuthAccessTokenTable).where(eq(OAuthAccessTokenTable.userId, userId))
@@ -51,4 +55,5 @@ export async function deleteGlobalAuthUser(userId: UserId) {
     cache.auth.revokeSession(session.token),
     cache.auth.revokeSessionId(session.id),
   ]))
+  await Promise.all(oauthConsents.map((consent) => cache.auth.revokeGrant(consent.id)))
 }
