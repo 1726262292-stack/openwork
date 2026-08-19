@@ -619,6 +619,12 @@ async function handleAuthRequest(c: Context) {
   }
   const authRequest = await normalizeMcpOAuthRequest(request)
   if (authRequest instanceof Response) {
+    if (oauthTokenRateLimit) {
+      // Malformed token requests rejected before auth.handler must still
+      // consume the failure budget, or repeated invalid-resource submissions
+      // would only ever pay the looser attempt buckets.
+      await recordOAuthTokenFailure(oauthTokenRateLimit.failureKey, authRequest, checkRateLimit)
+    }
     return authRequest
   }
   const invitationSignupAllowed = await isInvitationSignupAllowed(authRequest)

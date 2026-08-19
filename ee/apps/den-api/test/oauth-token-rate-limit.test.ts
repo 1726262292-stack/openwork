@@ -115,6 +115,28 @@ test("fifteen failed exchanges block the next request before authentication", as
   })
 })
 
+test("pre-handler normalization rejections consume the failure budget", async () => {
+  const limiter = createInMemoryRateLimit()
+  const request = tokenRequest("malformed-client", "203.0.113.14", true)
+  const now = Date.now()
+  for (let attempt = 0; attempt < 15; attempt += 1) {
+    const admission = await checkOAuthTokenRateLimit(request, limiter.check, now)
+    expect(admission.response).toBeNull()
+    // Model handleAuthRequest rejecting the request in normalization, before
+    // auth.handler ever runs.
+    await recordOAuthTokenFailure(
+      admission.failureKey,
+      new Response(JSON.stringify({ error: "invalid_request" }), { status: 400 }),
+      limiter.check,
+      now,
+    )
+  }
+
+  const blocked = await checkOAuthTokenRateLimit(request, limiter.check, now)
+  expect(blocked.response?.status).toBe(429)
+  expect(limiter.buckets.get(`oauth-token:fail:${hash("malformed-client")}`)?.count).toBe(15)
+})
+
 test("successful exchanges never consume the failure budget", async () => {
   const limiter = createInMemoryRateLimit()
   const clientId = "successful-client"

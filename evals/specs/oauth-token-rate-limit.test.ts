@@ -33,7 +33,7 @@ test("OAuth token clients receive isolated attempt and failure budgets", ({ evid
 
     const junit = readFileSync(reportPath, "utf8");
     const summary = junit.match(/<testsuite\b[^>]*>/)?.[0] ?? "";
-    expect(summary).toContain('tests="4"');
+    expect(summary).toContain('tests="5"');
     expect(summary).toContain('failures="0"');
     expect(summary).toContain('skipped="0"');
     expect(junit).not.toContain("<failure");
@@ -47,6 +47,11 @@ test("OAuth token clients receive isolated attempt and failure budgets", ({ evid
     evidence.recordAssertionEvidence(
       "Repeated authentication failures trigger a stricter budget",
       "The focused runtime witness observes only 15 failed handler exchanges before the next request is rejected before authentication with an OAuth-compatible 429.",
+      true,
+    );
+    evidence.recordAssertionEvidence(
+      "Pre-handler normalization rejections consume the failure budget",
+      "The focused runtime witness records 15 pre-handler 400 rejections without running the token handler and requires the 16th request to be blocked with a 429 while the failure bucket shows exactly 15 entries.",
       true,
     );
     evidence.recordAssertionEvidence(
