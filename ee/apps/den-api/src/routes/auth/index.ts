@@ -619,6 +619,9 @@ async function handleAuthRequest(c: Context) {
   }
   const authRequest = await normalizeMcpOAuthRequest(request)
   if (authRequest instanceof Response) {
+    if (oauthTokenRateLimit) {
+      await recordOAuthTokenFailure(oauthTokenRateLimit.failureKey, authRequest, checkRateLimit)
+    }
     return authRequest
   }
   const invitationSignupAllowed = await isInvitationSignupAllowed(authRequest)

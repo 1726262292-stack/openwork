@@ -115,6 +115,23 @@ test("fifteen failed exchanges block the next request before authentication", as
   })
 })
 
+test("fifteen normalization failures block the next request before authentication", async () => {
+  const limiter = createInMemoryRateLimit()
+  const request = tokenRequest("invalid-target-client", "203.0.113.14")
+  const now = Date.now()
+
+  for (let attempt = 0; attempt < 15; attempt += 1) {
+    const admission = await checkOAuthTokenRateLimit(request, limiter.check, now)
+    expect(admission.response).toBeNull()
+
+    const response = new Response(JSON.stringify({ error: "invalid_target" }), { status: 400 })
+    await recordOAuthTokenFailure(admission.failureKey, response, limiter.check, now)
+  }
+
+  const blocked = await checkOAuthTokenRateLimit(request, limiter.check, now)
+  expect(blocked.response?.status).toBe(429)
+})
+
 test("successful exchanges never consume the failure budget", async () => {
   const limiter = createInMemoryRateLimit()
   const clientId = "successful-client"
