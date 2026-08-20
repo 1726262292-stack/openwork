@@ -22,6 +22,11 @@ type GithubFetchFixtures = {
 const repoUrl = "https://api.github.com/repos/different-ai/openwork";
 const latestReleaseUrl = "https://api.github.com/repos/different-ai/openwork/releases/latest";
 const releasesUrl = "https://api.github.com/repos/different-ai/openwork/releases?per_page=50";
+const expectedRevalidateSeconds: Record<string, number> = {
+  [repoUrl]: 60 * 60,
+  [latestReleaseUrl]: 90,
+  [releasesUrl]: 10 * 60
+};
 const fallbackReleaseUrl = "https://github.com/different-ai/openwork/releases";
 const releaseTag = "v0.17.38";
 const releasePageUrl = `${fallbackReleaseUrl}/tag/${releaseTag}`;
@@ -34,6 +39,7 @@ const asset = (name: string): GithubFixtureAsset => ({
 });
 
 const installGithubFetch = ({ latestRelease, releases }: GithubFetchFixtures) => {
+  const requests: Array<{ url: string; revalidate?: number }> = [];
   const fixtures: Record<string, unknown> = {
     [repoUrl]: { stargazers_count: 12345 },
     [latestReleaseUrl]: latestRelease,
@@ -41,10 +47,16 @@ const installGithubFetch = ({ latestRelease, releases }: GithubFetchFixtures) =>
   };
 
   const fetchStub = Object.assign(
-    async (input: Parameters<typeof fetch>[0]) => {
+    async (
+      input: Parameters<typeof fetch>[0],
+      init?: Parameters<typeof fetch>[1]
+    ) => {
       const url =
         typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
       const fixture = fixtures[url];
+      const next = (init as { next?: { revalidate?: number } } | undefined)?.next;
+
+      requests.push({ url, revalidate: next?.revalidate });
 
       if (fixture === undefined) {
         return new Response("Not found", { status: 404 });
@@ -59,6 +71,7 @@ const installGithubFetch = ({ latestRelease, releases }: GithubFetchFixtures) =>
   ) satisfies typeof fetch;
 
   globalThis.fetch = fetchStub;
+  return requests;
 };
 
 const releaseWithAssets = (assets: GithubFixtureAsset[]): GithubFixtureRelease => ({
@@ -79,6 +92,19 @@ afterEach(() => {
 });
 
 describe("getGithubData", () => {
+  test("refreshes the latest published release without exhausting the public GitHub API budget", async () => {
+    const release = releaseWithAssets([
+      asset("openwork-mac-arm64-0.17.38.dmg")
+    ]);
+    const requests = installGithubFetch({ latestRelease: release, releases: [release] });
+
+    await getGithubData();
+
+    expect(Object.fromEntries(requests.map(({ url, revalidate }) => [url, revalidate]))).toEqual(
+      expectedRevalidateSeconds
+    );
+  });
+
   test("selects only public desktop assets when installer assets are listed first", async () => {
     const macArm64 = asset("openwork-mac-arm64-0.17.38.dmg");
     const macX64 = asset("openwork-mac-x64-0.17.38.dmg");

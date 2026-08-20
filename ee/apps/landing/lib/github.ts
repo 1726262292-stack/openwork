@@ -16,6 +16,13 @@ type Repo = {
 };
 
 const FALLBACK_RELEASE = "https://github.com/different-ai/openwork/releases";
+// Keep published installers fresh without exceeding GitHub's unauthenticated
+// API budget: 40 latest-release + 6 fallback-list + 1 repo request per hour.
+const GITHUB_REVALIDATE_SECONDS = {
+  repo: 60 * 60,
+  latestRelease: 90,
+  releaseList: 10 * 60
+} as const;
 
 const formatCompact = (value: number) => {
   try {
@@ -53,13 +60,16 @@ const selectAsset = (
   );
 };
 
-const fetchJson = async <T,>(url: string): Promise<T | null> => {
+const fetchJson = async <T,>(
+  url: string,
+  revalidateSeconds: number
+): Promise<T | null> => {
   try {
     const response = await fetch(url, {
       headers: {
         Accept: "application/vnd.github+json"
       },
-      next: { revalidate: 60 * 60 }
+      next: { revalidate: revalidateSeconds }
     });
 
     if (!response.ok) return null;
@@ -75,12 +85,17 @@ export const getGithubData = async () => {
   // the paginated list being flooded by alpha tags pushing stable releases out
   // of the per_page window.
   const [repo, latestRelease, releases] = await Promise.all([
-    fetchJson<Repo>("https://api.github.com/repos/different-ai/openwork"),
+    fetchJson<Repo>(
+      "https://api.github.com/repos/different-ai/openwork",
+      GITHUB_REVALIDATE_SECONDS.repo
+    ),
     fetchJson<Release>(
-      "https://api.github.com/repos/different-ai/openwork/releases/latest"
+      "https://api.github.com/repos/different-ai/openwork/releases/latest",
+      GITHUB_REVALIDATE_SECONDS.latestRelease
     ),
     fetchJson<Release[]>(
-      "https://api.github.com/repos/different-ai/openwork/releases?per_page=50"
+      "https://api.github.com/repos/different-ai/openwork/releases?per_page=50",
+      GITHUB_REVALIDATE_SECONDS.releaseList
     )
   ]);
 
