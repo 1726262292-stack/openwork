@@ -15,9 +15,14 @@ const MemberTable = { id: "member.id" }
 const OAuthConsentTable = { id: "consent.id" }
 const OrganizationTable = { id: "organization.id" }
 
+let failSetForKeyPrefix: string | null = null
+
 const redis = {
   get: (key: string) => Promise.resolve(cachedValues.get(key) ?? null),
   set: (key: string, value: string, mode: string, ttl: number) => {
+    if (failSetForKeyPrefix && key.startsWith(failSetForKeyPrefix)) {
+      return Promise.reject(new Error("redis set unavailable"))
+    }
     setCalls.push({ key, value, mode, ttl })
     cachedValues.set(key, value)
     return Promise.resolve("OK")
@@ -69,6 +74,7 @@ beforeEach(() => {
   cachedValues.clear()
   setCalls.length = 0
   loaderCalls = 0
+  failSetForKeyPrefix = null
 })
 
 afterAll(() => {
@@ -89,6 +95,21 @@ test("grant liveness cache hits avoid repeated loader calls", async () => {
     mode: "EX",
     ttl: 60,
   })
+})
+
+test("a failed tombstone write still clears the stale positive grant entry", async () => {
+  await cacheModule.cache.auth.grant(grantId)
+  expect(cachedValues.has(`cache:auth:grant:${grantId}`)).toBe(true)
+
+  failSetForKeyPrefix = "cache:auth:grant-revoked:"
+  await cacheModule.cache.auth.revokeGrant(grantId)
+
+  expect(cachedValues.has(`cache:auth:grant:${grantId}`)).toBe(false)
+  const resolved = await cacheModule.cache.auth.grant(grantId)
+  expect(resolved).toEqual({ id: grantId })
+  // The stale positive entry is gone, so liveness re-consults the loader
+  // (database-authoritative) instead of serving the pre-revocation cache hit.
+  expect(loaderCalls).toBe(2)
 })
 
 test("grant revocation tombstones block stale cache repopulation", async () => {

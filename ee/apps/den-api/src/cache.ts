@@ -710,11 +710,19 @@ async function revokeAuthSessionId(sessionId: DenTypeId<"session">) {
 async function revokeAuthGrant(grantId: OAuthConsentId) {
   const keyInput: CacheKeyInput = { parent: "auth", child: "grant", id: grantId }
   const revokedKeyInput: CacheKeyInput = { parent: "auth", child: "grant-revoked", id: grantId }
+  // The database row is already gone; these writes only bound cache staleness.
+  // Attempt both independently so a failed tombstone write still clears the
+  // positive entry — a lone tombstone or a lone delete each end acceptance,
+  // and a total Redis outage converges at the positive entry's TTL.
   try {
     await activeRedisClient?.set(cacheKey(revokedKeyInput), "1", "EX", AUTH_SESSION_MAX_TTL_SECONDS)
-    await activeRedisClient?.del(cacheKey(keyInput))
   } catch (error) {
     console.error("openwork_cache_delete_failed", { ...cacheLogDetails(revokedKeyInput), error })
+  }
+  try {
+    await activeRedisClient?.del(cacheKey(keyInput))
+  } catch (error) {
+    console.error("openwork_cache_delete_failed", { ...cacheLogDetails(keyInput), error })
   }
 }
 

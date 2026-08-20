@@ -29,7 +29,7 @@ test("MCP OAuth grants outlive login sessions and revoke with consent", ({ evide
       { file: "test/mcp-oauth-grant-policy.test.ts", tests: 6 },
       { file: "test/mcp-grant-revocation.test.ts", tests: 1 },
       { file: "test/mcp-grant-deletion-tombstones.test.ts", tests: 1 },
-      { file: "test/mcp-grant-cache.test.ts", tests: 2 },
+      { file: "test/mcp-grant-cache.test.ts", tests: 3 },
     ];
     for (const [index, witness] of witnesses.entries()) {
       const reportPath = join(reportDir, `bun-junit-${index}.xml`);
