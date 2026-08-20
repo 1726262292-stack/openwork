@@ -40,11 +40,6 @@ import {
   listArtifactViewsForScript,
   retireArtifactView,
 } from "../../artifact-views.js"
-import {
-  clearProgramAgentSelection,
-  getProgramAgentSelection,
-  selectProgramForAgent,
-} from "../../program-agent-selection.js"
 
 const capabilitySchema = z.object({ capabilityName: z.string(), scriptPath: z.string() })
 const scriptSchema = z.object({
@@ -122,11 +117,6 @@ const programDetailSchema = z.object({
   views: z.array(generatedArtifactViewSchema),
 })
 const artifactViewsResponseSchema = z.object({ items: z.array(generatedArtifactViewSchema) })
-const programSelectionSchema = z.object({
-  organizationId: z.string(), orgMembershipId: z.string(), programId: z.string(), selectedAt: z.string().datetime(),
-})
-const programSelectionResponseSchema = z.object({ selection: programSelectionSchema.nullable() })
-const programSelectionWriteSchema = z.object({ programId: z.string().trim().min(1).max(160) })
 const artifactViewParamsSchema = z.object({
   artifactViewId: z.string().trim().min(1).max(160),
   revisionId: z.string().trim().min(1).max(160).optional(),
@@ -361,43 +351,6 @@ export function registerOrgCodemodeScriptRoutes<T extends { Variables: OrgRouteV
         const failure = routeFailure(error)
         return c.json(failure.body, failure.status)
       }
-    },
-  )
-
-  app.get(
-    "/v1/me/program-selection",
-    describeRoute({ tags: ["Codemode Runs"], summary: "Get my selected Program", responses: { 200: jsonResponse("Program selection returned.", programSelectionResponseSchema) } }),
-    orgMemberRoute(),
-    async (c) => {
-      const { actorContext, codemodeEnabled } = await contextFor(c)
-      return c.json({ selection: codemodeEnabled ? await getProgramAgentSelection(actorContext) : null })
-    },
-  )
-
-  app.put(
-    "/v1/me/program-selection",
-    describeRoute({ tags: ["Codemode Runs"], summary: "Select a Program for MCP", responses: { 200: jsonResponse("Program selected.", programSelectionResponseSchema) } }),
-    orgMemberRoute(), jsonValidator(programSelectionWriteSchema),
-    async (c) => {
-      try {
-        const { actorContext, codemodeEnabled } = await contextFor(c)
-        if (!codemodeEnabled) throw new Error("codemode_scripts_disabled")
-        return c.json({ selection: await selectProgramForAgent({ context: actorContext, programId: c.req.valid("json").programId }) })
-      } catch (error) {
-        const failure = routeFailure(error)
-        return c.json(failure.body, failure.status)
-      }
-    },
-  )
-
-  app.delete(
-    "/v1/me/program-selection",
-    describeRoute({ tags: ["Codemode Runs"], summary: "Clear my selected Program", responses: { 200: jsonResponse("Program selection cleared.", programSelectionResponseSchema) } }),
-    orgMemberRoute(),
-    async (c) => {
-      const { actorContext } = await contextFor(c)
-      await clearProgramAgentSelection(actorContext)
-      return c.json({ selection: null })
     },
   )
 

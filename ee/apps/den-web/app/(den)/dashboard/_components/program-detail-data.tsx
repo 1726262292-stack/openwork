@@ -86,17 +86,3 @@ export function useRetireArtifactView(programId: string) {
     onSuccess: async () => client.invalidateQueries({ queryKey: ["program", programId] }),
   });
 }
-
-export function useSelectProgram() {
-  return useMutation({
-    mutationFn: async (programId: string) => {
-      const { response, payload } = await requestJson("/v1/me/program-selection", {
-        method: "PUT",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ programId }),
-      }, 15_000);
-      if (!response.ok) throw new Error(getErrorMessage(payload, `Failed to select Program (${response.status}).`));
-      return payload;
-    },
-  });
-}
