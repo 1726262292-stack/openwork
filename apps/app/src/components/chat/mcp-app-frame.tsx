@@ -320,11 +320,26 @@ export function McpAppFrame({ part }: { part: DynamicToolUIPart }) {
       )
     }, SANDBOX_READY_TIMEOUT_MS)
 
+    let pendingHeight: number | null = null
+    let sizeSettleTimer: number | undefined
+    const applyHeight = (requestedHeight: number) => {
+      lastSizeEventAt = Date.now()
+      setHeight(Math.min(MAX_HEIGHT, Math.max(MIN_HEIGHT, Math.ceil(requestedHeight))))
+    }
     bridge.onsizechange = ({ height: requestedHeight }) => {
-      const now = Date.now()
-      if (now - lastSizeEventAt < SIZE_EVENT_INTERVAL_MS || !Number.isFinite(requestedHeight)) return
-      lastSizeEventAt = now
-      setHeight(Math.min(MAX_HEIGHT, Math.max(MIN_HEIGHT, Math.ceil(requestedHeight ?? DEFAULT_HEIGHT))))
+      if (!Number.isFinite(requestedHeight) || requestedHeight === undefined) return
+      if (Date.now() - lastSizeEventAt >= SIZE_EVENT_INTERVAL_MS) {
+        applyHeight(requestedHeight)
+        return
+      }
+      // Throttled: keep the newest value and apply it on the trailing edge so
+      // the final post-render measurement is never dropped.
+      pendingHeight = requestedHeight
+      sizeSettleTimer ??= window.setTimeout(() => {
+        sizeSettleTimer = undefined
+        if (pendingHeight !== null && !disposed) applyHeight(pendingHeight)
+        pendingHeight = null
+      }, SIZE_EVENT_INTERVAL_MS)
     }
     bridge.onrequestteardown = () => {
       setApp(null)
@@ -484,6 +499,7 @@ export function McpAppFrame({ part }: { part: DynamicToolUIPart }) {
       window.clearTimeout(sandboxReadyTimer)
       if (resourceDeliveryTimer !== undefined) window.clearTimeout(resourceDeliveryTimer)
       if (initializeTimer !== undefined) window.clearTimeout(initializeTimer)
+      if (sizeSettleTimer !== undefined) window.clearTimeout(sizeSettleTimer)
       void Promise.race([
         bridge.teardownResource({}),
         new Promise<void>((resolve) => window.setTimeout(resolve, 500)),
