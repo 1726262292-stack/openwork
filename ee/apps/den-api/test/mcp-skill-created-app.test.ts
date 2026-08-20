@@ -8,6 +8,7 @@ import {
   SKILL_CREATED_APP_HTML,
   SKILL_CREATED_APP_RESOURCE_URI,
   skillCreatedPayloadSchema,
+  UPDATE_SKILL_TOOL_NAME,
   type CreateSkillResult,
 } from "../src/mcp/skill-created-app.js"
 import { dynamicArtifactAppServerCapabilities } from "../src/mcp/dynamic-artifact-app.js"
@@ -21,17 +22,25 @@ const payload = skillCreatedPayloadSchema.parse({
   libraryUrl: "https://app.openworklabs.com/dashboard/library/plugins/plugin_tomatoes",
 })
 
+const updatedPayload = skillCreatedPayloadSchema.parse({
+  ...payload,
+  mode: "updated",
+  description: "Use beautiful tomatoes and cherry tomatoes when the user says go.",
+})
+
 type CreateSkill = Parameters<typeof registerAgentSkillCreatedApp>[0]["create"]
+type UpdateSkill = NonNullable<Parameters<typeof registerAgentSkillCreatedApp>[0]["update"]>
 
 async function withClient<T>(
   run: (client: Client) => Promise<T>,
   create: CreateSkill = async () => ({ ok: true, payload }),
+  update: UpdateSkill = async () => ({ ok: true, payload: updatedPayload }),
 ): Promise<T> {
   const server = new McpServer(
     { name: "skill-created-test", version: "1.0.0" },
     { capabilities: dynamicArtifactAppServerCapabilities },
   )
-  registerAgentSkillCreatedApp({ server, create })
+  registerAgentSkillCreatedApp({ server, create, update })
   const client = new Client(
     { name: "skill-created-host-test", version: "1.0.0" },
     {
@@ -127,6 +136,44 @@ test("serves bundled React HTML and returns schema-valid structured content with
   })
   expect(requests).toHaveLength(1)
   expect(requests[0]?.pluginName).toBe("Beautiful Tomatoes")
+})
+
+test("lists update_skill against the same skill App resource", async () => {
+  await withClient(async (client) => {
+    const tools = await client.listTools()
+    const tool = tools.tools.find((candidate) => candidate.name === UPDATE_SKILL_TOOL_NAME)
+    expect(tool?._meta).toMatchObject({
+      ui: {
+        resourceUri: SKILL_CREATED_APP_RESOURCE_URI,
+        visibility: ["model", "app"],
+      },
+    })
+  })
+})
+
+test("update_skill returns updated-mode structured content and text fallback", async () => {
+  const requests: Array<{ skillId: string; skillMarkdown: string; reason?: string }> = []
+  await withClient(async (client) => {
+    const result = await client.callTool({
+      name: UPDATE_SKILL_TOOL_NAME,
+      arguments: {
+        skillId: "configObject_tomatoes",
+        skillMarkdown: "---\nname: beautiful-tomatoes\ndescription: Use beautiful tomatoes and cherry tomatoes when the user says go.\n---\n\nUse tomatoes generously.",
+        reason: "Add cherry tomatoes",
+      },
+    })
+    expect(result.isError).not.toBe(true)
+    expect(skillCreatedPayloadSchema.parse(result.structuredContent)).toEqual(updatedPayload)
+    const first = result.content[0]
+    const fallback = first?.type === "text" ? first.text : ""
+    expect(fallback).toContain("# Skill updated: beautiful-tomatoes")
+    expect(fallback).toContain("Plugin ID: plugin_tomatoes")
+  }, undefined, async (request): Promise<CreateSkillResult> => {
+    requests.push(request)
+    return { ok: true, payload: updatedPayload }
+  })
+  expect(requests).toHaveLength(1)
+  expect(requests[0]?.reason).toBe("Add cherry tomatoes")
 })
 
 test("keeps creation failures useful to clients without MCP Apps", async () => {

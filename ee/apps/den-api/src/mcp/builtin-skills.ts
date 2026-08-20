@@ -54,7 +54,7 @@ Produce one complete \`SKILL.md\` with:
    }
    \`\`\`
 3. Use the returned plugin id and skill id to report that the skill is ready to use now. Compatible clients render the skill-created App automatically; do not replace it with emoji confirmation Markdown.
-4. On a \`duplicate_plugin\` response, report the existing plugin id from the message and offer to update that skill through \`postConfigObjectsVersions\` with path \`{ "configObjectId": "<id>" }\` instead of creating a duplicate.
+4. On a \`duplicate_plugin\` response, report the existing plugin id from the message and offer to update that skill through the direct \`update_skill\` tool with \`{ "skillId": "<cob_…>", "skillMarkdown": "<complete SKILL.md>" }\` instead of creating a duplicate. It renders the same skill App with an updated state.
 5. On authorization or validation errors, report them. Do not fall back to a workspace-local skill unless the user explicitly asks for one.
 6. After reporting that the skill is ready, offer to share it with a person or team. If accepted, execute and follow the \`share-plugin\` skill.
 `
@@ -102,7 +102,8 @@ A skill always lives inside a plugin. Marketplace membership is on the plugin id
    - path: \`{ "marketplaceId": "<id>" }\`
    - body: \`{ "pluginId": "<plugin id>" }\`
 4. Execute \`getMarketplacesResolved\` and confirm the plugin is listed.
-5. Stop. Do not grant user access unless the user asks for that separately.
+5. A successful \`postMarketplacesPlugins\` result renders a confirmation card automatically in compatible clients; report the outcome in text as well.
+6. Stop. Do not grant user access unless the user asks for that separately.
 `
 
 const ADD_USER_TO_MARKETPLACE_SOURCE = `---
@@ -147,7 +148,8 @@ Treat "this user" / "them" as:
    - body: \`{ "orgMembershipId": "<om_…>", "role": "viewer" }\`
    Use \`"role": "manager"\` only when the user explicitly asks for manage access.
 4. Execute \`getMarketplacesAccess\` and confirm the member is listed.
-5. Stop. Do not change plugin membership unless asked.
+5. A successful \`postMarketplacesAccess\` result renders a confirmation card automatically in compatible clients; report the outcome in text as well.
+6. Stop. Do not change plugin membership unless asked.
 `
 
 const SHARE_PLUGIN_SOURCE = `---
@@ -192,7 +194,7 @@ The recipient is the named person or team. NEVER invent ids. Resolve a person or
    Use \`"role": "viewer"\` by default. Use \`"role": "editor"\` ONLY when the user explicitly asks for edit access.
 4. Organization-wide sharing is admin-only and must be explicitly requested. For that request, use \`{ "orgWide": true, "role": "viewer" }\`; the server returns 403 otherwise, which you must relay.
 5. Execute \`getPluginsAccess\` and confirm the intended grant is listed.
-6. Report that the recipient can use the skill in chat immediately.
+6. Report that the recipient can use the skill in chat immediately. A successful \`postPluginsAccess\` result renders a confirmation card automatically in compatible clients.
 7. Stop. Do not attach marketplaces in this flow.
 `
 

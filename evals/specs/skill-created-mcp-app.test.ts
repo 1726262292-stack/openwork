@@ -32,7 +32,7 @@ test("create_skill publishes a standard MCP App contract and text fallback", ({ 
   const gatewayOutput = `${gateway.stdout}${gateway.stderr}`
   expect(gateway.error, gatewayOutput).toBeUndefined()
   expect(gateway.status, gatewayOutput).toBe(0)
-  expect(gatewayOutput).toContain("3 pass")
+  expect(gatewayOutput).toContain("5 pass")
   expect(gatewayOutput).toContain("0 fail")
 
   evidence.recordAssertionEvidence(
@@ -43,6 +43,11 @@ test("create_skill publishes a standard MCP App contract and text fallback", ({ 
   evidence.recordAssertionEvidence(
     "Skill creation has structured and non-App results",
     "The same call returns payload-schema-valid structuredContent, stable Plugin and skill identifiers, and a useful text fallback without tomato emoji Markdown.",
+    true,
+  )
+  evidence.recordAssertionEvidence(
+    "update_skill shares the skill App",
+    "The gateway lists one update_skill tool bound to the same skill-created resource, and updating returns updated-mode structuredContent with a Skill updated text fallback.",
     true,
   )
 })

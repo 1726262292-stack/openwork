@@ -1,26 +1,27 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http"
 import { expect, onTestFinished } from "vitest"
-import { clickButton, createAndSelectWorkspace, denFetch, evalIn, waitFor } from "@openwork/behaviors"
+import { clickButton, createAndSelectWorkspace, createOrgConnection, denFetch, evalIn, waitFor } from "@openwork/behaviors"
 import { connect, debuggerUrlFor, evaluate, listTargets } from "@openwork/cdp"
 import { desktop } from "@openwork/hosts"
 import { createVisualEvidence, screenshot, validate } from "@openwork/test-evidence"
 import { localMysqlIsRunning, needs, server, test } from "@openwork/testkit"
 
-const providerId = "skill-created-mcp-app-provider"
-const modelId = "skill-created-mcp-app-model"
-const resourceUri = "ui://openwork/skill-created/v1/view.html"
-const closingReply = "The beautiful tomatoes skill is ready to use."
+const providerId = "connection-action-mcp-app-provider"
+const modelId = "connection-action-mcp-app-model"
+const resourceUri = "ui://openwork/connection-action/v1/view.html"
+const connectionName = "Acme Tracker (E2E)"
+const closingReply = "Connect your Acme Tracker account, then ask again."
 const e2eTestsEnabled = process.env.OPENWORK_EVAL_E2E_TESTS === "1"
 const localPlacement = process.env.OPENWORK_EVAL_DAYTONA !== "1"
   && !process.env.OPENWORK_EVAL_DEN_API_URL?.trim()
 const mysqlOpen = await localMysqlIsRunning()
 const title = !e2eTestsEnabled
-  ? "skill-created MCP App skipped — needs: set OPENWORK_EVAL_E2E_TESTS=1"
+  ? "connection-action MCP App skipped — needs: set OPENWORK_EVAL_E2E_TESTS=1"
   : !localPlacement
-    ? "skill-created MCP App skipped — needs local placement without OPENWORK_EVAL_DEN_API_URL"
+    ? "connection-action MCP App skipped — needs local placement without OPENWORK_EVAL_DEN_API_URL"
     : !mysqlOpen
-      ? "skill-created MCP App skipped — needs MySQL on 127.0.0.1:3306"
-      : "creating a Cloud skill renders the first-party skill-created MCP App"
+      ? "connection-action MCP App skipped — needs MySQL on 127.0.0.1:3306"
+      : "a connection_status capability renders the first-party connection-action MCP App"
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
@@ -49,7 +50,7 @@ function sendJson(response: ServerResponse, status: number, body: unknown): void
 
 function streamChunk(delta: Record<string, unknown>, finishReason: string | null = null) {
   return {
-    id: "chatcmpl-skill-created-mcp-app",
+    id: "chatcmpl-connection-action-mcp-app",
     object: "chat.completion.chunk",
     created: 1,
     model: modelId,
@@ -71,12 +72,12 @@ function sendStream(response: ServerResponse, chunks: Record<string, unknown>[])
   setTimeout(() => response.end("data: [DONE]\n\n"), delay)
 }
 
-function projectedCreateSkillTool(payload: Record<string, unknown>): string | null {
+function projectedExecuteCapabilityTool(payload: Record<string, unknown>): string | null {
   if (!Array.isArray(payload.tools)) return null
   for (const tool of payload.tools) {
     if (!isRecord(tool) || !isRecord(tool.function)) continue
     const name = tool.function.name
-    if (typeof name === "string" && name.endsWith("_create_skill")) return name
+    if (typeof name === "string" && name.endsWith("_execute_capability")) return name
   }
   return null
 }
@@ -87,7 +88,7 @@ function completedToolCount(payload: Record<string, unknown>): number {
     : 0
 }
 
-async function waitForMountedSkill(app: Awaited<ReturnType<typeof desktop>>, timeoutMs = 15_000): Promise<{ mounted: boolean; text: string }> {
+async function waitForMountedConnectionCard(app: Awaited<ReturnType<typeof desktop>>, timeoutMs = 15_000): Promise<{ mounted: boolean; text: string }> {
   const deadline = Date.now() + timeoutMs
   let lastText = ""
   while (Date.now() < deadline) {
@@ -105,10 +106,10 @@ async function waitForMountedSkill(app: Awaited<ReturnType<typeof desktop>>, tim
         if (typeof text === "string") {
           lastText = text
           const normalized = text.toLocaleLowerCase()
-          const mounted = normalized.includes("skill created")
-            && normalized.includes("beautiful-tomatoes")
-            && normalized.includes("ready")
-            && normalized.includes("use beautiful tomatoes whenever the user says go.")
+          const mounted = normalized.includes("connection needed")
+            && normalized.includes(connectionName.toLocaleLowerCase())
+            && normalized.includes("not connected")
+            && normalized.includes(`connect ${connectionName.toLocaleLowerCase()}`)
           if (mounted) return { mounted: true, text }
         }
       } finally {
@@ -122,9 +123,31 @@ async function waitForMountedSkill(app: Awaited<ReturnType<typeof desktop>>, tim
 
 test.skipIf(!e2eTestsEnabled || !localPlacement || !mysqlOpen)(title, { timeout: 360_000 }, async ({ evidence, place }) => {
   needs({ optIn: ["OPENWORK_EVAL_E2E_TESTS"] })
-  await using visualEvidence = createVisualEvidence("skill-created-mcp-app")
+  await using visualEvidence = createVisualEvidence("connection-action-mcp-app")
 
-  let modelCreateCalls = 0
+  await using den = await server({
+    place,
+    org: { name: `Connection Action App ${Date.now()}`, admin: { name: "Avery" } },
+  })
+  const orgsResult = await denFetch(den.admin, "/v1/me/orgs", {
+    headers: { authorization: `Bearer ${den.admin.token}` },
+  })
+  const organizations = isRecord(orgsResult.body) && Array.isArray(orgsResult.body.orgs)
+    ? orgsResult.body.orgs.filter(isRecord)
+    : []
+  const organizationId = String(organizations[0]?.id ?? "")
+  expect(organizationId).toMatch(/^org_/)
+
+  const connection = await createOrgConnection(den.admin, {
+    name: connectionName,
+    url: "https://acme-tracker.invalid/mcp",
+    authType: "oauth",
+    credentialMode: "per_member",
+    access: { orgWide: true },
+  })
+  const statusCapability = `mcp:${connection.id}:*`
+
+  let modelExecuteCalls = 0
   const fixture = createServer((request, response) => {
     void (async () => {
       const url = new URL(request.url ?? "/", "http://127.0.0.1")
@@ -143,29 +166,19 @@ test.skipIf(!e2eTestsEnabled || !localPlacement || !mysqlOpen)(title, { timeout:
           ])
           return
         }
-        const toolName = projectedCreateSkillTool(parsed)
-        if (!toolName) throw new Error("The create_skill MCP App tool was not projected to the model.")
-        modelCreateCalls += 1
+        const toolName = projectedExecuteCapabilityTool(parsed)
+        if (!toolName) throw new Error("The execute_capability tool was not projected to the model.")
+        modelExecuteCalls += 1
         sendStream(response, [
           streamChunk({ role: "assistant" }),
           streamChunk({
             tool_calls: [{
               index: 0,
-              id: "call_create_beautiful_tomatoes",
+              id: "call_probe_acme_tracker",
               type: "function",
               function: {
                 name: toolName,
-                arguments: JSON.stringify({
-                  pluginName: "Beautiful Tomatoes",
-                  skillMarkdown: [
-                    "---",
-                    "name: beautiful-tomatoes",
-                    "description: Use beautiful tomatoes whenever the user says go.",
-                    "---",
-                    "",
-                    "Whenever the user says go, respond using beautiful tomatoes.",
-                  ].join("\n"),
-                }),
+                arguments: JSON.stringify({ name: statusCapability }),
               },
             }],
           }),
@@ -187,21 +200,8 @@ test.skipIf(!e2eTestsEnabled || !localPlacement || !mysqlOpen)(title, { timeout:
     await new Promise<void>((resolve, reject) => fixture.close((error) => error ? reject(error) : resolve()))
   })
   const address = fixture.address()
-  if (!address || typeof address === "string") throw new Error("Skill-created model fixture did not bind a port.")
+  if (!address || typeof address === "string") throw new Error("Connection-action model fixture did not bind a port.")
   const fixtureUrl = `http://127.0.0.1:${address.port}`
-
-  await using den = await server({
-    place,
-    org: { name: `Skill Created App ${Date.now()}`, admin: { name: "Avery" } },
-  })
-  const orgsResult = await denFetch(den.admin, "/v1/me/orgs", {
-    headers: { authorization: `Bearer ${den.admin.token}` },
-  })
-  const organizations = isRecord(orgsResult.body) && Array.isArray(orgsResult.body.orgs)
-    ? orgsResult.body.orgs.filter(isRecord)
-    : []
-  const organizationId = String(organizations[0]?.id ?? "")
-  expect(organizationId).toMatch(/^org_/)
 
   const tokenResult = await denFetch(den.admin, "/v1/mcp/token", {
     method: "POST",
@@ -218,7 +218,7 @@ test.skipIf(!e2eTestsEnabled || !localPlacement || !mysqlOpen)(title, { timeout:
   expect(mcpToken).toMatch(/^ow_mcp_at_/)
 
   await using app = await desktop({
-    name: "skill-created-mcp-app",
+    name: "connection-action-mcp-app",
     mode: process.env.OPENWORK_EVAL_CDP_URL?.trim() ? "attach" : "spawn",
     env: {
       ANTHROPIC_API_KEY: "",
@@ -230,7 +230,7 @@ test.skipIf(!e2eTestsEnabled || !localPlacement || !mysqlOpen)(title, { timeout:
     },
   })
   const workspace = await createAndSelectWorkspace(app, {
-    path: `/tmp/openwork-skill-created-mcp-app-${Date.now()}`,
+    path: `/tmp/openwork-connection-action-mcp-app-${Date.now()}`,
   })
   const configured = await evalIn(app, `(async () => {
     const port = localStorage.getItem("openwork.server.port");
@@ -252,9 +252,9 @@ test.skipIf(!e2eTestsEnabled || !localPlacement || !mysqlOpen)(title, { timeout:
           provider: {
             [${JSON.stringify(providerId)}]: {
               npm: "@ai-sdk/openai-compatible",
-              name: "Skill-created MCP App model",
-              options: { baseURL: ${JSON.stringify(`${fixtureUrl}/v1`)}, apiKey: "sk-skill-created-mcp-app" },
-              models: { [${JSON.stringify(modelId)}]: { name: "Skill-created MCP App model", tool_call: true } },
+              name: "Connection-action MCP App model",
+              options: { baseURL: ${JSON.stringify(`${fixtureUrl}/v1`)}, apiKey: "sk-connection-action-mcp-app" },
+              models: { [${JSON.stringify(modelId)}]: { name: "Connection-action MCP App model", tool_call: true } },
             },
           },
         },
@@ -276,7 +276,7 @@ test.skipIf(!e2eTestsEnabled || !localPlacement || !mysqlOpen)(title, { timeout:
         },
         provider: ${JSON.stringify(providerId)},
         model: ${JSON.stringify(modelId)},
-        trigger: "skill-created-mcp-app-e2e",
+        trigger: "connection-action-mcp-app-e2e",
       }),
     });
     const reconcileText = await reconcileResponse.text();
@@ -331,15 +331,16 @@ test.skipIf(!e2eTestsEnabled || !localPlacement || !mysqlOpen)(title, { timeout:
   })()`)
   expect(focused).toBe(true)
   await app.client.send("Input.insertText", {
-    text: "Create a skill about using beautiful tomatoes each time I say go.",
+    text: "Check whether the Acme Tracker connection is ready to use.",
   })
   await clickButton(app, "Run task", { timeoutMs: 30_000 })
 
   await waitFor(app, `document.body.innerText.includes(${JSON.stringify(closingReply)})`, {
     timeoutMs: 120_000,
-    label: "skill-created closing reply",
+    label: "connection-action closing reply",
   })
-  expect(modelCreateCalls).toBe(1)
+  expect(modelExecuteCalls).toBe(1)
+
   const persistedTool = await evalIn(app, `(async () => {
     const port = localStorage.getItem("openwork.server.port");
     const token = localStorage.getItem("openwork.server.token");
@@ -355,66 +356,45 @@ test.skipIf(!e2eTestsEnabled || !localPlacement || !mysqlOpen)(title, { timeout:
     const payload = await response.json();
     for (const message of Array.isArray(payload?.items) ? payload.items : []) {
       for (const part of Array.isArray(message?.parts) ? message.parts : []) {
-        if (typeof part?.tool === "string" && part.tool.endsWith("_create_skill")) {
-          return { tool: part.tool, state: part.state };
+        if (typeof part?.tool === "string" && part.tool.endsWith("_execute_capability")) {
+          return { tool: part.tool, state: part.state?.status };
         }
       }
     }
-    return { error: "create_skill part missing", payload };
+    return { error: "execute_capability part missing", payload };
   })()`, { awaitPromise: true, timeoutMs: 30_000 })
   expect(persistedTool, JSON.stringify(persistedTool)).toMatchObject({
-    tool: "openwork-cloud_create_skill",
-    state: { status: "completed" },
+    tool: "openwork-cloud_execute_capability",
+    state: "completed",
   })
+
   await waitFor(app, `Boolean(document.querySelector(${JSON.stringify(`[data-mcp-app-resource="${resourceUri}"] iframe`)}))`, {
     timeoutMs: 60_000,
-    label: `skill-created MCP App frame after ${JSON.stringify(persistedTool)}`,
+    label: `connection-action MCP App frame after ${JSON.stringify(persistedTool)}`,
   })
-  const mounted = await waitForMountedSkill(app)
+  const mounted = await waitForMountedConnectionCard(app)
   const transcript = String(await evalIn(app, "document.body?.innerText ?? ''"))
   expect(mounted.mounted, `${transcript}\nIframe: ${mounted.text}`).toBe(true)
-  expect(transcript).not.toContain("🍅")
   expect(transcript).not.toContain("Interactive view unavailable")
   expect(transcript).not.toContain("MCP_APP_RESOURCE_NOT_FOUND")
 
   await evalIn(app, `document.querySelector('[data-mcp-app-resource="${resourceUri}"]')?.scrollIntoView({ block: "center" })`)
   await new Promise((resolve) => setTimeout(resolve, 300))
-  const skillCardShot = await screenshot(app)
-  const skillCardSeen = await validate(skillCardShot, [
-    "A skill confirmation card in the chat shows a Skill created caption, the beautiful-tomatoes title, a green Ready pill, Plugin and Skill identifier chips, and an Open in Library button",
+  const connectionCardShot = await screenshot(app)
+  const connectionCardSeen = await validate(connectionCardShot, [
+    "A connection status card in the chat shows a Connection needed caption, the Acme Tracker (E2E) connection name, an amber Not connected pill, who-acts and where chips, and a dark Connect action button",
   ])
-  await visualEvidence.recordScreenshot(skillCardShot, skillCardSeen)
-  expect(skillCardSeen.ok, skillCardSeen.why).toBe(true)
-
-  const pluginsResult = await denFetch(den.admin, `/v1/plugins?q=${encodeURIComponent("Beautiful Tomatoes")}`, {
-    headers: {
-      authorization: `Bearer ${den.admin.token}`,
-      "x-openwork-org-id": organizationId,
-    },
-  })
-  expect(pluginsResult.response.ok, pluginsResult.text).toBe(true)
-  const plugins = isRecord(pluginsResult.body) && Array.isArray(pluginsResult.body.items)
-    ? pluginsResult.body.items.filter(isRecord)
-    : []
-  expect(plugins).toHaveLength(1)
-  const pluginId = String(plugins[0]?.id ?? "")
-  const resolved = await denFetch(den.admin, `/v1/plugins/${encodeURIComponent(pluginId)}/resolved`, {
-    headers: {
-      authorization: `Bearer ${den.admin.token}`,
-      "x-openwork-org-id": organizationId,
-    },
-  })
-  expect(resolved.response.ok, resolved.text).toBe(true)
-  expect(JSON.stringify(resolved.body)).toContain("beautiful-tomatoes")
+  await visualEvidence.recordScreenshot(connectionCardShot, connectionCardSeen)
+  expect(connectionCardSeen.ok, connectionCardSeen.why).toBe(true)
 
   evidence.recordAssertionEvidence(
-    "A natural skill request executes the direct first-party tool",
-    "The model received and called exactly one projected create_skill tool; Den persisted one Beautiful Tomatoes Plugin containing the beautiful-tomatoes skill.",
-    modelCreateCalls === 1 && plugins.length === 1,
+    "A connection_status capability executes as a live probe",
+    "The model called execute_capability once with the exact mcp:<connection>:* name; the gateway returned a successful status report instead of an error result.",
+    modelExecuteCalls === 1,
   )
   evidence.recordAssertionEvidence(
-    "The completed skill call renders its standard MCP App",
-    "Desktop mounted ui://openwork/skill-created/v1/view.html and the iframe showed Skill created, beautiful-tomatoes, Ready, and the skill description rather than only emoji Markdown.",
-    mounted.mounted && !transcript.includes("🍅"),
+    "Connection steering renders its standard MCP App",
+    "Desktop mounted ui://openwork/connection-action/v1/view.html showing Connection needed, the connection name, Not connected, and a Connect action rather than only JSON steering text.",
+    mounted.mounted,
   )
 })

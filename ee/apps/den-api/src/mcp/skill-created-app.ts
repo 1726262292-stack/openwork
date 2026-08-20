@@ -17,6 +17,7 @@ export { skillCreatedPayloadSchema } from "@openwork/types/skill-created-app"
 
 export const SKILL_CREATED_APP_RESOURCE_URI = "ui://openwork/skill-created/v1/view.html"
 export const CREATE_SKILL_TOOL_NAME = "create_skill"
+export const UPDATE_SKILL_TOOL_NAME = "update_skill"
 export const SKILL_CREATED_APP_HTML = skillCreatedAppHtml
 
 export type CreateSkillResult =
@@ -37,7 +38,7 @@ const skillCreatedAppResourceMeta: { ui: McpUiResourceMeta } = {
 
 export function skillCreatedTextFallback(payload: SkillCreatedPayload): string {
   return [
-    `# Skill created: ${payload.name}`,
+    `# Skill ${payload.mode === "updated" ? "updated" : "created"}: ${payload.name}`,
     payload.description,
     `Plugin ID: ${payload.pluginId}`,
     `Skill ID: ${payload.skillId}`,
@@ -45,9 +46,31 @@ export function skillCreatedTextFallback(payload: SkillCreatedPayload): string {
   ].filter((line): line is string => line !== null).join("\n")
 }
 
+function skillSavedToolResult(result: CreateSkillResult) {
+  if (!result.ok) {
+    return {
+      isError: true,
+      content: [{
+        type: "text" as const,
+        text: JSON.stringify({ error: result.error, message: result.message }),
+      }],
+    }
+  }
+  return {
+    content: [{ type: "text" as const, text: skillCreatedTextFallback(result.payload) }],
+    structuredContent: result.payload,
+    _meta: {
+      schemaVersion: skillCreatedAppSchemaVersion,
+      pluginId: result.payload.pluginId,
+      skillId: result.payload.skillId,
+    },
+  }
+}
+
 export function registerAgentSkillCreatedApp(input: {
   server: McpServer
   create: (request: { pluginName: string; skillMarkdown: string }) => Promise<CreateSkillResult>
+  update?: (request: { skillId: string; skillMarkdown: string; reason?: string }) => Promise<CreateSkillResult>
 }) {
   registerAgentSkillCreatedResource(input.server)
   registerAppTool(
@@ -79,27 +102,40 @@ export function registerAgentSkillCreatedApp(input: {
         },
       },
     },
-    async ({ pluginName, skillMarkdown }) => {
-      const result = await input.create({ pluginName, skillMarkdown })
-      if (!result.ok) {
-        return {
-          isError: true,
-          content: [{
-            type: "text" as const,
-            text: JSON.stringify({ error: result.error, message: result.message }),
-          }],
-        }
-      }
-      return {
-        content: [{ type: "text" as const, text: skillCreatedTextFallback(result.payload) }],
-        structuredContent: result.payload,
-        _meta: {
-          schemaVersion: skillCreatedAppSchemaVersion,
-          pluginId: result.payload.pluginId,
-          skillId: result.payload.skillId,
+    async ({ pluginName, skillMarkdown }) => skillSavedToolResult(await input.create({ pluginName, skillMarkdown })),
+  )
+  if (!input.update) return
+  const update = input.update
+  registerAppTool(
+    input.server,
+    UPDATE_SKILL_TOOL_NAME,
+    {
+      title: "Update skill",
+      description: [
+        "Update one existing OpenWork Cloud skill by creating a new immutable version, without creating a duplicate Plugin.",
+        "Pass the skill's config object id and the complete replacement SKILL.md.",
+        "Clients without MCP Apps support receive a text confirmation.",
+      ].join(" "),
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+      inputSchema: z.object({
+        skillId: z.string().trim().min(1).max(160).describe("The existing skill's config object id (cob_…)."),
+        skillMarkdown: z.string().trim().min(1).max(1_048_576).describe("Complete replacement SKILL.md source, including frontmatter and instructions."),
+        reason: z.string().trim().min(1).max(255).optional().describe("Optional short reason recorded on the new version."),
+      }),
+      outputSchema: skillCreatedPayloadSchema,
+      _meta: {
+        ui: {
+          resourceUri: SKILL_CREATED_APP_RESOURCE_URI,
+          visibility: ["model", "app"],
         },
-      }
+      },
     },
+    async ({ skillId, skillMarkdown, reason }) => skillSavedToolResult(await update({ skillId, skillMarkdown, reason })),
   )
 }
 
@@ -109,7 +145,7 @@ export function registerAgentSkillCreatedResource(server: McpServer) {
     "OpenWork Skill Created",
     SKILL_CREATED_APP_RESOURCE_URI,
     {
-      description: "A compact confirmation for a newly created OpenWork Cloud skill.",
+      description: "A compact confirmation for a newly created or updated OpenWork Cloud skill.",
       _meta: skillCreatedAppResourceMeta,
     },
     async () => ({
