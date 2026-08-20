@@ -377,8 +377,20 @@ test.skipIf(!e2eTestsEnabled || !localPlacement || !mysqlOpen)(title, { timeout:
   expect(transcript).not.toContain("Interactive view unavailable")
   expect(transcript).not.toContain("MCP_APP_RESOURCE_NOT_FOUND")
 
+  // Session sync can briefly remount the message list (and its app frame)
+  // right after the run completes; settle before capturing visual evidence.
+  await waitFor(app, `!document.body.innerText.includes("Pulling in the latest messages")`, {
+    timeoutMs: 60_000,
+    label: "session sync settled before screenshot",
+  })
+  await waitFor(app, `Boolean(document.querySelector(${JSON.stringify(`[data-mcp-app-resource="${resourceUri}"] iframe`)}))`, {
+    timeoutMs: 60_000,
+    label: "skill-created frame after session sync",
+  })
+  const remounted = await waitForMountedSkill(app, 30_000)
+  expect(remounted.mounted, remounted.text).toBe(true)
   await evalIn(app, `document.querySelector('[data-mcp-app-resource="${resourceUri}"]')?.scrollIntoView({ block: "center" })`)
-  await new Promise((resolve) => setTimeout(resolve, 300))
+  await new Promise((resolve) => setTimeout(resolve, 500))
   const skillCardShot = await screenshot(app)
   const skillCardSeen = await validate(skillCardShot, [
     "A skill confirmation card in the chat shows a Skill created caption, the beautiful-tomatoes title, a green Ready pill, Plugin and Skill identifier chips, and an Open in Library button",

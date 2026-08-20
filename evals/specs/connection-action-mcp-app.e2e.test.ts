@@ -378,8 +378,20 @@ test.skipIf(!e2eTestsEnabled || !localPlacement || !mysqlOpen)(title, { timeout:
   expect(transcript).not.toContain("Interactive view unavailable")
   expect(transcript).not.toContain("MCP_APP_RESOURCE_NOT_FOUND")
 
+  // Session sync can briefly remount the message list (and its app frame)
+  // right after the run completes; settle before capturing visual evidence.
+  await waitFor(app, `!document.body.innerText.includes("Pulling in the latest messages")`, {
+    timeoutMs: 60_000,
+    label: "session sync settled before screenshot",
+  })
+  await waitFor(app, `Boolean(document.querySelector(${JSON.stringify(`[data-mcp-app-resource="${resourceUri}"] iframe`)}))`, {
+    timeoutMs: 60_000,
+    label: "connection-action frame after session sync",
+  })
+  const remounted = await waitForMountedConnectionCard(app, 30_000)
+  expect(remounted.mounted, remounted.text).toBe(true)
   await evalIn(app, `document.querySelector('[data-mcp-app-resource="${resourceUri}"]')?.scrollIntoView({ block: "center" })`)
-  await new Promise((resolve) => setTimeout(resolve, 300))
+  await new Promise((resolve) => setTimeout(resolve, 500))
   const connectionCardShot = await screenshot(app)
   const connectionCardSeen = await validate(connectionCardShot, [
     "A connection status card in the chat shows a Connection needed caption, the Acme Tracker (E2E) connection name, an amber Not connected pill, who-acts and where chips, and a dark Connect action button",
