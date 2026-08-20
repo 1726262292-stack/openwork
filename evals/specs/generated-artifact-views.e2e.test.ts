@@ -311,6 +311,23 @@ test("the agent MCP exposes the custom Artifact view authoring lifecycle", { tim
     }),
   })
   expect(legacyPlugin.response.status, legacyPlugin.text).toBe(201)
+  const legacyPluginId = String(requireRecord(requireRecord(legacyPlugin.body, "legacy plugin response").item, "legacy plugin").id ?? "")
+  expect(legacyPluginId).toMatch(/^plg_/)
+  const resolvedLegacyPlugin = await denFetch(den.admin, `/v1/plugins/${encodeURIComponent(legacyPluginId)}/resolved`, {
+    headers: {
+      authorization: `Bearer ${den.admin.token}`,
+      "x-openwork-org-id": organizationId,
+    },
+  })
+  expect(resolvedLegacyPlugin.response.ok, resolvedLegacyPlugin.text).toBe(true)
+  const resolvedLegacyItems = isRecord(resolvedLegacyPlugin.body) && Array.isArray(resolvedLegacyPlugin.body.items)
+    ? resolvedLegacyPlugin.body.items.filter(isRecord)
+    : []
+  const resolvedLegacyObjects = resolvedLegacyItems
+    .map((item) => item.configObject)
+    .filter(isRecord)
+  expect(resolvedLegacyObjects.some((item) => item.objectType === "workflow")).toBe(false)
+  expect(resolvedLegacyObjects.some((item) => item.objectType === "script")).toBe(true)
   const desktopCapabilities = await denFetch(den.admin, "/v1/resources/marketplace-capabilities", {
     headers: {
       authorization: `Bearer ${den.admin.token}`,
@@ -340,8 +357,8 @@ test("the agent MCP exposes the custom Artifact view authoring lifecycle", { tim
   expect(JSON.stringify(legacyRun)).toContain('"legacy":"compatible"')
   evidence.recordAssertionEvidence(
     "A persisted legacy script remains a canonical executable Workflow",
-    `A type:script component was accepted, the desktop wire surface retained script, and MCP discovered and executed canonical Workflow ${legacyCapabilityName}.`,
-    legacyPlugin.response.status === 201 && desktopCapabilityItems.every((item) => item.objectType !== "workflow") && legacyCapability?.kind === "workflow" && JSON.stringify(legacyRun).includes('"legacy":"compatible"'),
+    `A type:script component was accepted, desktop capability and resolved-plugin surfaces retained script, and MCP discovered and executed canonical Workflow ${legacyCapabilityName}.`,
+    legacyPlugin.response.status === 201 && resolvedLegacyObjects.every((item) => item.objectType !== "workflow") && desktopCapabilityItems.every((item) => item.objectType !== "workflow") && legacyCapability?.kind === "workflow" && JSON.stringify(legacyRun).includes('"legacy":"compatible"'),
   )
 
   const legacyRender = await agentRpc(den.ref.apiUrl, mcpToken, "tools/call", {
