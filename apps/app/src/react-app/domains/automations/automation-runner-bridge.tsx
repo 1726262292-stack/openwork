@@ -6,6 +6,7 @@ import { createDenClient, DenApiError, readDenSettings } from "@/app/lib/den"
 import { denSettingsChangedEvent } from "@/app/lib/den-session-events"
 import { isDesktopRuntime } from "@/app/utils"
 import { useDenAuth } from "@/react-app/domains/cloud/den-auth-provider"
+import { useAutomationDeploymentEnabled } from "./automation-availability"
 import { createAutomationRunnerConnectCoordinator } from "./automation-runner-connect-coordinator"
 
 const RUNNER_TOKEN_REFRESH_MS = 30 * 60_000
@@ -24,9 +25,10 @@ function resetDesktopRunnerId() {
   return desktopRunnerId()
 }
 
-/** Keeps this signed-in, preview-enabled desktop registered as the owner's Automation runner. */
-export function AutomationRunnerBridge({ enabled }: { enabled: boolean }) {
+/** Keeps this signed-in desktop registered as the owner's Automation runner when Den allows it. */
+export function AutomationRunnerBridge() {
   const { status } = useDenAuth()
+  const deploymentEnabled = useAutomationDeploymentEnabled()
 
   useEffect(() => {
     if (!isDesktopRuntime() || !window.__OPENWORK_ELECTRON__?.invokeDesktop) return
@@ -36,7 +38,7 @@ export function AutomationRunnerBridge({ enabled }: { enabled: boolean }) {
     const coordinator = createAutomationRunnerConnectCoordinator({
       refreshMs: RUNNER_TOKEN_REFRESH_MS,
       connect: async (isCurrent) => {
-        if (!enabled || status !== "signed_in") {
+        if (!deploymentEnabled || status !== "signed_in") {
           await disconnect()
           return
         }
@@ -110,7 +112,7 @@ export function AutomationRunnerBridge({ enabled }: { enabled: boolean }) {
       window.removeEventListener("online", handleSettingsChanged)
       void disconnect()
     }
-  }, [enabled, status])
+  }, [deploymentEnabled, status])
 
   return null
 }

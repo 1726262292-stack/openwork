@@ -690,6 +690,9 @@ export async function server(options: ServerOptions): Promise<Den> {
       DEN_ORG_MODE: "multi_org",
       DEN_REQUIRE_EMAIL_VERIFICATION: "false",
       DEN_PASSWORD_BREACH_SCREENING_ENABLED: "false",
+      // Existing Automation journeys explicitly exercise the enabled
+      // deployment path. Rollout specs override this to prove disabled UI.
+      DEN_AUTOMATIONS_ENABLED: "true",
       DEN_GENERATED_ARTIFACT_VIEWS_ENABLED:
         process.env.OPENWORK_EVAL_GENERATED_ARTIFACT_VIEWS_E2E_TEST === "1" ? "true" : "false",
       OPENWORK_DEV_MODE: "1",
