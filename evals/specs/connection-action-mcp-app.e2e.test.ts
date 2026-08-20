@@ -82,6 +82,16 @@ function projectedExecuteCapabilityTool(payload: Record<string, unknown>): strin
   return null
 }
 
+function projectedSearchCapabilitiesTool(payload: Record<string, unknown>): string | null {
+  if (!Array.isArray(payload.tools)) return null
+  for (const tool of payload.tools) {
+    if (!isRecord(tool) || !isRecord(tool.function)) continue
+    const name = tool.function.name
+    if (typeof name === "string" && name.endsWith("_search_capabilities")) return name
+  }
+  return null
+}
+
 function completedToolCount(payload: Record<string, unknown>): number {
   return Array.isArray(payload.messages)
     ? payload.messages.filter((message) => isRecord(message) && message.role === "tool").length
@@ -145,6 +155,12 @@ test.skipIf(!e2eTestsEnabled || !localPlacement || !mysqlOpen)(title, { timeout:
     access: { orgWide: true },
   })
   const realToolCapability = `mcp:${connection.id}:list_charges`
+  const searchQueries = [
+    "Stripe revenue",
+    "Stripe balance payments revenue",
+    "list Stripe charges subscriptions invoices",
+    "Stripe charges",
+  ]
 
   let modelExecuteCalls = 0
   const fixture = createServer((request, response) => {
@@ -158,7 +174,7 @@ test.skipIf(!e2eTestsEnabled || !localPlacement || !mysqlOpen)(title, { timeout:
         const parsed: unknown = JSON.parse(await readBody(request))
         if (!isRecord(parsed)) throw new Error("Mock provider received a non-object request.")
         const completed = completedToolCount(parsed)
-        if (completed >= 1) {
+        if (completed >= searchQueries.length + 1) {
           sendStream(response, [
             streamChunk({ role: "assistant" }),
             streamChunk({ content: closingReply }),
@@ -166,19 +182,24 @@ test.skipIf(!e2eTestsEnabled || !localPlacement || !mysqlOpen)(title, { timeout:
           ])
           return
         }
-        const toolName = projectedExecuteCapabilityTool(parsed)
-        if (!toolName) throw new Error("The execute_capability tool was not projected to the model.")
-        modelExecuteCalls += 1
+        const searching = completed < searchQueries.length
+        const toolName = searching
+          ? projectedSearchCapabilitiesTool(parsed)
+          : projectedExecuteCapabilityTool(parsed)
+        if (!toolName) throw new Error(`The ${searching ? "search_capabilities" : "execute_capability"} tool was not projected to the model.`)
+        if (!searching) modelExecuteCalls += 1
         sendStream(response, [
           streamChunk({ role: "assistant" }),
           streamChunk({
             tool_calls: [{
               index: 0,
-              id: "call_list_acme_charges",
+              id: searching ? `call_search_acme_${completed}` : "call_list_acme_charges",
               type: "function",
               function: {
                 name: toolName,
-                arguments: JSON.stringify({ name: realToolCapability }),
+                arguments: JSON.stringify(searching
+                  ? { query: searchQueries[completed] }
+                  : { name: realToolCapability }),
               },
             }],
           }),
@@ -394,6 +415,24 @@ test.skipIf(!e2eTestsEnabled || !localPlacement || !mysqlOpen)(title, { timeout:
   const remounted = await waitForMountedConnectionCard(app, 30_000)
   expect(remounted.mounted, remounted.text).toBe(true)
   await evalIn(app, `document.querySelector('[data-mcp-app-resource="${resourceUri}"]')?.scrollIntoView({ block: "center" })`)
+  await waitFor(app, `(() => {
+    const card = document.querySelector('[data-mcp-app-resource="${resourceUri}"]');
+    if (!(card instanceof HTMLElement)) return false;
+    const worked = [...document.querySelectorAll("button")].find((button) => button.textContent?.trim().startsWith("Worked for"));
+    if (!(worked instanceof HTMLElement) || worked.getAttribute("aria-expanded") !== "false") return false;
+    const cardRect = card.getBoundingClientRect();
+    if (cardRect.width <= 0 || cardRect.height <= 0) return false;
+    for (let node = card.parentElement; node; node = node.parentElement) {
+      const style = getComputedStyle(node);
+      const rect = node.getBoundingClientRect();
+      if (style.display === "none" || style.visibility === "hidden") return false;
+      if ((style.overflowY === "hidden" || style.overflowY === "clip") && rect.height === 0) return false;
+    }
+    return true;
+  })()`, {
+    timeoutMs: 30_000,
+    label: "connection-action card visible outside collapsed work",
+  })
   await new Promise((resolve) => setTimeout(resolve, 500))
   // Ambient visual evidence of the rendered card; the iframe text assertions
   // above are the enforced proof of its contents.
@@ -408,5 +447,10 @@ test.skipIf(!e2eTestsEnabled || !localPlacement || !mysqlOpen)(title, { timeout:
     "Connection steering renders its standard MCP App",
     "Desktop mounted ui://openwork/connection-action/v1/view.html showing Connection needed, the connection name, Not connected, and a Connect action rather than only JSON steering text.",
     mounted.mounted,
+  )
+  evidence.recordAssertionEvidence(
+    "The connection card remains visible outside collapsed work details",
+    "The card has visible layout while the Worked section remains collapsed; no Worked or Used expansion is required.",
+    true,
   )
 })
