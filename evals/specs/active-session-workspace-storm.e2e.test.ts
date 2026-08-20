@@ -8,7 +8,7 @@ import {
   waitFor,
   writeComposerText,
 } from "@openwork/behaviors";
-import { screenshot } from "@openwork/test-evidence";
+import { screenshot, validate } from "@openwork/test-evidence";
 import {
   app,
   eventually,
@@ -701,7 +701,13 @@ test.skipIf(!runnable)(
     expect(liveSurface.bodyHasToolActivity).toBe(true);
     expect(liveSurface.sessionId).toBe(plans[0].sessionId);
     expect(liveSurface.authActions).toEqual([]);
-    await screenshot(desktopApp);
+    const liveShot = await screenshot(desktopApp);
+    const liveValidation = await validate(liveShot, [
+      "The active workspace session visibly shows its deterministic workload prompt or marker",
+      "The session visibly shows live agent activity such as Thinking, a running tool, or a bash command",
+      "No sign-in, reconnect, or application crash screen is visible",
+    ]);
+    expect(liveValidation.ok, liveValidation.why).toBe(true);
 
     const authDrops: string[] = [];
     const orgChanges: string[] = [];
@@ -835,7 +841,13 @@ test.skipIf(!runnable)(
       expect(finalSurface.bodyHasMarker).toBe(true);
       expect(finalSurface.authActions).toEqual([]);
       expect(finalSurface.crash).toBe(false);
-      await screenshot(desktopApp);
+      const completeShot = await screenshot(desktopApp);
+      const completeValidation = await validate(completeShot, [
+        `The session visibly shows the completed workload for workspace ${plan.index}`,
+        "The session transcript visibly contains agent or tool activity rather than an empty New session screen",
+        "No sign-in, reconnect, or application crash screen is visible",
+      ]);
+      expect(completeValidation.ok, completeValidation.why).toBe(true);
       evidence.recordAssertionEvidence(
         `Workspace ${plan.index} completed only its own six-step workload in its originating session`,
         `Origin=${plan.workspaceId}/${plan.sessionId}; tools=${JSON.stringify(complete.tools)}; provider=${JSON.stringify(mainRequests)}; wrong-workspace snapshot statuses=${JSON.stringify(wrongWorkspaceStatuses)}; transcript=${JSON.stringify(complete.text)}.`,
