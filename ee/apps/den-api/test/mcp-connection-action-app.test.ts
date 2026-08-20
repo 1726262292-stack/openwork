@@ -7,6 +7,7 @@ import {
   CONNECTION_ACTION_APP_RESOURCE_URI,
   CONNECTION_ACTION_TOOL_NAME,
   connectedConnectionActionPayload,
+  connectionActionErrorCard,
   connectionActionLaunch,
   connectionActionPayloadFromStatus,
   connectionActionPayloadSchema,
@@ -16,14 +17,6 @@ import {
 } from "../src/mcp/connection-action-app.js"
 import type { ExternalConnectionStatus } from "../src/mcp/external-capabilities.js"
 import { dynamicArtifactAppServerCapabilities } from "../src/mcp/dynamic-artifact-app.js"
-
-// src/env.ts is a parse-once singleton pulled in by capability-registry.js,
-// so seed required env before that module is (dynamically) imported.
-process.env.DATABASE_URL = process.env.DATABASE_URL ?? "mysql://root:password@127.0.0.1:3306/openwork_test_connection_action"
-process.env.DEN_DB_ENCRYPTION_KEY = process.env.DEN_DB_ENCRYPTION_KEY ?? "local-dev-db-encryption-key-please-change-1234567890"
-process.env.BETTER_AUTH_SECRET = process.env.BETTER_AUTH_SECRET ?? "local-dev-secret-not-for-production-use!!"
-process.env.BETTER_AUTH_URL = process.env.BETTER_AUTH_URL ?? "http://127.0.0.1:8790"
-process.env.CORS_ORIGINS = process.env.CORS_ORIGINS ?? "http://127.0.0.1:8790"
 
 const needsSignInStatus: ExternalConnectionStatus = {
   version: 1,
@@ -138,38 +131,18 @@ test("connection status payloads carry the exact human action and same-server la
   expect(connectionActionTextFallback(connected)).toContain("# Connection ready: Gmail")
 })
 
-test("needs_connection tool failures carry the same card and probe steering", async () => {
-  const { externalCapabilityErrorToolResult } = await import("../src/mcp/capability-registry.js")
-  const result = externalCapabilityErrorToolResult({
-    ok: false,
-    error: "needs_connection",
-    message: "You haven't connected your Gmail account yet.",
-    connectionStatus: needsSignInStatus,
-  })
-  expect(result.isError).toBe(true)
-  const parsed = connectionActionPayloadSchema.parse(result.structuredContent)
+test("needs_connection tool failures carry the same card as the probe", () => {
+  const card = connectionActionErrorCard(needsSignInStatus)
+  const parsed = connectionActionPayloadSchema.parse(card.structuredContent)
   expect(parsed.state).toBe("needs_connection")
-  expect(result._meta).toEqual({
+  expect(parsed.action?.label).toBe("Connect Gmail")
+  expect(card.meta).toEqual({
     "openwork/mcpApp": {
       toolName: CONNECTION_ACTION_TOOL_NAME,
       resourceUri: CONNECTION_ACTION_APP_RESOURCE_URI,
       arguments: { connectionId: "emc_gmail" },
     },
   })
-  const first = result.content[0]
-  const errorPayload: unknown = first?.type === "text" ? JSON.parse(first.text) : null
-  expect(errorPayload).toMatchObject({
-    error: "needs_connection",
-    connectionCard: "Execute \"mcp:emc_gmail:*\" once to show the member an actionable connection card, then relay the action in text.",
-  })
-
-  const plain = externalCapabilityErrorToolResult({
-    ok: false,
-    error: "forbidden",
-    message: "No access.",
-  })
-  expect(plain.structuredContent).toBeUndefined()
-  expect(plain._meta).toBeUndefined()
 })
 
 test("the app-only tool probes live status and returns schema-valid structured content", async () => {

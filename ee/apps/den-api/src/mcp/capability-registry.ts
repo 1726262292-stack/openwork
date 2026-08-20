@@ -32,6 +32,7 @@ import {
 } from "./codemode-namespaces.js"
 import {
   connectedConnectionActionPayload,
+  connectionActionErrorCard,
   connectionActionLaunch,
   connectionActionPayloadFromStatus,
   connectionActionTextFallback,
@@ -276,15 +277,12 @@ export function externalCapabilityErrorToolResult(
       content: textContent(JSON.stringify(payload)),
     }
   }
-  // Connection-level failures carry the same first-party card as the status
-  // probe, so hosts that render apps for failed tool results can show the
-  // exact human action inline without a second call.
-  const cardPayload = connectionActionPayloadFromStatus(result.connectionStatus)
+  const card = connectionActionErrorCard(result.connectionStatus)
   return {
     isError: true,
     content: textContent(JSON.stringify(payload)),
-    structuredContent: { ...cardPayload },
-    _meta: { "openwork/mcpApp": connectionActionLaunch(cardPayload) },
+    structuredContent: card.structuredContent,
+    _meta: card.meta,
   }
 }
 
