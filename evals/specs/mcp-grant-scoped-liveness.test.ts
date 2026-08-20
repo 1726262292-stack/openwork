@@ -28,6 +28,7 @@ test("MCP OAuth grants outlive login sessions and revoke with consent", ({ evide
       { file: "test/mcp-grant-request-liveness.test.ts", tests: 4 },
       { file: "test/mcp-oauth-grant-policy.test.ts", tests: 6 },
       { file: "test/mcp-grant-revocation.test.ts", tests: 1 },
+      { file: "test/mcp-grant-deletion-tombstones.test.ts", tests: 1 },
       { file: "test/mcp-grant-cache.test.ts", tests: 2 },
     ];
     for (const [index, witness] of witnesses.entries()) {
@@ -74,6 +75,11 @@ test("MCP OAuth grants outlive login sessions and revoke with consent", ({ evide
     evidence.recordAssertionEvidence(
       "Membership removal revokes only that organization's grants",
       "The runtime witness requires the consent query to include both user and target organization, tombstones exactly the selected consent id, and rejects tombstoning the other-organization id.",
+      true,
+    );
+    evidence.recordAssertionEvidence(
+      "User deletion tombstones the transactional consent snapshot",
+      "The runtime witness requires the consent snapshot to be a locking read inside the deletion transaction and requires a consent authorized concurrently with deletion to be tombstoned alongside the snapshot, closing the pre-transaction race.",
       true,
     );
     evidence.recordAssertionEvidence(
