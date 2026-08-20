@@ -1,3 +1,4 @@
+import { realpath } from "node:fs/promises";
 import type { createOpencodeClient } from "@opencode-ai/sdk/v2/client";
 import { ApiError } from "../errors.js";
 import { buildSession, buildSessionList, buildSessionMessages, buildSessionSnapshot } from "../session-read-model.js";
@@ -36,6 +37,7 @@ interface RegisterSessionRoutesOptions {
   requireClientScope: (ctx: RequestContext, required: TokenScope) => void;
   resolveWorkspace: (config: ServerConfig, id: string) => Promise<WorkspaceInfo>;
   resolveWorkspaceWithoutBootstrap: (config: ServerConfig, id: string) => Promise<WorkspaceInfo>;
+  resolveOpencodeDirectory: (workspace: WorkspaceInfo) => string | null;
   createWorkspaceOpencodeClient: (
     config: ServerConfig,
     workspace: WorkspaceInfo,
@@ -61,10 +63,26 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
     requireClientScope,
     resolveWorkspace,
     resolveWorkspaceWithoutBootstrap,
+    resolveOpencodeDirectory,
     createWorkspaceOpencodeClient,
     unwrapOpencodeResult,
   } = options;
   const sessionGroupEvents = new SessionGroupEventStore();
+
+  async function requireWorkspaceSession(workspace: WorkspaceInfo, value: Parameters<typeof buildSession>[0]) {
+    const session = buildSession(value);
+    const directory = resolveOpencodeDirectory(workspace);
+    const [expectedDirectory, sessionDirectory] = workspace.workspaceType === "local" && directory && session.directory
+      ? await Promise.all([
+          realpath(directory).catch(() => directory),
+          realpath(session.directory).catch(() => session.directory),
+        ])
+      : [directory, session.directory];
+    if (expectedDirectory && sessionDirectory !== expectedDirectory) {
+      throw new ApiError(404, "session_not_found", "Session not found");
+    }
+    return session;
+  }
 
   function remapSessionReadError(error: unknown): never {
     if (error instanceof ApiError && error.code === "opencode_request_failed") {
@@ -140,7 +158,8 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
   async function readWorkspaceSession(workspace: WorkspaceInfo, sessionId: string) {
     try {
       const opencode = createWorkspaceOpencodeClient(config, workspace);
-      return buildSession(
+      return await requireWorkspaceSession(
+        workspace,
         unwrapOpencodeResult(
           await opencode.session.get({ sessionID: sessionId }),
           `/session/${encodeURIComponent(sessionId)}`,
@@ -158,12 +177,16 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
   ) {
     try {
       const opencode = createWorkspaceOpencodeClient(config, workspace);
-      return buildSessionMessages(
-        unwrapOpencodeResult(
-          await opencode.session.messages({ sessionID: sessionId, limit: input.limit }),
-          `/session/${encodeURIComponent(sessionId)}/message`,
-        ),
-      );
+      const [session, messages] = await Promise.all([
+        opencode.session
+          .get({ sessionID: sessionId })
+          .then((result) => unwrapOpencodeResult(result, `/session/${encodeURIComponent(sessionId)}`)),
+        opencode.session
+          .messages({ sessionID: sessionId, limit: input.limit })
+          .then((result) => unwrapOpencodeResult(result, `/session/${encodeURIComponent(sessionId)}/message`)),
+      ]);
+      await requireWorkspaceSession(workspace, session);
+      return buildSessionMessages(messages);
     } catch (error) {
       remapSessionReadError(error);
     }
@@ -188,6 +211,7 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
           .then((result) => unwrapOpencodeResult(result, `/session/${encodeURIComponent(sessionId)}/todo`)),
         opencode.session.status().then((result) => unwrapOpencodeResult(result, "/session/status")),
       ]);
+      await requireWorkspaceSession(workspace, session);
       return buildSessionSnapshot({ session, messages, todos, statuses });
     } catch (error) {
       remapSessionReadError(error);
@@ -252,6 +276,7 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const sessionId = ctx.params.sessionId?.trim();
     if (!sessionId) throw new ApiError(400, "invalid_payload", "sessionId is required");
+    await readWorkspaceSession(workspace, sessionId);
     console.info("[openwork-server] abort", {
       phase: "start",
       source: "workspace.sessions.abort_route",
@@ -473,6 +498,7 @@ export function registerSessionRoutes(options: RegisterSessionRoutesOptions): vo
       throw new ApiError(400, "invalid_payload", "sessionId is required");
     }
 
+    await readWorkspaceSession(workspace, sessionId);
     const opencode = createWorkspaceOpencodeClient(config, workspace);
     unwrapOpencodeResult(
       await opencode.session.delete({ sessionID: sessionId }),

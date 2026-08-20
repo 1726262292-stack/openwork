@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { startServer } from "./server.js";
-import type { ServerConfig } from "./types.js";
+import type { ServerConfig, WorkspaceInfo } from "./types.js";
 
 type Served = {
   port: number;
@@ -35,7 +35,7 @@ function auth(token: string) {
   return { Authorization: `Bearer ${token}` };
 }
 
-function startMockOpencode(input?: { invalidList?: boolean; holdCommand?: Promise<void> }) {
+function startMockOpencode(input?: { invalidList?: boolean; holdCommand?: Promise<void>; sessionDirectory?: string }) {
   const requests: Array<{ pathname: string; search: string; directory: string | null; method: string; body?: unknown }> = [];
   const server = Bun.serve({
     hostname: "127.0.0.1",
@@ -60,7 +60,7 @@ function startMockOpencode(input?: { invalidList?: boolean; holdCommand?: Promis
             id: "ses_created",
             title: typeof title === "string" ? title : "New session",
             slug: "created-session",
-            directory: request.headers.get("x-opencode-directory"),
+            directory: input?.sessionDirectory ?? request.headers.get("x-opencode-directory"),
             time: { created: 300, updated: 300 },
           });
         }
@@ -87,7 +87,7 @@ function startMockOpencode(input?: { invalidList?: boolean; holdCommand?: Promis
           id: "ses_1",
           title: "Hostname Check",
           slug: "hostname-check",
-          directory: request.headers.get("x-opencode-directory"),
+          directory: input?.sessionDirectory ?? request.headers.get("x-opencode-directory"),
           time: { created: 100, updated: 200 },
         });
       }
@@ -140,7 +140,30 @@ function startMockOpencode(input?: { invalidList?: boolean; holdCommand?: Promis
   return { server, requests };
 }
 
-async function startOpenworkServer(input: { workspaceRoot: string; opencodeBaseUrl?: string; readOnly?: boolean }) {
+async function startOpenworkServer(input: {
+  workspaceRoot: string;
+  secondWorkspaceRoot?: string;
+  opencodeBaseUrl?: string;
+  readOnly?: boolean;
+}) {
+  const workspaces: WorkspaceInfo[] = [{
+    id: "ws_1",
+    name: "Workspace",
+    path: input.workspaceRoot,
+    preset: "starter",
+    workspaceType: "local",
+    ...(input.opencodeBaseUrl ? { baseUrl: input.opencodeBaseUrl } : {}),
+  }];
+  if (input.secondWorkspaceRoot) {
+    workspaces.push({
+      id: "ws_2",
+      name: "Other workspace",
+      path: input.secondWorkspaceRoot,
+      preset: "starter",
+      workspaceType: "local",
+      ...(input.opencodeBaseUrl ? { baseUrl: input.opencodeBaseUrl } : {}),
+    });
+  }
   const config: ServerConfig = {
     host: "127.0.0.1",
     port: 0,
@@ -148,17 +171,8 @@ async function startOpenworkServer(input: { workspaceRoot: string; opencodeBaseU
     hostToken: "owt_host_token",
     approval: { mode: "auto", timeoutMs: 1000 },
     corsOrigins: ["*"],
-    workspaces: [
-      {
-        id: "ws_1",
-        name: "Workspace",
-        path: input.workspaceRoot,
-        preset: "starter",
-        workspaceType: "local",
-        ...(input.opencodeBaseUrl ? { baseUrl: input.opencodeBaseUrl } : {}),
-      },
-    ],
-    authorizedRoots: [input.workspaceRoot],
+    workspaces,
+    authorizedRoots: [input.workspaceRoot, ...(input.secondWorkspaceRoot ? [input.secondWorkspaceRoot] : [])],
     readOnly: input.readOnly ?? true,
     startedAt: Date.now(),
     tokenSource: "cli",
@@ -355,6 +369,25 @@ describe("workspace session read APIs", () => {
       message: "Session not found",
     });
 
+  });
+
+  test("returns 404 when a session belongs to another workspace", async () => {
+    const workspaceRoot = await createWorkspaceRoot();
+    const secondWorkspaceRoot = await createWorkspaceRoot();
+    const mock = startMockOpencode({ sessionDirectory: workspaceRoot });
+    const openwork = await startOpenworkServer({
+      workspaceRoot,
+      secondWorkspaceRoot,
+      opencodeBaseUrl: `http://127.0.0.1:${mock.server.port}`,
+    });
+
+    const response = await fetch(
+      `http://127.0.0.1:${openwork.server.port}/workspace/ws_2/sessions/ses_1/snapshot`,
+      { headers: auth(openwork.token) },
+    );
+
+    expect(response.status).toBe(404);
+    await expect(response.json()).resolves.toMatchObject({ code: "session_not_found" });
   });
 
   test("acknowledges proxied session commands before upstream completion", async () => {

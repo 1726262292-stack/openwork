@@ -405,7 +405,15 @@ export class EnginePool {
     const requestId = requestIdFromPath(proxyPath);
     if (requestId) {
       const owner = this.generationForId(this.pinnedRequests.get(requestId));
-      if (owner) return { target: this.connectionFor(owner), fallback: null };
+      if (owner) {
+        const alternate = isLegacyPromptReply(proxyPath)
+          ? this.generations.find((entry) => isRoutableGeneration(entry) && entry.id !== owner.id) ?? null
+          : null;
+        return {
+          target: this.connectionFor(owner),
+          fallback: alternate && isRoutableGeneration(alternate) ? this.connectionFor(alternate) : null,
+        };
+      }
     }
 
     const draining = this.generations.find(
@@ -450,6 +458,23 @@ export class EnginePool {
       const owner = this.pinnedRequests.get(id);
       return owner !== undefined && owner !== generation.id;
     });
+  }
+
+  observePendingRequests(generationId: string, payload: unknown): string[] {
+    const generation = this.generationForId(generationId);
+    if (!generation) return [];
+    const requestIds: string[] = [];
+    for (const record of requestRecords(payload)) {
+      const sessionId = firstString(record, ["sessionID", "sessionId", "session_id"]);
+      const owner = this.generationForId(sessionId ? this.sessionOwnership.get(sessionId) : undefined) ?? generation;
+      const requestId = firstString(record, ["id", "requestID", "requestId", "permissionID", "questionID"]);
+      if (requestId) {
+        this.pinnedRequests.set(requestId, owner.id);
+        requestIds.push(requestId);
+      }
+      if (sessionId && !this.sessionOwnership.has(sessionId)) this.sessionOwnership.set(sessionId, generation.id);
+    }
+    return requestIds;
   }
 
   snapshot(): EnginePoolSnapshot {
@@ -1004,46 +1029,61 @@ export class EnginePool {
 
   private async nonIdleSessionIds(generation: Generation | null): Promise<string[]> {
     if (!generation || generation.status === "dead" || !generation.handle.isAlive()) return [];
-    try {
-      const response = await loopbackFetch(new URL("/session/status", generation.handle.url).toString(), {
-        headers: { Authorization: buildEngineAuthProbeHeader(generation.handle.username, generation.handle.password) },
-        signal: AbortSignal.timeout(5_000),
-      });
-      if (!response.ok) return [];
-      const payload: unknown = await response.json();
-      if (!isRecord(payload)) return [];
-      return Object.entries(payload)
-        .filter(([, status]) => isRecord(status) && status.type !== "idle")
-        .map(([sessionId]) => sessionId);
-    } catch {
-      // Unknown activity never keeps a drain open forever; the grace timeout
-      // still bounds it, and an unreachable engine has nothing left to drain.
-      return [];
-    }
+    const sessionIds = new Set<string>();
+    await Promise.all(this.engineProbeDirectories().map(async (directory) => {
+      try {
+        const url = new URL("/session/status", generation.handle.url);
+        if (directory !== null) url.searchParams.set("directory", directory);
+        const response = await loopbackFetch(url.toString(), {
+          headers: { Authorization: buildEngineAuthProbeHeader(generation.handle.username, generation.handle.password) },
+          signal: AbortSignal.timeout(5_000),
+        });
+        if (!response.ok) return;
+        const payload: unknown = await response.json();
+        if (!isRecord(payload)) return;
+        for (const [sessionId, status] of Object.entries(payload)) {
+          if (isRecord(status) && status.type !== "idle") sessionIds.add(sessionId);
+        }
+      } catch {
+        // Unknown activity never keeps a drain open forever; the grace timeout
+        // still bounds it, and an unreachable engine has nothing left to drain.
+      }
+    }));
+    return [...sessionIds];
+  }
+
+  private engineProbeDirectories(): Array<string | null> {
+    const directories = new Set(
+      this.config.workspaces
+        .filter((workspace) => workspace.workspaceType !== "remote")
+        .map((workspace) => workspace.path),
+    );
+    return directories.size > 0 ? [...directories] : [null];
   }
 
   private async pendingRequestIds(generation: Generation | null): Promise<string[]> {
     if (!generation || generation.status === "dead" || !generation.handle.isAlive()) return [];
     const requestIds = new Set<string>();
-    for (const path of ["/permission", "/question", "/api/permission/request", "/api/question/request"]) {
-      try {
-        const response = await loopbackFetch(new URL(path, generation.handle.url).toString(), {
-          headers: { Authorization: buildEngineAuthProbeHeader(generation.handle.username, generation.handle.password) },
-          signal: AbortSignal.timeout(2_000),
-        });
-        if (!response.ok) continue;
-        const payload: unknown = await response.json();
-        for (const record of requestRecords(payload)) {
-          const requestId = firstString(record, ["id", "requestID", "requestId", "permissionID", "questionID"]);
-          if (requestId) requestIds.add(requestId);
-          const sessionId = firstString(record, ["sessionID", "sessionId", "session_id"]);
-          if (sessionId) this.sessionOwnership.set(sessionId, generation.id);
+    await Promise.all(this.engineProbeDirectories().flatMap((directory) =>
+      ["/permission", "/question", "/api/permission/request", "/api/question/request"].map(async (path) => {
+        try {
+          const url = new URL(path, generation.handle.url);
+          if (directory !== null) url.searchParams.set("directory", directory);
+          const response = await loopbackFetch(url.toString(), {
+            headers: { Authorization: buildEngineAuthProbeHeader(generation.handle.username, generation.handle.password) },
+            signal: AbortSignal.timeout(2_000),
+          });
+          if (!response.ok) return;
+          const payload: unknown = await response.json();
+          for (const requestId of this.observePendingRequests(generation.id, payload)) {
+            requestIds.add(requestId);
+          }
+        } catch {
+          // The legacy and v2 surfaces vary by bundled engine version. A missing
+          // list never blocks the rollover; path routing still handles scoped ids.
         }
-      } catch {
-        // The legacy and v2 surfaces vary by bundled engine version. A missing
-        // list never blocks the rollover; path routing still handles scoped ids.
-      }
-    }
+      }),
+    ));
     return [...requestIds];
   }
 
