@@ -1,6 +1,23 @@
 ---
 title: "Changelog"
 ---
+<Update label="August 20th" tags={["🚀 New Features", "🐛 Bug Fixes", "🏗️ Refactoring"]}>
+
+  ## [v0.18.35](https://github.com/different-ai/openwork/compare/v0.18.34...v0.18.35): Desktop respects Automation deployment controls
+
+  - Desktop now shows Automation navigation and proposals and registers a runner only when the connected deployment explicitly enables Automations.
+  - Older and self-hosted deployments that do not advertise Automation availability remain safely disabled.
+
+  ## [v0.18.34](https://github.com/different-ai/openwork/compare/v0.18.33...v0.18.34): MCP Apps guide connection setup and Desktop automations recover cleanly
+
+  - First-party MCP App cards now guide connection, plugin, and skill-created flows directly in chat, including useful recovery cards when a connection fails.
+  - Desktop automations report outcomes, open their execution threads, and recover missed runs and credential failures more reliably.
+  - Programs are now called Workflows, with obsolete selection tools and legacy MCP App surfaces removed.
+  - MCP connections are more resilient to server recovery, protocol changes, OAuth refresh bursts, and stale credentials.
+  - Added current product screenshots, enterprise desktop deployment guidance, and a deployment-level Automation control.
+
+</Update>
+
 <Update label="August 19th" tags={["🚀 New Features", "🐛 Bug Fixes", "🏗️ Refactoring"]}>
 
   ## [v0.18.33](https://github.com/different-ai/openwork/compare/v0.18.32...v0.18.33): Library setup gets clearer and background connections recover cleanly
