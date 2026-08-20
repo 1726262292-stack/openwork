@@ -75,6 +75,10 @@ function preservedResult(part: DynamicToolUIPart): PreservedMcpAppResult | null 
   }
 }
 
+export function hasPreservedMcpAppResult(part: DynamicToolUIPart): boolean {
+  return preservedResult(part) !== null
+}
+
 export function gatewayMcpAppLaunch(meta: unknown): OpenworkMcpAppLaunchReference | null {
   if (!isRecord(meta) || !isRecord(meta["openwork/mcpApp"])) return null
   const launch = meta["openwork/mcpApp"]
@@ -194,7 +198,16 @@ export function isActionableMcpAppResolutionError(cause: unknown): boolean {
 
 export function McpAppFrame({ part }: { part: DynamicToolUIPart }) {
   const { openworkServerClient, workspaceId } = useWorkspace()
-  const result = useMemo(() => preservedResult(part), [part])
+  const nextResult = preservedResult(part)
+  const nextResultSignature = JSON.stringify(nextResult)
+  const resultCache = useRef<{ signature: string; value: PreservedMcpAppResult | null }>({
+    signature: nextResultSignature,
+    value: nextResult,
+  })
+  if (resultCache.current.signature !== nextResultSignature) {
+    resultCache.current = { signature: nextResultSignature, value: nextResult }
+  }
+  const result = resultCache.current.value
   const launch = useMemo(() => gatewayMcpAppLaunch(result?._meta), [result])
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const [app, setApp] = useState<OpenworkMcpAppResource | null>(null)
