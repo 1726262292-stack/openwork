@@ -1,21 +1,32 @@
 :root {
   color-scheme: light dark;
-  color: var(--color-text-primary, #1c1917);
+  color: var(--color-text-primary, #1c2024);
   background: transparent;
   font-family: var(--font-sans, ui-sans-serif, system-ui, sans-serif);
 
   --app-bg: var(--color-background-primary, #fff);
-  --app-bg-subtle: var(--color-background-secondary, #f5f5f4);
-  --app-text: var(--color-text-primary, #1c1917);
-  --app-muted: var(--color-text-secondary, #78716c);
-  --app-border: var(--color-border-secondary, #e7e5e4);
-  --app-info: var(--color-text-info, #2563eb);
-  --app-success: var(--color-text-success, #15803d);
-  --app-warning: var(--color-text-warning, #b45309);
-  --app-danger: var(--color-text-danger, #b91c1c);
-  --app-brand: #f97316;
-  --app-radius: 14px;
+  --app-bg-subtle: var(--color-background-secondary, #f1f3f5);
+  --app-bg-hover: var(--color-background-tertiary, #f8f9fa);
+  --app-text: var(--color-text-primary, #1c2024);
+  --app-muted: var(--color-text-secondary, #60646c);
+  --app-border: var(--color-border-primary, #f3f4f6);
+  --app-accent: var(--color-background-inverse, #011627);
+  --app-accent-fg: var(--color-text-inverse, #fff);
+  --app-success: var(--color-text-success, #2a7e3b);
+  --app-success-bg: var(--color-background-success, #e9f6e9);
+  --app-success-border: var(--color-border-success, rgb(42 126 59 / 25%));
+  --app-warning: var(--color-text-warning, #ab6400);
+  --app-warning-bg: var(--color-background-warning, #fff1d6);
+  --app-warning-border: var(--color-border-warning, rgb(171 100 0 / 28%));
+  --app-danger: var(--color-text-danger, #ce2c31);
+  --app-danger-bg: var(--color-background-danger, #feebec);
+  --app-danger-border: var(--color-border-danger, rgb(206 44 49 / 25%));
+  --app-info: var(--color-text-info, #0d74ce);
+  --app-info-bg: var(--color-background-info, #e6f4fe);
+  --app-info-border: var(--color-border-info, rgb(13 116 206 / 25%));
+  --app-radius: var(--border-radius-lg, 16px);
   --app-radius-sm: 10px;
+  --app-shadow: var(--shadow-sm, 0 1px 2px rgb(15 23 42 / 5%));
 }
 
 * {
@@ -33,116 +44,148 @@ button {
 }
 
 .card {
-  display: grid;
-  gap: 14px;
-  padding: 16px;
+  overflow: hidden;
+  max-width: 42rem;
   border: 1px solid var(--app-border);
   border-radius: var(--app-radius);
   background: var(--app-bg);
-  box-shadow: 0 1px 2px rgb(28 25 23 / 5%);
+  box-shadow: var(--app-shadow);
 }
 
 .card-status {
+  display: grid;
   min-height: 96px;
   place-items: center;
+  padding: 16px;
   color: var(--app-muted);
   font-size: 13px;
 }
 
 .header {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
+  display: flex;
   gap: 12px;
+  align-items: flex-start;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--app-border);
 }
 
 .mark {
-  display: grid;
+  display: flex;
+  flex-shrink: 0;
   width: 32px;
   height: 32px;
-  place-items: center;
-  border-radius: var(--app-radius-sm);
-  color: #fff;
-  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 25%);
+  margin-top: 2px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--app-border);
+  border-radius: 999px;
+  background: var(--app-bg-hover);
+  color: var(--app-muted);
 }
 
 .mark svg {
-  width: 17px;
-  height: 17px;
-}
-
-.mark[data-tone="brand"] {
-  background: linear-gradient(180deg, #fb923c, var(--app-brand));
+  width: 16px;
+  height: 16px;
 }
 
 .mark[data-tone="success"] {
-  background: linear-gradient(180deg, color-mix(in srgb, var(--app-success) 82%, #fff), var(--app-success));
+  border-color: var(--app-success-border);
+  background: var(--app-success-bg);
+  color: var(--app-success);
 }
 
 .mark[data-tone="warning"] {
-  background: linear-gradient(180deg, color-mix(in srgb, var(--app-warning) 82%, #fff), var(--app-warning));
+  border-color: var(--app-warning-border);
+  background: var(--app-warning-bg);
+  color: var(--app-warning);
 }
 
 .mark[data-tone="danger"] {
-  background: linear-gradient(180deg, color-mix(in srgb, var(--app-danger) 82%, #fff), var(--app-danger));
+  border-color: var(--app-danger-border);
+  background: var(--app-danger-bg);
+  color: var(--app-danger);
 }
 
 .mark[data-tone="info"] {
-  background: linear-gradient(180deg, color-mix(in srgb, var(--app-info) 82%, #fff), var(--app-info));
+  border-color: var(--app-info-border);
+  background: var(--app-info-bg);
+  color: var(--app-info);
 }
 
-.eyebrow {
-  margin: 0 0 3px;
-  color: var(--app-muted);
-  font-size: 10px;
-  font-weight: 750;
-  letter-spacing: .08em;
-  text-transform: uppercase;
+.header-copy {
+  min-width: 0;
+  flex: 1;
 }
 
 h1 {
   overflow: hidden;
   margin: 0;
-  font-size: 15px;
-  font-weight: 650;
-  line-height: 1.25;
-  letter-spacing: -.01em;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.subtitle {
+  overflow: hidden;
+  margin: 2px 0 0;
+  color: var(--app-muted);
+  font-size: 12px;
+  line-height: 1.4;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .badge {
-  padding: 4px 9px;
+  flex-shrink: 0;
+  margin-top: 4px;
+  padding: 3px 9px;
   border: 1px solid var(--app-border);
   border-radius: 999px;
   color: var(--app-muted);
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 600;
   white-space: nowrap;
 }
 
 .badge[data-tone="success"] {
-  border-color: color-mix(in srgb, var(--app-success) 25%, transparent);
+  border-color: var(--app-success-border);
+  background: var(--app-success-bg);
   color: var(--app-success);
-  background: color-mix(in srgb, var(--app-success) 8%, transparent);
 }
 
 .badge[data-tone="warning"] {
-  border-color: color-mix(in srgb, var(--app-warning) 28%, transparent);
+  border-color: var(--app-warning-border);
+  background: var(--app-warning-bg);
   color: var(--app-warning);
-  background: color-mix(in srgb, var(--app-warning) 9%, transparent);
 }
 
 .badge[data-tone="danger"] {
-  border-color: color-mix(in srgb, var(--app-danger) 25%, transparent);
+  border-color: var(--app-danger-border);
+  background: var(--app-danger-bg);
   color: var(--app-danger);
-  background: color-mix(in srgb, var(--app-danger) 8%, transparent);
 }
 
 .badge[data-tone="info"] {
-  border-color: color-mix(in srgb, var(--app-info) 25%, transparent);
+  border-color: var(--app-info-border);
+  background: var(--app-info-bg);
   color: var(--app-info);
-  background: color-mix(in srgb, var(--app-info) 8%, transparent);
+}
+
+.body {
+  display: grid;
+  gap: 12px;
+  padding: 12px 16px;
+}
+
+.name {
+  overflow: hidden;
+  margin: 0;
+  font-size: 14px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .description {
@@ -161,18 +204,17 @@ h1 {
 
 .identifiers > div {
   min-width: 0;
-  padding: 9px 11px;
-  border: 1px solid color-mix(in srgb, var(--app-border) 70%, transparent);
+  padding: 8px 11px;
   border-radius: var(--app-radius-sm);
   background: var(--app-bg-subtle);
 }
 
 .identifiers dt {
-  margin-bottom: 4px;
+  margin-bottom: 3px;
   color: var(--app-muted);
   font-size: 10px;
-  font-weight: 700;
-  letter-spacing: .06em;
+  font-weight: 600;
+  letter-spacing: .05em;
   text-transform: uppercase;
 }
 
@@ -189,25 +231,37 @@ h1 {
   font-size: 11px;
 }
 
-.actions {
+.footer {
   display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
+  gap: 12px;
   align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-top: 1px solid var(--app-border);
+}
+
+.footnote {
+  min-width: 0;
+  flex: 1;
+  margin: 0;
+  color: var(--app-muted);
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .action-primary {
   display: inline-flex;
-  gap: 7px;
+  flex-shrink: 0;
+  gap: 6px;
   align-items: center;
-  padding: 8px 13px;
+  padding: 7px 12px;
   border: 0;
   border-radius: var(--app-radius-sm);
-  background: var(--app-text);
-  color: var(--app-bg);
+  background: var(--app-accent);
+  color: var(--app-accent-fg);
   cursor: pointer;
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .action-primary:hover {
@@ -219,37 +273,17 @@ h1 {
   height: 13px;
 }
 
-.action-link {
-  padding: 0;
-  border: 0;
-  color: var(--app-info);
-  background: transparent;
-  cursor: pointer;
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.footnote {
-  margin: 0;
-  color: var(--app-muted);
-  font-size: 11px;
-  line-height: 1.5;
-}
-
 @media (max-width: 480px) {
-  .card {
-    padding: 13px;
-  }
-
-  .header {
-    grid-template-columns: auto minmax(0, 1fr);
-  }
-
   .badge {
     display: none;
   }
 
   .identifiers {
     grid-template-columns: 1fr;
+  }
+
+  .footer {
+    flex-direction: column;
+    align-items: stretch;
   }
 }

@@ -1,6 +1,6 @@
 import type { ReactNode } from "react"
 
-export type Tone = "brand" | "success" | "warning" | "danger" | "info"
+export type Tone = "neutral" | "success" | "warning" | "danger" | "info"
 
 export function CheckIcon() {
   return (
@@ -53,19 +53,36 @@ export function ArrowIcon() {
 export function AppHeader(props: {
   tone: Tone
   icon: ReactNode
-  eyebrow: string
   title: string
-  badge?: { tone: Exclude<Tone, "brand">; label: string } | null
+  subtitle?: string
+  badge?: { tone: Tone; label: string } | null
 }) {
   return (
     <header className="header">
-      <span className="mark" data-tone={props.tone} aria-hidden="true">{props.icon}</span>
-      <div>
-        <p className="eyebrow">{props.eyebrow}</p>
+      <span className="mark" data-tone={props.tone === "neutral" ? undefined : props.tone} aria-hidden="true">{props.icon}</span>
+      <div className="header-copy">
         <h1>{props.title}</h1>
+        {props.subtitle ? <p className="subtitle">{props.subtitle}</p> : null}
       </div>
-      {props.badge ? <span className="badge" data-tone={props.badge.tone}>{props.badge.label}</span> : null}
+      {props.badge ? (
+        <span className="badge" data-tone={props.badge.tone === "neutral" ? undefined : props.badge.tone}>
+          {props.badge.label}
+        </span>
+      ) : null}
     </header>
+  )
+}
+
+export function CardBody(props: { children: ReactNode }) {
+  return <div className="body">{props.children}</div>
+}
+
+export function CardFooter(props: { footnote: string; action?: ReactNode }) {
+  return (
+    <footer className="footer">
+      <p className="footnote">{props.footnote}</p>
+      {props.action ?? null}
+    </footer>
   )
 }
 

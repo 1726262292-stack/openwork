@@ -1,27 +1,27 @@
 import { pluginFlowPayloadSchema, type PluginFlowPayload } from "@openwork/types/plugin-flow-app"
 import { mountMcpApp } from "./shared/bridge"
-import { AppHeader, CheckIcon, KeyValueGrid, ShareIcon } from "./shared/ui"
+import { AppHeader, CardBody, CardFooter, CheckIcon, KeyValueGrid, ShareIcon } from "./shared/ui"
 import "./shared/theme.css"
 
 const MODE_PRESENTATION: Record<PluginFlowPayload["mode"], {
-  eyebrow: string
   title: string
+  subtitle: string
   footnote: string
 }> = {
   marketplace_plugin_added: {
-    eyebrow: "Marketplace updated",
     title: "Plugin added to marketplace",
-    footnote: "Everyone with access to the marketplace can now install this plugin.",
+    subtitle: "The plugin is now listed for everyone with marketplace access.",
+    footnote: "Members with access can install it from the marketplace.",
   },
   plugin_access_granted: {
-    eyebrow: "Plugin shared",
-    title: "Access granted",
+    title: "Plugin shared",
+    subtitle: "Access was granted successfully.",
     footnote: "The recipient can use this plugin's skills in chat immediately.",
   },
   marketplace_access_granted: {
-    eyebrow: "Marketplace shared",
     title: "Marketplace access granted",
-    footnote: "The member can now browse and install plugins from this marketplace.",
+    subtitle: "The member can now browse this marketplace.",
+    footnote: "They can install plugins from it right away.",
   },
 }
 
@@ -53,12 +53,14 @@ mountMcpApp({
         <AppHeader
           tone={payload.mode === "marketplace_plugin_added" ? "info" : "success"}
           icon={payload.mode === "marketplace_plugin_added" ? <ShareIcon /> : <CheckIcon />}
-          eyebrow={presentation.eyebrow}
           title={presentation.title}
+          subtitle={presentation.subtitle}
           badge={{ tone: "success", label: "Done" }}
         />
-        <KeyValueGrid items={items} />
-        <p className="footnote">{presentation.footnote}</p>
+        <CardBody>
+          <KeyValueGrid items={items} />
+        </CardBody>
+        <CardFooter footnote={presentation.footnote} />
       </main>
     )
   },
