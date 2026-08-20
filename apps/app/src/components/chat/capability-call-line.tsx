@@ -133,6 +133,7 @@ export function CapabilityCallLine({
     const quote = getCapabilityCallQuote(part)
     const initial = sentence.service?.charAt(0).toUpperCase() ?? null
     return (
+      <>
       <Collapsible
         data-capability-call={part.toolName}
         open={open}
@@ -224,6 +225,8 @@ export function CapabilityCallLine({
           </div>
         </CollapsibleContent>
       </Collapsible>
+      <McpAppFrame part={part} />
+      </>
     )
   }
 
