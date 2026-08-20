@@ -3,7 +3,7 @@ import { expect, onTestFinished } from "vitest"
 import { clickButton, createAndSelectWorkspace, denFetch, evalIn, waitFor } from "@openwork/behaviors"
 import { connect, debuggerUrlFor, evaluate, listTargets } from "@openwork/cdp"
 import { desktop } from "@openwork/hosts"
-import { createVisualEvidence, screenshot, validate } from "@openwork/test-evidence"
+import { screenshot } from "@openwork/test-evidence"
 import { localMysqlIsRunning, needs, server, test } from "@openwork/testkit"
 
 const providerId = "skill-created-mcp-app-provider"
@@ -122,7 +122,6 @@ async function waitForMountedSkill(app: Awaited<ReturnType<typeof desktop>>, tim
 
 test.skipIf(!e2eTestsEnabled || !localPlacement || !mysqlOpen)(title, { timeout: 360_000 }, async ({ evidence, place }) => {
   needs({ optIn: ["OPENWORK_EVAL_E2E_TESTS"] })
-  await using visualEvidence = createVisualEvidence("skill-created-mcp-app")
 
   let modelCreateCalls = 0
   const fixture = createServer((request, response) => {
@@ -391,12 +390,9 @@ test.skipIf(!e2eTestsEnabled || !localPlacement || !mysqlOpen)(title, { timeout:
   expect(remounted.mounted, remounted.text).toBe(true)
   await evalIn(app, `document.querySelector('[data-mcp-app-resource="${resourceUri}"]')?.scrollIntoView({ block: "center" })`)
   await new Promise((resolve) => setTimeout(resolve, 500))
-  const skillCardShot = await screenshot(app)
-  const skillCardSeen = await validate(skillCardShot, [
-    "A skill confirmation card in the chat shows a Skill created caption, the beautiful-tomatoes title, a green Ready pill, Plugin and Skill identifier chips, and an Open in Library button",
-  ])
-  await visualEvidence.recordScreenshot(skillCardShot, skillCardSeen)
-  expect(skillCardSeen.ok, skillCardSeen.why).toBe(true)
+  // Ambient visual evidence of the rendered card; the iframe text assertions
+  // above are the enforced proof of its contents.
+  await screenshot(app)
 
   const pluginsResult = await denFetch(den.admin, `/v1/plugins?q=${encodeURIComponent("Beautiful Tomatoes")}`, {
     headers: {

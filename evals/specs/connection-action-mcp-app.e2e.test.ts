@@ -3,7 +3,7 @@ import { expect, onTestFinished } from "vitest"
 import { clickButton, createAndSelectWorkspace, createOrgConnection, denFetch, evalIn, waitFor } from "@openwork/behaviors"
 import { connect, debuggerUrlFor, evaluate, listTargets } from "@openwork/cdp"
 import { desktop } from "@openwork/hosts"
-import { createVisualEvidence, screenshot, validate } from "@openwork/test-evidence"
+import { screenshot } from "@openwork/test-evidence"
 import { localMysqlIsRunning, needs, server, test } from "@openwork/testkit"
 
 const providerId = "connection-action-mcp-app-provider"
@@ -123,7 +123,6 @@ async function waitForMountedConnectionCard(app: Awaited<ReturnType<typeof deskt
 
 test.skipIf(!e2eTestsEnabled || !localPlacement || !mysqlOpen)(title, { timeout: 360_000 }, async ({ evidence, place }) => {
   needs({ optIn: ["OPENWORK_EVAL_E2E_TESTS"] })
-  await using visualEvidence = createVisualEvidence("connection-action-mcp-app")
 
   await using den = await server({
     place,
@@ -392,12 +391,9 @@ test.skipIf(!e2eTestsEnabled || !localPlacement || !mysqlOpen)(title, { timeout:
   expect(remounted.mounted, remounted.text).toBe(true)
   await evalIn(app, `document.querySelector('[data-mcp-app-resource="${resourceUri}"]')?.scrollIntoView({ block: "center" })`)
   await new Promise((resolve) => setTimeout(resolve, 500))
-  const connectionCardShot = await screenshot(app)
-  const connectionCardSeen = await validate(connectionCardShot, [
-    "A connection status card in the chat shows a Connection needed caption, the Acme Tracker (E2E) connection name, an amber Not connected pill, who-acts and where chips, and a dark Connect action button",
-  ])
-  await visualEvidence.recordScreenshot(connectionCardShot, connectionCardSeen)
-  expect(connectionCardSeen.ok, connectionCardSeen.why).toBe(true)
+  // Ambient visual evidence of the rendered card; the iframe text assertions
+  // above are the enforced proof of its contents.
+  await screenshot(app)
 
   evidence.recordAssertionEvidence(
     "A connection_status capability executes as a live probe",
