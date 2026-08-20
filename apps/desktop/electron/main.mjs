@@ -96,6 +96,7 @@ const {
   nativeImage,
   nativeTheme,
   net: electronNet,
+  powerMonitor,
   Notification: ElectronNotification,
   session,
   shell,
@@ -1262,6 +1263,18 @@ const desktopAutomationRunner = createDesktopAutomationRunner({
     mainWindow.webContents.send(AUTOMATION_RUNNER_CREDENTIAL_REJECTED_EVENT);
   },
 });
+
+// Scheduled Automations are due at wall-clock times a laptop routinely sleeps
+// through. Waking the machine has to poll for work now, not up to a full poll
+// interval later, or a recovered occurrence sits queued while the desktop is
+// already back.
+const wakeAutomationRunner = (wakeEvent) => {
+  if (desktopAutomationRunner.wake().polled) {
+    console.info(`[automation-runner] polling for work after ${wakeEvent}`);
+  }
+};
+powerMonitor.on("resume", () => wakeAutomationRunner("resume"));
+powerMonitor.on("unlock-screen", () => wakeAutomationRunner("unlock-screen"));
 
 let runtimeDisposedForQuit = false;
 let runtimeDisposeInProgress = false;

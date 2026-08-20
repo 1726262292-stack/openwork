@@ -96,6 +96,10 @@ export function AutomationRunnerBridge({ enabled }: { enabled: boolean }) {
     const requestConnect = () => void coordinator.request().catch(() => undefined)
     const handleSettingsChanged = () => requestConnect()
     window.addEventListener(denSettingsChangedEvent, handleSettingsChanged)
+    // Rejoining a network mints a fresh credential immediately instead of
+    // leaving this desktop unreachable until the next refresh, which is long
+    // enough for a scheduled occurrence to come due and be missed.
+    window.addEventListener("online", handleSettingsChanged)
     const unsubscribeCredentialRejected = window.__OPENWORK_ELECTRON__.automationRunner
       ?.onCredentialRejected?.(() => coordinator.credentialRejected())
     requestConnect()
@@ -103,6 +107,7 @@ export function AutomationRunnerBridge({ enabled }: { enabled: boolean }) {
       coordinator.dispose()
       unsubscribeCredentialRejected?.()
       window.removeEventListener(denSettingsChangedEvent, handleSettingsChanged)
+      window.removeEventListener("online", handleSettingsChanged)
       void disconnect()
     }
   }, [enabled, status])

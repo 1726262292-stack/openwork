@@ -203,6 +203,7 @@ export function createDesktopAutomationRunner(options) {
   const random = options.random ?? Math.random
   const waitBeforeReconnect = options.waitBeforeReconnect ?? sleep
   const heartbeatIntervalMs = options.heartbeatIntervalMs ?? 10_000
+  const workPollTimeoutMs = options.workPollTimeoutMs ?? 30_000
   const legacyBaseUrls = new Set((options.legacyBaseUrls ?? [])
     .map((value) => normalizeRunnerBaseUrl(value))
     .filter(Boolean))
@@ -258,7 +259,12 @@ export function createDesktopAutomationRunner(options) {
         state.configuration.baseUrl,
         state.configuration.token,
         requestPath,
-        { ...request, signal: state.controller.signal },
+        {
+          ...request,
+          signal: request.signal
+            ? AbortSignal.any([state.controller.signal, request.signal])
+            : state.controller.signal,
+        },
       )
     } catch (error) {
       if ([401, 403].includes(error?.status)) rejectCredential(state, error.status)
@@ -348,7 +354,12 @@ export function createDesktopAutomationRunner(options) {
     if (state.reconcilePromise) return state.reconcilePromise
     const promise = (async () => {
       while (isCurrent(state)) {
-        const response = await runnerRequest(state, "/v1/automation-runner/work")
+        // A machine that suspends mid-request can leave this socket half-open
+        // with no error, which would park the loop until the process restarts.
+        // Bounding the idle poll turns that into an ordinary retry.
+        const response = await runnerRequest(state, "/v1/automation-runner/work", {
+          signal: AbortSignal.timeout(workPollTimeoutMs),
+        })
         if (!isCurrent(state)) break
         const item = response?.items?.[0]
         if (!item?.runId) break
@@ -452,6 +463,21 @@ export function createDesktopAutomationRunner(options) {
       pendingConfiguration = null
       activateConfiguration(normalized)
       return { connected: false }
+    },
+    /**
+     * A sleeping machine parks the loop mid-wait, so a due occurrence can sit
+     * queued for most of a poll interval after the desktop is already back.
+     * Waking the machine polls for work now. The reconcile guard reuses an
+     * in-flight cycle, so a run already holding its lease is left alone and no
+     * second claim loop starts.
+     */
+    wake() {
+      const state = current
+      if (stopped || !state || !isCurrent(state)) return { polled: false }
+      reconcile(state).catch((error) => {
+        options.log?.(`runner wake poll failed: ${error instanceof Error ? error.message : String(error)}`)
+      })
+      return { polled: true }
     },
     stop() {
       stopped = true

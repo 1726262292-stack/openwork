@@ -670,6 +670,147 @@ test("a healthy work poll resets runner reconnect backoff", async () => {
   assert.deepEqual(delays, [500, 1_000, 2_000, 60_000])
 })
 
+test("waking the machine polls for work immediately without new credentials", async () => {
+  const polls = []
+  const runner = createDesktopAutomationRunner({
+    getLocalRuntime: async () => ({ baseUrl: "http://127.0.0.1:3000", token: "local" }),
+    fetchImpl: async (url) => {
+      assert.equal(new URL(url).pathname, "/v1/automation-runner/work")
+      polls.push(String(url))
+      return Response.json({ items: [] })
+    },
+    // Park the loop between polls the way a sleeping machine leaves it.
+    waitBeforeReconnect: () => new Promise(() => {}),
+  })
+  runner.configure({
+    baseUrl: "https://den.example.com",
+    token: runnerTokenFor("https://den.example.com"),
+    runnerId: "runner-1",
+  })
+  await flushTasks()
+  assert.equal(polls.length, 1)
+
+  assert.deepEqual(runner.wake(), { polled: true })
+  await flushTasks()
+  assert.equal(polls.length, 2)
+  runner.stop()
+})
+
+test("waking during an active run keeps its lease and starts no second claim loop", async () => {
+  const paths = []
+  let releaseSnapshot = () => {}
+  const snapshotGate = new Promise((resolve) => { releaseSnapshot = () => resolve(undefined) })
+  let resolveCompleted
+  const completed = new Promise((resolve) => { resolveCompleted = resolve })
+  let offered = false
+  const runner = createDesktopAutomationRunner({
+    getLocalRuntime: async () => ({ baseUrl: "http://127.0.0.1:3000", token: "local-client-token" }),
+    fetchImpl: async (url, options = {}) => {
+      const parsed = new URL(url)
+      paths.push(parsed.pathname)
+      if (parsed.origin === "http://127.0.0.1:3000") {
+        if (parsed.pathname === "/workspaces") {
+          return Response.json({ items: [{ id: "workspace-1" }], activeId: "workspace-1" })
+        }
+        if (parsed.pathname === "/workspace/workspace-1/sessions" && options.method === "POST") {
+          return Response.json({ item: { id: "session-1" }, started: true }, { status: 201 })
+        }
+        if (parsed.pathname === "/workspace/workspace-1/sessions/session-1/snapshot") {
+          await snapshotGate
+          return Response.json({ item: {
+            status: { type: "idle" },
+            messages: [{
+              info: { role: "assistant", tokens: { input: 1, output: 1 } },
+              parts: [{ type: "text", text: "done" }],
+            }],
+          } })
+        }
+        throw new Error(`Unexpected local request ${parsed.pathname}`)
+      }
+      if (parsed.pathname === "/v1/automation-runner/work") {
+        if (offered) return Response.json({ items: [] })
+        offered = true
+        return Response.json({ items: [{ runId: "run-1" }] })
+      }
+      if (parsed.pathname.endsWith("/claim")) return Response.json({ assignment: testAssignment() })
+      if (parsed.pathname.endsWith("/events")) return Response.json({ ok: true })
+      if (parsed.pathname.endsWith("/complete")) {
+        resolveCompleted()
+        return Response.json({ ok: true })
+      }
+      throw new Error(`Unexpected Den request ${parsed.pathname}`)
+    },
+    waitBeforeReconnect: () => new Promise(() => {}),
+  })
+  runner.configure({
+    baseUrl: "https://den.example.com",
+    token: runnerTokenFor("https://den.example.com"),
+    runnerId: "runner-1",
+  })
+  await flushTasks()
+  assert.equal(paths.filter((path) => path === "/v1/automation-runner/work").length, 1)
+  assert.equal(paths.filter((path) => path.endsWith("/claim")).length, 1)
+
+  // The wake joins the reconcile cycle that is already executing run-1 rather
+  // than polling over it, so the desktop cannot double-claim its own work.
+  assert.deepEqual(runner.wake(), { polled: true })
+  await flushTasks()
+  assert.equal(paths.filter((path) => path === "/v1/automation-runner/work").length, 1)
+  assert.equal(paths.filter((path) => path.endsWith("/claim")).length, 1)
+
+  releaseSnapshot()
+  await withTimeout(completed, "active run completion timed out")
+  runner.stop()
+})
+
+test("waking a desktop that was never configured stays disconnected", () => {
+  const runner = createDesktopAutomationRunner({
+    getLocalRuntime: async () => ({ baseUrl: "http://127.0.0.1:3000", token: "local" }),
+    fetchImpl: async () => { throw new Error("no network in test") },
+  })
+  assert.deepEqual(runner.wake(), { polled: false })
+  runner.stop()
+})
+
+test("a work poll left hanging by a suspended machine times out and retries", async () => {
+  const pollSignals = []
+  let resolveRetried
+  const retried = new Promise((resolve) => { resolveRetried = resolve })
+  const runner = createDesktopAutomationRunner({
+    getLocalRuntime: async () => ({ baseUrl: "http://127.0.0.1:3000", token: "local" }),
+    fetchImpl: async (url, options = {}) => {
+      assert.equal(new URL(url).pathname, "/v1/automation-runner/work")
+      pollSignals.push(options.signal)
+      if (pollSignals.length === 1) {
+        // A suspended machine leaves the socket half-open: no response and no
+        // error, which without a bound would park the loop indefinitely.
+        return new Promise((_resolve, reject) => {
+          options.signal?.addEventListener(
+            "abort",
+            () => reject(options.signal.reason ?? new Error("aborted")),
+            { once: true },
+          )
+        })
+      }
+      resolveRetried()
+      return Response.json({ items: [] })
+    },
+    workPollTimeoutMs: 5,
+    random: () => 0.5,
+    waitBeforeReconnect: async () => {
+      await new Promise((resolve) => setImmediate(resolve))
+    },
+  })
+  runner.configure({
+    baseUrl: "https://den.example.com",
+    token: runnerTokenFor("https://den.example.com"),
+    runnerId: "runner-1",
+  })
+  await withTimeout(retried, "hung work poll was never retried")
+  assert.equal(pollSignals[0]?.aborted, true)
+  runner.stop()
+})
+
 test("desktop Automation execution creates a normal visible local OpenWork thread", async () => {
   const requests = []
   let snapshots = 0
