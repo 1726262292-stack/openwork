@@ -1459,9 +1459,17 @@ export function registerAdminRoutes<T extends { Variables: AuthContextVariables 
         .select({ id: AuthSessionTable.id, token: AuthSessionTable.token })
         .from(AuthSessionTable)
         .where(eq(AuthSessionTable.userId, userId))
-
-      await db.transaction(async (tx) => {
+      // Grant tombstones must cover exactly the deleted consent set. Snapshot
+      // the ids inside the transaction with a locking read so a concurrently
+      // authorized consent cannot slip between the snapshot and the delete
+      // (Warden RUD-WDK).
+      const oauthConsentRows = await db.transaction(async (tx) => {
         const removedAt = new Date()
+        const consentRows = await tx
+          .select({ id: OAuthConsentTable.id })
+          .from(OAuthConsentTable)
+          .where(eq(OAuthConsentTable.userId, userId))
+          .for("update")
 
         await tx.delete(OAuthAccessTokenTable).where(eq(OAuthAccessTokenTable.userId, userId))
         await tx.delete(OAuthRefreshTokenTable).where(eq(OAuthRefreshTokenTable.userId, userId))
@@ -1482,6 +1490,7 @@ export function registerAdminRoutes<T extends { Variables: AuthContextVariables 
         await tx.update(MemberTable).set({ removedAt }).where(eq(MemberTable.userId, userId))
         await tx.update(WorkerTable).set({ created_by_user_id: null }).where(eq(WorkerTable.created_by_user_id, userId))
         await tx.delete(AuthUserTable).where(eq(AuthUserTable.id, userId))
+        return consentRows
       })
       // Auth session cache hits intentionally avoid a DB liveness check; user deletion must clear
       // both token and session-id cache entries for every deleted session instead.
@@ -1489,6 +1498,7 @@ export function registerAdminRoutes<T extends { Variables: AuthContextVariables 
         cache.auth.revokeSession(session.token),
         cache.auth.revokeSessionId(session.id),
       ]))
+      await Promise.all(oauthConsentRows.map((consent) => cache.auth.revokeGrant(consent.id)))
 
       const organizationIds = Array.from(new Set(activeMembershipRows.map((row) => row.organizationId).filter(isOrganizationId)))
       // Admin user deletion soft-removes memberships; clear affected org membership caches.

@@ -7,6 +7,12 @@ import {
   deleteMcpOAuthGrantFamilyForSession,
   getMcpSessionLiveness,
 } from "./mcp/session-liveness.js";
+import { contributeMcpGrantClaim } from "./mcp/grant-claims.js";
+import {
+  assertLiveMcpRefreshGrant,
+  McpRefreshGrantRevokedError,
+  type McpRefreshGrantRow,
+} from "./mcp/refresh-grant-liveness.js";
 import { deriveDenMcpAgentResource, deriveDenMcpResource, mcpEndpointResource } from "./mcp/resource.js";
 import { getDenAuthIssuer, getDenJwtOptions } from "./mcp/jwt-policy.js";
 import {
@@ -163,9 +169,10 @@ export const DEN_MCP_OAUTH_VALID_AUDIENCES = [DEN_MCP_OAUTH_RESOURCE];
 export const DEN_MCP_TOKEN_USE_CLAIM = `${env.mcpClaimNamespace}/token_use`;
 export const DEN_MCP_ORG_ID_CLAIM = `${env.mcpClaimNamespace}/org_id`;
 export const DEN_MCP_RESOURCE_CLAIM = `${env.mcpClaimNamespace}/resource`;
+export const DEN_MCP_GRANT_ID_CLAIM = `${env.mcpClaimNamespace}/grant_id`;
 export const DEN_MCP_OPAQUE_ACCESS_TOKEN_PREFIX = "ow_mcp_at_";
 const DEN_MCP_REFRESH_TOKEN_PREFIX = "ow_mcp_rt_";
-const INVALID_MCP_SESSION_GRANT_DESCRIPTION = "The session backing this grant has been signed out or expired. Re-authorize the connection.";
+const INVALID_MCP_SESSION_GRANT_DESCRIPTION = "The authorization backing this grant has been revoked. Re-authorize the connection.";
 export { DEN_MCP_SCOPES } from "./mcp/scopes.js";
 
 export function normalizeMcpOAuthResource(resource: string): string | null {
@@ -428,27 +435,33 @@ async function assertLiveMcpSessionForRefreshGrant(ctx: Parameters<Parameters<ty
     return;
   }
 
-  const grant = await ctx.context.adapter.findOne<{ sessionId?: string | null }>({
+  const grant = await ctx.context.adapter.findOne<McpRefreshGrantRow>({
     model: "oauthRefreshToken",
     where: [{ field: "token", value: hashOAuthProviderToken(tokenSecret) }],
   });
-  const sessionId = typeof grant?.sessionId === "string" && grant.sessionId.trim()
-    ? grant.sessionId.trim()
-    : null;
-  if (!sessionId) {
-    return;
+  try {
+    await assertLiveMcpRefreshGrant({
+      grant,
+      getSessionLiveness: getMcpSessionLiveness,
+      findConsent: ({ clientId, userId, referenceId }) => ctx.context.adapter.findOne<{ id: string }>({
+        model: "oauthConsent",
+        where: [
+          { field: "clientId", value: clientId },
+          { field: "userId", value: userId },
+          { field: "referenceId", value: referenceId },
+        ],
+      }),
+      deleteGrantFamily: deleteMcpOAuthGrantFamilyForSession,
+    });
+  } catch (error) {
+    if (!(error instanceof McpRefreshGrantRevokedError)) {
+      throw error;
+    }
+    throw new APIError("BAD_REQUEST", {
+      error: "invalid_grant",
+      error_description: INVALID_MCP_SESSION_GRANT_DESCRIPTION,
+    });
   }
-
-  const sessionLiveness = await getMcpSessionLiveness(sessionId);
-  if (sessionLiveness === "alive" || sessionLiveness === "check_failed") {
-    return;
-  }
-
-  await deleteMcpOAuthGrantFamilyForSession(sessionId);
-  throw new APIError("BAD_REQUEST", {
-    error: "invalid_grant",
-    error_description: INVALID_MCP_SESSION_GRANT_DESCRIPTION,
-  });
 }
 
 async function assertBetterAuthInvitationRoleAssignment(input: {
@@ -1128,8 +1141,27 @@ export const auth = betterAuth({
           DEN_MCP_TOKEN_USE_CLAIM,
           DEN_MCP_ORG_ID_CLAIM,
           DEN_MCP_RESOURCE_CLAIM,
+          DEN_MCP_GRANT_ID_CLAIM,
         ],
       },
+      extensions: [{
+        claims: {
+          accessToken: ({ ctx, client, user, referenceId }) => contributeMcpGrantClaim({
+            claimName: DEN_MCP_GRANT_ID_CLAIM,
+            clientId: client.clientId,
+            userId: user?.id,
+            referenceId,
+            findConsent: ({ clientId, userId, referenceId: consentReferenceId }) => ctx.context.adapter.findOne<{ id: string }>({
+              model: "oauthConsent",
+              where: [
+                { field: "clientId", value: clientId },
+                { field: "userId", value: userId },
+                { field: "referenceId", value: consentReferenceId },
+              ],
+            }),
+          }),
+        },
+      }],
       postLogin: {
         page: `${env.betterAuthUrl}/mcp/select-organization`,
         shouldRedirect: async ({ session, scopes }) => {
@@ -1169,6 +1201,9 @@ export const auth = betterAuth({
         }
         return claims;
       },
+      // Better Auth refresh-family teardown and /oauth2/revoke intentionally do
+      // not remove durable consent. Already minted JWT exposure remains bounded
+      // by the configured 45-minute MCP access-token lifetime.
       prefix: {
         opaqueAccessToken: DEN_MCP_OPAQUE_ACCESS_TOKEN_PREFIX,
         refreshToken: DEN_MCP_REFRESH_TOKEN_PREFIX,
