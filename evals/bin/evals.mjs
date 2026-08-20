@@ -12,8 +12,9 @@ const usage = `Usage: node evals/bin/evals.mjs [test-names...] [flags]
 
 Run E2E tests:
   --with-llm-vision  Judge vision claims inline (default: defer judging)
-  --daytona         Set OPENWORK_EVAL_DAYTONA=1
-  --den <url>       Set OPENWORK_EVAL_DEN_API_URL=<url>
+  --local            Force isolated local resources and clear inherited remote placement
+  --daytona          Set OPENWORK_EVAL_DAYTONA=1
+  --den <url>        Set OPENWORK_EVAL_DEN_API_URL=<url>
 
 Judge then publish evidence:
   --publish         Enter judge-then-publish mode
@@ -26,7 +27,7 @@ Other:
   --help, -h        Show this help
 
 Publish mode cannot be combined with test names, --with-llm-vision, --daytona,
-or --den. Named tests auto-consent to opt-in flags declared in their source;
+--local, or --den. Named tests auto-consent to opt-in flags declared in their source;
 value-bearing environment variables are never auto-set.
 
 Run exit codes:
@@ -65,6 +66,7 @@ export function parseArgs(args) {
   const options = {
     testNames: [],
     withLlmVision: false,
+    local: false,
     daytona: false,
     publish: false,
     dryRun: false,
@@ -76,6 +78,7 @@ export function parseArgs(args) {
     const arg = args[index];
     if (arg === "--help" || arg === "-h") options.help = true;
     else if (arg === "--with-llm-vision") options.withLlmVision = true;
+    else if (arg === "--local") options.local = true;
     else if (arg === "--daytona") options.daytona = true;
     else if (arg === "--publish") options.publish = true;
     else if (arg === "--dry-run") options.dryRun = true;
@@ -93,10 +96,18 @@ export function parseArgs(args) {
     }
   }
 
+  if (options.local && (options.daytona || options.den !== undefined)) {
+    const conflicts = [];
+    if (options.daytona) conflicts.push("--daytona");
+    if (options.den !== undefined) conflicts.push("--den");
+    throw new Error(`--local is mutually exclusive with ${conflicts.join(" and ")}.`);
+  }
+
   if (options.publish) {
     const conflicts = [];
     if (options.testNames.length > 0) conflicts.push("test names");
     if (options.withLlmVision) conflicts.push("--with-llm-vision");
+    if (options.local) conflicts.push("--local");
     if (options.daytona) conflicts.push("--daytona");
     if (options.den !== undefined) conflicts.push("--den");
     if (conflicts.length > 0) {
@@ -117,6 +128,28 @@ export function parseArgs(args) {
   }
 
   return options;
+}
+
+const REMOTE_PLACEMENT_ENV = [
+  "OPENWORK_EVAL_DAYTONA",
+  "OPENWORK_EVAL_DAYTONA_SANDBOX",
+  "OPENWORK_EVAL_DAYTONA_SANDBOX_ID",
+  "OPENWORK_EVAL_DAYTONA_DEN_SANDBOX",
+  "OPENWORK_EVAL_DAYTONA_DESKTOP_SANDBOX",
+  "OPENWORK_EVAL_DEN_API_URL",
+  "OPENWORK_EVAL_DEN_WEB_URL",
+];
+
+/** Resolve the child environment before any test process can provision resources. */
+export function resolveRunEnvironment(options, env = process.env) {
+  const childEnv = { ...env };
+  if (options.local) {
+    for (const name of REMOTE_PLACEMENT_ENV) delete childEnv[name];
+    return childEnv;
+  }
+  if (options.daytona) childEnv.OPENWORK_EVAL_DAYTONA = "1";
+  if (options.den !== undefined) childEnv.OPENWORK_EVAL_DEN_API_URL = options.den;
+  return childEnv;
 }
 
 function testFiles(directory = testsDir) {
@@ -236,7 +269,8 @@ function publish(options) {
 
 function run(options) {
   const resolved = resolveTestNames(options.testNames);
-  const childEnv = { ...process.env, OPENWORK_EVAL_E2E_TESTS: "1" };
+  const childEnv = resolveRunEnvironment(options);
+  childEnv.OPENWORK_EVAL_E2E_TESTS = "1";
   const consented = new Set(["OPENWORK_EVAL_E2E_TESTS"]);
 
   for (const file of resolved) {
@@ -248,9 +282,6 @@ function run(options) {
   }
   if (options.withLlmVision) delete childEnv.OPENWORK_EVAL_VISION;
   else childEnv.OPENWORK_EVAL_VISION = "defer";
-  if (options.daytona) childEnv.OPENWORK_EVAL_DAYTONA = "1";
-  if (options.den !== undefined) childEnv.OPENWORK_EVAL_DEN_API_URL = options.den;
-
   const outputDir = join(evalsDir, "results/.testkit");
   mkdirSync(outputDir, { recursive: true });
   const outputFile = join(outputDir, `cli-run-${Date.now()}.json`);
@@ -280,7 +311,14 @@ function run(options) {
   process.stdout.write(`${JSON.stringify({
     command: "evals:e2e",
     lane: "e2e",
-    daytona: options.daytona,
+    daytona: childEnv.OPENWORK_EVAL_DAYTONA?.trim() === "1",
+    placement: options.local
+      ? "local"
+      : options.daytona
+        ? "daytona"
+        : options.den !== undefined
+          ? "attached"
+          : "automatic",
     vision: options.withLlmVision ? "inline" : "defer",
     files: options.testNames.length > 0 ? options.testNames : ["all"],
     ...summary,
