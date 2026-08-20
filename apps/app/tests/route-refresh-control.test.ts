@@ -1,9 +1,68 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  createLatestWorkspaceCommitter,
   createRouteRefreshLifecycle,
   planRouteConnectionGap,
+  planRouteWorkspaceLoads,
 } from "../src/react-app/shell/route-refresh-control";
+
+describe("createLatestWorkspaceCommitter", () => {
+  test("coalesces an in-flight switching burst to the last route", async () => {
+    const committed: string[] = [];
+    let releaseFirst: () => void = () => undefined;
+    const firstBlocked = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const committer = createLatestWorkspaceCommitter(async (workspaceId) => {
+      committed.push(workspaceId);
+      if (workspaceId === "ws_1") await firstBlocked;
+    });
+
+    committer.request("ws_1");
+    committer.request("ws_2");
+    committer.request("ws_3");
+    expect(committed).toEqual(["ws_1"]);
+
+    releaseFirst();
+    await committer.settled();
+    expect(committed).toEqual(["ws_1", "ws_3"]);
+  });
+
+  test("does not repeat the active commit when the final route returns to it", async () => {
+    const committed: string[] = [];
+    let releaseFirst: () => void = () => undefined;
+    const firstBlocked = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const committer = createLatestWorkspaceCommitter(async (workspaceId) => {
+      committed.push(workspaceId);
+      if (committed.length === 1) await firstBlocked;
+    });
+
+    committer.request("ws_1");
+    committer.request("ws_2");
+    committer.request("ws_1");
+    releaseFirst();
+    await committer.settled();
+
+    expect(committed).toEqual(["ws_1"]);
+  });
+});
+
+describe("planRouteWorkspaceLoads", () => {
+  test("loads only the selected workspace instead of every unseen workspace", () => {
+    expect(planRouteWorkspaceLoads(
+      ["ws_1", "ws_2", "ws_3", "ws_4"],
+      "ws_3",
+      new Set(["ws_1"]),
+    )).toEqual(["ws_3"]);
+  });
+
+  test("skips a selected workspace whose session index is already loaded", () => {
+    expect(planRouteWorkspaceLoads(["ws_1", "ws_2"], "ws_2", new Set(["ws_2"]))).toEqual([]);
+  });
+});
 
 describe("createRouteRefreshLifecycle", () => {
   test("dedupes refreshes while one is in flight", () => {
