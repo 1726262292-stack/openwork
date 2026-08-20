@@ -104,6 +104,45 @@ helm template openwork-ee ./packaging/helm/openwork-ee -f values.prod.yaml
 helm upgrade --install openwork-ee ./packaging/helm/openwork-ee -f values.prod.yaml
 ```
 
+### Automations rollout
+
+The Helm chart advertises Automations as unavailable by default for self-hosted
+and customer-managed deployments. Set availability explicitly when the
+deployment is ready:
+
+```yaml
+config:
+  public:
+    automationsEnabled: "true"
+```
+
+This renders `DEN_AUTOMATIONS_ENABLED=true` for Den. Missing configuration is
+treated as unavailable in every deployment; hosted OpenWork Cloud sets the
+variable explicitly to `true`.
+
+The flag is delivered in compatibility-safe phases. This release adds the Den
+configuration contract and publishes its effective value through
+`/v1/me/desktop-config`; it deliberately leaves the existing Automation API,
+scheduler, and published Desktop behavior unchanged. A follow-up Desktop
+release consumes the contract before a later Den release enforces disabled
+execution. This ordering avoids breaking independently released Desktop and
+Den versions.
+
+For an existing deployment, stage the upgrade so independently released Den
+and Desktop versions never observe an unintended flag state:
+
+1. Set `config.public.automationsEnabled: "true"` before upgrading the chart.
+2. Upgrade Den and verify `/v1/me/desktop-config` reports
+   `automationsEnabled: true`.
+3. Roll out the config-aware Desktop follow-up release.
+4. Roll out the Den enforcement follow-up release.
+5. Leave the value `true` to keep Automations, or change it to `"false"` only
+   after both follow-ups are deployed to disable them.
+
+New installations that intend to keep Automations off can keep the chart's
+default `"false"`. Until the enforcement follow-up is deployed, that value is
+an advertised availability contract rather than a runtime kill switch.
+
 Provider-specific starter guides:
 
 - AWS EKS:
