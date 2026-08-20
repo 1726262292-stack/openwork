@@ -38,7 +38,6 @@ import {
   DYNAMIC_ARTIFACT_APP_SCHEMA_VERSION,
   dynamicArtifactAppServerCapabilities,
   registerAgentDynamicArtifactApp,
-  registerSelectedDynamicArtifactApp,
 } from "./dynamic-artifact-app.js"
 import {
   executeBuiltinSkillCapability,
@@ -66,11 +65,8 @@ import {
 import {
   registerAgentGeneratedArtifactViews,
   registerGeneratedArtifactResource,
-  registerSelectedGeneratedArtifactRenderTool,
 } from "./generated-artifact-views.js"
-import { requirePluginArchResourceRole, type PluginArchActorContext } from "../routes/org/plugin-system/access.js"
-import { clearProgramAgentSelection, getProgramAgentSelection, selectProgramForAgent } from "../program-agent-selection.js"
-import { getProgramDetail, listProgramLibraryItems } from "../program-library.js"
+import type { PluginArchActorContext } from "../routes/org/plugin-system/access.js"
 import { parseArtifactViewResourceUri } from "../artifact-view-resource.js"
 import { listReadyExternalMcpConnections } from "../capability-sources/external-mcp-connections.js"
 import {
@@ -150,55 +146,13 @@ export const SEARCH_CAPABILITIES_OUTPUT_SCHEMA = z.object({
   hint: z.string().optional(),
 })
 
-const programSearchItemOutputSchema = z.object({
-  id: z.string(),
-  plugin: z.object({ id: z.string(), name: z.string() }).nullable(),
-  name: z.string(),
-  description: z.string().nullable(),
-  role: z.enum(["viewer", "editor", "manager"]),
-  state: z.enum(["ready", "needs_signin", "needs_admin_setup"]),
-  resultState: z.enum(["never_run", "fresh", "stale", "needs_attention"]),
-  latestSuccessfulAt: z.string().nullable(),
-  viewState: z.enum(["default", "custom_active", "build_failed", "retired"]),
-  activeViewTitle: z.string().nullable(),
-  automationCount: z.number().int().nonnegative(),
-  source: z.object({
-    kind: z.enum(["created", "installed_template"]),
-    templateName: z.string().optional(),
-    templateVersion: z.string().optional(),
-  }),
-})
-
-const programSearchOutputSchema = z.object({
-  items: z.array(programSearchItemOutputSchema),
-  nextCursor: z.string().nullable(),
-})
-
-const programSelectionOutputSchema = z.object({
-  selection: z.object({
-    programId: z.string(),
-    selectedAt: z.string(),
-  }),
-})
-
-const programSelectionClearedOutputSchema = z.object({
-  selection: z.null(),
-})
-
-const programRunOutputSchema = z.object({
-  status: z.literal("succeeded"),
-  value: z.unknown(),
-  receiptId: z.string().nullable(),
-  resultDigest: z.string().nullable(),
-})
-
 export const AGENT_MCP_INSTRUCTIONS = [
   "This OpenWork Cloud MCP server uses standard MCP tools, resources, structured results, and list-changed notifications.",
   "Use create_skill to create one private Cloud skill in a new Plugin. It returns a standard skill-created MCP App result plus a text fallback; do not route this flow through execute_capability or postPlugins.",
   "Standard MCP Apps supplied by connected MCP servers are discovered through search_capabilities. A match with kind mcp_app must be executed through execute_capability like any other exact match; compatible OpenWork hosts preserve the current _meta.ui.resourceUri and render it without a generated direct-tool name.",
   "Standalone URL-imported Apps are deferred future work and are not part of this release. Do not offer, search for, import, or launch them.",
-  "A Program is an immutable-versioned Code Mode Script config object inside an OpenWork Connect Plugin. Organizations with Code Mode scripts enabled receive execute_capability_script, the backwards-compatible render_dynamic_artifact MCP App tool, and a constant-size Program catalog: search_programs, select_program, and clear_program_selection.",
-  "To use a Program, search by Library metadata, select one exact accessible Program, then refresh the tool catalog. The selected context exposes run_selected_program and a standard renderer for its retained Artifact data; Program execution remains server-mediated and returns structuredContent.",
+  "A Program is an immutable-versioned Code Mode Script config object inside an OpenWork Connect Plugin. Organizations with Code Mode scripts enabled receive execute_capability_script and the backwards-compatible render_dynamic_artifact MCP App tool.",
+  "Programs are discovered by Library metadata through search_capabilities and executed through execute_capability using the exact capability name returned by search. Program execution remains server-mediated and returns structuredContent.",
   "When a member asks to keep a successful Code Mode result, save it as a Program inside the existing OpenWork Connect Plugin they name by passing that pluginId to the Code Mode save operation. Omit pluginId only for a private Program in the member's My Programs Plugin. A Program inherits discovery and sharing from its Plugin and any Marketplace containing that Plugin; do not create a separate Program package or marketplace entry.",
   "Capabilities include native Google Workspace operations (Gmail read/search, Calendar list/create, Drive search/read, and Gmail draft creation) executed with the signed-in member's organization credentials, plus any MCP connections the organization has added.",
   "Allowlisted platform admins can also discover namespaced OpenWork Admin capabilities through this same connection; other members cannot discover or execute them.",
@@ -396,12 +350,10 @@ export function registerAgentSkillResources(input: {
  * desktop app's "OpenWork Cloud Control" connection, which is what an
  * OpenCode/Claude Code/Codex-style harness actually sees. It always registers
  * `search_capabilities`, `execute_capability`, and `create_skill`, and
- * conditionally registers Code Mode plus a constant-size Program
- * search/selection catalog.
- * One selected Program contributes exact run/render tools; its renderer is a
- * read-only MCP App over the same authorized saved-Script snapshots and does
- * not create a second execution or scheduling path. The other ~127 operations
- * are not individually callable on this endpoint.
+ * conditionally registers Code Mode and Artifact presentation tools. Programs
+ * remain discoverable and executable through the same capability-routing
+ * tools instead of contributing separate contextual tools. The other ~127
+ * operations are not individually callable on this endpoint.
  */
 export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables & Record<string, unknown> }>(app: Hono<T>) {
   app.get("/.well-known/oauth-protected-resource/mcp/agent", publicRoute, (c) =>
@@ -780,117 +732,8 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
         }
       }
 
-      // Keep the existing generic MCP App tool as the interoperable baseline.
-      // OpenWork's persisted selection only adds a smaller contextual catalog;
-      // it does not replace the standard tool/resource/result contract.
+      // Keep the generic MCP App tool as the interoperable baseline.
       registerAgentDynamicArtifactApp({ server, load: loadDynamicArtifact })
-
-      const notifyProgramCatalogChanged = async (extra: {
-        sendNotification: (notification: { method: "notifications/tools/list_changed" | "notifications/resources/list_changed" }) => Promise<void>
-      }) => {
-        await extra.sendNotification({ method: "notifications/tools/list_changed" })
-        if (env.generatedArtifactViewsEnabled) {
-          await extra.sendNotification({ method: "notifications/resources/list_changed" })
-        }
-      }
-
-      server.registerTool(
-        "search_programs",
-        {
-          title: "Search Programs",
-          description: "Search accessible Programs by Library metadata and parent OpenWork Connect Plugin. Results never include retained artifact data, Script source, generated source, compiled HTML, diagnostics, or credentials.",
-          annotations: SEARCH_CAPABILITIES_ANNOTATIONS,
-          inputSchema: z.object({
-            query: z.string().trim().max(255).optional(),
-            readiness: z.enum(["ready", "needs_signin", "needs_admin_setup"]).optional(),
-            source: z.enum(["created", "installed_template"]).optional(),
-            cursor: z.string().trim().min(1).max(160).optional(),
-            limit: z.number().int().min(1).max(50).optional(),
-          }),
-          outputSchema: programSearchOutputSchema,
-        },
-        async ({ query, readiness, source, cursor, limit }) => {
-          const items = artifactContext ? await listProgramLibraryItems({ context: artifactContext }) : []
-          const normalizedQuery = query?.toLocaleLowerCase() ?? ""
-          const filtered = items.filter((item) =>
-            (!normalizedQuery || `${item.name} ${item.description ?? ""}`.toLocaleLowerCase().includes(normalizedQuery))
-            && (!readiness || item.state === readiness)
-            && (!source || item.source.kind === source))
-          const start = cursor ? Math.max(0, filtered.findIndex((item) => item.id === cursor) + 1) : 0
-          const bounded = limit ?? 10
-          const page = filtered.slice(start, start + bounded).map((item) => ({
-            id: item.id,
-            plugin: item.plugin,
-            name: item.name,
-            description: item.description,
-            role: item.role,
-            state: item.state,
-            resultState: item.resultState,
-            latestSuccessfulAt: item.latestSuccessfulAt,
-            ...(env.generatedArtifactViewsEnabled
-              ? { viewState: item.viewState, activeViewTitle: item.activeViewTitle }
-              : { viewState: "default" as const, activeViewTitle: null }),
-            automationCount: item.automationCount,
-            source: item.source,
-          }))
-          const result = {
-            items: page,
-            nextCursor: start + bounded < filtered.length ? page.at(-1)?.id ?? null : null,
-          }
-          return { content: textContent(JSON.stringify(result, null, 2)), structuredContent: result }
-        },
-      )
-
-      server.registerTool(
-        "select_program",
-        {
-          title: "Select Program",
-          description: "Select one accessible Program as this member's current organization-scoped MCP context. Selection persists across chats and devices; it does not install or grant access.",
-          annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-          inputSchema: z.object({ programId: z.string().trim().min(1).max(160) }),
-          outputSchema: programSelectionOutputSchema,
-        },
-        async ({ programId }, extra) => {
-          if (!artifactContext) {
-            return { isError: true, content: textContent(JSON.stringify({ error: "program_not_found" })) }
-          }
-          const selection = await selectProgramForAgent({ context: artifactContext, programId })
-          await notifyProgramCatalogChanged(extra)
-          const result = {
-            selection: {
-              programId: selection.programId,
-              selectedAt: selection.selectedAt,
-            },
-          }
-          return {
-            content: textContent(JSON.stringify(result, null, 2)),
-            structuredContent: result,
-          }
-        },
-      )
-
-      server.registerTool(
-        "clear_program_selection",
-        {
-          title: "Clear Program selection",
-          description: "Clear this member's current organization-scoped Program selection.",
-          annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
-          inputSchema: z.object({}),
-          outputSchema: programSelectionClearedOutputSchema,
-        },
-        async (_request, extra) => {
-          if (artifactContext) await clearProgramAgentSelection(artifactContext)
-          await notifyProgramCatalogChanged(extra)
-          const result = { selection: null }
-          return { content: textContent(JSON.stringify(result)), structuredContent: result }
-        },
-      )
-
-      const selection = artifactContext ? await getProgramAgentSelection(artifactContext) : null
-      const selectedDetail = artifactContext && selection
-        ? await getProgramDetail({ context: artifactContext, configObjectId: selection.programId })
-        : null
-      let registeredSelectedCustomView = false
 
       // This server deploys independently from Desktop. Do not advertise or
       // serve bridge-dependent generated views until the compatible Desktop
@@ -912,7 +755,6 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
           save: (request) => saveArtifactViewRevision({ context: artifactContext, ...request }),
           activate: (request) => activateArtifactViewRevision({ context: artifactContext, ...request }),
           retire: (request) => retireArtifactView({ context: artifactContext, ...request }),
-          exposePerViewRenderTools: false,
         })
 
         const exactResource = requestInfo.resourceUri ? parseArtifactViewResourceUri(requestInfo.resourceUri) : null
@@ -925,90 +767,6 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
             loadResource: loadGeneratedResource,
           })
         }
-
-        if (selection && selectedDetail) {
-          const activeView = selectedDetail.views.find((view) => view.status === "active" && view.activeRevisionId !== null)
-          const active = activeView?.activeRevisionId
-            ? await getGeneratedArtifactViewRevision({
-                context: artifactContext,
-                artifactViewId: activeView.id,
-                revisionId: activeView.activeRevisionId,
-              }).catch(() => null)
-            : null
-          const compatibleRevision = active?.revision.buildStatus === "ready"
-            && active.revision.retiredAt === null
-            && active.revision.outputSchemaDigest === selectedDetail.script.currentVersion.outputSchemaDigest
-            ? active.revision
-            : null
-          if (active && compatibleRevision) {
-            if (!generatedViews.some((view) => view.revisions.some((revision) => revision.resourceUri === compatibleRevision.resourceUri))) {
-              registerGeneratedArtifactResource({
-                server,
-                view: active.view,
-                revision: compatibleRevision,
-                loadResource: loadGeneratedResource,
-              })
-            }
-            registerSelectedGeneratedArtifactRenderTool({
-              server,
-              view: active.view,
-              revision: compatibleRevision,
-              loadData: loadDynamicArtifact,
-            })
-            registeredSelectedCustomView = true
-          }
-        }
-      }
-
-      if (artifactContext && selection && selectedDetail) {
-        if (!registeredSelectedCustomView) {
-          registerSelectedDynamicArtifactApp({ server, configObjectId: selection.programId, load: loadDynamicArtifact })
-        }
-
-        server.registerTool(
-          "run_selected_program",
-          {
-            title: `Run selected Program: ${selectedDetail.program.name}`,
-            description: "Execute the selected Program's current immutable Script version after validating access, input schema, and capability readiness.",
-            annotations: EXECUTE_CAPABILITY_ANNOTATIONS,
-            inputSchema: z.object({ input: z.unknown().optional() }),
-            outputSchema: programRunOutputSchema,
-          },
-          async ({ input }) => {
-            await requirePluginArchResourceRole({
-              context: artifactContext,
-              requireFreshSession: false,
-              resourceId: normalizeDenTypeId("configObject", selection.programId),
-              resourceKind: "config_object",
-              role: "editor",
-            })
-            const execution = await executeMarketplaceCapability({
-              organizationId: principal.organizationId,
-              member: memberIdentity,
-              pluginId: selectedDetail.script.pluginId,
-              configObjectId: selectedDetail.script.configObjectId,
-              configObjectVersionId: selectedDetail.script.currentVersion.id,
-              body: input,
-              codemodeEnabled: true,
-              validateScriptOutput: true,
-              buildTools: () => buildCapabilityToolTree(capabilityContext),
-            })
-            if (!execution.ok || execution.result.status !== "executed") {
-              const message = execution.ok ? execution.result.hint ?? "The selected Program could not run." : execution.message
-              return { isError: true, content: textContent(JSON.stringify({ error: "program_run_failed", message })) }
-            }
-            const result = {
-              status: "succeeded" as const,
-              value: execution.result.value,
-              receiptId: execution.result.receiptId ?? null,
-              resultDigest: execution.result.resultDigest ?? null,
-            }
-            return {
-              content: textContent(JSON.stringify(result, null, 2)),
-              structuredContent: result,
-            }
-          },
-        )
       }
 
       server.registerTool(

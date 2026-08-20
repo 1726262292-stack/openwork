@@ -395,6 +395,7 @@ async function executeMarketplaceSource(
     configObjectId: parsed.configObjectId,
     body: input.body,
     codemodeEnabled: ctx.codemodeEnabled,
+    validateScriptOutput: true,
     enabled: ctx.externalMcpConnectionsEnabled,
     redirectUriBase: ctx.redirectUriBase,
   })
