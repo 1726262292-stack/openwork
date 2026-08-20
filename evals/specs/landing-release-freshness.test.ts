@@ -1,6 +1,10 @@
 import { expect, onTestFinished } from "vitest";
 import { test } from "@openwork/testkit";
-import { getGithubData } from "../../ee/apps/landing/lib/github";
+import { readFile } from "node:fs/promises";
+import {
+  getGithubData,
+  LATEST_RELEASE_CACHE_TAG,
+} from "../../ee/apps/landing/lib/github";
 
 const repoUrl = "https://api.github.com/repos/different-ai/openwork";
 const latestReleaseUrl = "https://api.github.com/repos/different-ai/openwork/releases/latest";
@@ -11,6 +15,7 @@ const downloadUrl = `https://github.com/different-ai/openwork/releases/download/
 test("the public download page refreshes a newly published stable release", async ({ evidence }) => {
   const originalFetch = globalThis.fetch;
   const revalidateByUrl = new Map<string, number | undefined>();
+  const tagsByUrl = new Map<string, string[] | undefined>();
   const release = {
     draft: false,
     prerelease: false,
@@ -36,8 +41,11 @@ test("the public download page refreshes a newly published stable release", asyn
         : input instanceof URL
           ? input.href
           : input.url;
-      const next = (init as { next?: { revalidate?: number } } | undefined)?.next;
+      const next = (init as {
+        next?: { revalidate?: number; tags?: string[] };
+      } | undefined)?.next;
       revalidateByUrl.set(url, next?.revalidate);
+      tagsByUrl.set(url, next?.tags);
       const fixture = fixtures[url];
       return fixture === undefined
         ? new Response("Not found", { status: 404 })
@@ -55,9 +63,21 @@ test("the public download page refreshes a newly published stable release", asyn
   expect(result.releaseTag).toBe(releaseTag);
   expect(result.installers.macos.appleSilicon).toBe(downloadUrl);
   expect(revalidateByUrl.get(latestReleaseUrl)).toBe(90);
+  expect(tagsByUrl.get(latestReleaseUrl)).toEqual([LATEST_RELEASE_CACHE_TAG]);
+  expect(tagsByUrl.get(releasesUrl)).toEqual([LATEST_RELEASE_CACHE_TAG]);
+
+  const releaseWorkflow = await readFile(
+    new URL("../../.github/workflows/release-macos-aarch64.yml", import.meta.url),
+    "utf8",
+  );
+  expect(releaseWorkflow).toContain("needs: [resolve-release, publish-release]");
+  expect(releaseWorkflow).toContain("needs.publish-release.result == 'success'");
+  expect(releaseWorkflow).toContain("needs.resolve-release.outputs.prerelease != 'true'");
+  expect(releaseWorkflow).toContain("cache dangerously-delete");
+  expect(releaseWorkflow).toContain(`--tag ${LATEST_RELEASE_CACHE_TAG}`);
   evidence.recordAssertionEvidence(
-    "A newly published stable release replaces stale public download metadata",
-    "The landing resolver selected the new stable tag and installer while limiting the latest-release cache to 90 seconds instead of one hour.",
+    "A stable release publication deletes the exact landing cache entry",
+    "The landing resolver tags both stable-release lookups, and the successful non-prerelease workflow deletes that Vercel cache tag so the next download request blocks on fresh GitHub metadata.",
     true,
   );
 

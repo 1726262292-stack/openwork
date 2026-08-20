@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { getGithubData } from "../lib/github";
+import { getGithubData, LATEST_RELEASE_CACHE_TAG } from "../lib/github";
 
 type GithubFixtureAsset = {
   name: string;
@@ -39,7 +39,7 @@ const asset = (name: string): GithubFixtureAsset => ({
 });
 
 const installGithubFetch = ({ latestRelease, releases }: GithubFetchFixtures) => {
-  const requests: Array<{ url: string; revalidate?: number }> = [];
+  const requests: Array<{ url: string; revalidate?: number; tags?: string[] }> = [];
   const fixtures: Record<string, unknown> = {
     [repoUrl]: { stargazers_count: 12345 },
     [latestReleaseUrl]: latestRelease,
@@ -54,9 +54,11 @@ const installGithubFetch = ({ latestRelease, releases }: GithubFetchFixtures) =>
       const url =
         typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
       const fixture = fixtures[url];
-      const next = (init as { next?: { revalidate?: number } } | undefined)?.next;
+      const next = (init as {
+        next?: { revalidate?: number; tags?: string[] };
+      } | undefined)?.next;
 
-      requests.push({ url, revalidate: next?.revalidate });
+      requests.push({ url, revalidate: next?.revalidate, tags: next?.tags });
 
       if (fixture === undefined) {
         return new Response("Not found", { status: 404 });
@@ -103,6 +105,13 @@ describe("getGithubData", () => {
     expect(Object.fromEntries(requests.map(({ url, revalidate }) => [url, revalidate]))).toEqual(
       expectedRevalidateSeconds
     );
+    expect(requests.find(({ url }) => url === repoUrl)?.tags).toEqual([]);
+    expect(requests.find(({ url }) => url === latestReleaseUrl)?.tags).toEqual([
+      LATEST_RELEASE_CACHE_TAG
+    ]);
+    expect(requests.find(({ url }) => url === releasesUrl)?.tags).toEqual([
+      LATEST_RELEASE_CACHE_TAG
+    ]);
   });
 
   test("selects only public desktop assets when installer assets are listed first", async () => {

@@ -1043,6 +1043,51 @@ jobs:
             gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest
           fi
 
+  refresh-landing-release:
+    name: Refresh public download metadata
+    needs: [resolve-release, publish-release]
+    if: |
+      needs.publish-release.result == 'success' &&
+      needs.resolve-release.outputs.benchmark_only != 'true' &&
+      needs.resolve-release.outputs.prerelease != 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Delete cached stable release metadata
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "$VERCEL_TOKEN" ]; then
+            echo "VERCEL_TOKEN is required to refresh the public download metadata." >&2
+            exit 1
+          fi
+
+          for attempt in 1 2 3; do
+            if npx --yes vercel@59.3.0 cache dangerously-delete \
+              --project openwork-landing \
+              --scope prologe \
+              --tag openwork-latest-release \
+              --token "$VERCEL_TOKEN" \
+              --yes; then
+              exit 0
+            fi
+
+            if [ "$attempt" -eq 3 ]; then
+              echo "Failed to refresh the public download metadata after 3 attempts." >&2
+              exit 1
+            fi
+
+            sleep "$((attempt * 5))"
+          done
+
   prepare-npm:
     name: Prepare openwork-server npm package
     needs: [resolve-release, verify-release]
