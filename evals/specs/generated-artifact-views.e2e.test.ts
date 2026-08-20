@@ -1,5 +1,5 @@
 import { expect } from "vitest"
-import { needs, server, test } from "@openwork/testkit"
+import { needs, queryDenDatabase, server, test } from "@openwork/testkit"
 import { denFetch, evalIn, waitFor } from "@openwork/behaviors"
 import type { DenSession } from "@openwork/behaviors"
 import { navigate } from "@openwork/cdp"
@@ -85,6 +85,8 @@ test("the agent MCP exposes the custom Artifact view authoring lifecycle", { tim
       members: { viewer: { name: "Workflow Viewer" } },
     },
   })
+  const databaseUrl = den.database?.url
+  if (!databaseUrl) throw new Error("legacy Workflow compatibility proof requires an isolated database handle")
   const orgs = await denFetch(den.admin, "/v1/me/orgs", {
     headers: { authorization: `Bearer ${den.admin.token}` },
   })
@@ -261,6 +263,8 @@ test("the agent MCP exposes the custom Artifact view authoring lifecycle", { tim
   expect(workflowItem).not.toHaveProperty("data")
   expect(workflowItem).not.toHaveProperty("compiledHtml")
 
+  await queryDenDatabase(databaseUrl, "UPDATE config_object SET object_type = 'script' WHERE id = ?", [configObjectId])
+
   const workflowSearch = await agentRpc(den.ref.apiUrl, mcpToken, "tools/call", {
     name: "search_capabilities",
     arguments: { query: "Quarterly plan source", limit: 10 },
@@ -281,6 +285,12 @@ test("the agent MCP exposes the custom Artifact view authoring lifecycle", { tim
   })
   expect(scriptRun.isError, JSON.stringify(scriptRun)).not.toBe(true)
   expect(JSON.stringify(scriptRun), JSON.stringify(scriptRun)).toContain('"status":"executed"')
+  evidence.recordAssertionEvidence(
+    "A persisted legacy script remains a canonical executable Workflow",
+    `Legacy object ${configObjectId} was discovered as kind workflow and executed through ${workflowCapabilityName}.`,
+    workflowCapability?.kind === "workflow" && JSON.stringify(scriptRun).includes('"status":"executed"'),
+  )
+  await queryDenDatabase(databaseUrl, "UPDATE config_object SET object_type = 'workflow' WHERE id = ?", [configObjectId])
 
   const legacyRender = await agentRpc(den.ref.apiUrl, mcpToken, "tools/call", {
     name: "render_dynamic_artifact",

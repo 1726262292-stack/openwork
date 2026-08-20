@@ -1840,7 +1840,7 @@ export async function listConfigObjectPlugins(input: { context: PluginArchActorC
 
 export async function attachConfigObjectToPlugin(input: { context: PluginArchActorContext; configObjectId: ConfigObjectId; membershipSource?: PluginMembershipRow["membershipSource"]; pluginId: PluginId }) {
   const configObject = await ensureVisibleConfigObject(input.context, input.configObjectId)
-  if (configObject.objectType === "workflow") {
+  if (configObject.objectType === "workflow" || configObject.objectType === "script") {
     // Adding a Workflow to a Plugin can expand its audience through Plugin and
     // Marketplace grants, so only a Workflow manager may make that sharing
     // decision. Other config-object membership behavior stays compatible.
@@ -1883,7 +1883,7 @@ export async function attachConfigObjectToPlugin(input: { context: PluginArchAct
 
 export async function removeConfigObjectFromPlugin(input: { context: PluginArchActorContext; configObjectId: ConfigObjectId; pluginId: PluginId }) {
   const configObject = await ensureVisibleConfigObject(input.context, input.configObjectId)
-  if (configObject.objectType === "workflow") {
+  if (configObject.objectType === "workflow" || configObject.objectType === "script") {
     await requirePluginArchResourceRole({
       context: input.context,
       resourceId: configObject.id,

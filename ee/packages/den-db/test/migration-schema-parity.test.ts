@@ -549,7 +549,7 @@ test("0076 migrates workflow table, enums, and legacy data without changing IDs"
     const enumColumns = await queryRecords(connection, "SELECT `table_name` AS `table_name`, `column_type` AS `column_type` FROM information_schema.COLUMNS WHERE table_schema = DATABASE() AND table_name IN ('config_object', 'connector_mapping') AND column_name = 'object_type' ORDER BY table_name")
     for (const row of enumColumns) {
       assert.match(stringField(row, "column_type"), /'workflow'/)
-      assert.doesNotMatch(stringField(row, "column_type"), /'script'/)
+      assert.match(stringField(row, "column_type"), /'script'/)
     }
   } finally {
     await connection?.end().catch(() => {})

@@ -91,6 +91,11 @@ type MarketplaceCapabilityRow = {
   marketplace: typeof MarketplaceTable.$inferSelect | null
   plugin: typeof PluginTable.$inferSelect
 }
+
+function canonicalConfigObjectType(objectType: ConfigObjectType): ConfigObjectType {
+  return objectType === "script" ? "workflow" : objectType
+}
+
 type GrantRow = {
   orgMembershipId: DenTypeId<"member"> | null
   orgWide: boolean
@@ -363,7 +368,7 @@ function scoreMarketplaceRow(row: MarketplaceCapabilityRow, queryTokens: string[
 
 function basePayload(row: MarketplaceCapabilityRow): MarketplaceCapabilityExecutePayload {
   return {
-    kind: row.configObject.objectType,
+    kind: canonicalConfigObjectType(row.configObject.objectType),
     plugin: row.plugin.name,
     marketplace: row.marketplace ? row.marketplace.name : null,
     name: row.configObject.title,
@@ -685,7 +690,7 @@ export async function listAccessibleMarketplaceCapabilityReferences(input: {
     references.set(key, {
       configObjectId: row.configObject.id,
       marketplaceId,
-      objectType: row.configObject.objectType,
+      objectType: canonicalConfigObjectType(row.configObject.objectType),
       pluginId: row.plugin.id,
     })
   }
@@ -809,6 +814,7 @@ export function marketplaceConfigObjectExecutionMode(objectType: ConfigObjectTyp
     case "custom":
     case "skill":
       return "instructional"
+    case "script":
     case "workflow":
       return "codemode"
     case "app":
@@ -1435,8 +1441,9 @@ export async function searchMarketplaceCapabilities(input: {
   const matchesByName = new Map<string, MarketplaceCapabilityMatch>()
 
   for (const row of rows) {
-    if (row.configObject.objectType === "workflow" && input.codemodeEnabled !== true) continue
-    if (input.objectTypes && !input.objectTypes.includes(row.configObject.objectType)) continue
+    const objectType = canonicalConfigObjectType(row.configObject.objectType)
+    if (objectType === "workflow" && input.codemodeEnabled !== true) continue
+    if (input.objectTypes && !input.objectTypes.includes(objectType)) continue
     const score = scoreMarketplaceRow(row, queryTokens)
     if (score <= 0) continue
     const name = buildMarketplaceCapabilityName(row.plugin.id, row.configObject.id)
@@ -1449,16 +1456,16 @@ export async function searchMarketplaceCapabilities(input: {
       summary: summaryFor(row),
       pathParams: [],
       queryParams: [],
-      hasBody: row.configObject.objectType === "command" || row.configObject.objectType === "workflow",
-      kind: row.configObject.objectType,
+      hasBody: objectType === "command" || objectType === "workflow",
+      kind: objectType,
       plugin: row.plugin.name,
       ...(row.marketplace ? { marketplace: row.marketplace.name } : {}),
     }
-    if (row.configObject.objectType === "tool") {
+    if (objectType === "tool") {
       match.status = "needs_install"
       match.hint = objectHint(row)
     }
-    if (marketplaceConfigObjectExecutionMode(row.configObject.objectType) === "instructional") {
+    if (marketplaceConfigObjectExecutionMode(objectType) === "instructional") {
       const requirements = requirementStatusesByPluginId.get(row.plugin.id) ?? []
       const requirementStatus = aggregateRequirementStatus(requirements)
       const blockingRequirement = firstBlockingRequirement(requirements)
@@ -1493,7 +1500,7 @@ export async function listAccessibleWorkflows(input: {
   const workflows: AccessibleWorkflow[] = []
   const seen = new Set<string>()
   for (const row of rows) {
-    if (row.configObject.objectType !== "workflow" || seen.has(row.configObject.id)) continue
+    if (canonicalConfigObjectType(row.configObject.objectType) !== "workflow" || seen.has(row.configObject.id)) continue
     const version = await latestVersion(row.configObject.id, organizationId)
     if (!version) continue
     const parsed = parseCodemodeScriptPayload(version.normalizedPayloadJson)
@@ -1548,7 +1555,7 @@ export async function executeMarketplaceCapability(input: {
   if (rows.length === 0) {
     return { ok: false, error: "unknown_capability", message: "No such capability." }
   }
-  if (rows[0]?.configObject.objectType === "workflow" && input.codemodeEnabled !== true) {
+  if (rows[0] && canonicalConfigObjectType(rows[0].configObject.objectType) === "workflow" && input.codemodeEnabled !== true) {
     return { ok: false, error: "unknown_capability", message: "No such capability." }
   }
 
@@ -1576,7 +1583,7 @@ export async function executeMarketplaceCapability(input: {
     }
   }
 
-  if (row.configObject.objectType === "workflow") {
+  if (canonicalConfigObjectType(row.configObject.objectType) === "workflow") {
     const execution = await executeWorkflow({
       database: db,
       organizationId,

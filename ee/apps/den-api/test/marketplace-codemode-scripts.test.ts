@@ -536,6 +536,34 @@ describe("saved marketplace Workflows", () => {
     expect(matches[0]?.path).toStartWith("plugin://")
   })
 
+  test("executes a legacy script object through the canonical Workflow capability", async () => {
+    const seeded = await seedScript({
+      title: "Legacy Script",
+      code: "return { migrated: input.value }",
+      payload: { language: "codemode-js", requiredCapabilities: [] },
+    })
+    await db.update(ConfigObjectTable)
+      .set({ objectType: "script" })
+      .where(eq(ConfigObjectTable.id, seeded.configObjectId))
+
+    const matches = await marketplaceCapabilities.searchMarketplaceCapabilities({
+      codemodeEnabled: true,
+      enabled: true,
+      member: seeded.member,
+      organizationId: seeded.organizationId,
+      query: "legacy script",
+    })
+    expect(matches[0]).toMatchObject({ kind: "workflow", hasBody: true })
+
+    const result = await executeScript(seeded, { body: { value: "compatible" } })
+    if (!result.ok) throw new Error(result.message)
+    expect(result.result).toMatchObject({
+      kind: "workflow",
+      status: "executed",
+      value: { migrated: "compatible" },
+    })
+  })
+
   test("keeps saved scripts unknown and undiscoverable when Code Mode is disabled", async () => {
     const seeded = await seedScript({
       title: "Hidden Script",
