@@ -58,10 +58,13 @@ async function writeFakeEngineBin(root: string): Promise<string> {
     "const logPath = process.env.OPENWORK_POOL_LOG;",
     "const statePath = process.env.OPENWORK_POOL_STATE;",
     "const append = (line) => { if (logPath) appendFileSync(logPath, `${line}\\n`); };",
-    "const busySessions = (port) => {",
+    "const busySessions = (port, directory) => {",
     "  try {",
     "    const state = JSON.parse(readFileSync(statePath, 'utf8'));",
-    "    return state[String(port)] ?? [];",
+    "    const value = state[String(port)];",
+    "    if (Array.isArray(value)) return value;",
+    "    if (!value || typeof value !== 'object') return [];",
+    "    return value[directory ?? ''] ?? [];",
     "  } catch { return []; }",
     "};",
     "const server = Bun.serve({",
@@ -71,17 +74,27 @@ async function writeFakeEngineBin(root: string): Promise<string> {
     "    const url = new URL(request.url);",
     "    append(`${server.port} ${request.method} ${url.pathname}`);",
     "    if (url.pathname === '/session/status') {",
-    "      const entries = busySessions(server.port).map((id) => [id, { type: 'busy' }]);",
+    "      const entries = busySessions(server.port, url.searchParams.get('directory')).map((id) => [id, { type: 'busy' }]);",
     "      return Response.json(Object.fromEntries(entries));",
     "    }",
     "    if (url.pathname === '/permission') {",
-    "      const sessionID = busySessions(server.port)[0] ?? `ses_${server.port}`;",
-    "      return Response.json([{ id: `req_${server.port}`, sessionID }]);",
+    "      const owner = Number(url.searchParams.get('owner') ?? 0);",
+    "      if (owner && owner !== server.port) return Response.json([]);",
+    "      const sessionID = url.searchParams.get('session') ?? busySessions(server.port, url.searchParams.get('directory'))[0] ?? `ses_${server.port}`;",
+    "      return Response.json([{ id: url.searchParams.get('request') ?? `req_${server.port}`, sessionID }]);",
     "    }",
     "    if (url.pathname === '/event') {",
-    "      const sessionID = busySessions(server.port)[0] ?? `ses_${server.port}`;",
+    "      const sessionID = busySessions(server.port, url.searchParams.get('directory'))[0] ?? `ses_${server.port}`;",
     "      const payload = { type: 'session.updated', properties: { sessionID } };",
+    "      if (url.searchParams.has('hold')) {",
+    "        const body = new ReadableStream({ start(controller) { controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(payload)}\\n\\n`)); } });",
+    "        return new Response(body, { headers: { 'content-type': 'text/event-stream' } });",
+    "      }",
     "      return new Response(`data: ${JSON.stringify(payload)}\\n\\n`, { headers: { 'content-type': 'text/event-stream' } });",
+    "    }",
+    "    if (url.pathname.endsWith('/reply')) {",
+    "      const owner = Number(url.searchParams.get('owner') ?? 0);",
+    "      if (owner && owner !== server.port) return Response.json({ ok: false }, { status: 404 });",
     "    }",
     "    return Response.json({ ok: true, port: server.port, path: url.pathname });",
     "  },",
@@ -115,6 +128,7 @@ type Fixture = {
   hookCalls: { reloadInPlace: number; postRefreshSync: number };
   hooks: EnginePoolHooks;
   setBusy: (port: number, sessionIds: string[]) => Promise<void>;
+  setBusyForDirectory: (port: number, directory: string, sessionIds: string[]) => Promise<void>;
   logLines: () => Promise<string[]>;
   setRuntimeConfig: (content: string) => Promise<void>;
   spawnPrimary: () => Promise<ManagedOpencodeServer>;
@@ -197,9 +211,20 @@ async function createFixture(options?: { bin?: "ready" | "unready" }): Promise<F
   };
 
   const setBusy = async (port: number, sessionIds: string[]): Promise<void> => {
-    const state = JSON.parse(await readFile(statePath, "utf8").catch(() => "{}")) as Record<string, string[]>;
+    const state = JSON.parse(await readFile(statePath, "utf8").catch(() => "{}")) as Record<string, string[] | Record<string, string[]>>;
     if (sessionIds.length === 0) delete state[String(port)];
     else state[String(port)] = sessionIds;
+    await writeFile(statePath, JSON.stringify(state));
+  };
+
+  const setBusyForDirectory = async (port: number, directory: string, sessionIds: string[]): Promise<void> => {
+    const state = JSON.parse(await readFile(statePath, "utf8").catch(() => "{}")) as Record<string, string[] | Record<string, string[]>>;
+    const current = state[String(port)];
+    const byDirectory = current !== undefined && !Array.isArray(current) ? current : {};
+    if (sessionIds.length === 0) delete byDirectory[directory];
+    else byDirectory[directory] = sessionIds;
+    if (Object.keys(byDirectory).length === 0) delete state[String(port)];
+    else state[String(port)] = byDirectory;
     await writeFile(statePath, JSON.stringify(state));
   };
 
@@ -219,6 +244,7 @@ async function createFixture(options?: { bin?: "ready" | "unready" }): Promise<F
     hookCalls,
     hooks,
     setBusy,
+    setBusyForDirectory,
     logLines: async () => (await readFile(logPath, "utf8").catch(() => "")).split("\n").filter(Boolean),
     setRuntimeConfig: (content: string) => writeFile(runtimeConfigPath, content),
     spawnPrimary,
@@ -443,6 +469,36 @@ describe("engine pool", () => {
     expect(await fixture.logLines()).toContain(`${oldPort} SIGTERM`);
   });
 
+  test("keeps a live session from another workspace on the draining generation", async () => {
+    const fixture = await createFixture();
+    const secondWorkspace: WorkspaceInfo = {
+      ...fixture.workspace,
+      id: "ws_pool_second",
+      name: "Second pool workspace",
+      path: join(fixture.root, "second"),
+    };
+    fixture.config.workspaces.push(secondWorkspace);
+    const { pool, primary } = await createPool(fixture);
+    const oldPort = portOf(primary.url);
+    await fixture.setBusyForDirectory(oldPort, fixture.workspace.path, ["ses_first_workspace"]);
+    await fixture.setRuntimeConfig(JSON.stringify({ generation: 2 }));
+
+    const outcome = await pool.requestRollover({
+      reason: "second_workspace_sync",
+      workspace: secondWorkspace,
+      forceStandby: true,
+    });
+
+    expect(outcome.action).toBe("rolled_over");
+    if (outcome.action !== "rolled_over") throw new Error("expected a rollover");
+    expect(outcome.drainingSessions).toBe(1);
+    expect(primary.isAlive()).toBe(true);
+    expect(pool.routeRequest("GET", "/session/ses_first_workspace/message")?.target.baseUrl).toBe(primary.url);
+
+    await fixture.setBusyForDirectory(oldPort, fixture.workspace.path, []);
+    expect(await waitUntil(() => !primary.isAlive(), 5_000)).toBe(true);
+  });
+
   test("keeps live session and prompt traffic on the draining generation", async () => {
     const fixture = await createFixture();
     const { pool, primary } = await createPool(fixture);
@@ -516,6 +572,31 @@ describe("engine pool", () => {
     const reply = await (await proxy(`/permission/req_${oldPort}/reply`, "POST")).json() as { port: number };
     expect(reply.port).toBe(oldPort);
 
+    const lateUrl = new URL(`http://127.0.0.1/opencode/permission?request=req_late&owner=${newPort}&session=ses_live`);
+    const latePending = await proxyOpencodeRequest({
+      config: fixture.config,
+      request: new Request(lateUrl),
+      url: lateUrl,
+      workspace: fixture.workspace,
+      proxyPath: "/permission",
+    });
+    expect(await latePending.json()).toEqual([{ id: "req_late", sessionID: "ses_live" }]);
+    const lateReply = await (await proxy("/permission/req_late/reply", "POST")).json() as { port: number };
+    expect(lateReply.port).toBe(oldPort);
+
+    const currentGeneration = pool.connections().find((connection) => connection.role === "primary");
+    if (!currentGeneration) throw new Error("expected a current generation");
+    pool.observePendingRequests(currentGeneration.generationId, [{ id: "req_stale", sessionID: "ses_new" }]);
+    const staleUrl = new URL(`http://127.0.0.1/opencode/permission/req_stale/reply?owner=${oldPort}`);
+    const staleReply = await proxyOpencodeRequest({
+      config: fixture.config,
+      request: new Request(staleUrl, { method: "POST" }),
+      url: staleUrl,
+      workspace: fixture.workspace,
+      proxyPath: "/permission/req_stale/reply",
+    });
+    expect(await staleReply.json()).toMatchObject({ port: oldPort });
+
     const events = await (await proxy("/event")).text();
     expect(events).toContain('"sessionID":"ses_live"');
     expect(events).toContain(`"sessionID":"ses_${newPort}"`);
@@ -585,6 +666,32 @@ describe("engine pool", () => {
       .toBe("rolled_over");
     expect(lease.signal.aborted).toBe(true);
     lease.release();
+  });
+
+  test("closes an existing event response when a generation flips", async () => {
+    const fixture = await createFixture();
+    const { pool, primary } = await createPool(fixture);
+    await fixture.setBusy(portOf(primary.url), ["ses_live"]);
+    const url = new URL("http://127.0.0.1/opencode/event?hold=1");
+    const response = await proxyOpencodeRequest({
+      config: fixture.config,
+      request: new Request(url),
+      url,
+      workspace: fixture.workspace,
+      proxyPath: "/event",
+    });
+    const reader = response.body?.getReader();
+    if (!reader) throw new Error("expected an event response body");
+    expect((await reader.read()).done).toBe(false);
+    await fixture.setRuntimeConfig(JSON.stringify({ generation: 2 }));
+
+    expect((await pool.requestRollover({ reason: "config_changed", workspace: fixture.workspace })).action)
+      .toBe("rolled_over");
+    const closed = await Promise.race([
+      reader.read().then((result) => result.done),
+      new Promise<false>((resolve) => setTimeout(() => resolve(false), 2_000)),
+    ]);
+    expect(closed).toBe(true);
   });
 
   test("aborts the remaining sessions once the drain grace period expires", async () => {

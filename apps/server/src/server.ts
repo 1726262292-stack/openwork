@@ -1392,6 +1392,7 @@ export async function proxyOpencodeRequest(input: {
   }
   if (pool && method === "GET" && engineAggregateKind(proxyPath)) {
     return proxyEngineAggregateRead({
+      pool,
       connections: pool.connections(),
       proxyPath,
       search: input.url.search,
@@ -1490,6 +1491,7 @@ function pendingItemIdentity(value: unknown): string {
 }
 
 async function proxyEngineAggregateRead(input: {
+  pool: EnginePool;
   connections: EnginePoolConnection[];
   proxyPath: string;
   search: string;
@@ -1521,6 +1523,9 @@ async function proxyEngineAggregateRead(input: {
     return jsonResponse(merged);
   }
 
+  for (const result of results) {
+    input.pool.observePendingRequests(result.connection.generationId, result.payload);
+  }
   const seen = new Set<string>();
   const items: unknown[] = [];
   let containerKey: string | null = null;
@@ -1567,13 +1572,24 @@ function mergedEventBody(input: {
     start(controller) {
       let active = readers.length;
       let closed = false;
+      const close = () => {
+        if (closed) return;
+        closed = true;
+        if (pingTimer) clearInterval(pingTimer);
+        input.lease.signal.removeEventListener("abort", abort);
+        input.lease.release();
+        controller.close();
+      };
+      const abort = () => {
+        if (closed || cancelled) return;
+        cancelled = true;
+        for (const entry of readers) void entry.reader.cancel(input.lease.signal.reason).catch(() => undefined);
+        close();
+      };
       const finish = () => {
         active -= 1;
         if (active > 0 || closed || cancelled) return;
-        closed = true;
-        if (pingTimer) clearInterval(pingTimer);
-        input.lease.release();
-        controller.close();
+        close();
       };
       const pump = async (entry: typeof readers[number]) => {
         const decoder = new TextDecoder();
@@ -1605,6 +1621,8 @@ function mergedEventBody(input: {
         if (!closed && !cancelled) controller.enqueue(encoder.encode(": ping\n\n"));
       }, 30_000);
       pingTimer.unref?.();
+      input.lease.signal.addEventListener("abort", abort, { once: true });
+      if (input.lease.signal.aborted) abort();
     },
     async cancel(reason) {
       cancelled = true;
@@ -2075,6 +2093,7 @@ function createRoutes(
     requireClientScope,
     resolveWorkspace,
     resolveWorkspaceWithoutBootstrap,
+    resolveOpencodeDirectory,
     createWorkspaceOpencodeClient,
     unwrapOpencodeResult,
   });
