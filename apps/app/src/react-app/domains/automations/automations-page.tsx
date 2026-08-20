@@ -49,7 +49,7 @@ import { useDesktopRestriction } from "@/react-app/domains/cloud/desktop-config-
 import { ConfirmModal } from "@/react-app/design-system/modals/confirm-modal"
 import { AutomationEditor } from "./automation-editor"
 import { dispatchAutomationsStateChanged } from "./automation-events"
-import { automationExecutionThreadRoute, automationExecutionIdentity } from "./automation-cloud-thread"
+import { automationExecutionThreadRoute, automationExecutionIdentity, automationLocalSessionRoute } from "./automation-cloud-thread"
 import { formatAutomationSchedule, formatAutomationTime } from "./automation-format"
 import type { AutomationProviderCatalog } from "./automation-model-options"
 import { automationModelOptions, describeAutomationModel } from "./automation-model-options"
@@ -354,6 +354,9 @@ export function AutomationsPage(props: { providerCatalog?: AutomationProviderCat
     const selectedReceipt = receiptQuery.data?.run.id === selectedRunId ? receiptQuery.data : undefined
     const receiptIsLoading = receiptQuery.isLoading || (receiptQuery.isFetching && !selectedReceipt)
     const threadMatches = !selectedThreadId || selectedReceipt?.run.executionThread?.id === selectedThreadId
+    const localSessionRoute = selectedReceipt?.run.executionThread
+      ? automationLocalSessionRoute(selectedReceipt.run.executionThread)
+      : null
 
     if (editing && (detail.revision.executionTarget ?? "desktop") === "desktop") {
       return (
@@ -595,6 +598,17 @@ export function AutomationsPage(props: { providerCatalog?: AutomationProviderCat
                     ) : (
                       <Badge variant="outline">{selectedReceipt.run.executionTarget === "cloud" ? <Cloud className="mr-1 h-3 w-3" /> : <Monitor className="mr-1 h-3 w-3" />}{selectedReceipt.run.executionTarget === "cloud" ? "OpenWork Cloud" : "Desktop"}</Badge>
                     )}
+                    {localSessionRoute ? (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        data-automation-run-id={selectedReceipt.run.id}
+                        onClick={() => navigate(localSessionRoute)}
+                      >
+                        Open local thread
+                      </Button>
+                    ) : null}
                   </div>
                   {selectedReceipt.run.error ? (
                     <Alert variant="destructive"><AlertCircle /><AlertTitle>{selectedReceipt.run.error.code}</AlertTitle><AlertDescription>{selectedReceipt.run.error.message}</AlertDescription></Alert>
