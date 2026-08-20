@@ -195,11 +195,20 @@ export function createConnectionsStore(options: {
   };
 
   const resolveMcpOpenworkTarget = async (mode: "read" | "write") => {
-    const openworkSnapshot = getOpenworkSnapshot();
-    const openworkClient = openworkSnapshot.openworkServerClient;
-    const openworkWorkspaceId = await resolveOpenworkWorkspaceId();
+    let openworkSnapshot = getOpenworkSnapshot();
+    let openworkClient = openworkSnapshot.openworkServerClient;
+    let openworkWorkspaceId = await resolveOpenworkWorkspaceId();
+    if ((!openworkClient || !openworkWorkspaceId || openworkSnapshot.openworkServerStatus !== "connected")
+      && isDesktopRuntime()
+      && options.workspaceType() === "local") {
+      openworkClient = await options.openworkServer.ensureLocalOpenworkServerClient();
+      openworkSnapshot = getOpenworkSnapshot();
+      openworkWorkspaceId = options.runtimeWorkspaceId()?.trim()
+        || (await options.ensureRuntimeWorkspaceId?.())?.trim()
+        || options.selectedWorkspaceId().trim()
+        || null;
+    }
     const hasOpenworkTarget =
-      openworkSnapshot.openworkServerStatus === "connected" &&
       Boolean(openworkClient && openworkWorkspaceId);
     const canUseOpenworkServer =
       hasOpenworkTarget &&
