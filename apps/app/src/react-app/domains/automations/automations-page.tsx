@@ -351,7 +351,8 @@ export function AutomationsPage(props: { providerCatalog?: AutomationProviderCat
     const modelNeedsAttention = task.needsAttentionReason?.code === "model_access_lost"
       || task.needsAttentionReason?.code === "provider_unavailable"
     const runs = runsQuery.data?.items ?? []
-    const selectedReceipt = receiptQuery.data
+    const selectedReceipt = receiptQuery.data?.run.id === selectedRunId ? receiptQuery.data : undefined
+    const receiptIsLoading = receiptQuery.isLoading || (receiptQuery.isFetching && !selectedReceipt)
     const threadMatches = !selectedThreadId || selectedReceipt?.run.executionThread?.id === selectedThreadId
 
     if (editing && (detail.revision.executionTarget ?? "desktop") === "desktop") {
@@ -577,7 +578,7 @@ export function AutomationsPage(props: { providerCatalog?: AutomationProviderCat
             <CardContent>
               {!selectedRunId ? (
                 <div className="py-10 text-center text-sm text-muted-foreground">No run selected.</div>
-              ) : receiptQuery.isLoading ? (
+              ) : receiptIsLoading ? (
                 <Skeleton className="h-48 rounded-xl" />
               ) : receiptQuery.error || !selectedReceipt ? (
                 <Alert variant="warning"><AlertCircle /><AlertDescription>{describeError(receiptQuery.error)}</AlertDescription></Alert>
@@ -668,6 +669,7 @@ export function AutomationsPage(props: { providerCatalog?: AutomationProviderCat
             <button
               key={item.automation.id}
               type="button"
+              data-automation-id={item.automation.id}
               {...(item.automation.state === "needs_attention" ? { "data-automation-needs-attention": true } : {})}
               className="rounded-2xl border border-border bg-card p-4 text-left transition-colors hover:bg-muted/40"
               onClick={() => openAutomation(item.automation.id)}
