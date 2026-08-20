@@ -575,7 +575,6 @@ export function SessionRoute() {
     routeNotFoundMessage,
     endpointForWorkspace,
     refreshRouteState,
-    loadWorkspaceSessionsInBackground,
     rememberPendingCreatedSession,
     handleRuntimeSessionCreated,
     handleRuntimeSessionUpdated,
@@ -2413,9 +2412,12 @@ export function SessionRoute() {
       await refreshRouteState();
       if (targetWorkspaceId) {
         const workspacePath = targetWorkspace?.path?.trim() || folder;
-        // Best-effort first task creation (mirrors the old welcome flow) — a
-        // failure here must not surface as a failed workspace creation.
-        const session = createdOnServer && sessionBaseUrl && sessionToken
+        const firstTaskPrompt = options?.firstTaskPrompt?.trim() ?? "";
+        const firstTaskAttachments = options?.firstTaskAttachments ?? [];
+        // A workspace registry mutation must not eagerly instantiate an
+        // OpenCode directory. Chat-first creation still needs a session for
+        // its supplied prompt; ordinary creation lands on the New task state.
+        const session = createdOnServer && sessionBaseUrl && sessionToken && (firstTaskPrompt || firstTaskAttachments.length > 0)
           ? await createClient(
               `${(buildOpenworkWorkspaceBaseUrl(sessionBaseUrl, targetWorkspaceId) ?? sessionBaseUrl).replace(/\/+$/, "")}/opencode`,
               workspacePath || undefined,
@@ -2434,9 +2436,7 @@ export function SessionRoute() {
         captureAnalyticsEvent("workspace_created", { workspace_type: "local" });
         if (session?.id) {
           captureAnalyticsEvent("task_created", { source: "workspace_created", workspace_type: "local" });
-          const firstTaskPrompt = options?.firstTaskPrompt?.trim();
           if (firstTaskPrompt) {
-            const firstTaskAttachments = options?.firstTaskAttachments ?? [];
             // Attachment chips only survive in-memory (File objects), so the
             // persisted fallback draft drops their tokens.
             saveSessionDraft(targetWorkspaceId, session.id, { text: firstTaskPrompt.replace(/\[attachment [^\]]+\]/g, "").trim(), mode: "prompt" });
@@ -2704,30 +2704,9 @@ export function SessionRoute() {
           if (workspaceId === selectedWorkspaceId) return true;
           setLegacySelectedWorkspaceId(workspaceId);
           writeActiveWorkspaceId(workspaceId || null);
-          const workspace = workspaces.find((item) => item.id === workspaceId);
-          if (client && workspace && !sessionsByWorkspaceId[workspaceId]?.length) {
-            setRetryingWorkspaceIds((current) => Array.from(new Set([...current, workspaceId])));
-            void loadWorkspaceSessionsInBackground([workspace]);
-          }
-          // Fire Tauri updates but don't await them — they're bookkeeping and
-          // awaiting 2 IPC roundtrips on every click used to stall rapid
-          // workspace switches behind a queue.
-          if (isDesktopRuntime()) {
-            void workspaceSetSelected(workspaceId).catch(() => undefined);
-            void workspaceSetRuntimeActive(workspaceId).catch(() => undefined);
-          }
-          // Tell the OpenWork server this workspace is now active so it can
-          // emit a config reload event that the OpenCode engine picks up.
-          // Without this, the permissions from opencode.jsonc are never
-          // applied on the workspace the user is already on at launch. See
-          // issue #870.
-          if (workspaceId) {
-            const workspace = workspaces.find((item) => item.id === workspaceId) ?? null;
-            const endpoint = endpointForWorkspace(workspace);
-            if (endpoint) {
-              void endpoint.client.activateWorkspace(endpoint.workspaceId, { persist: true }).catch(() => undefined);
-            }
-          }
+          // Route adoption owns desktop persistence and server activation.
+          // Centralizing those effects lets rapid navigation coalesce to the
+          // last route instead of racing stale IPC and engine reloads.
           // If we remember what the user last opened here and that session
           // still exists in our local list, navigate. Otherwise stay put.
           const remembered = readLastSessionFor(workspaceId);
