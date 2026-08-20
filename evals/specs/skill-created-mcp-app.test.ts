@@ -6,13 +6,18 @@ import { test } from "@openwork/testkit"
 
 const repoRoot = resolve(import.meta.dirname, "../..")
 
-test("Daytona provisioning builds the skill-created MCP App before Den starts", () => {
+test("Daytona provisioning builds the skill-created MCP App before Den starts", ({ evidence }) => {
   const script = readFileSync(resolve(repoRoot, ".devcontainer/start-daytona-server.sh"), "utf8")
   const build = "pnpm --filter @openwork-ee/den-api run build:mcp-apps"
   const start = "pnpm --filter @openwork-ee/den-api exec tsx watch src/main.ts"
 
   expect(script.split(build)).toHaveLength(2)
   expect(script.indexOf(build)).toBeLessThan(script.indexOf(start))
+  evidence.recordAssertionEvidence(
+    "Fresh Daytona Den startup builds generated MCP App assets",
+    "The server bootstrap invokes the Den-owned MCP App build exactly once before launching the Den API process.",
+    true,
+  )
 })
 
 test("create_skill publishes a standard MCP App contract and text fallback", ({ evidence }) => {
