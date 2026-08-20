@@ -31,13 +31,21 @@ import {
   type CodemodeConnectionNamespaceContext,
 } from "./codemode-namespaces.js"
 import {
+  connectedConnectionActionPayload,
+  connectionActionLaunch,
+  connectionActionPayloadFromStatus,
+  connectionActionTextFallback,
+} from "./connection-action-app.js"
+import {
   executeExternalCapability,
   externalMcpSearchCoverageHint,
   parseExternalCapabilityName,
+  probeExternalConnectionStatus,
   searchExternalCapabilities,
   type ExternalCapabilityExecuteResult,
   type McpMemberIdentity,
 } from "./external-capabilities.js"
+import { attachPluginFlowCard } from "./plugin-flow-app.js"
 import { invokeMcpOperation, normalizeToolBody, normalizeToolRecord } from "./invoke.js"
 import {
   executeMarketplaceCapability,
@@ -433,17 +441,20 @@ const catalogSource: CapabilitySource = {
       && catalogOperationAvailableToCapabilities(ctx, candidate)
     ))
     if (!operation) return unknownCapabilityResult(input.name)
-    return invokeMcpOperation({
+    const path = normalizeToolRecord(input.path)
+    const body = normalizeToolBody(input.body)
+    const result = await invokeMcpOperation({
       app: ctx.app,
       env: ctx.env,
       operation,
       principal: ctx.principal,
       toolInput: {
-        path: normalizeToolRecord(input.path),
+        path,
         query: normalizeToolRecord(input.query),
-        body: normalizeToolBody(input.body),
+        body,
       },
     })
+    return attachPluginFlowCard({ name: parsed.name, path, body, result })
   },
 }
 
@@ -525,6 +536,27 @@ const externalMcpSource: CapabilitySource = {
           error: "unknown_capability",
           message: "No external MCP connection capabilities are available for this organization.",
         })),
+      }
+    }
+    if (parsed.toolName === "*") {
+      // A connection_status match: probing is the capability. Report the live
+      // state as a successful result carrying the first-party connection
+      // card, so compatible hosts render the exact human action inline.
+      const probe = await probeExternalConnectionStatus({
+        organizationId: ctx.organizationId,
+        member: ctx.member,
+        connectionId: parsed.connectionId,
+      })
+      if (!probe.ok) {
+        return { isError: true, content: textContent(JSON.stringify({ error: probe.error, message: probe.message })) }
+      }
+      const payload = probe.connected
+        ? connectedConnectionActionPayload({ connectionId: probe.connection.id, connectionName: probe.connection.name })
+        : connectionActionPayloadFromStatus(probe.status)
+      return {
+        content: textContent(connectionActionTextFallback(payload)),
+        structuredContent: { ...payload },
+        _meta: { "openwork/mcpApp": connectionActionLaunch(payload) },
       }
     }
     const result = await executeExternalCapability({

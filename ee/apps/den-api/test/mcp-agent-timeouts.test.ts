@@ -117,7 +117,9 @@ test("agent MCP server exposes steering instructions during initialize", async (
 
   expect(client.getInstructions()).toBe(agentModule.AGENT_MCP_INSTRUCTIONS)
   expect(client.getInstructions()).toContain("Use create_skill")
-  expect(client.getInstructions()).toContain("do not route this flow through execute_capability or postPlugins")
+  expect(client.getInstructions()).toContain("do not route these flows through execute_capability, postPlugins, or postConfigObjectsVersions")
+  expect(client.getInstructions()).toContain("update_skill to publish a new immutable version")
+  expect(client.getInstructions()).toContain("execute that exact match once: it returns the live status and renders an actionable connection card")
   expect(client.getInstructions()).toContain("create-skill")
   expect(client.getInstructions()).toContain("share-plugin")
   expect(client.getInstructions()).toContain("add-to-marketplace")

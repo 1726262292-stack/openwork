@@ -3,8 +3,10 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import type { DynamicToolUIPart } from "ai"
 import { AppBridge, PostMessageTransport } from "@modelcontextprotocol/ext-apps/app-bridge"
+import type { McpUiStyles, McpUiStyleVariableKey } from "@modelcontextprotocol/ext-apps"
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js"
 
+import { openDesktopUrl } from "@/app/lib/desktop"
 import {
   OpenworkServerError,
   type OpenworkMcpAppLaunchReference,
@@ -141,6 +143,51 @@ function mcpToolResult(result: OpenworkMcpAppToolResult): CallToolResult {
   return result as CallToolResult
 }
 
+/**
+ * Maps the app's live design tokens onto the standard MCP Apps style
+ * vocabulary so first-party and third-party cards render with the same
+ * palette, type, and radii as the surrounding chat.
+ */
+const HOST_STYLE_SOURCES: Partial<Record<McpUiStyleVariableKey, string>> = {
+  "--color-background-primary": "--dls-surface",
+  "--color-background-secondary": "--dls-surface-muted",
+  "--color-background-tertiary": "--dls-hover",
+  "--color-background-inverse": "--dls-accent",
+  "--color-background-success": "--green-3",
+  "--color-background-warning": "--amber-3",
+  "--color-background-danger": "--red-3",
+  "--color-background-info": "--blue-3",
+  "--color-text-primary": "--dls-text-primary",
+  "--color-text-secondary": "--dls-text-secondary",
+  "--color-text-inverse": "--dls-accent-fg",
+  "--color-text-success": "--green-11",
+  "--color-text-warning": "--amber-11",
+  "--color-text-danger": "--red-11",
+  "--color-text-info": "--blue-11",
+  "--color-border-primary": "--dls-border",
+  "--color-border-secondary": "--dls-border",
+  "--color-border-success": "--green-a6",
+  "--color-border-warning": "--amber-a6",
+  "--color-border-danger": "--red-a6",
+  "--color-border-info": "--blue-a6",
+  "--border-radius-lg": "--dls-radius",
+  "--shadow-sm": "--dls-card-shadow",
+}
+
+function hostStyleVariables(): McpUiStyles {
+  const computed = getComputedStyle(document.documentElement)
+  const entries: Array<[string, string]> = []
+  for (const [target, source] of Object.entries(HOST_STYLE_SOURCES)) {
+    const value = computed.getPropertyValue(source).trim()
+    if (value) entries.push([target, value])
+  }
+  const bodyFont = getComputedStyle(document.body).fontFamily
+  if (bodyFont) entries.push(["--font-sans", bodyFont])
+  // The SDK types variables as a full Record purely for schema generation;
+  // hosts send subsets by design, so this narrow cast is the intended shape.
+  return Object.fromEntries(entries) as McpUiStyles
+}
+
 export function isActionableMcpAppResolutionError(cause: unknown): boolean {
   return cause instanceof OpenworkServerError && ACTIONABLE_MCP_APP_RESOLUTION_CODES.has(cause.code)
 }
@@ -242,9 +289,22 @@ export function McpAppFrame({ part }: { part: DynamicToolUIPart }) {
         hostContext: {
           theme: document.documentElement.classList.contains("dark") ? "dark" : "light",
           displayMode: "inline",
+          styles: { variables: hostStyleVariables() },
         },
       },
     )
+    bridge.onopenlink = async ({ url }) => {
+      try {
+        await openDesktopUrl(url)
+        return {}
+      } catch (cause) {
+        console.error("[OpenWork MCP App] MCP_APP_OPEN_LINK_BLOCKED", {
+          toolName: part.toolName,
+          message: safeMcpAppDiagnosticMessage(cause, "The link could not be opened."),
+        })
+        return { isError: true }
+      }
+    }
     let resourceDeliveryTimer: number | undefined
     let initializeTimer: number | undefined
     let initialized = false
@@ -260,11 +320,26 @@ export function McpAppFrame({ part }: { part: DynamicToolUIPart }) {
       )
     }, SANDBOX_READY_TIMEOUT_MS)
 
+    let pendingHeight: number | null = null
+    let sizeSettleTimer: number | undefined
+    const applyHeight = (requestedHeight: number) => {
+      lastSizeEventAt = Date.now()
+      setHeight(Math.min(MAX_HEIGHT, Math.max(MIN_HEIGHT, Math.ceil(requestedHeight))))
+    }
     bridge.onsizechange = ({ height: requestedHeight }) => {
-      const now = Date.now()
-      if (now - lastSizeEventAt < SIZE_EVENT_INTERVAL_MS || !Number.isFinite(requestedHeight)) return
-      lastSizeEventAt = now
-      setHeight(Math.min(MAX_HEIGHT, Math.max(MIN_HEIGHT, Math.ceil(requestedHeight ?? DEFAULT_HEIGHT))))
+      if (!Number.isFinite(requestedHeight) || requestedHeight === undefined) return
+      if (Date.now() - lastSizeEventAt >= SIZE_EVENT_INTERVAL_MS) {
+        applyHeight(requestedHeight)
+        return
+      }
+      // Throttled: keep the newest value and apply it on the trailing edge so
+      // the final post-render measurement is never dropped.
+      pendingHeight = requestedHeight
+      sizeSettleTimer ??= window.setTimeout(() => {
+        sizeSettleTimer = undefined
+        if (pendingHeight !== null && !disposed) applyHeight(pendingHeight)
+        pendingHeight = null
+      }, SIZE_EVENT_INTERVAL_MS)
     }
     bridge.onrequestteardown = () => {
       setApp(null)
@@ -424,6 +499,7 @@ export function McpAppFrame({ part }: { part: DynamicToolUIPart }) {
       window.clearTimeout(sandboxReadyTimer)
       if (resourceDeliveryTimer !== undefined) window.clearTimeout(resourceDeliveryTimer)
       if (initializeTimer !== undefined) window.clearTimeout(initializeTimer)
+      if (sizeSettleTimer !== undefined) window.clearTimeout(sizeSettleTimer)
       void Promise.race([
         bridge.teardownResource({}),
         new Promise<void>((resolve) => window.setTimeout(resolve, 500)),

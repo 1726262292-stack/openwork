@@ -24,7 +24,7 @@ import {
   SEARCH_CAPABILITIES_TOOL_NAME,
   type CapabilityMatch,
 } from "./search.js"
-import { resolveMcpMemberIdentity } from "./external-capabilities.js"
+import { probeExternalConnectionStatus, resolveMcpMemberIdentity } from "./external-capabilities.js"
 import { executeMarketplaceCapability, listAccessibleMarketplaceSkillDescriptors, parseMarketplaceCapabilityName, type RemoteSkillDescriptor } from "./marketplace-capabilities.js"
 import { resolvePublicOrigin } from "../capability-sources/generic-oauth.js"
 import { automationService } from "../automations/service.js"
@@ -75,7 +75,20 @@ import {
   supportsConnectMcpAppHost,
 } from "./connect-mcp-server-index.js"
 import { registerAgentSkillCreatedApp } from "./skill-created-app.js"
-import { createPluginBundle, listPluginMemberships, PluginArchRouteFailure } from "../routes/org/plugin-system/store.js"
+import {
+  connectedConnectionActionPayload,
+  connectionActionPayloadFromStatus,
+  registerAgentConnectionActionApp,
+} from "./connection-action-app.js"
+import { registerAgentPluginFlowApp } from "./plugin-flow-app.js"
+import {
+  createConfigObjectVersion,
+  createPluginBundle,
+  getConfigObjectDetail,
+  listConfigObjectPlugins,
+  listPluginMemberships,
+  PluginArchRouteFailure,
+} from "../routes/org/plugin-system/store.js"
 
 const protocolVersionLogger = appLogger.child({ component: "mcp_protocol_version" })
 
@@ -148,7 +161,7 @@ export const SEARCH_CAPABILITIES_OUTPUT_SCHEMA = z.object({
 
 export const AGENT_MCP_INSTRUCTIONS = [
   "This OpenWork Cloud MCP server uses standard MCP tools, resources, structured results, and list-changed notifications.",
-  "Use create_skill to create one private Cloud skill in a new Plugin. It returns a standard skill-created MCP App result plus a text fallback; do not route this flow through execute_capability or postPlugins.",
+  "Use create_skill to create one private Cloud skill in a new Plugin, and update_skill to publish a new immutable version of an existing skill. Both return a standard skill-created MCP App result plus a text fallback; do not route these flows through execute_capability, postPlugins, or postConfigObjectsVersions.",
   "Standard MCP Apps supplied by connected MCP servers are discovered through search_capabilities. A match with kind mcp_app must be executed through execute_capability like any other exact match; compatible OpenWork hosts preserve the current _meta.ui.resourceUri and render it without a generated direct-tool name.",
   "Standalone URL-imported Apps are deferred future work and are not part of this release. Do not offer, search for, import, or launch them.",
   "A Program is an immutable-versioned Code Mode Script config object inside an OpenWork Connect Plugin. Organizations with Code Mode scripts enabled receive execute_capability_script and the backwards-compatible render_dynamic_artifact MCP App tool.",
@@ -167,7 +180,8 @@ export const AGENT_MCP_INSTRUCTIONS = [
   "Do not import, convert, or browse for a standalone HTML URL when a connected capability already appears with kind mcp_app. Execute that exact match and let the host resolve its originating ui:// resource.",
   "OpenWork always attempts the downstream provider call when local schema checks find a mismatch. schemaGuidance is advisory and appears alongside the provider result: if the provider succeeded, accept that result and do not retry solely because of the warning; if it failed, use the warning to correct the arguments or search again.",
   "If the provider returns invalid_capability_arguments, correct the listed issues and retry once with changed arguments; never retry the same arguments unchanged. If it returns unknown_capability, call search_capabilities again before retrying.",
-  "When a match has kind connection_status, name connectionStatus.connectionName and relay connectionStatus.action exactly. Distinguish the member's Your Connections page, the organization Connections dashboard, and the provider's own admin console.",
+  "When a match has kind connection_status, execute that exact match once: it returns the live status and renders an actionable connection card for the member in compatible hosts. Also name connectionStatus.connectionName and relay connectionStatus.action exactly in text. Distinguish the member's Your Connections page, the organization Connections dashboard, and the provider's own admin console.",
+  "Successful postMarketplacesPlugins, postPluginsAccess, and postMarketplacesAccess calls through execute_capability render a confirmation card automatically in compatible hosts; report the outcome in text as well.",
   "Connection probes are live. After the requested human fixes that connector, search again in the same task; otherwise do not retry unchanged or improvise workarounds through other tools.",
 ].join("\n")
 
@@ -508,8 +522,8 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
         title: "Search capabilities",
         description: [
           codemodeEnabled
-            ? "Search for a capability by keyword. This connection also exposes execute_capability, create_skill, execute_capability_script, and Program search/selection tools —"
-            : "Search for a capability by keyword. This connection also exposes execute_capability and create_skill —",
+            ? "Search for a capability by keyword. This connection also exposes execute_capability, create_skill, update_skill, execute_capability_script, and Program search/selection tools —"
+            : "Search for a capability by keyword. This connection also exposes execute_capability, create_skill, and update_skill —",
           "there is no list of individually-named tools to browse. Always search first.",
           "Search covers native Google Workspace capabilities (Gmail, Calendar, Drive, Gmail drafts), org-connected external MCPs, and namespaced OpenWork Admin tools for allowlisted platform admins.",
           "When Code Mode is enabled, accessible Programs appear as marketplace matches with kind script and execute through execute_capability like every other exact search result.",
@@ -629,7 +643,99 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
           throw error
         }
       },
+      update: async ({ skillId, skillMarkdown, reason }) => {
+        if (!principal.scopes.has(DEN_MCP_WRITE_SCOPE)) {
+          return {
+            ok: false,
+            error: "insufficient_mcp_scope",
+            message: `Updating a skill requires the ${DEN_MCP_WRITE_SCOPE} scope.`,
+          }
+        }
+        if (!libraryContext) {
+          return {
+            ok: false,
+            error: "mcp_membership_revoked",
+            message: "The OpenWork Cloud membership for this connection is unavailable.",
+          }
+        }
+        try {
+          const configObjectId = normalizeDenTypeId("configObject", skillId)
+          const existing = await getConfigObjectDetail(libraryContext, configObjectId)
+          if (existing.objectType !== "skill") {
+            return {
+              ok: false,
+              error: "not_a_skill",
+              message: `Config object "${skillId}" is a ${existing.objectType}, not a skill.`,
+            }
+          }
+          const detail = await createConfigObjectVersion({
+            context: libraryContext,
+            configObjectId,
+            reason,
+            value: { rawSourceText: skillMarkdown },
+          })
+          const memberships = await listConfigObjectPlugins({ context: libraryContext, configObjectId })
+          const pluginId = memberships.items.find((membership) => membership.removedAt === null)?.pluginId
+            ?? memberships.items[0]?.pluginId
+          if (!pluginId) {
+            return {
+              ok: false,
+              error: "skill_plugin_missing",
+              message: "The skill was updated, but no owning Plugin is visible to you.",
+            }
+          }
+          if (!detail.description) {
+            return {
+              ok: false,
+              error: "skill_update_incomplete",
+              message: "The skill was updated, but its description could not be resolved.",
+            }
+          }
+          return {
+            ok: true,
+            payload: {
+              schemaVersion: "1",
+              mode: "updated",
+              name: detail.title,
+              pluginId,
+              skillId: detail.id,
+              description: detail.description,
+              libraryUrl: new URL(
+                `/dashboard/library/plugins/${encodeURIComponent(pluginId)}`,
+                env.betterAuthUrl,
+              ).toString(),
+            },
+          }
+        } catch (error) {
+          if (error instanceof PluginArchRouteFailure || error instanceof PluginArchAuthorizationError) {
+            return { ok: false, error: error.error, message: error.message }
+          }
+          throw error
+        }
+      },
     })
+
+    registerAgentConnectionActionApp({
+      server,
+      probe: async ({ connectionId }) => {
+        const probe = await probeExternalConnectionStatus({
+          organizationId: principal.organizationId,
+          member: memberIdentity,
+          connectionId,
+        })
+        if (!probe.ok) {
+          return { ok: false, error: probe.error, message: probe.message }
+        }
+        return {
+          ok: true,
+          payload: probe.connected
+            ? connectedConnectionActionPayload({ connectionId: probe.connection.id, connectionName: probe.connection.name })
+            : connectionActionPayloadFromStatus(probe.status),
+        }
+      },
+    })
+
+    registerAgentPluginFlowApp(server)
 
     if (codemodeEnabled) {
       const loadDynamicArtifact = async ({

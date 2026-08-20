@@ -7,20 +7,29 @@
     "./skill-created": {
       "types": "./dist/skill-created.d.ts",
       "default": "./dist/skill-created.js"
+    },
+    "./connection-action": {
+      "types": "./dist/connection-action.d.ts",
+      "default": "./dist/connection-action.js"
+    },
+    "./plugin-flow": {
+      "types": "./dist/plugin-flow.d.ts",
+      "default": "./dist/plugin-flow.js"
     }
   },
   "files": [
     "dist"
   ],
   "scripts": {
-    "build": "vite build && node scripts/export-html.mjs",
+    "build": "node scripts/build-apps.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@modelcontextprotocol/ext-apps": "^1.7.5",
     "@openwork/types": "workspace:*",
     "react": "catalog:",
-    "react-dom": "catalog:"
+    "react-dom": "catalog:",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@types/react": "19.2.14",
