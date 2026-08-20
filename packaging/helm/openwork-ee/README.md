@@ -120,13 +120,12 @@ This renders `DEN_AUTOMATIONS_ENABLED=true` for Den. Missing configuration is
 treated as unavailable in every deployment; hosted OpenWork Cloud sets the
 variable explicitly to `true`.
 
-The flag is delivered in compatibility-safe phases. This release adds the Den
-configuration contract and publishes its effective value through
-`/v1/me/desktop-config`; it deliberately leaves the existing Automation API,
-scheduler, and published Desktop behavior unchanged. A follow-up Desktop
-release consumes the contract before a later Den release enforces disabled
-execution. This ordering avoids breaking independently released Desktop and
-Den versions.
+The flag is delivered in compatibility-safe phases. Den first publishes its
+effective value through `/v1/me/desktop-config`. The config-aware Desktop then
+hides the Automation surface and does not register its runner when the value is
+not explicitly true, while Den deliberately preserves the existing Automation
+API and scheduler behavior for older published Desktop clients. A later Den
+release enforces disabled execution after this Desktop has been distributed.
 
 For an existing deployment, stage the upgrade so independently released Den
 and Desktop versions never observe an unintended flag state:
