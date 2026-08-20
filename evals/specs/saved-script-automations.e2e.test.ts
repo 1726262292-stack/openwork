@@ -66,7 +66,7 @@ test("a Code Mode result becomes a cloud Automation and a durable artifact resul
   needs(requirements)
   await using den = await server({
     place,
-    org: { name: `Saved Script Automation ${Date.now()}`, admin: { name: "Sarah" } },
+    org: { name: `Workflow Automation ${Date.now()}`, admin: { name: "Sarah" } },
     mocks: { reports: mcpMock({ allowUnauthenticatedMcp: true }) },
   })
   const orgs = await denFetch(den.admin, "/v1/me/orgs", {
@@ -79,7 +79,7 @@ test("a Code Mode result becomes a cloud Automation and a durable artifact resul
   const enabled = await denFetch(den.admin, `/v1/admin/organizations/${organizationId}/capabilities`, {
     method: "PUT",
     headers: { authorization: `Bearer ${den.admin.token}` },
-    body: JSON.stringify({ capabilities: { codemodeScripts: true } }),
+    body: JSON.stringify({ capabilities: { workflows: true } }),
   })
   expect(enabled.response.ok, enabled.text).toBe(true)
 
@@ -139,7 +139,7 @@ test("a Code Mode result becomes a cloud Automation and a durable artifact resul
   expect(executed.isError).not.toBe(true)
   expect(JSON.stringify(executed.content)).toContain(firstMarker)
 
-  const savedResponse = await denFetch(den.admin, "/v1/codemode-scripts", {
+  const savedResponse = await denFetch(den.admin, "/v1/workflows", {
     method: "POST",
     headers: { authorization: `Bearer ${den.admin.token}` },
     body: JSON.stringify({
@@ -152,7 +152,7 @@ test("a Code Mode result becomes a cloud Automation and a durable artifact resul
     }),
   })
   expect(savedResponse.response.status, savedResponse.text).toBe(201)
-  const saved = requireRecord(savedResponse.body, "saved Script")
+  const saved = requireRecord(savedResponse.body, "saved Workflow")
   const pluginId = typeof saved.pluginId === "string" ? saved.pluginId : ""
   const configObjectId = typeof saved.configObjectId === "string" ? saved.configObjectId : ""
   const configObjectVersionId = typeof saved.configObjectVersionId === "string" ? saved.configObjectVersionId : ""
@@ -160,12 +160,12 @@ test("a Code Mode result becomes a cloud Automation and a durable artifact resul
   expect(configObjectId).not.toBe("")
   expect(configObjectVersionId).not.toBe("")
   evidence.recordAssertionEvidence(
-    "A successful ad-hoc Code Mode result is promotable without retyping its program",
-    "The exact successful code was saved as an immutable Program version using its recent receipt.",
+    "A successful ad-hoc Code Mode result is promotable without retyping its procedure",
+    "The exact successful code was saved as an immutable Workflow version using its recent receipt.",
     true,
   )
 
-  const manualRun = await denFetch(den.admin, `/v1/codemode-scripts/${configObjectId}/run`, {
+  const manualRun = await denFetch(den.admin, `/v1/workflows/${configObjectId}/run`, {
     method: "POST",
     headers: { authorization: `Bearer ${den.admin.token}` },
     body: JSON.stringify({ pluginId, configObjectVersionId, input: { topic: firstMarker } }),
@@ -176,7 +176,7 @@ test("a Code Mode result becomes a cloud Automation and a durable artifact resul
   expect(JSON.stringify(manualResult.value)).toContain(firstMarker)
   expect(String(manualResult.receiptId ?? "")).not.toBe("")
   evidence.recordAssertionEvidence(
-    "The saved Script produces a validated artifact-ready result",
+    "The Workflow produces a validated artifact-ready result",
     "A direct run of the immutable version returned a schema-valid result and durable receipt.",
     true,
   )
@@ -209,7 +209,7 @@ test("a Code Mode result becomes a cloud Automation and a durable artifact resul
     return isRecord(response.body)
       ? records(response.body.items).find((run) => run.trigger === "scheduled")
       : undefined
-  }, (run) => run?.status === "succeeded", "scheduled saved Script Automation to succeed", 5 * 60_000)
+  }, (run) => run?.status === "succeeded", "scheduled Workflow Automation to succeed", 5 * 60_000)
   const scheduledRunId = typeof scheduledRun?.id === "string" ? scheduledRun.id : ""
   expect(scheduledRunId).not.toBe("")
 
@@ -244,19 +244,19 @@ test("a Code Mode result becomes a cloud Automation and a durable artifact resul
 
   const toolList = await agentRpc(den.ref.apiUrl, mcpToken, "tools/list", {})
   const tools = records(toolList.tools)
-  const renderTool = tools.find((candidate) => candidate.name === "render_dynamic_artifact")
+  const renderTool = tools.find((candidate) => candidate.name === "render_workflow_artifact")
   const renderToolMeta = isRecord(renderTool?._meta) ? renderTool._meta : {}
   const modernUi = isRecord(renderToolMeta.ui) ? renderToolMeta.ui : {}
-  expect(modernUi.resourceUri).toBe("ui://openwork/dynamic-artifact/v1/view.html")
-  expect(renderToolMeta["ui/resourceUri"]).toBe("ui://openwork/dynamic-artifact/v1/view.html")
+  expect(modernUi.resourceUri).toBe("ui://openwork/workflow-artifact/v1/view.html")
+  expect(renderToolMeta["ui/resourceUri"]).toBe("ui://openwork/workflow-artifact/v1/view.html")
 
   const resourceList = await agentRpc(den.ref.apiUrl, mcpToken, "resources/list", {})
   const resources = records(resourceList.resources)
-  const appResource = resources.find((candidate) => candidate.uri === "ui://openwork/dynamic-artifact/v1/view.html")
+  const appResource = resources.find((candidate) => candidate.uri === "ui://openwork/workflow-artifact/v1/view.html")
   expect(appResource?.mimeType).toBe("text/html;profile=mcp-app")
 
   const resourceRead = await agentRpc(den.ref.apiUrl, mcpToken, "resources/read", {
-    uri: "ui://openwork/dynamic-artifact/v1/view.html",
+    uri: "ui://openwork/workflow-artifact/v1/view.html",
   })
   const resourceContents = records(resourceRead.contents)
   expect(resourceContents[0]?.mimeType).toBe("text/html;profile=mcp-app")
@@ -264,12 +264,12 @@ test("a Code Mode result becomes a cloud Automation and a durable artifact resul
   expect(String(resourceContents[0]?.text ?? "")).not.toContain("fetch(")
 
   const rendered = await agentRpc(den.ref.apiUrl, mcpToken, "tools/call", {
-    name: "render_dynamic_artifact",
+    name: "render_workflow_artifact",
     arguments: { configObjectId },
   })
   expect(rendered.isError).not.toBe(true)
-  const structured = requireRecord(rendered.structuredContent, "Dynamic Artifact structuredContent")
-  const artifact = requireRecord(structured.artifact, "Dynamic Artifact lineage")
+  const structured = requireRecord(rendered.structuredContent, "Workflow Artifact structuredContent")
+  const artifact = requireRecord(structured.artifact, "Workflow Artifact lineage")
   const fallback = records(rendered.content)
   expect(structured.schemaVersion).toBe("1")
   expect(artifact.configObjectId).toBe(configObjectId)
@@ -300,7 +300,7 @@ test("a Code Mode result becomes a cloud Automation and a durable artifact resul
   })
   expect(interactiveExternalCalls.filter((call) => call.args.text === externalMarker)).toHaveLength(1)
 
-  const externalSavedResponse = await denFetch(den.admin, "/v1/codemode-scripts", {
+  const externalSavedResponse = await denFetch(den.admin, "/v1/workflows", {
     method: "POST",
     headers: { authorization: `Bearer ${den.admin.token}` },
     body: JSON.stringify({
@@ -313,7 +313,7 @@ test("a Code Mode result becomes a cloud Automation and a durable artifact resul
     }),
   })
   expect(externalSavedResponse.response.status, externalSavedResponse.text).toBe(201)
-  const externalSaved = requireRecord(externalSavedResponse.body, "external saved Script")
+  const externalSaved = requireRecord(externalSavedResponse.body, "external saved Workflow")
   const externalPluginId = typeof externalSaved.pluginId === "string" ? externalSaved.pluginId : ""
   const externalConfigObjectId = typeof externalSaved.configObjectId === "string" ? externalSaved.configObjectId : ""
   const externalConfigObjectVersionId = typeof externalSaved.configObjectVersionId === "string" ? externalSaved.configObjectVersionId : ""

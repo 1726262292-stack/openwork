@@ -4,8 +4,8 @@ import { useRouter } from "next/navigation";
 import { ArrowLeft, CalendarClock, History, Layers3, Share2 } from "lucide-react";
 import { DenButton } from "../../_components/ui/button";
 import { DenChip } from "../../_components/ui/chip";
-import { useActivateArtifactView, useProgramDetail, useRetireArtifactView } from "./program-detail-data";
-import { SavedScriptDetailPanel } from "./saved-script-detail-panel";
+import { useActivateArtifactView, useRetireArtifactView, useWorkflowLibraryDetail } from "./workflow-detail-data";
+import { WorkflowDetailPanel } from "./workflow-detail-panel";
 
 function shortDigest(value: string | null) {
   return value ? `${value.slice(0, 15)}…${value.slice(-8)}` : "—";
@@ -21,31 +21,31 @@ function cspSummary(csp: {
   return domains.length === 0 ? "CSP: no external origins" : `CSP: ${domains.join(", ")}`;
 }
 
-export function ProgramDetailScreen({ programId }: { programId: string }) {
+export function WorkflowDetailScreen({ workflowId }: { workflowId: string }) {
   const router = useRouter();
-  const detailQuery = useProgramDetail(programId);
-  const activate = useActivateArtifactView(programId);
-  const retire = useRetireArtifactView(programId);
+  const detailQuery = useWorkflowLibraryDetail(workflowId);
+  const activate = useActivateArtifactView(workflowId);
+  const retire = useRetireArtifactView(workflowId);
   const detail = detailQuery.data;
   if (detailQuery.isLoading || !detail) {
-    return <div className="mx-auto max-w-[1180px] px-6 py-10 text-[13px] text-gray-400">{detailQuery.error?.message ?? "Loading Program…"}</div>;
+    return <div className="mx-auto max-w-[1180px] px-6 py-10 text-[13px] text-gray-400">{detailQuery.error?.message ?? "Loading Workflow…"}</div>;
   }
-  const manager = detail.program.role === "manager";
+  const manager = detail.workflow.role === "manager";
   const actionError = activate.error ?? retire.error;
   return (
-    <div className="mx-auto max-w-[1180px] space-y-6 px-6 py-8 md:px-8" data-testid="den-dynamic-program-detail">
+    <div className="mx-auto max-w-[1180px] space-y-6 px-6 py-8 md:px-8" data-testid="den-workflow-detail">
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div className="flex items-start gap-3">
           <button type="button" aria-label="Back to Library" onClick={() => router.push("/dashboard/library")} className="rounded-lg p-2 text-gray-400 hover:bg-gray-50 hover:text-gray-800"><ArrowLeft className="h-4 w-4" /></button>
           <div>
-            <div className="flex flex-wrap items-center gap-2"><h1 className="text-[22px] font-semibold tracking-[-0.02em] text-gray-950">{detail.program.name}</h1><DenChip tone="teal">Program</DenChip><DenChip tone={detail.program.resultState === "fresh" ? "success" : detail.program.resultState === "needs_attention" ? "danger" : "warning"}>{detail.program.resultState.replace("_", " ")}</DenChip></div>
-            <p className="mt-1 max-w-3xl text-[13px] text-gray-500">{detail.program.description || "A reusable Code Mode Script with retained artifacts, generated views, runs, Automations, and access."}</p>
-            {detail.program.plugin ? <p className="mt-1 text-[12px] text-gray-400">Inside OpenWork Connect Plugin <strong>{detail.program.plugin.name}</strong>.</p> : null}
+            <div className="flex flex-wrap items-center gap-2"><h1 className="text-[22px] font-semibold tracking-[-0.02em] text-gray-950">{detail.workflow.name}</h1><DenChip tone="teal">Workflow</DenChip><DenChip tone={detail.workflow.resultState === "fresh" ? "success" : detail.workflow.resultState === "needs_attention" ? "danger" : "warning"}>{detail.workflow.resultState.replace("_", " ")}</DenChip></div>
+            <p className="mt-1 max-w-3xl text-[13px] text-gray-500">{detail.workflow.description || "A reusable Workflow with retained artifacts, generated views, runs, Automations, and access."}</p>
+            {detail.workflow.plugin ? <p className="mt-1 text-[12px] text-gray-400">Inside OpenWork Connect Plugin <strong>{detail.workflow.plugin.name}</strong>.</p> : null}
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
-          {manager ? <DenButton variant="secondary" href={`/dashboard/automations?program=${encodeURIComponent(programId)}&version=${encodeURIComponent(detail.script.currentVersion.id)}`}><CalendarClock className="h-3.5 w-3.5" />Automate</DenButton> : null}
-          {manager && detail.program.plugin ? <DenButton variant="secondary" href={`/dashboard/plugins/${encodeURIComponent(detail.program.plugin.id)}`}><Share2 className="h-3.5 w-3.5" />Share</DenButton> : null}
+          {manager ? <DenButton variant="secondary" href={`/dashboard/automations?workflow=${encodeURIComponent(workflowId)}&version=${encodeURIComponent(detail.script.currentVersion.id)}`}><CalendarClock className="h-3.5 w-3.5" />Automate</DenButton> : null}
+          {manager && detail.workflow.plugin ? <DenButton variant="secondary" href={`/dashboard/plugins/${encodeURIComponent(detail.workflow.plugin.id)}`}><Share2 className="h-3.5 w-3.5" />Share</DenButton> : null}
         </div>
       </header>
 
@@ -57,10 +57,10 @@ export function ProgramDetailScreen({ programId }: { programId: string }) {
 
       <section id="overview" className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         {[
-          ["Access", detail.program.role],
+          ["Access", detail.workflow.role],
           ["Current Script", detail.script.currentVersion.id.slice(0, 12)],
-          ["View", detail.program.activeViewTitle ?? detail.program.viewState.replace("_", " ")],
-          ["Automations", String(detail.program.automationCount)],
+          ["View", detail.workflow.activeViewTitle ?? detail.workflow.viewState.replace("_", " ")],
+          ["Automations", String(detail.workflow.automationCount)],
         ].map(([label, value]) => <div key={label} className="rounded-2xl border border-gray-100 bg-white p-4"><p className="text-[11px] font-medium uppercase tracking-wide text-gray-400">{label}</p><p className="mt-2 break-all text-[14px] font-medium text-gray-800">{value}</p></div>)}
       </section>
 
@@ -79,9 +79,9 @@ export function ProgramDetailScreen({ programId }: { programId: string }) {
         </div>
       </section>
 
-      <div id="script"><SavedScriptDetailPanel configObjectId={programId} onClose={() => router.push("/dashboard/library")} /></div>
+      <div id="script"><WorkflowDetailPanel configObjectId={workflowId} onClose={() => router.push("/dashboard/library")} /></div>
 
-      <section id="access" className="rounded-2xl border border-gray-100 bg-white p-5"><h2 className="text-[14px] font-semibold text-gray-900">Access</h2><p className="mt-2 text-[13px] text-gray-500">Your effective role is <strong>{detail.program.role}</strong>. Script versions, retained data, and generated views share this Program access boundary; there are no separate data or UI grants.</p>{manager && detail.program.plugin ? <DenButton className="mt-4" variant="secondary" href={`/dashboard/plugins/${encodeURIComponent(detail.program.plugin.id)}`}>Manage grants</DenButton> : null}</section>
+      <section id="access" className="rounded-2xl border border-gray-100 bg-white p-5"><h2 className="text-[14px] font-semibold text-gray-900">Access</h2><p className="mt-2 text-[13px] text-gray-500">Your effective role is <strong>{detail.workflow.role}</strong>. Workflow versions, retained data, and generated views share this Workflow access boundary; there are no separate data or UI grants.</p>{manager && detail.workflow.plugin ? <DenButton className="mt-4" variant="secondary" href={`/dashboard/plugins/${encodeURIComponent(detail.workflow.plugin.id)}`}>Manage grants</DenButton> : null}</section>
     </div>
   );
 }

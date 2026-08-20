@@ -1,13 +1,13 @@
 import type { createDenDb } from "@openwork-ee/den-db"
 import type { DenTypeId } from "@openwork-ee/utils/typeid"
-import { recordCodemodeRun, recordCodemodeScriptResult } from "../codemode-runs.js"
+import { recordWorkflowRun, recordWorkflowResult } from "../workflow-runs.js"
 import {
   artifactDigest,
   canonicalArtifactJson,
   optionalArtifactDigest,
-  renderSavedScriptMarkdown,
-  SAVED_SCRIPT_MARKDOWN_RENDERER_VERSION,
-} from "../saved-script-artifacts.js"
+  renderWorkflowMarkdown,
+  WORKFLOW_MARKDOWN_RENDERER_VERSION,
+} from "../workflow-artifacts.js"
 import {
   parseCodemodeScriptPayload,
   validateCodemodeScriptInput,
@@ -19,7 +19,7 @@ import { runCodemodeScript } from "./codemode-run.js"
 
 type CodemodeDb = ReturnType<typeof createDenDb>["db"]
 
-export type SavedCodemodeScriptExecutionResult =
+export type WorkflowExecutionResult =
   | {
       ok: true
       value: unknown
@@ -28,21 +28,21 @@ export type SavedCodemodeScriptExecutionResult =
       resultDigest: string
       inputSchemaDigest: string | null
       outputSchemaDigest: string | null
-      rendererVersion: typeof SAVED_SCRIPT_MARKDOWN_RENDERER_VERSION
-      receiptId: DenTypeId<"codemodeRun"> | null
+      rendererVersion: typeof WORKFLOW_MARKDOWN_RENDERER_VERSION
+      receiptId: DenTypeId<"workflowRun"> | null
       logs: string[]
       toolCalls: Array<{ name: string }>
       durationMs: number
     }
   | { ok: false; error: "unsupported"; message: string }
-  | { ok: false; error: "invalid_arguments" | "invalid_result"; message: string; issues: CodemodeScriptInputIssue[]; receiptId?: DenTypeId<"codemodeRun"> | null }
+  | { ok: false; error: "invalid_arguments" | "invalid_result"; message: string; issues: CodemodeScriptInputIssue[]; receiptId?: DenTypeId<"workflowRun"> | null }
   | {
       ok: false
       error: "capability_unavailable"
       message: string
       providerCallAttempted: false
       missing: Array<{ capabilityName: string; scriptPath: string }>
-      receiptId?: DenTypeId<"codemodeRun"> | null
+      receiptId?: DenTypeId<"workflowRun"> | null
     }
   | {
       ok: false
@@ -50,10 +50,10 @@ export type SavedCodemodeScriptExecutionResult =
       message: string
       kind: string
       toolCalls: Array<{ name: string }>
-      receiptId?: DenTypeId<"codemodeRun"> | null
+      receiptId?: DenTypeId<"workflowRun"> | null
     }
 
-export async function executeSavedCodemodeScript(input: {
+export async function executeWorkflow(input: {
   database: CodemodeDb
   organizationId: DenTypeId<"organization">
   orgMembershipId: DenTypeId<"member">
@@ -67,7 +67,7 @@ export async function executeSavedCodemodeScript(input: {
   scriptInput?: unknown
   validateOutput?: boolean
   buildTools: () => Promise<BuiltCodemodeTools>
-}): Promise<SavedCodemodeScriptExecutionResult> {
+}): Promise<WorkflowExecutionResult> {
   const parsed = parseCodemodeScriptPayload(input.normalizedPayloadJson)
   if (!parsed.ok) return { ok: false, error: "unsupported", message: parsed.message }
   const normalizedScriptInput = input.scriptInput ?? null
@@ -77,7 +77,7 @@ export async function executeSavedCodemodeScript(input: {
   const receiptSource = input.receiptSource ?? `plugin:${input.pluginId}:${input.configObjectId}`
   const recordPreflightFailure = (errorKind: string, errorMessage: string) => {
     const now = new Date()
-    return recordCodemodeRun(input.database, {
+    return recordWorkflowRun(input.database, {
       organizationId: input.organizationId,
       orgMembershipId: input.orgMembershipId,
       automationRunId: input.automationRunId,
@@ -103,7 +103,7 @@ export async function executeSavedCodemodeScript(input: {
     const validation = validateCodemodeScriptInput(parsed.payload.inputSchema, input.scriptInput)
     if (!validation.ok) {
       if (validation.error === "invalid_schema") return { ok: false, error: "unsupported", message: validation.message }
-      const message = "The arguments do not match the saved script's inputSchema."
+      const message = "The arguments do not match the Workflow's inputSchema."
       const receiptId = await recordPreflightFailure("InvalidArguments", message)
       return { ok: false, error: "invalid_arguments", message, issues: validation.issues, receiptId }
     }
@@ -151,7 +151,7 @@ export async function executeSavedCodemodeScript(input: {
   })
   const finishedAt = new Date()
   if (!result.ok) {
-    const receiptId = await recordCodemodeScriptResult(input.database, {
+    const receiptId = await recordWorkflowResult(input.database, {
       organizationId: input.organizationId,
       orgMembershipId: input.orgMembershipId,
       automationRunId: input.automationRunId,
@@ -180,7 +180,7 @@ export async function executeSavedCodemodeScript(input: {
     const validation = validateCodemodeScriptOutput(parsed.payload.outputSchema, result.value)
     if (!validation.ok) {
       if (validation.error === "invalid_schema") return { ok: false, error: "unsupported", message: validation.message }
-      const receiptId = await recordCodemodeRun(input.database, {
+      const receiptId = await recordWorkflowRun(input.database, {
         organizationId: input.organizationId,
         orgMembershipId: input.orgMembershipId,
         automationRunId: input.automationRunId,
@@ -195,7 +195,7 @@ export async function executeSavedCodemodeScript(input: {
         code: input.code,
         status: "failed",
         errorKind: "InvalidResult",
-        errorMessage: "The saved script result did not match its outputSchema.",
+        errorMessage: "The Workflow result did not match its outputSchema.",
         toolCalls: result.toolCalls,
         durationMs: result.durationMs,
         startedAt,
@@ -204,7 +204,7 @@ export async function executeSavedCodemodeScript(input: {
       return {
         ok: false,
         error: "invalid_result",
-        message: "The saved script result does not match its outputSchema.",
+        message: "The Workflow result does not match its outputSchema.",
         issues: validation.issues,
         receiptId,
       }
@@ -213,9 +213,9 @@ export async function executeSavedCodemodeScript(input: {
 
   const canonicalResult = canonicalArtifactJson(result.value)
   const canonicalValue: unknown = JSON.parse(canonicalResult)
-  const markdown = renderSavedScriptMarkdown(canonicalValue)
+  const markdown = renderWorkflowMarkdown(canonicalValue)
   const resultDigest = artifactDigest(canonicalValue)
-  const receiptId = await recordCodemodeScriptResult(input.database, {
+  const receiptId = await recordWorkflowResult(input.database, {
     organizationId: input.organizationId,
     orgMembershipId: input.orgMembershipId,
     automationRunId: input.automationRunId,
@@ -230,7 +230,7 @@ export async function executeSavedCodemodeScript(input: {
           resultMarkdown: markdown,
           resultDigest,
           outputSchemaDigest,
-          rendererVersion: SAVED_SCRIPT_MARKDOWN_RENDERER_VERSION,
+          rendererVersion: WORKFLOW_MARKDOWN_RENDERER_VERSION,
         }
       : {}),
     source: receiptSource,
@@ -246,7 +246,7 @@ export async function executeSavedCodemodeScript(input: {
     resultDigest,
     inputSchemaDigest,
     outputSchemaDigest,
-    rendererVersion: SAVED_SCRIPT_MARKDOWN_RENDERER_VERSION,
+    rendererVersion: WORKFLOW_MARKDOWN_RENDERER_VERSION,
     receiptId,
     logs: result.logs.map((log) => log.trim()).filter(Boolean),
     toolCalls: result.toolCalls,

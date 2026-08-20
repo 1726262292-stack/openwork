@@ -15,8 +15,8 @@ function parseMetadata(input: MetadataInput): Record<string, unknown> {
   }
 }
 
-export function codemodeScriptsEnabled(metadata: MetadataInput): boolean {
+export function workflowsEnabled(metadata: MetadataInput): boolean {
   const parsed = parseMetadata(metadata)
   const capabilities = isRecord(parsed.capabilities) ? parsed.capabilities : {}
-  return capabilities.codemodeScripts === true
+  return (Object.hasOwn(capabilities, "workflows") ? capabilities.workflows : capabilities.codemodeScripts) === true
 }

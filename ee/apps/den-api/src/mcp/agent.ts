@@ -8,7 +8,7 @@ import { openworkCloudMcpConnectionActionSchema } from "@openwork/types/den/mcp-
 import type { Hono } from "hono"
 import type { RequestIdVariables } from "hono/request-id"
 import { z } from "zod"
-import { codemodeScriptsEnabled } from "../capability-sources/codemode-rollout.js"
+import { workflowsEnabled } from "../capability-sources/workflow-rollout.js"
 import { remoteMcpAppsEnabled } from "../capability-sources/remote-mcp-apps-rollout.js"
 import { publicRoute, tokenRoute } from "../middleware/index.js"
 import { db } from "../db.js"
@@ -31,14 +31,14 @@ import { automationService } from "../automations/service.js"
 import { AGENT_AUTOMATION_INDEX_LIMIT, registerAgentAutomationResources } from "./automation-index.js"
 import { env } from "../env.js"
 import { getOrganizationContextForUser, listTeamsForMember } from "../orgs.js"
-import { getCodemodeScriptDetail, getCodemodeScriptSnapshot } from "../codemode-scripts.js"
-import { artifactFreshness } from "../saved-script-artifacts.js"
+import { getWorkflowDetail, getWorkflowSnapshot } from "../workflows.js"
+import { artifactFreshness } from "../workflow-artifacts.js"
 import { PluginArchAuthorizationError, requirePluginArchCapability } from "../routes/org/plugin-system/access.js"
 import {
-  DYNAMIC_ARTIFACT_APP_SCHEMA_VERSION,
-  dynamicArtifactAppServerCapabilities,
-  registerAgentDynamicArtifactApp,
-} from "./dynamic-artifact-app.js"
+  WORKFLOW_ARTIFACT_APP_SCHEMA_VERSION,
+  workflowArtifactAppServerCapabilities,
+  registerAgentWorkflowArtifactApp,
+} from "./workflow-artifact-app.js"
 import {
   executeBuiltinSkillCapability,
   listBuiltinSkillDescriptors,
@@ -53,7 +53,7 @@ import {
   type ExecuteCapabilityToolResult,
 } from "./capability-registry.js"
 import { runCodemodeScript } from "./codemode-run.js"
-import { recordCodemodeScriptResult } from "../codemode-runs.js"
+import { recordWorkflowResult } from "../workflow-runs.js"
 import {
   activateArtifactViewRevision,
   getGeneratedArtifactViewRevision,
@@ -164,9 +164,9 @@ export const AGENT_MCP_INSTRUCTIONS = [
   "Use create_skill to create one private Cloud skill in a new Plugin, and update_skill to publish a new immutable version of an existing skill. Both return a standard skill-created MCP App result plus a text fallback; do not route these flows through execute_capability, postPlugins, or postConfigObjectsVersions.",
   "Standard MCP Apps supplied by connected MCP servers are discovered through search_capabilities. A match with kind mcp_app must be executed through execute_capability like any other exact match; compatible OpenWork hosts preserve the current _meta.ui.resourceUri and render it without a generated direct-tool name.",
   "Standalone URL-imported Apps are deferred future work and are not part of this release. Do not offer, search for, import, or launch them.",
-  "A Program is an immutable-versioned Code Mode Script config object inside an OpenWork Connect Plugin. Organizations with Code Mode scripts enabled receive execute_capability_script and the backwards-compatible render_dynamic_artifact MCP App tool.",
-  "Programs are discovered by Library metadata through search_capabilities and executed through execute_capability using the exact capability name returned by search. Program execution remains server-mediated and returns structuredContent.",
-  "When a member asks to keep a successful Code Mode result, save it as a Program inside the existing OpenWork Connect Plugin they name by passing that pluginId to the Code Mode save operation. Omit pluginId only for a private Program in the member's My Programs Plugin. A Program inherits discovery and sharing from its Plugin and any Marketplace containing that Plugin; do not create a separate Program package or marketplace entry.",
+  "Skills teach how to perform work. Workflows are saved procedures discovered through search_capabilities and run through execute_capability using the exact capability name returned by search.",
+  "Author an ad hoc procedure with execute_capability_script. Workflow runs produce artifacts rendered by render_workflow_artifact, and Automations trigger Workflows.",
+  "When a member asks to keep a successful Code Mode result, save it as a Workflow inside the existing OpenWork Connect Plugin they name by passing that pluginId to the Workflow save operation. Omit pluginId only for a private Workflow in the member's My Workflows Plugin. A Workflow inherits discovery and sharing from its Plugin and any Marketplace containing that Plugin; do not create a separate Workflow package or marketplace entry.",
   "Capabilities include native Google Workspace operations (Gmail read/search, Calendar list/create, Drive search/read, and Gmail draft creation) executed with the signed-in member's organization credentials, plus any MCP connections the organization has added.",
   "Allowlisted platform admins can also discover namespaced OpenWork Admin capabilities through this same connection; other members cannot discover or execute them.",
   "Always call search_capabilities first with 2-4 keyword variants before concluding something is unavailable. Use execute_capability only with exact names returned by search_capabilities.",
@@ -293,7 +293,7 @@ export function createAgentMcpServer(): McpServer {
     version: "1.0.0",
   }, {
     capabilities: {
-      ...dynamicArtifactAppServerCapabilities,
+      ...workflowArtifactAppServerCapabilities,
       tools: { listChanged: true },
       resources: { listChanged: true },
     },
@@ -364,7 +364,7 @@ export function registerAgentSkillResources(input: {
  * desktop app's "OpenWork Cloud Control" connection, which is what an
  * OpenCode/Claude Code/Codex-style harness actually sees. It always registers
  * `search_capabilities`, `execute_capability`, and `create_skill`, and
- * conditionally registers Code Mode and Artifact presentation tools. Programs
+ * conditionally registers Code Mode and Artifact presentation tools. Workflows
  * remain discoverable and executable through the same capability-routing
  * tools instead of contributing separate contextual tools. The other ~127
  * operations are not individually callable on this endpoint.
@@ -414,7 +414,7 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
       .where(eq(OrganizationTable.id, organizationId))
       .limit(1)
     const organizationMetadata = organizationRows[0]?.metadata
-    const codemodeEnabled = codemodeScriptsEnabled(organizationMetadata)
+    const codemodeEnabled = workflowsEnabled(organizationMetadata)
     const remoteAppsEnabled = remoteMcpAppsEnabled(organizationMetadata, {
       deploymentEnabled: env.remoteMcpAppsEnabled,
     })
@@ -522,11 +522,11 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
         title: "Search capabilities",
         description: [
           codemodeEnabled
-            ? "Search for a capability by keyword. This connection also exposes execute_capability, create_skill, update_skill, execute_capability_script, and Program search/selection tools —"
+            ? "Search for a capability by keyword. This connection also exposes execute_capability, create_skill, update_skill, and execute_capability_script —"
             : "Search for a capability by keyword. This connection also exposes execute_capability, create_skill, and update_skill —",
           "there is no list of individually-named tools to browse. Always search first.",
           "Search covers native Google Workspace capabilities (Gmail, Calendar, Drive, Gmail drafts), org-connected external MCPs, and namespaced OpenWork Admin tools for allowlisted platform admins.",
-          "When Code Mode is enabled, accessible Programs appear as marketplace matches with kind script and execute through execute_capability like every other exact search result.",
+          "When Workflows are enabled, accessible Workflows appear as marketplace matches with kind workflow and execute through execute_capability like every other exact search result.",
           "Try 2-4 keyword variants before deciding a capability is unavailable.",
           "Native API matches include a connector-namespaced name, pathParams, queryParams, hasBody, and bodySchema. External MCP matches include argumentsSchema, schemaDigest, and invocation.argumentsField. A match with kind mcp_app is a standard MCP App launch capability from a connected MCP server; execute it normally and the OpenWork host will render its advertised ui:// resource.",
           "Built-in and marketplace skill matches return SKILL.md content when executed.",
@@ -738,7 +738,7 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
     registerAgentPluginFlowApp(server)
 
     if (codemodeEnabled) {
-      const loadDynamicArtifact = async ({
+      const loadWorkflowArtifact = async ({
         configObjectId,
         receiptId,
         maxAgeMs,
@@ -752,26 +752,26 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
         if (!artifactContext) {
           return {
             ok: false as const,
-            error: "saved_script_not_found",
-            message: "The saved Script is unavailable to this member.",
+            error: "workflow_not_found",
+            message: "The Workflow is unavailable to this member.",
           }
         }
         try {
-          const detail = await getCodemodeScriptDetail({
+          const detail = await getWorkflowDetail({
             context: artifactContext,
             configObjectId,
             maxAgeMs,
           })
           const snapshot = receiptId
-            ? await getCodemodeScriptSnapshot({ context: artifactContext, configObjectId, receiptId })
+            ? await getWorkflowSnapshot({ context: artifactContext, configObjectId, receiptId })
             : detail.latestSuccessfulSnapshot
           if (!snapshot) {
             return {
               ok: false as const,
-              error: "saved_script_snapshot_not_found",
+              error: "workflow_snapshot_not_found",
               message: receiptId
                 ? "That immutable artifact snapshot was not found."
-                : "This saved Script does not have a successful artifact snapshot yet. Run it explicitly or through its Automation first.",
+                : "This Workflow does not have a successful artifact snapshot yet. Run it explicitly or through its Automation first.",
             }
           }
           if (snapshot.status !== "succeeded" || snapshot.contentDeletedAt !== null
@@ -779,7 +779,7 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
             || snapshot.resultDigest === null || snapshot.rendererVersion !== "codemode-markdown-v1") {
             return {
               ok: false as const,
-              error: "saved_script_snapshot_unavailable",
+              error: "workflow_snapshot_unavailable",
               message: "This artifact snapshot has no readable successful content.",
             }
           }
@@ -803,7 +803,7 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
             ok: true as const,
             markdown: snapshot.markdown,
             payload: {
-              schemaVersion: DYNAMIC_ARTIFACT_APP_SCHEMA_VERSION,
+              schemaVersion: WORKFLOW_ARTIFACT_APP_SCHEMA_VERSION,
               artifact: {
                 title: detail.title,
                 description: detail.description,
@@ -825,21 +825,21 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
           if (error instanceof PluginArchAuthorizationError) {
             return {
               ok: false as const,
-              error: "saved_script_not_found",
-              message: "The saved Script is unavailable to this member.",
+              error: "workflow_not_found",
+              message: "The Workflow is unavailable to this member.",
             }
           }
-          const message = error instanceof Error ? error.message : "saved_script_not_found"
+          const message = error instanceof Error ? error.message : "workflow_not_found"
           return {
             ok: false as const,
-            error: message.includes("not_found") ? "saved_script_not_found" : "saved_script_unavailable",
-            message: "The Program's retained Artifact could not be loaded.",
+            error: message.includes("not_found") ? "workflow_not_found" : "workflow_unavailable",
+            message: "The Workflow's retained Artifact could not be loaded.",
           }
         }
       }
 
       // Keep the generic MCP App tool as the interoperable baseline.
-      registerAgentDynamicArtifactApp({ server, load: loadDynamicArtifact })
+      registerAgentWorkflowArtifactApp({ server, load: loadWorkflowArtifact })
 
       // This server deploys independently from Desktop. Do not advertise or
       // serve bridge-dependent generated views until the compatible Desktop
@@ -857,7 +857,7 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
           server,
           views: generatedViews,
           loadResource: loadGeneratedResource,
-          loadData: loadDynamicArtifact,
+          loadData: loadWorkflowArtifact,
           save: (request) => saveArtifactViewRevision({ context: artifactContext, ...request }),
           activate: (request) => activateArtifactViewRevision({ context: artifactContext, ...request }),
           retire: (request) => retireArtifactView({ context: artifactContext, ...request }),
@@ -906,7 +906,7 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
               timeoutMs: 170_000,
             })
             const finishedAt = new Date()
-            await recordCodemodeScriptResult(db, {
+            await recordWorkflowResult(db, {
               organizationId,
               orgMembershipId: memberIdentity?.orgMembershipId,
               source: "adhoc",

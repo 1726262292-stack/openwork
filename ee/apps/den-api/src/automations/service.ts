@@ -16,7 +16,7 @@ import { env } from "../env.js"
 import { isActiveAutomationOwner, resolveAutomationModelAccess } from "./authority.js"
 import { shouldApplyAutomationModelAccessFailure } from "./model-attention-rollout.js"
 import { automationRepository } from "./repository.js"
-import { validateSavedScriptAutomationAction } from "../codemode-scripts.js"
+import { validateWorkflowAutomationAction } from "../workflows.js"
 import type { CloudAgentExecution, CloudAgentExecutorInput } from "./cloud-agent-executor.js"
 import { appLogger } from "../observability/logger.js"
 
@@ -48,23 +48,23 @@ function supportsModelAttention(scope: OwnerScope | DesktopRunnerScope) {
     || ("capabilities" in scope && scope.capabilities?.includes("model_attention_v1") === true)
 }
 
-export type CloudSavedScriptExecution =
+export type CloudWorkflowExecution =
   | { ok: true; value: unknown; canonicalResult: string; receiptId: string }
   | { ok: false; message: string; retryable: boolean; receiptId?: string | null }
 
-export type CloudSavedScriptExecutor = (input: {
+export type CloudWorkflowExecutor = (input: {
   organizationId: string
   ownerMemberId: string
   automationRunId: string
   action: Extract<AutomationAction, { kind: "saved_script" }>
-}) => Promise<CloudSavedScriptExecution>
+}) => Promise<CloudWorkflowExecution>
 
-let cloudSavedScriptExecutor: CloudSavedScriptExecutor | null = null
+let cloudWorkflowExecutor: CloudWorkflowExecutor | null = null
 let cloudAgentExecutor: ((input: CloudAgentExecutorInput) => Promise<CloudAgentExecution>) | null = null
 let cloudAgentRuntimeAvailable: ((scope: OwnerScope) => Promise<boolean>) | null = null
 
-export function configureCloudSavedScriptExecutor(executor: CloudSavedScriptExecutor): void {
-  cloudSavedScriptExecutor = executor
+export function configureCloudWorkflowExecutor(executor: CloudWorkflowExecutor): void {
+  cloudWorkflowExecutor = executor
 }
 
 export function configureCloudAgentExecutor(input: {
@@ -103,7 +103,7 @@ export class AutomationService {
       }
       else {
         if (!await isActiveAutomationOwner(scope)) throw new Error("automation_owner_inactive")
-        await validateSavedScriptAutomationAction({ ...scope, action: definition.action })
+        await validateWorkflowAutomationAction({ ...scope, action: definition.action })
       }
       if (definition.action.kind === "agent" && (!cloudAgentRuntimeAvailable || !await cloudAgentRuntimeAvailable(scope))) {
         throw new Error("automation_cloud_worker_required")
@@ -127,7 +127,7 @@ export class AutomationService {
       throw new Error("automation_action_target_mismatch")
     }
     if (nextAction?.kind === "saved_script") {
-      await validateSavedScriptAutomationAction({ ...scope, action: nextAction })
+      await validateWorkflowAutomationAction({ ...scope, action: nextAction })
     } else if (nextAction?.kind === "agent") {
       if ((current.revision.executionTarget ?? "desktop") === "cloud"
         && (!cloudAgentRuntimeAvailable || !await cloudAgentRuntimeAvailable(scope))) {
@@ -529,15 +529,15 @@ export class AutomationService {
       return
     }
     if (claimed.revision.action?.kind !== "saved_script") return
-    const executor = cloudSavedScriptExecutor
+    const executor = cloudWorkflowExecutor
     if (!executor) {
       await automationRepository.completeCloud({
         automationId: claimed.automation.id,
         runId,
         leaseOwner,
         status: "failed",
-        resultSummary: "OpenWork Cloud script execution is unavailable.",
-        error: { code: "execution_runtime_unavailable", message: "OpenWork Cloud script execution is unavailable.", retryable: true },
+        resultSummary: "OpenWork Cloud Workflow execution is unavailable.",
+        error: { code: "execution_runtime_unavailable", message: "OpenWork Cloud Workflow execution is unavailable.", retryable: true },
         now: Date.now(),
       })
       return
@@ -547,9 +547,9 @@ export class AutomationService {
       ownerMemberId: claimed.automation.ownerMemberId,
       automationRunId: runId,
       action: claimed.revision.action,
-    }).catch((error): CloudSavedScriptExecution => ({
+    }).catch((error): CloudWorkflowExecution => ({
       ok: false,
-      message: error instanceof Error ? error.message : "Saved script execution failed.",
+      message: error instanceof Error ? error.message : "Workflow execution failed.",
       retryable: true,
     }))
     await automationRepository.completeCloud({

@@ -7,26 +7,27 @@ import {
 import type { McpUiResourceMeta } from "@modelcontextprotocol/ext-apps"
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import {
-  dynamicArtifactAppPayloadSchema,
-  dynamicArtifactAppSchemaVersion,
+  workflowArtifactPayloadSchema,
+  workflowArtifactSchemaVersion,
   type ArtifactFreshness,
-  type DynamicArtifactAppPayload,
-} from "@openwork/types/dynamic-artifacts"
+  type WorkflowArtifactPayload,
+} from "@openwork/types/workflows"
 import { z } from "zod"
 
-export { dynamicArtifactAppPayloadSchema } from "@openwork/types/dynamic-artifacts"
+export { workflowArtifactPayloadSchema } from "@openwork/types/workflows"
 
-export const DYNAMIC_ARTIFACT_APP_RESOURCE_URI = "ui://openwork/dynamic-artifact/v1/view.html"
-export const DYNAMIC_ARTIFACT_APP_TOOL_NAME = "render_dynamic_artifact"
-export const DYNAMIC_ARTIFACT_APP_SCHEMA_VERSION = dynamicArtifactAppSchemaVersion
+export const WORKFLOW_ARTIFACT_APP_RESOURCE_URI = "ui://openwork/workflow-artifact/v1/view.html"
+export const WORKFLOW_ARTIFACT_APP_TOOL_NAME = "render_workflow_artifact"
+export const LEGACY_WORKFLOW_ARTIFACT_TOOL_NAME = "render_dynamic_artifact"
+export const WORKFLOW_ARTIFACT_APP_SCHEMA_VERSION = workflowArtifactSchemaVersion
 
 const idSchema = z.string().trim().min(1).max(160)
 
-export type DynamicArtifactAppLoadResult =
-  | { ok: true; payload: DynamicArtifactAppPayload; markdown: string }
+export type WorkflowArtifactLoadResult =
+  | { ok: true; payload: WorkflowArtifactPayload; markdown: string }
   | { ok: false; error: string; message: string }
 
-export const dynamicArtifactAppServerCapabilities = {
+export const workflowArtifactAppServerCapabilities = {
   extensions: {
     [EXTENSION_ID]: {
       mimeTypes: [RESOURCE_MIME_TYPE],
@@ -34,7 +35,7 @@ export const dynamicArtifactAppServerCapabilities = {
   },
 }
 
-const dynamicArtifactAppResourceMeta: { ui: McpUiResourceMeta } = {
+const workflowArtifactAppResourceMeta: { ui: McpUiResourceMeta } = {
   ui: {
     csp: {
       connectDomains: [],
@@ -60,8 +61,8 @@ function formatFreshness(freshness: ArtifactFreshness): string {
   return "unknown"
 }
 
-export function dynamicArtifactTextFallback(input: {
-  payload: DynamicArtifactAppPayload
+export function workflowArtifactTextFallback(input: {
+  payload: WorkflowArtifactPayload
   markdown: string
 }): string {
   const { artifact } = input.payload
@@ -71,19 +72,19 @@ export function dynamicArtifactTextFallback(input: {
     `Freshness: ${formatFreshness(artifact.freshness)}`,
     `Generated: ${artifact.generatedAt}`,
     `Source: ${artifact.source}`,
-    `Script version: ${artifact.configObjectVersionId}`,
+    `Workflow version: ${artifact.configObjectVersionId}`,
     `Receipt: ${artifact.receiptId}`,
     "",
     input.markdown,
   ].filter((line): line is string => line !== null).join("\n")
 }
 
-export const DYNAMIC_ARTIFACT_APP_HTML = String.raw`<!doctype html>
+export const WORKFLOW_ARTIFACT_APP_HTML = String.raw`<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>OpenWork Dynamic Artifact</title>
+  <title>OpenWork Workflow Artifact</title>
   <style>
     :root {
       color-scheme: light dark;
@@ -146,7 +147,7 @@ export const DYNAMIC_ARTIFACT_APP_HTML = String.raw`<!doctype html>
   <main class="shell">
     <header class="header">
       <div>
-        <p class="eyebrow">Dynamic Artifact</p>
+        <p class="eyebrow">Workflow Artifact</p>
         <h1 id="title">Preparing artifact…</h1>
         <p class="description" id="description"></p>
       </div>
@@ -162,7 +163,7 @@ export const DYNAMIC_ARTIFACT_APP_HTML = String.raw`<!doctype html>
   <script>
     (function () {
       'use strict';
-      var INIT_ID = 'openwork-dynamic-artifact:init';
+      var INIT_ID = 'openwork-workflow-artifact:init';
       var activeTab = 'preview';
       var payload = null;
       var panel = document.getElementById('panel');
@@ -289,8 +290,8 @@ export const DYNAMIC_ARTIFACT_APP_HTML = String.raw`<!doctype html>
         var values = [
           ['Generated', artifact.generatedAt],
           ['Source', artifact.source],
-          ['Script', artifact.configObjectId],
-          ['Script version', artifact.configObjectVersionId],
+          ['Workflow', artifact.configObjectId],
+          ['Workflow version', artifact.configObjectVersionId],
           ['Receipt', artifact.receiptId],
           ['Automation run', artifact.automationRunId || '—'],
           ['Result digest', artifact.resultDigest],
@@ -393,7 +394,7 @@ export const DYNAMIC_ARTIFACT_APP_HTML = String.raw`<!doctype html>
           }
           var structured = message.params && message.params.structuredContent;
           if (!isRecord(structured) || structured.schemaVersion !== '1' || !isRecord(structured.artifact)) {
-            showError('This result does not match the Dynamic Artifact data contract.');
+            showError('This result does not match the Workflow Artifact data contract.');
             return;
           }
           payload = structured;
@@ -421,7 +422,7 @@ export const DYNAMIC_ARTIFACT_APP_HTML = String.raw`<!doctype html>
         id: INIT_ID,
         method: 'ui/initialize',
         params: {
-          appInfo: { name: 'OpenWork Dynamic Artifact', version: '1.0.0' },
+          appInfo: { name: 'OpenWork Workflow Artifact', version: '1.0.0' },
           appCapabilities: {},
           protocolVersion: '2026-01-26'
         }
@@ -431,25 +432,30 @@ export const DYNAMIC_ARTIFACT_APP_HTML = String.raw`<!doctype html>
 </body>
 </html>`
 
-export function registerAgentDynamicArtifactApp(input: {
+export function registerAgentWorkflowArtifactApp(input: {
   server: McpServer
   load: (request: {
     configObjectId: string
     receiptId?: string
     maxAgeMs?: number
-  }) => Promise<DynamicArtifactAppLoadResult>
+  }) => Promise<WorkflowArtifactLoadResult>
 }) {
-  registerAgentDynamicArtifactResource(input.server)
+  registerAgentWorkflowArtifactResource(input.server)
+  const renderWorkflowArtifact = async ({ configObjectId, receiptId, maxAgeMs }: {
+    configObjectId: string
+    receiptId?: string
+    maxAgeMs?: number
+  }) => workflowArtifactToolResult(await input.load({ configObjectId, receiptId, maxAgeMs }))
 
   registerAppTool(
     input.server,
-    DYNAMIC_ARTIFACT_APP_TOOL_NAME,
+    WORKFLOW_ARTIFACT_APP_TOOL_NAME,
     {
-      title: "Render Dynamic Artifact",
+      title: "Render Workflow Artifact",
       description: [
-        "Read an authorized immutable result from a saved Code Mode Script and present it as a Dynamic Artifact.",
+        "Read an authorized immutable result from a Workflow and present it as a Workflow Artifact.",
         "Use the latest successful snapshot by default, or pass receiptId to pin an exact snapshot.",
-        "This tool never runs or refreshes a Script; Automations and explicit Script runs own data refresh.",
+        "This tool never runs or refreshes a Workflow; Automations and explicit Workflow runs own data refresh.",
         "Clients without MCP Apps support receive the same artifact as Markdown text.",
       ].join(" "),
       annotations: {
@@ -459,43 +465,71 @@ export function registerAgentDynamicArtifactApp(input: {
         openWorldHint: false,
       },
       inputSchema: z.object({
-        configObjectId: idSchema.describe("The saved Script configObjectId."),
+        configObjectId: idSchema.describe("The Workflow configObjectId."),
         receiptId: idSchema.optional().describe("Optional exact immutable artifact receipt. Defaults to the latest successful snapshot."),
         maxAgeMs: z.number().int().min(60_000).max(30 * 24 * 60 * 60_000).optional().describe("Freshness threshold used for the rendered status. Defaults to 24 hours."),
       }),
-      outputSchema: dynamicArtifactAppPayloadSchema,
+      outputSchema: workflowArtifactPayloadSchema,
       _meta: {
         ui: {
-          resourceUri: DYNAMIC_ARTIFACT_APP_RESOURCE_URI,
+          resourceUri: WORKFLOW_ARTIFACT_APP_RESOURCE_URI,
           visibility: ["model", "app"],
         },
       },
     },
-    async ({ configObjectId, receiptId, maxAgeMs }) => dynamicArtifactToolResult(await input.load({ configObjectId, receiptId, maxAgeMs })),
+    renderWorkflowArtifact,
+  )
+
+  registerAppTool(
+    input.server,
+    LEGACY_WORKFLOW_ARTIFACT_TOOL_NAME,
+    {
+      title: "Render Workflow Artifact (Deprecated Alias)",
+      description: "Deprecated: use render_workflow_artifact. This alias delegates to the canonical Workflow Artifact renderer and will be removed after one release.",
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+      inputSchema: z.object({
+        configObjectId: idSchema.describe("The Workflow configObjectId."),
+        receiptId: idSchema.optional().describe("Optional exact immutable artifact receipt. Defaults to the latest successful snapshot."),
+        maxAgeMs: z.number().int().min(60_000).max(30 * 24 * 60 * 60_000).optional().describe("Freshness threshold used for the rendered status. Defaults to 24 hours."),
+      }),
+      outputSchema: workflowArtifactPayloadSchema,
+      _meta: {
+        ui: {
+          resourceUri: WORKFLOW_ARTIFACT_APP_RESOURCE_URI,
+          visibility: ["model", "app"],
+        },
+      },
+    },
+    renderWorkflowArtifact,
   )
 }
 
-export function registerAgentDynamicArtifactResource(server: McpServer) {
+export function registerAgentWorkflowArtifactResource(server: McpServer) {
   registerAppResource(
     server,
-    "OpenWork Dynamic Artifact",
-    DYNAMIC_ARTIFACT_APP_RESOURCE_URI,
+    "OpenWork Workflow Artifact",
+    WORKFLOW_ARTIFACT_APP_RESOURCE_URI,
     {
-      description: "A data-first Preview, Data, and Lineage view for an immutable saved Script result.",
-      _meta: dynamicArtifactAppResourceMeta,
+      description: "A data-first Preview, Data, and Lineage view for an immutable Workflow result.",
+      _meta: workflowArtifactAppResourceMeta,
     },
     async () => ({
       contents: [{
-        uri: DYNAMIC_ARTIFACT_APP_RESOURCE_URI,
+        uri: WORKFLOW_ARTIFACT_APP_RESOURCE_URI,
         mimeType: RESOURCE_MIME_TYPE,
-        text: DYNAMIC_ARTIFACT_APP_HTML,
-        _meta: dynamicArtifactAppResourceMeta,
+        text: WORKFLOW_ARTIFACT_APP_HTML,
+        _meta: workflowArtifactAppResourceMeta,
       }],
     }),
   )
 }
 
-function dynamicArtifactToolResult(loaded: DynamicArtifactAppLoadResult) {
+function workflowArtifactToolResult(loaded: WorkflowArtifactLoadResult) {
   if (!loaded.ok) {
     return {
       isError: true,
@@ -506,7 +540,7 @@ function dynamicArtifactToolResult(loaded: DynamicArtifactAppLoadResult) {
     }
   }
   return {
-    content: [{ type: "text" as const, text: dynamicArtifactTextFallback(loaded) }],
+    content: [{ type: "text" as const, text: workflowArtifactTextFallback(loaded) }],
     structuredContent: loaded.payload,
     _meta: {
       schemaVersion: loaded.payload.schemaVersion,

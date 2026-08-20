@@ -8,7 +8,7 @@ export default defineConfig({
     "openwork-context": "src/openwork-context.ts",
     "openwork-provider": "src/openwork-provider.ts",
     "automations": "src/automations.ts",
-    "dynamic-artifacts": "src/dynamic-artifacts.ts",
+    workflows: "src/workflows.ts",
     "skill-created-app": "src/skill-created-app.ts",
     "connection-action-app": "src/connection-action-app.ts",
     "plugin-flow-app": "src/plugin-flow-app.ts",

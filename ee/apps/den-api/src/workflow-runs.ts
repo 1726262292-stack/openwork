@@ -1,13 +1,13 @@
 import { createHash } from "node:crypto"
 import type { createDenDb } from "@openwork-ee/den-db"
 import { and, desc, eq } from "@openwork-ee/den-db/drizzle"
-import { CodemodeRunTable } from "@openwork-ee/den-db/schema"
+import { WorkflowRunTable } from "@openwork-ee/den-db/schema"
 import { createDenTypeId, type DenTypeId } from "@openwork-ee/utils/typeid"
 import type { CodemodeRunResult } from "./mcp/codemode-run.js"
 
 type CodemodeDb = ReturnType<typeof createDenDb>["db"]
 
-export type RecordCodemodeRunInput = {
+export type RecordWorkflowRunInput = {
   organizationId: DenTypeId<"organization">
   orgMembershipId?: DenTypeId<"member"> | null
   automationRunId?: DenTypeId<"automationRun"> | null
@@ -42,27 +42,27 @@ export function parseCodemodeToolCalls(value: unknown): Array<{ name: string }> 
     try {
       decoded = JSON.parse(decoded)
     } catch {
-      throw new Error("codemode_run_tool_calls_invalid")
+      throw new Error("workflow_run_tool_calls_invalid")
     }
   }
   if (decoded === null || decoded === undefined) return []
-  if (!Array.isArray(decoded)) throw new Error("codemode_run_tool_calls_invalid")
+  if (!Array.isArray(decoded)) throw new Error("workflow_run_tool_calls_invalid")
   return decoded.map((call) => {
     if (typeof call !== "object" || call === null || Array.isArray(call)) {
-      throw new Error("codemode_run_tool_calls_invalid")
+      throw new Error("workflow_run_tool_calls_invalid")
     }
     const name = Reflect.get(call, "name")
     if (typeof name !== "string" || name.length === 0) {
-      throw new Error("codemode_run_tool_calls_invalid")
+      throw new Error("workflow_run_tool_calls_invalid")
     }
     return { name }
   })
 }
 
-export async function recordCodemodeRun(database: CodemodeDb, input: RecordCodemodeRunInput): Promise<DenTypeId<"codemodeRun"> | null> {
-  const id = createDenTypeId("codemodeRun")
+export async function recordWorkflowRun(database: CodemodeDb, input: RecordWorkflowRunInput): Promise<DenTypeId<"workflowRun"> | null> {
+  const id = createDenTypeId("workflowRun")
   try {
-    await database.insert(CodemodeRunTable).values({
+    await database.insert(WorkflowRunTable).values({
       id,
       organization_id: input.organizationId,
       org_membership_id: input.orgMembershipId ?? null,
@@ -93,7 +93,7 @@ export async function recordCodemodeRun(database: CodemodeDb, input: RecordCodem
     })
     return id
   } catch (error) {
-    console.error("codemode_run_receipt_failed", {
+    console.error("workflow_run_receipt_failed", {
       organization_id: input.organizationId,
       org_membership_id: input.orgMembershipId ?? null,
       source: input.source,
@@ -103,12 +103,12 @@ export async function recordCodemodeRun(database: CodemodeDb, input: RecordCodem
   }
 }
 
-export function recordCodemodeScriptResult(
+export function recordWorkflowResult(
   database: CodemodeDb,
-  input: Omit<RecordCodemodeRunInput, "status" | "errorKind" | "errorMessage" | "toolCalls" | "durationMs">,
+  input: Omit<RecordWorkflowRunInput, "status" | "errorKind" | "errorMessage" | "toolCalls" | "durationMs">,
   result: CodemodeRunResult,
-): Promise<DenTypeId<"codemodeRun"> | null> {
-  return recordCodemodeRun(database, {
+): Promise<DenTypeId<"workflowRun"> | null> {
+  return recordWorkflowRun(database, {
     ...input,
     status: result.ok ? "succeeded" : "failed",
     errorKind: result.ok ? null : result.error.kind,
@@ -118,7 +118,7 @@ export function recordCodemodeScriptResult(
   })
 }
 
-export async function listCodemodeRuns(database: CodemodeDb, input: {
+export async function listWorkflowRuns(database: CodemodeDb, input: {
   organizationId: DenTypeId<"organization">
   orgMembershipId?: DenTypeId<"member">
   limit?: number
@@ -126,14 +126,14 @@ export async function listCodemodeRuns(database: CodemodeDb, input: {
   const limit = Math.min(200, Math.max(1, input.limit ?? 50))
   const rows = await database
     .select()
-    .from(CodemodeRunTable)
+    .from(WorkflowRunTable)
     .where(input.orgMembershipId
       ? and(
-        eq(CodemodeRunTable.organization_id, input.organizationId),
-        eq(CodemodeRunTable.org_membership_id, input.orgMembershipId),
+        eq(WorkflowRunTable.organization_id, input.organizationId),
+        eq(WorkflowRunTable.org_membership_id, input.orgMembershipId),
       )
-      : eq(CodemodeRunTable.organization_id, input.organizationId))
-    .orderBy(desc(CodemodeRunTable.created_at))
+      : eq(WorkflowRunTable.organization_id, input.organizationId))
+    .orderBy(desc(WorkflowRunTable.created_at))
     .limit(limit)
   return rows.map((row) => ({ ...row, tool_calls: parseCodemodeToolCalls(row.tool_calls) }))
 }

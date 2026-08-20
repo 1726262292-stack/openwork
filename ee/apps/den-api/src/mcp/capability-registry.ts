@@ -172,7 +172,7 @@ export function catalogOperationAvailableToCapabilities(
   // capability gateway, even if their retained storage routes are reworked.
   if (operation.path.startsWith("/v1/remote-mcp-apps")) return false
   if (context.generatedArtifactViewsEnabled) return true
-  return operation.path !== "/v1/programs/{configObjectId}/views"
+  return operation.path !== "/v1/workflows/{configObjectId}/views"
     && !operation.path.startsWith("/v1/artifact-views/")
 }
 
@@ -592,7 +592,7 @@ const marketplaceSource: CapabilitySource = {
       limit,
       enabled: ctx.externalMcpConnectionsEnabled,
     })
-    return matches.map((match) => ctx.codemodeEnabled && match.kind !== "script"
+    return matches.map((match) => ctx.codemodeEnabled && match.kind !== "workflow"
       ? { ...match, scriptPath: codemodeScriptPath("marketplace", match.name) }
       : match)
   },
@@ -604,7 +604,7 @@ const marketplaceSource: CapabilitySource = {
       enabled: ctx.externalMcpConnectionsEnabled,
     })
     const uniqueReferences = new Map(references
-      .filter((reference) => reference.objectType !== "script")
+      .filter((reference) => reference.objectType !== "workflow")
       .map((reference) => [`${reference.pluginId}:${reference.configObjectId}`, reference]))
     return [...uniqueReferences.values()].map((reference) => {
       const capabilityName = `plugin:${reference.pluginId}:${reference.configObjectId}`

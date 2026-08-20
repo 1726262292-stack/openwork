@@ -223,8 +223,8 @@ test("keeps installation and disabled generated-view operations out of every gen
     path: "/v1/remote-mcp-apps/{appId}/activate",
   })).toBe(false)
   expect(catalogOperationAvailableToCapabilities(disabled, { method: "POST", path: "/v1/artifact-views/{artifactViewId}/retire" })).toBe(false)
-  expect(catalogOperationAvailableToCapabilities(disabled, { method: "GET", path: "/v1/programs/{configObjectId}/views" })).toBe(false)
-  expect(catalogOperationAvailableToCapabilities(disabled, { method: "GET", path: "/v1/programs/{configObjectId}" })).toBe(true)
+  expect(catalogOperationAvailableToCapabilities(disabled, { method: "GET", path: "/v1/workflows/{configObjectId}/views" })).toBe(false)
+  expect(catalogOperationAvailableToCapabilities(disabled, { method: "GET", path: "/v1/workflows/{configObjectId}" })).toBe(true)
   expect(catalogOperationAvailableToCapabilities({ generatedArtifactViewsEnabled: true }, {
     method: "POST",
     path: "/v1/artifact-views/{artifactViewId}/retire",

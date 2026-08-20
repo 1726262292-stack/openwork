@@ -2,21 +2,21 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, RefreshCw, Save, TestTube2, Trash2 } from "lucide-react";
-import type { SavedScriptDetail, SavedScriptTestResult } from "@openwork/types/dynamic-artifacts";
+import type { WorkflowDetail, WorkflowTestResult } from "@openwork/types/workflows";
 import { DenButton } from "../../_components/ui/button";
 import { DenInput } from "../../_components/ui/input";
 import { DenTextarea } from "../../_components/ui/textarea";
-import { SavedScriptArtifactResult, SavedScriptMarkdownPreview } from "./saved-script-artifact-result";
+import { WorkflowArtifactResult, WorkflowMarkdownPreview } from "./workflow-artifact-result";
 import {
-  type SavedScriptDraft,
-  useDeleteSavedScriptSnapshot,
-  useRunSavedScript,
-  useSaveSavedScriptVersion,
-  useSavedScriptDetail,
-  useSavedScriptSnapshots,
-  useTestSavedScript,
-  useUpdateSavedScriptAutomation,
-} from "./saved-script-data";
+  type WorkflowDraft,
+  useDeleteWorkflowSnapshot,
+  useRunWorkflow,
+  useSaveWorkflowVersion,
+  useTestWorkflow,
+  useUpdateWorkflowAutomation,
+  useWorkflowDetail,
+  useWorkflowSnapshots,
+} from "./workflow-data";
 
 type Fields = { name: string; description: string; code: string; input: string; inputSchema: string; outputSchema: string };
 const AGE_OPTIONS = [{ label: "1 hour", value: 3_600_000 }, { label: "1 day", value: 86_400_000 }, { label: "1 week", value: 604_800_000 }];
@@ -25,7 +25,7 @@ function pretty(value: unknown) {
   return value === null || value === undefined ? "" : JSON.stringify(value, null, 2);
 }
 
-function initialFields(detail: SavedScriptDetail): Fields {
+function initialFields(detail: WorkflowDetail): Fields {
   return { name: detail.title, description: detail.description ?? "", code: detail.currentVersion.code ?? "", input: pretty(detail.currentVersion.exampleInput ?? {}), inputSchema: pretty(detail.currentVersion.inputSchema), outputSchema: pretty(detail.currentVersion.outputSchema) };
 }
 
@@ -34,7 +34,7 @@ function parseJson(label: string, value: string, optional = false) {
   try { return JSON.parse(value.trim() || "null"); } catch { throw new Error(`${label} syntax: enter valid JSON.`); }
 }
 
-function toDraft(detail: SavedScriptDetail, fields: Fields): SavedScriptDraft {
+function toDraft(detail: WorkflowDetail, fields: Fields): WorkflowDraft {
   return {
     name: fields.name.trim(),
     description: fields.description.trim() || undefined,
@@ -47,21 +47,21 @@ function toDraft(detail: SavedScriptDetail, fields: Fields): SavedScriptDraft {
 }
 
 function message(error: unknown) {
-  return error instanceof Error ? error.message : "The Script action failed.";
+  return error instanceof Error ? error.message : "The Workflow action failed.";
 }
 
-export function SavedScriptDetailPanel({ configObjectId, onClose }: { configObjectId: string; onClose: () => void }) {
+export function WorkflowDetailPanel({ configObjectId, onClose }: { configObjectId: string; onClose: () => void }) {
   const [maxAgeMs, setMaxAgeMs] = useState(86_400_000);
-  const detailQuery = useSavedScriptDetail(configObjectId, maxAgeMs);
-  const snapshotsQuery = useSavedScriptSnapshots(configObjectId);
-  const testMutation = useTestSavedScript(configObjectId);
-  const saveMutation = useSaveSavedScriptVersion(configObjectId);
-  const runMutation = useRunSavedScript(configObjectId);
-  const deleteMutation = useDeleteSavedScriptSnapshot(configObjectId);
-  const updateAutomation = useUpdateSavedScriptAutomation(configObjectId);
+  const detailQuery = useWorkflowDetail(configObjectId, maxAgeMs);
+  const snapshotsQuery = useWorkflowSnapshots(configObjectId);
+  const testMutation = useTestWorkflow(configObjectId);
+  const saveMutation = useSaveWorkflowVersion(configObjectId);
+  const runMutation = useRunWorkflow(configObjectId);
+  const deleteMutation = useDeleteWorkflowSnapshot(configObjectId);
+  const updateAutomation = useUpdateWorkflowAutomation(configObjectId);
   const [fields, setFields] = useState<Fields | null>(null);
   const [base, setBase] = useState("");
-  const [tested, setTested] = useState<{ result: SavedScriptTestResult; fingerprint: string } | null>(null);
+  const [tested, setTested] = useState<{ result: WorkflowTestResult; fingerprint: string } | null>(null);
   const [selectedReceiptId, setSelectedReceiptId] = useState<string | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
   const [loadedVersion, setLoadedVersion] = useState<string | null>(null);
@@ -91,20 +91,20 @@ export function SavedScriptDetailPanel({ configObjectId, onClose }: { configObje
     setLocalError(null);
   };
   const close = () => {
-    if (dirty && !window.confirm("Discard unsaved Script changes?")) return;
+    if (dirty && !window.confirm("Discard unsaved Workflow changes?")) return;
     onClose();
   };
 
   const currentAutomationCount = useMemo(() => detail?.versions.reduce((sum, version) => sum + version.automationReferences.length, 0) ?? 0, [detail]);
 
-  if (detailQuery.isLoading || !detail || !fields) return <div className="rounded-2xl border border-gray-100 bg-white p-6 text-[13px] text-gray-400">{error ? message(error) : "Loading Script…"}</div>;
+  if (detailQuery.isLoading || !detail || !fields) return <div className="rounded-2xl border border-gray-100 bg-white p-6 text-[13px] text-gray-400">{error ? message(error) : "Loading Workflow…"}</div>;
 
   return (
-    <div className="space-y-5" data-testid="den-saved-script-detail">
+    <div className="space-y-5" data-testid="den-workflow-detail-panel">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="flex items-start gap-3">
           <button type="button" aria-label="Back to Library" onClick={close} className="mt-0.5 rounded-lg p-2 text-gray-400 hover:bg-gray-50 hover:text-gray-800"><ArrowLeft className="h-4 w-4" /></button>
-          <div><div className="flex flex-wrap items-center gap-2"><h1 className="text-[18px] font-semibold text-gray-950">{detail.title}</h1><span className="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] text-gray-500">Version {detail.currentVersion.id.slice(0, 8)}</span><span className={`rounded-full px-2 py-0.5 text-[11px] ${detail.freshness.state === "needs_attention" ? "bg-red-50 text-red-600" : detail.freshness.state === "fresh" ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>{detail.freshness.state.replace("_", " ")}</span></div><p className="mt-1 text-[13px] text-gray-400">Durable, versioned Program · {currentAutomationCount} pinned Automation{currentAutomationCount === 1 ? "" : "s"}</p></div>
+          <div><div className="flex flex-wrap items-center gap-2"><h1 className="text-[18px] font-semibold text-gray-950">{detail.title}</h1><span className="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] text-gray-500">Version {detail.currentVersion.id.slice(0, 8)}</span><span className={`rounded-full px-2 py-0.5 text-[11px] ${detail.freshness.state === "needs_attention" ? "bg-red-50 text-red-600" : detail.freshness.state === "fresh" ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"}`}>{detail.freshness.state.replace("_", " ")}</span></div><p className="mt-1 text-[13px] text-gray-400">Durable, versioned Workflow · {currentAutomationCount} pinned Automation{currentAutomationCount === 1 ? "" : "s"}</p></div>
         </div>
         <div className="flex flex-wrap gap-2"><label className="flex items-center gap-2 text-[12px] text-gray-400">Stale after<select value={maxAgeMs} onChange={(event) => setMaxAgeMs(Number(event.currentTarget.value))} className="h-9 rounded-xl border border-gray-200 bg-white px-2 text-[13px] text-gray-700">{AGE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>{detail.canRun ? <DenButton disabled={pending} onClick={() => { setLocalError(null); void runMutation.mutateAsync({ pluginId: detail.pluginId, configObjectVersionId: detail.currentVersion.id, input: parseJson("Run input", fields.input) }).catch((reason) => setLocalError(message(reason))); }}><RefreshCw className="h-3.5 w-3.5" />Run now</DenButton> : null}</div>
       </div>
@@ -125,14 +125,14 @@ export function SavedScriptDetailPanel({ configObjectId, onClose }: { configObje
             </div>
           </section> : <section className="rounded-2xl border border-gray-100 bg-white p-5">
             <h2 className="text-[14px] font-semibold text-gray-900">Script</h2>
-            <p className="mt-1 text-[12px] text-gray-400">Source and saved example input are authoring details visible only to Program managers.</p>
+            <p className="mt-1 text-[12px] text-gray-400">Source and saved example input are authoring details visible only to Workflow managers.</p>
             {detail.canRun ? <label className="mt-4 block text-[12px] font-medium text-gray-600">Run input<DenTextarea className="mt-1 min-h-32 font-mono text-[11px]" value={fields.input} onChange={(event) => update("input", event.currentTarget.value)} /></label> : null}
             <div className="mt-4 grid gap-3 lg:grid-cols-2"><div><p className="text-[12px] font-medium text-gray-600">Input schema</p><pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap rounded-xl bg-gray-950 p-3 font-mono text-[11px] text-gray-100">{fields.inputSchema || "No input schema"}</pre></div><div><p className="text-[12px] font-medium text-gray-600">Output schema</p><pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap rounded-xl bg-gray-950 p-3 font-mono text-[11px] text-gray-100">{fields.outputSchema || "No output schema"}</pre></div></div>
           </section>}
 
-          {tested ? <section className="rounded-2xl border border-gray-100 bg-white p-5"><h2 className="text-[14px] font-semibold text-gray-900">Test output</h2><div className="mt-3 grid gap-4 lg:grid-cols-2"><div><p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-gray-400">Preview</p><SavedScriptMarkdownPreview markdown={tested.result.markdown} /></div><div><p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-gray-400">Data</p><pre className="max-h-72 overflow-auto whitespace-pre-wrap rounded-xl bg-gray-950 p-3 font-mono text-[11px] text-gray-100">{JSON.stringify(tested.result.value, null, 2)}</pre></div></div></section> : null}
+          {tested ? <section className="rounded-2xl border border-gray-100 bg-white p-5"><h2 className="text-[14px] font-semibold text-gray-900">Test output</h2><div className="mt-3 grid gap-4 lg:grid-cols-2"><div><p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-gray-400">Preview</p><WorkflowMarkdownPreview markdown={tested.result.markdown} /></div><div><p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-gray-400">Data</p><pre className="max-h-72 overflow-auto whitespace-pre-wrap rounded-xl bg-gray-950 p-3 font-mono text-[11px] text-gray-100">{JSON.stringify(tested.result.value, null, 2)}</pre></div></div></section> : null}
 
-          <section id="preview-data" className="rounded-2xl border border-gray-100 bg-white p-5"><h2 className="text-[14px] font-semibold text-gray-900">Artifact result</h2><p className="mt-1 text-[12px] text-gray-400">The same Preview, Data, and Lineage contract is available on desktop and Web.</p><div className="mt-4">{selected ? <SavedScriptArtifactResult snapshot={selected} freshness={selected.receiptId === detail.latestSnapshot?.receiptId ? detail.freshness : undefined} lastSuccessful={selected.receiptId === detail.latestSuccessfulSnapshot?.receiptId} /> : <p className="text-[13px] text-gray-400">No retained result yet.</p>}</div></section>
+          <section id="preview-data" className="rounded-2xl border border-gray-100 bg-white p-5"><h2 className="text-[14px] font-semibold text-gray-900">Artifact result</h2><p className="mt-1 text-[12px] text-gray-400">The same Preview, Data, and Lineage contract is available on desktop and Web.</p><div className="mt-4">{selected ? <WorkflowArtifactResult snapshot={selected} freshness={selected.receiptId === detail.latestSnapshot?.receiptId ? detail.freshness : undefined} lastSuccessful={selected.receiptId === detail.latestSuccessfulSnapshot?.receiptId} /> : <p className="text-[13px] text-gray-400">No retained result yet.</p>}</div></section>
         </div>
 
         <div id="runs" className="space-y-5">
