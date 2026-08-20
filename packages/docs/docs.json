@@ -131,7 +131,7 @@
             ]
           },
           {
-            "group": "Model Context Protocol (MCP)",
+            "group": "MCP Gateway",
             "pages": [
               "cloud/run-in-the-cloud/cloud-mcp",
               "model-context-protocol/opencode",
