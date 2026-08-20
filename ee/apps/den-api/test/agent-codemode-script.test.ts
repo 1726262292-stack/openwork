@@ -116,12 +116,6 @@ function listedToolNames(payload: Record<string, unknown>): string[] {
   return tools.flatMap((tool) => isRecord(tool) && typeof tool.name === "string" ? [tool.name] : [])
 }
 
-function listedTools(payload: Record<string, unknown>): Record<string, unknown>[] {
-  const tools = resultRecord(payload).tools
-  if (!Array.isArray(tools)) throw new Error("Expected MCP tools list")
-  return tools.filter(isRecord)
-}
-
 function firstText(payload: Record<string, unknown>): string {
   const content = resultRecord(payload).content
   if (!Array.isArray(content)) throw new Error("Expected MCP tool content")
@@ -155,19 +149,13 @@ test("does not register execute_capability_script when the org flag is off", asy
 
 test("registers Code Mode without enabling agent-authored MCP App views", async () => {
   organizationMetadata = { capabilities: { codemodeScripts: true } }
-  const tools = listedTools(await rpc(buildApp(), "tools/list"))
-  const names = tools.flatMap((tool) => typeof tool.name === "string" ? [tool.name] : [])
+  const names = listedToolNames(await rpc(buildApp(), "tools/list"))
   expect(names).toContain("execute_capability_script")
   expect(names).toContain("render_dynamic_artifact")
-  expect(names).toContain("search_programs")
-  expect(names).toContain("select_program")
-  expect(names).toContain("clear_program_selection")
   expect(names).not.toContain("save_artifact_view")
   expect(names).not.toContain("activate_artifact_view_revision")
   expect(names).not.toContain("retire_artifact_view")
-  expect(isRecord(tools.find((tool) => tool.name === "search_programs")?.outputSchema)).toBe(true)
-  expect(isRecord(tools.find((tool) => tool.name === "select_program")?.outputSchema)).toBe(true)
-  expect(isRecord(tools.find((tool) => tool.name === "clear_program_selection")?.outputSchema)).toBe(true)
+  expect(names.filter((name) => /^(search|select|clear)_programs?$|^(run|render)_selected_program$/.test(name))).toEqual([])
 })
 
 test("rejects guessed generated-view tool calls while keeping Programs enabled", async () => {
@@ -179,15 +167,14 @@ test("rejects guessed generated-view tool calls while keeping Programs enabled",
   }
 })
 
-test("advertises external-only MCP App authoring instructions", async () => {
+test("advertises standard Program discovery and execution instructions", async () => {
   const initialized = resultRecord(await rpc(buildApp(), "initialize", {
     protocolVersion: "2025-11-25",
     capabilities: {},
     clientInfo: { name: "agent-codemode-test", version: "1.0.0" },
   }))
-  expect(initialized.instructions).toContain("authored and bundled outside OpenWork")
-  expect(initialized.instructions).toContain("never send inline HTML")
-  expect(initialized.instructions).not.toContain("Compile React source")
+  expect(initialized.instructions).toContain("Programs are discovered by Library metadata through search_capabilities")
+  expect(initialized.instructions).toContain("executed through execute_capability using the exact capability name returned by search")
 })
 
 test("executes a confined script when the org flag is on", async () => {
