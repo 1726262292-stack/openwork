@@ -7569,7 +7569,7 @@
         },
         "object_type": {
           "name": "object_type",
-          "type": "enum('skill','agent','command','tool','mcp','hook','context','custom','workflow','app')",
+          "type": "enum('skill','agent','command','tool','mcp','hook','context','custom','script','workflow','app')",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
@@ -8358,7 +8358,7 @@
         },
         "object_type": {
           "name": "object_type",
-          "type": "enum('skill','agent','command','tool','mcp','hook','context','custom','workflow','app')",
+          "type": "enum('skill','agent','command','tool','mcp','hook','context','custom','script','workflow','app')",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
