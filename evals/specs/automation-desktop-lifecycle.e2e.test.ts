@@ -467,13 +467,33 @@ test("a Desktop Automation completes through UI, API, schedule, thread, and rece
   const scheduledThread = isRecord(scheduledTerminalRun.executionThread)
     ? scheduledTerminalRun.executionThread
     : {};
+  const scheduledThreadId = typeof scheduledThread.id === "string" ? scheduledThread.id : "";
   const scheduledWorkspaceId = typeof scheduledThread.workspaceId === "string" ? scheduledThread.workspaceId : "";
   const scheduledSessionId = typeof scheduledThread.nativeThreadId === "string" ? scheduledThread.nativeThreadId : "";
-  expect(scheduledWorkspaceId).not.toBe("");
-  expect(scheduledSessionId).not.toBe("");
+  const receiptQuery = new URLSearchParams({
+    automation: created.automationId,
+    run: scheduledRunId,
+    thread: scheduledThreadId,
+  });
+  await go(desktop, `/automations?${receiptQuery.toString()}`);
+  await clickText(desktop, "Open local thread", {
+    selector: `button[data-automation-run-id="${scheduledRunId}"]`,
+    timeoutMs: 30_000,
+  });
+  await eventually(
+    () => evalIn(desktop, "window.location.hash"),
+    {
+      within: 30_000,
+      intervalMs: 250,
+      label: "native Automation session route",
+      until: (hash) => typeof hash === "string"
+        && hash.includes(`/workspace/${encodeURIComponent(scheduledWorkspaceId)}/session/${encodeURIComponent(scheduledSessionId)}`),
+    },
+  );
+  await waitForText(desktop, REPLY, { timeoutMs: 30_000 });
   evidence.recordAssertionEvidence(
-    "A terminal receipt durably exposes its native desktop execution identity",
-    `The scheduled receipt carried workspace ${scheduledWorkspaceId} and native session ${scheduledSessionId} through the run contract, ready for a management surface to open.`,
+    "A receipt opens the actual local execution thread",
+    `The scheduled receipt exposed workspace ${scheduledWorkspaceId} and session ${scheduledSessionId}; Open local thread navigated to that session and rendered the deterministic assistant result.`,
     true,
   );
 
