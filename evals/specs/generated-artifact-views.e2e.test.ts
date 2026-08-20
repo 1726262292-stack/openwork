@@ -311,6 +311,18 @@ test("the agent MCP exposes the custom Artifact view authoring lifecycle", { tim
     }),
   })
   expect(legacyPlugin.response.status, legacyPlugin.text).toBe(201)
+  const desktopCapabilities = await denFetch(den.admin, "/v1/resources/marketplace-capabilities", {
+    headers: {
+      authorization: `Bearer ${den.admin.token}`,
+      "x-openwork-org-id": organizationId,
+    },
+  })
+  expect(desktopCapabilities.response.ok, desktopCapabilities.text).toBe(true)
+  const desktopCapabilityItems = isRecord(desktopCapabilities.body) && Array.isArray(desktopCapabilities.body.items)
+    ? desktopCapabilities.body.items.filter(isRecord)
+    : []
+  expect(desktopCapabilityItems.some((item) => item.objectType === "workflow")).toBe(false)
+  expect(desktopCapabilityItems.filter((item) => item.objectType === "script").length).toBeGreaterThanOrEqual(2)
   const legacySearch = await agentRpc(den.ref.apiUrl, mcpToken, "tools/call", {
     name: "search_capabilities",
     arguments: { query: "Legacy quarterly plan", limit: 10 },
@@ -328,8 +340,8 @@ test("the agent MCP exposes the custom Artifact view authoring lifecycle", { tim
   expect(JSON.stringify(legacyRun)).toContain('"legacy":"compatible"')
   evidence.recordAssertionEvidence(
     "A persisted legacy script remains a canonical executable Workflow",
-    `A type:script component was accepted, discovered as kind workflow, and executed through ${legacyCapabilityName}.`,
-    legacyPlugin.response.status === 201 && legacyCapability?.kind === "workflow" && JSON.stringify(legacyRun).includes('"legacy":"compatible"'),
+    `A type:script component was accepted, the desktop wire surface retained script, and MCP discovered and executed canonical Workflow ${legacyCapabilityName}.`,
+    legacyPlugin.response.status === 201 && desktopCapabilityItems.every((item) => item.objectType !== "workflow") && legacyCapability?.kind === "workflow" && JSON.stringify(legacyRun).includes('"legacy":"compatible"'),
   )
 
   const legacyRender = await agentRpc(den.ref.apiUrl, mcpToken, "tools/call", {

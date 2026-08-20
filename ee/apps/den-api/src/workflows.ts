@@ -709,7 +709,7 @@ export async function saveWorkflow(input: {
         eq(PluginConfigObjectTable.pluginId, pluginId),
         isNull(PluginConfigObjectTable.removedAt),
         eq(ConfigObjectTable.title, input.workflow.name),
-        eq(ConfigObjectTable.objectType, "workflow"),
+        inArray(ConfigObjectTable.objectType, ["script", "workflow"]),
         eq(ConfigObjectTable.status, "active"),
         isNull(ConfigObjectTable.deletedAt),
       )).limit(1).for("update")
