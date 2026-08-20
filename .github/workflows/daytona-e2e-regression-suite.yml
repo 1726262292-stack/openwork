@@ -25,8 +25,8 @@ permissions:
   pull-requests: read
 
 concurrency:
-  group: daytona-e2e-regression-suite
-  cancel-in-progress: false
+  group: daytona-e2e-regression-suite-${{ github.event.workflow_run.pull_requests[0].number || github.run_id }}
+  cancel-in-progress: true
 
 jobs:
   plan:
