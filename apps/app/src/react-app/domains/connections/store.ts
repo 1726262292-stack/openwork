@@ -63,6 +63,22 @@ type SetStateAction<T> = T | ((current: T) => T);
 // den-api): when the two were equal, the marker was stale the instant it
 // was written and every sync tick re-wrote the MCP config.
 const CLOUD_MCP_REFRESH_MARGIN_MS = 24 * 60 * 60 * 1000;
+const LOCAL_OPENWORK_SERVER_RECOVERY_TIMEOUT_MS = 30_000;
+
+async function withLocalOpenworkServerRecoveryTimeout<T>(
+  task: Promise<T>,
+  timeoutMs: number,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => reject(new Error(t("mcp.connect_failed"))), timeoutMs);
+  });
+  try {
+    return await Promise.race([task, timeout]);
+  } finally {
+    if (timer !== null) clearTimeout(timer);
+  }
+}
 
 export type ConnectionsStoreSnapshot = {
   mcpServers: McpServerEntry[];
@@ -96,6 +112,7 @@ export function createConnectionsStore(options: {
   openworkServer: OpenworkServerStore;
   runtimeWorkspaceId: () => string | null;
   ensureRuntimeWorkspaceId?: () => Promise<string | null | undefined>;
+  localOpenworkServerRecoveryTimeoutMs?: number;
   setProjectDir?: (value: string) => void;
   developerMode: () => boolean;
   markReloadRequired?: (reason: ReloadReason, trigger?: ReloadTrigger) => void;
@@ -201,7 +218,10 @@ export function createConnectionsStore(options: {
     if ((!openworkClient || !openworkWorkspaceId || openworkSnapshot.openworkServerStatus !== "connected")
       && isDesktopRuntime()
       && options.workspaceType() === "local") {
-      openworkClient = await options.openworkServer.ensureLocalOpenworkServerClient();
+      openworkClient = await withLocalOpenworkServerRecoveryTimeout(
+        options.openworkServer.ensureLocalOpenworkServerClient(),
+        options.localOpenworkServerRecoveryTimeoutMs ?? LOCAL_OPENWORK_SERVER_RECOVERY_TIMEOUT_MS,
+      );
       openworkSnapshot = getOpenworkSnapshot();
       openworkWorkspaceId = options.runtimeWorkspaceId()?.trim()
         || (await options.ensureRuntimeWorkspaceId?.())?.trim()
