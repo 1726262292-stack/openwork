@@ -37,6 +37,7 @@ import {
   connectionActionTextFallback,
 } from "./connection-action-app.js"
 import {
+  buildExternalCapabilityName,
   executeExternalCapability,
   externalMcpSearchCoverageHint,
   parseExternalCapabilityName,
@@ -243,11 +244,15 @@ const externalCapabilityErrorPayloadSchema = z.object({
     searchRequired: z.boolean(),
   }).optional(),
   schemaGuidance: z.unknown().optional(),
+  connectionCard: z.string().optional(),
 })
 
 export function externalCapabilityErrorToolResult(
   result: Exclude<ExternalCapabilityExecuteResult, { ok: true }>,
 ): ExecuteCapabilityToolResult {
+  const statusCapability = result.connectionStatus
+    ? buildExternalCapabilityName(result.connectionStatus.connectionId, "*")
+    : undefined
   const payload = externalCapabilityErrorPayloadSchema.parse({
     error: result.error,
     message: result.message,
@@ -261,10 +266,25 @@ export function externalCapabilityErrorToolResult(
     ...(result.sameArgumentsRetryable === false ? { sameArgumentsRetryable: false } : {}),
     ...(result.retry ? { retry: result.retry } : {}),
     ...(result.schemaGuidance ? { schemaGuidance: result.schemaGuidance } : {}),
+    ...(statusCapability
+      ? { connectionCard: `Execute "${statusCapability}" once to show the member an actionable connection card, then relay the action in text.` }
+      : {}),
   })
+  if (!result.connectionStatus) {
+    return {
+      isError: true,
+      content: textContent(JSON.stringify(payload)),
+    }
+  }
+  // Connection-level failures carry the same first-party card as the status
+  // probe, so hosts that render apps for failed tool results can show the
+  // exact human action inline without a second call.
+  const cardPayload = connectionActionPayloadFromStatus(result.connectionStatus)
   return {
     isError: true,
     content: textContent(JSON.stringify(payload)),
+    structuredContent: { ...cardPayload },
+    _meta: { "openwork/mcpApp": connectionActionLaunch(cardPayload) },
   }
 }
 

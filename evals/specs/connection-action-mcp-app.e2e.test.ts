@@ -145,6 +145,7 @@ test.skipIf(!e2eTestsEnabled || !localPlacement || !mysqlOpen)(title, { timeout:
     access: { orgWide: true },
   })
   const statusCapability = `mcp:${connection.id}:*`
+  const realToolCapability = `mcp:${connection.id}:list_charges`
 
   let modelExecuteCalls = 0
   const fixture = createServer((request, response) => {
@@ -157,7 +158,8 @@ test.skipIf(!e2eTestsEnabled || !localPlacement || !mysqlOpen)(title, { timeout:
       if (request.method === "POST" && (url.pathname === "/v1/chat/completions" || url.pathname === "/chat/completions")) {
         const parsed: unknown = JSON.parse(await readBody(request))
         if (!isRecord(parsed)) throw new Error("Mock provider received a non-object request.")
-        if (completedToolCount(parsed) > 0) {
+        const completed = completedToolCount(parsed)
+        if (completed >= 2) {
           sendStream(response, [
             streamChunk({ role: "assistant" }),
             streamChunk({ content: closingReply }),
@@ -168,16 +170,19 @@ test.skipIf(!e2eTestsEnabled || !localPlacement || !mysqlOpen)(title, { timeout:
         const toolName = projectedExecuteCapabilityTool(parsed)
         if (!toolName) throw new Error("The execute_capability tool was not projected to the model.")
         modelExecuteCalls += 1
+        // Mirrors the real steering flow: first a concrete provider tool call
+        // that fails with needs_connection, then the connection status probe.
+        const capability = completed === 0 ? realToolCapability : statusCapability
         sendStream(response, [
           streamChunk({ role: "assistant" }),
           streamChunk({
             tool_calls: [{
               index: 0,
-              id: "call_probe_acme_tracker",
+              id: completed === 0 ? "call_list_acme_charges" : "call_probe_acme_tracker",
               type: "function",
               function: {
                 name: toolName,
-                arguments: JSON.stringify({ name: statusCapability }),
+                arguments: JSON.stringify({ name: capability }),
               },
             }],
           }),
@@ -338,9 +343,9 @@ test.skipIf(!e2eTestsEnabled || !localPlacement || !mysqlOpen)(title, { timeout:
     timeoutMs: 120_000,
     label: "connection-action closing reply",
   })
-  expect(modelExecuteCalls).toBe(1)
+  expect(modelExecuteCalls).toBe(2)
 
-  const persistedTool = await evalIn(app, `(async () => {
+  const persistedTools = await evalIn(app, `(async () => {
     const port = localStorage.getItem("openwork.server.port");
     const token = localStorage.getItem("openwork.server.token");
     if (!port || !token) return { error: "missing local server credentials" };
@@ -353,23 +358,28 @@ test.skipIf(!e2eTestsEnabled || !localPlacement || !mysqlOpen)(title, { timeout:
       { headers: { Authorization: "Bearer " + token } },
     );
     const payload = await response.json();
+    const parts = [];
     for (const message of Array.isArray(payload?.items) ? payload.items : []) {
       for (const part of Array.isArray(message?.parts) ? message.parts : []) {
         if (typeof part?.tool === "string" && part.tool.endsWith("_execute_capability")) {
-          return { tool: part.tool, state: part.state?.status };
+          parts.push({ tool: part.tool, state: part.state?.status });
         }
       }
     }
-    return { error: "execute_capability part missing", payload };
+    return { parts };
   })()`, { awaitPromise: true, timeoutMs: 30_000 })
-  expect(persistedTool, JSON.stringify(persistedTool)).toMatchObject({
+  const parts = isRecord(persistedTools) && Array.isArray(persistedTools.parts)
+    ? persistedTools.parts.filter(isRecord)
+    : []
+  expect(parts.length, JSON.stringify(persistedTools)).toBe(2)
+  expect(parts[parts.length - 1], JSON.stringify(persistedTools)).toMatchObject({
     tool: "openwork-cloud_execute_capability",
     state: "completed",
   })
 
   await waitFor(app, `Boolean(document.querySelector(${JSON.stringify(`[data-mcp-app-resource="${resourceUri}"] iframe`)}))`, {
     timeoutMs: 60_000,
-    label: `connection-action MCP App frame after ${JSON.stringify(persistedTool)}`,
+    label: `connection-action MCP App frame after ${JSON.stringify(parts)}`,
   })
   const mounted = await waitForMountedConnectionCard(app)
   const transcript = String(await evalIn(app, "document.body?.innerText ?? ''"))
@@ -396,9 +406,9 @@ test.skipIf(!e2eTestsEnabled || !localPlacement || !mysqlOpen)(title, { timeout:
   await screenshot(app)
 
   evidence.recordAssertionEvidence(
-    "A connection_status capability executes as a live probe",
-    "The model called execute_capability once with the exact mcp:<connection>:* name; the gateway returned a successful status report instead of an error result.",
-    modelExecuteCalls === 1,
+    "A failed provider tool call steers into the live status probe",
+    "The model first called a concrete provider tool that failed with needs_connection, then executed the exact mcp:<connection>:* probe, which returned a successful status report instead of an error result.",
+    modelExecuteCalls === 2,
   )
   evidence.recordAssertionEvidence(
     "Connection steering renders its standard MCP App",
