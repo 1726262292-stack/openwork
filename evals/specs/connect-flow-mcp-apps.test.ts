@@ -23,7 +23,7 @@ test("connection-action and plugin-flow cards publish standard MCP App contracts
   const connection = runInDenApi(["exec", "bun", "test", "test/mcp-connection-action-app.test.ts"])
   expect(connection.error, connection.output).toBeUndefined()
   expect(connection.status, connection.output).toBe(0)
-  expect(connection.output).toContain("3 pass")
+  expect(connection.output).toContain("4 pass")
   expect(connection.output).toContain("0 fail")
 
   const pluginFlow = runInDenApi(["exec", "bun", "test", "test/mcp-plugin-flow-app.test.ts"])
@@ -35,6 +35,11 @@ test("connection-action and plugin-flow cards publish standard MCP App contracts
   evidence.recordAssertionEvidence(
     "Connection steering is an MCP App",
     "The gateway serves ui://openwork/connection-action/v1/view.html with an app-only connection_action tool, and connection_status payloads map to schema-valid cards carrying the exact human action plus a same-server openwork/mcpApp launch.",
+    true,
+  )
+  evidence.recordAssertionEvidence(
+    "Failed tool calls steer to the same card",
+    "needs_connection execute failures carry the connection card payload, the same-server launch, and a connectionCard hint telling the model to run the mcp:<connection>:* probe once.",
     true,
   )
   evidence.recordAssertionEvidence(
