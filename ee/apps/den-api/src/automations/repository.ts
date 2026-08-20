@@ -98,7 +98,7 @@ function mapRevision(row: RevisionRow): AutomationRevision {
 }
 
 function mapRun(row: RunRow): AutomationRun {
-  const receipt = row.execution_target === "cloud" && typeof row.engine_receipt === "object" && row.engine_receipt !== null
+  const receipt = typeof row.engine_receipt === "object" && row.engine_receipt !== null
     ? row.engine_receipt as Record<string, unknown>
     : null
   const nativeThreadId = typeof receipt?.nativeThreadId === "string" ? receipt.nativeThreadId : null
@@ -762,6 +762,7 @@ export class DenAutomationRepository implements AutomationRepository {
         result_summary: input.resultSummary,
         usage: input.usage,
         error: input.error,
+        ...(input.engineReceipt === undefined ? {} : { engine_receipt: input.engineReceipt }),
         finished_at: new Date(input.now),
         lease_expires_at: null,
         heartbeat_at: new Date(input.now),

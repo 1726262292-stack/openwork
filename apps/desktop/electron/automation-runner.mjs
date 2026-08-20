@@ -4,6 +4,8 @@ const RUNNER_WORK_POLL_MS = 60_000
 function serializedError(value) {
   if (value instanceof Error) return value.message
   if (typeof value === "string") return value
+  if (typeof value?.message === "string") return value.message
+  if (typeof value?.data?.message === "string") return value.data.message
   try { return JSON.stringify(value) } catch { return String(value) }
 }
 
@@ -73,6 +75,7 @@ function assistantResult(snapshot) {
   let outputTokens = 0
   let sawInput = false
   let sawOutput = false
+  let sawCompletedTool = false
   for (const message of assistants) {
     const tokens = message?.info?.tokens
     if (Number.isFinite(tokens?.input)) { inputTokens += Number(tokens.input); sawInput = true }
@@ -81,16 +84,30 @@ function assistantResult(snapshot) {
       if (part?.type === "text" && typeof part.text === "string" && part.text.trim()) {
         resultSummary = part.text.trim().slice(0, 20_000)
       }
+      if (part?.type === "tool" && (part?.toolStatus === "completed" || part?.state?.status === "completed")) {
+        sawCompletedTool = true
+      }
     }
   }
   return {
     resultSummary,
+    hasCompletedOutput: Boolean(resultSummary) || sawCompletedTool,
     usage: {
       inputTokens: sawInput ? inputTokens : null,
       outputTokens: sawOutput ? outputTokens : null,
       costMicros: null,
     },
   }
+}
+
+function assistantFailure(snapshot) {
+  const messages = Array.isArray(snapshot?.messages) ? snapshot.messages : []
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index]
+    if (message?.info?.role !== "assistant" || !message.info.error) continue
+    return classifyAutomationExecutionError(message.info.error)
+  }
+  return null
 }
 
 /** Runs the assignment as a normal visible local OpenWork thread. */
@@ -135,20 +152,34 @@ export async function executeDesktopAutomation(assignment, options) {
       )
       const snapshot = response?.item
       const output = assistantResult(snapshot)
-      const snapshotError = classifyAutomationExecutionError(snapshot)
-      if (snapshotError.code === "model_access_lost") {
+      const snapshotError = assistantFailure(snapshot)
+      if (snapshotError) {
         const error = new Error(snapshotError.message)
         Object.defineProperty(error, "code", { value: snapshotError.code })
         throw error
       }
-      if (snapshot?.status?.type === "idle" && output.resultSummary) {
-        return { sessionId, workspaceId, ...output }
+      if (snapshot?.status?.type === "idle" && output.hasCompletedOutput) {
+        return {
+          sessionId,
+          workspaceId,
+          resultSummary: output.resultSummary,
+          usage: output.usage,
+        }
       }
       if (snapshot?.status?.type === "idle" && Date.now() - startedAt > 10_000) {
         throw new Error("Desktop Automation finished without an assistant result")
       }
       await sleep(500, options.signal)
     }
+  } catch (error) {
+    const contextualError = error instanceof Error ? error : new Error(serializedError(error))
+    if (Reflect.get(contextualError, "sessionId") === undefined) {
+      Object.defineProperty(contextualError, "sessionId", { value: sessionId })
+    }
+    if (Reflect.get(contextualError, "workspaceId") === undefined) {
+      Object.defineProperty(contextualError, "workspaceId", { value: workspaceId })
+    }
+    throw contextualError
   } finally {
     options.signal.removeEventListener("abort", abort)
   }
@@ -318,8 +349,8 @@ export function createDesktopAutomationRunner(options) {
       const classified = classifyAutomationExecutionError(error)
       result = {
         status: cancelled ? "cancelled" : "failed",
-        sessionId: null,
-        workspaceId: null,
+        sessionId: typeof error?.sessionId === "string" ? error.sessionId : null,
+        workspaceId: typeof error?.workspaceId === "string" ? error.workspaceId : null,
         resultSummary: null,
         usage: EMPTY_USAGE,
         error: {
