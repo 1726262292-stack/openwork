@@ -140,6 +140,9 @@ fi
 echo "==> Pushing Den DB schema..."
 pnpm --filter @openwork-ee/den-db db:push > /tmp/den-db-push.log 2>&1
 
+echo "==> Building Den API runtime assets..."
+pnpm --filter @openwork-ee/den-api run build:mcp-apps
+
 echo "==> Starting Den API on :$DEN_API_PORT..."
 # The den-api process cmdline is "tsx watch src/main.ts" (cwd-relative), so a
 # pattern anchored on the repo path never matches and restarts silently keep
