@@ -5,8 +5,8 @@ import {
   evalIn,
   go,
   selectModel,
-  sendComposerMessage,
   waitFor,
+  writeComposerText,
 } from "@openwork/behaviors";
 import { screenshot } from "@openwork/test-evidence";
 import {
@@ -667,9 +667,21 @@ test.skipIf(!runnable)(
         title: `Active storm workspace ${plan.index}`,
       }, { timeoutMs: 30_000 });
       await openExactSessionRoute(desktopApp, plan);
-      await sendComposerMessage(
-        desktopApp,
-        `Run the deterministic active-session workload identified by ${plan.marker}. You may run its shell commands and create, append, and read its workspace file. Keep working through every step and report only when complete.`,
+      const prompt = `Run the deterministic active-session workload identified by ${plan.marker}. You may run its shell commands and create, append, and read its workspace file. Keep working through every step and report only when complete.`;
+      await writeComposerText(desktopApp, prompt);
+      await control(desktopApp, "composer.send", undefined, { timeoutMs: 120_000 });
+      // Under a remote Daytona renderer the message list can lag behind the
+      // composer transition even though the turn is already admitted (the UI
+      // visibly says Thinking). Use the workspace-scoped server snapshot as
+      // the authoritative admission witness instead of waiting for a DOM row.
+      await eventually(
+        () => readSessionFacts(desktopApp, plan.workspaceId, plan.sessionId),
+        {
+          within: 60_000,
+          intervalMs: 500,
+          label: `workspace ${plan.index} prompt admitted to its session`,
+          until: (facts) => facts.text.includes(plan.marker),
+        },
       );
       const running = await waitForSlowTool(desktopApp, plan);
       expect(running.ok).toBe(true);
