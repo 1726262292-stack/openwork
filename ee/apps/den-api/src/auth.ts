@@ -172,7 +172,7 @@ export const DEN_MCP_RESOURCE_CLAIM = `${env.mcpClaimNamespace}/resource`;
 export const DEN_MCP_GRANT_ID_CLAIM = `${env.mcpClaimNamespace}/grant_id`;
 export const DEN_MCP_OPAQUE_ACCESS_TOKEN_PREFIX = "ow_mcp_at_";
 const DEN_MCP_REFRESH_TOKEN_PREFIX = "ow_mcp_rt_";
-const INVALID_MCP_SESSION_GRANT_DESCRIPTION = "The session backing this grant has been signed out or expired. Re-authorize the connection.";
+const INVALID_MCP_SESSION_GRANT_DESCRIPTION = "The authorization backing this grant has been revoked. Re-authorize the connection.";
 export { DEN_MCP_SCOPES } from "./mcp/scopes.js";
 
 export function normalizeMcpOAuthResource(resource: string): string | null {
