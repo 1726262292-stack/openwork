@@ -907,7 +907,13 @@ export function registerPluginArchRoutes<T extends { Variables: OrgRouteVariable
     async (c: OrgContext) => {
       try {
         const params = validParam<any>(c)
-        return c.json(await listPluginMemberships({ context: actorContext(c), includeConfigObjects: true, onlyActive: true, pluginId: params.pluginId }))
+        return c.json(await listPluginMemberships({
+          context: actorContext(c),
+          includeConfigObjects: true,
+          legacyWorkflowObjectType: true,
+          onlyActive: true,
+          pluginId: params.pluginId,
+        }))
       } catch (error) {
         return routeErrorResponse(c, error)
       }
