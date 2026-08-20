@@ -2736,7 +2736,7 @@ export async function setPluginLifecycle(input: { action: "archive" | "restore";
   return getPluginDetail(input.context, row.id)
 }
 
-export async function listPluginMemberships(input: { context: PluginArchActorContext; pluginId: PluginId; includeConfigObjects?: boolean; onlyActive?: boolean }) {
+export async function listPluginMemberships(input: { context: PluginArchActorContext; pluginId: PluginId; includeConfigObjects?: boolean; legacyWorkflowObjectType?: boolean; onlyActive?: boolean }) {
   await ensureVisiblePlugin(input.context, input.pluginId)
   const memberships = await db
     .select()
@@ -2757,7 +2757,12 @@ export async function listPluginMemberships(input: { context: PluginArchActorCon
     ? memberships.filter((membership) => resolvedConfigObjectIds.has(membership.configObjectId))
     : memberships
   const latestVersions = await getLatestVersions(resolvedConfigObjects.map((row) => row.id))
-  const byId = new Map<string, ReturnType<typeof serializeConfigObject>>(resolvedConfigObjects.map((row) => [row.id, serializeConfigObject(row, latestVersions.get(row.id) ?? null)]))
+  const byId = new Map<string, ReturnType<typeof serializeConfigObject>>(resolvedConfigObjects.map((row) => {
+    const serialized = serializeConfigObject(row, latestVersions.get(row.id) ?? null)
+    return [row.id, input.legacyWorkflowObjectType && serialized.objectType === "workflow"
+      ? { ...serialized, objectType: "script" }
+      : serialized]
+  }))
   return { items: resolvedMemberships.map((membership) => serializeMembership(membership, byId.get(membership.configObjectId))), nextCursor: null }
 }
 
