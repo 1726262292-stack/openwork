@@ -15,7 +15,7 @@ import {
   type ConnectionActionProbeResult,
 } from "../src/mcp/connection-action-app.js"
 import type { ExternalConnectionStatus } from "../src/mcp/external-capabilities.js"
-import { dynamicArtifactAppServerCapabilities } from "../src/mcp/dynamic-artifact-app.js"
+import { workflowArtifactAppServerCapabilities } from "../src/mcp/workflow-artifact-app.js"
 
 const needsSignInStatus: ExternalConnectionStatus = {
   version: 1,
@@ -46,7 +46,7 @@ async function withClient<T>(
 ): Promise<T> {
   const server = new McpServer(
     { name: "connection-action-test", version: "1.0.0" },
-    { capabilities: dynamicArtifactAppServerCapabilities },
+    { capabilities: workflowArtifactAppServerCapabilities },
   )
   registerAgentConnectionActionApp({ server, probe })
   const client = new Client(
