@@ -201,6 +201,10 @@ Availability is governed by organization membership, role, policy, and exposure 
 
 Some gateway results come back as MCP Apps: rich, interactive UI rendered from a tool result instead of plain text — great for dynamic interfaces like a created-skill confirmation card or a workflow result view. OpenWork implements the standard [MCP Apps extension](https://modelcontextprotocol.io/docs/extensions/apps) (`ui://` resources declared on tools), so first-party OpenWork apps render in any MCP client that supports the extension, and fall back to readable text everywhere else.
 
+<Frame>
+  ![The skill-created MCP App rendering in the OpenWork desktop app after a create-skill request](/images/skill-created-mcp-app-card.png)
+</Frame>
+
 MCP Apps from third-party providers — apps shipped by an MCP server your organization added as a connector — currently render in the OpenWork desktop app, where connectors are enabled as a native MCP Apps preview per organization. Rendering third-party apps in external clients requires exposing that connector as a full MCP server, an option that is planned but not available yet.
 
 ## Troubleshooting
