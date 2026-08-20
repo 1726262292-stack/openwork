@@ -82,13 +82,13 @@ function failure(error: unknown): { status: 400 | 403 | 404 | 409; body: { error
     return { status: 400, body: { error: "automation_action_target_mismatch", message: "Desktop creates local Automations; Web creates OpenWork Cloud Automations." } }
   }
   if (error.message === "automation_saved_script_input_invalid") {
-    return { status: 400, body: { error: "automation_saved_script_input_invalid", message: "The existing Automation input does not match the selected Script version. Correct the input before creating the revision." } }
+    return { status: 400, body: { error: "automation_saved_script_input_invalid", message: "The existing Automation input does not match the selected Workflow version. Correct the input before creating the revision." } }
   }
   if (["automation_saved_script_version_not_found", "automation_saved_script_version_invalid"].includes(error.message)) {
-    return { status: 400, body: { error: error.message, message: "The selected Script version is unavailable." } }
+    return { status: 400, body: { error: error.message, message: "The selected Workflow version is unavailable." } }
   }
   if (error.message === "automation_saved_script_forbidden") {
-    return { status: 403, body: { error: error.message, message: "The Automation owner does not have access to this saved Script." } }
+    return { status: 403, body: { error: error.message, message: "The Automation owner does not have access to this Workflow." } }
   }
   if (error.message === "automation_owner_inactive") {
     return { status: 409, body: { error: error.message, message: "The Automation owner is no longer an active organization member." } }

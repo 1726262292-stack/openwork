@@ -10,8 +10,8 @@ This unit of value does **not** include installing a standalone App from an
 HTML URL. URL-imported MCP Apps are deferred future work with a separate
 product, security, lifecycle, and rollout contract.
 
-Programs remain executable `script` config objects. A Program's generated
-views can be MCP resources, but that does not turn Program execution into
+Workflows remain executable `workflow` config objects. A Workflow's generated
+views can be MCP resources, but that does not turn Workflow execution into
 resource loading or a standalone URL-App installation path.
 
 ## Standard MCP server path

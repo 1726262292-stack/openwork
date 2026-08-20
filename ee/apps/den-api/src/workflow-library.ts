@@ -5,10 +5,10 @@ import {
   PluginConfigObjectTable,
   PluginTable,
 } from "@openwork-ee/den-db/schema"
-import type { GeneratedArtifactView } from "@openwork/types/dynamic-artifacts"
+import type { GeneratedArtifactView } from "@openwork/types/workflows"
 import { db } from "./db.js"
 import { normalizeDenTypeId } from "@openwork-ee/utils/typeid"
-import { getCodemodeScriptDetail } from "./codemode-scripts.js"
+import { getWorkflowDetail } from "./workflows.js"
 import { listArtifactViewsForScript } from "./artifact-views.js"
 import {
   resolvePluginArchResourceRole,
@@ -24,8 +24,8 @@ import {
   type MemberUsableConnectionFacts,
 } from "./routes/org/mcp-connections.js"
 
-export type ProgramLibraryItem = {
-  type: "program"
+export type WorkflowLibraryItem = {
+  type: "workflow"
   id: string
   plugin: { id: string; name: string } | null
   name: string
@@ -41,9 +41,9 @@ export type ProgramLibraryItem = {
   source: { kind: "created" | "installed_template"; templateName?: string; templateVersion?: string }
 }
 
-export type ProgramDetail = {
-  program: ProgramLibraryItem
-  script: Awaited<ReturnType<typeof getCodemodeScriptDetail>>
+export type WorkflowLibraryDetail = {
+  workflow: WorkflowLibraryItem
+  script: Awaited<ReturnType<typeof getWorkflowDetail>>
   views: GeneratedArtifactView[]
 }
 
@@ -111,12 +111,12 @@ function connectionReadiness(connection: MemberUsableConnectionFacts) {
   return "ready" as const
 }
 
-function programReadiness(input: {
+function workflowReadiness(input: {
   connections: MemberUsableConnectionFacts[]
   requiredCapabilities: Array<{ capabilityName: string }>
 }) {
   const connections = new Map(input.connections.map((connection) => [connection.id, connection]))
-  let state: ProgramLibraryItem["state"] = "ready"
+  let state: WorkflowLibraryItem["state"] = "ready"
   for (const capability of input.requiredCapabilities) {
     const match = /^mcp:([^:]+):/.exec(capability.capabilityName)
     if (!match) continue
@@ -128,13 +128,13 @@ function programReadiness(input: {
   return state
 }
 
-async function programItem(input: {
+async function workflowItem(input: {
   context: PluginArchActorContext
   row: typeof ConfigObjectTable.$inferSelect
   plugin: { id: string; name: string } | null
   inheritedEdges: MePluginAccessEdge[]
   connections: MemberUsableConnectionFacts[]
-}): Promise<ProgramLibraryItem | null> {
+}): Promise<WorkflowLibraryItem | null> {
   const role = await resolvePluginArchResourceRole({
     context: input.context,
     resourceId: input.row.id,
@@ -143,7 +143,7 @@ async function programItem(input: {
   if (!role) return null
   try {
     const [script, views, grants] = await Promise.all([
-      getCodemodeScriptDetail({ context: input.context, configObjectId: input.row.id }),
+      getWorkflowDetail({ context: input.context, configObjectId: input.row.id }),
       listArtifactViewsForScript({ context: input.context, configObjectId: input.row.id }),
       db.select().from(ConfigObjectAccessGrantTable).where(and(
         eq(ConfigObjectAccessGrantTable.organizationId, input.context.organizationContext.organization.id),
@@ -153,7 +153,7 @@ async function programItem(input: {
     const automationIds = new Set(script.versions.flatMap((version) => version.automationReferences.map((reference) => reference.id)))
     const latestSuccessfulAt = script.latestSuccessfulSnapshot?.finishedAt ?? null
     return {
-      type: "program",
+      type: "workflow",
       id: script.configObjectId,
       plugin: input.plugin,
       name: script.title,
@@ -165,7 +165,7 @@ async function programItem(input: {
         grants,
         inheritedEdges: input.inheritedEdges,
       }),
-      state: programReadiness({
+      state: workflowReadiness({
         connections: input.connections,
         requiredCapabilities: script.currentVersion.requiredCapabilities,
       }),
@@ -180,7 +180,7 @@ async function programItem(input: {
   }
 }
 
-export async function listProgramLibraryItems(input: { context: PluginArchActorContext }) {
+export async function listWorkflowLibraryItems(input: { context: PluginArchActorContext }) {
   const [rows, effectiveAccess, connections] = await Promise.all([
     db.select({
       configObject: ConfigObjectTable,
@@ -200,7 +200,7 @@ export async function listProgramLibraryItems(input: { context: PluginArchActorC
       ))
       .where(and(
         eq(ConfigObjectTable.organizationId, input.context.organizationContext.organization.id),
-        eq(ConfigObjectTable.objectType, "script"),
+        eq(ConfigObjectTable.objectType, "workflow"),
         eq(ConfigObjectTable.status, "active"),
         isNull(ConfigObjectTable.deletedAt),
       ))
@@ -214,35 +214,36 @@ export async function listProgramLibraryItems(input: { context: PluginArchActorC
     listMemberUsableConnectionFacts({ context: input.context }),
   ])
   const pluginEdges = new Map(effectiveAccess.items.map((item) => [item.plugin.id, item.edges]))
-  const programs = new Map<string, {
+  const workflows = new Map<string, {
     row: typeof ConfigObjectTable.$inferSelect
     plugin: { id: string; name: string } | null
     inheritedEdges: MePluginAccessEdge[]
   }>()
   for (const { configObject, pluginId, pluginName } of rows) {
     const pluginIsVisible = pluginEdges.has(pluginId)
-    const program = programs.get(configObject.id) ?? {
+    const workflow = workflows.get(configObject.id) ?? {
       row: configObject,
       plugin: null,
       inheritedEdges: [],
     }
-    if (!program.plugin && pluginIsVisible) {
-      program.plugin = { id: pluginId, name: pluginName }
+    if (!workflow.plugin && pluginIsVisible) {
+      workflow.plugin = { id: pluginId, name: pluginName }
     }
-    program.inheritedEdges.push(...(pluginEdges.get(pluginId) ?? []))
-    programs.set(configObject.id, program)
+    workflow.inheritedEdges.push(...(pluginEdges.get(pluginId) ?? []))
+    workflows.set(configObject.id, workflow)
   }
-  const items = await Promise.all([...programs.values()].map(({ row, plugin, inheritedEdges }) =>
-    programItem({ context: input.context, row, plugin, inheritedEdges, connections })))
-  return items.filter((item): item is ProgramLibraryItem => item !== null)
+  const items = await Promise.all([...workflows.values()].map(({ row, plugin, inheritedEdges }) =>
+    workflowItem({ context: input.context, row, plugin, inheritedEdges, connections })))
+  return items.filter((item): item is WorkflowLibraryItem => item !== null)
 }
 
-export async function getProgramDetail(input: {
+export async function getWorkflowLibraryDetail(input: {
   context: PluginArchActorContext
   configObjectId: string
-}): Promise<ProgramDetail> {
+  maxAgeMs?: number
+}): Promise<WorkflowLibraryDetail> {
   const [script, views, effectiveAccess, connections] = await Promise.all([
-    getCodemodeScriptDetail({ context: input.context, configObjectId: input.configObjectId }),
+    getWorkflowDetail({ context: input.context, configObjectId: input.configObjectId, maxAgeMs: input.maxAgeMs }),
     listArtifactViewsForScript({ context: input.context, configObjectId: input.configObjectId }),
     listMeEffectivePluginAccess({ context: input.context }),
     listMemberUsableConnectionFacts({ context: input.context }),
@@ -252,7 +253,7 @@ export async function getProgramDetail(input: {
     normalizeDenTypeId("configObject", script.configObjectId),
   )).limit(1)
   const row = rows[0]
-  if (!row) throw new Error("dynamic_program_not_found")
+  if (!row) throw new Error("workflow_not_found")
   const memberships = await db.select({ pluginId: PluginConfigObjectTable.pluginId, pluginName: PluginTable.name })
     .from(PluginConfigObjectTable)
     .innerJoin(PluginTable, eq(PluginTable.id, PluginConfigObjectTable.pluginId))
@@ -264,15 +265,15 @@ export async function getProgramDetail(input: {
     .orderBy(asc(PluginConfigObjectTable.createdAt), asc(PluginConfigObjectTable.id))
   const pluginEdges = new Map(effectiveAccess.items.map((item) => [item.plugin.id, item.edges]))
   const inheritedEdges = memberships.flatMap(({ pluginId }) => pluginEdges.get(pluginId) ?? [])
-  if (!memberships[0]) throw new Error("dynamic_program_not_found")
+  if (!memberships[0]) throw new Error("workflow_not_found")
   const visibleParent = memberships.find(({ pluginId }) => pluginEdges.has(pluginId))
-  const program = await programItem({
+  const workflow = await workflowItem({
     context: input.context,
     row,
     plugin: visibleParent ? { id: visibleParent.pluginId, name: visibleParent.pluginName } : null,
     inheritedEdges,
     connections,
   })
-  if (!program) throw new Error("dynamic_program_not_found")
-  return { program, script, views }
+  if (!workflow) throw new Error("workflow_not_found")
+  return { workflow, script, views }
 }

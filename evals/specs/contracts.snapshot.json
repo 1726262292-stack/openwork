@@ -21,20 +21,20 @@
       ]
     },
     {
-      "id": "den.codemode-receipts",
-      "description": "Code Mode execution receipts, saved-script promotion, and generated Artifact views",
+      "id": "den.workflow-receipts",
+      "description": "Workflow execution receipts, promotion, and generated Artifact views",
       "implementation": [
-        "ee/apps/den-api/src/codemode-runs.ts",
-        "ee/apps/den-api/src/codemode-scripts.ts",
+        "ee/apps/den-api/src/workflow-runs.ts",
+        "ee/apps/den-api/src/workflows.ts",
         "ee/apps/den-api/src/mcp/codemode-run.ts",
         "ee/apps/den-api/src/mcp/generated-artifact-views.ts",
-        "ee/apps/den-api/src/mcp/saved-codemode-script-service.ts",
+        "ee/apps/den-api/src/mcp/workflow-service.ts",
         "ee/apps/den-api/src/routes/org/codemode-runs.ts",
         "ee/apps/den-api/src/routes/org/codemode-scripts.ts",
-        "ee/packages/den-db/src/schema/codemode.ts"
+        "ee/packages/den-db/src/schema/workflows.ts"
       ],
       "specs": [
-        "evals/specs/codemode-scripts.e2e.test.ts",
+        "evals/specs/workflows.e2e.test.ts",
         "evals/specs/generated-artifact-views.e2e.test.ts",
         "evals/specs/saved-script-automations.e2e.test.ts"
       ]
@@ -50,7 +50,7 @@
         "evals/packages/hosts/src/provision.ts"
       ],
       "specs": [
-        "evals/specs/codemode-scripts.e2e.test.ts",
+        "evals/specs/workflows.e2e.test.ts",
         "evals/specs/local-managed-mcp-oauth.e2e.test.ts",
         "evals/specs/saved-script-automations.e2e.test.ts",
         "evals/specs/testkit-selftest.e2e.test.ts"

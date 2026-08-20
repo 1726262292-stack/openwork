@@ -11,7 +11,7 @@ import {
   UPDATE_SKILL_TOOL_NAME,
   type CreateSkillResult,
 } from "../src/mcp/skill-created-app.js"
-import { dynamicArtifactAppServerCapabilities } from "../src/mcp/dynamic-artifact-app.js"
+import { workflowArtifactAppServerCapabilities } from "../src/mcp/workflow-artifact-app.js"
 
 const payload = skillCreatedPayloadSchema.parse({
   schemaVersion: "1",
@@ -38,7 +38,7 @@ async function withClient<T>(
 ): Promise<T> {
   const server = new McpServer(
     { name: "skill-created-test", version: "1.0.0" },
-    { capabilities: dynamicArtifactAppServerCapabilities },
+    { capabilities: workflowArtifactAppServerCapabilities },
   )
   registerAgentSkillCreatedApp({ server, create, update })
   const client = new Client(

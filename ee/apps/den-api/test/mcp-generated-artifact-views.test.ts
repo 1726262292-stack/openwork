@@ -4,9 +4,9 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { ResourceListChangedNotificationSchema, ToolListChangedNotificationSchema } from "@modelcontextprotocol/sdk/types.js"
 import { expect, test } from "bun:test"
 import { createHash } from "node:crypto"
-import type { DynamicArtifactAppPayload, GeneratedArtifactView } from "@openwork/types/dynamic-artifacts"
+import type { GeneratedArtifactView, WorkflowArtifactPayload } from "@openwork/types/workflows"
 import { artifactViewResourceUri } from "../src/artifact-view-resource.js"
-import { dynamicArtifactAppServerCapabilities } from "../src/mcp/dynamic-artifact-app.js"
+import { workflowArtifactAppServerCapabilities } from "../src/mcp/workflow-artifact-app.js"
 import { registerAgentGeneratedArtifactViews } from "../src/mcp/generated-artifact-views.js"
 
 const viewId = "arv_01k28e8vz5e5svgkde54dgqy0c"
@@ -54,7 +54,7 @@ const view: GeneratedArtifactView = {
   updatedAt: "2026-08-12T12:00:00.000Z",
 }
 
-const payload: DynamicArtifactAppPayload = {
+const payload: WorkflowArtifactPayload = {
   schemaVersion: "1",
   artifact: {
     title: "Custom pipeline",
@@ -83,7 +83,7 @@ async function withClient<T>(
 ): Promise<T> {
   const server = new McpServer(
     { name: "generated-artifact-test", version: "1.0.0" },
-    { capabilities: dynamicArtifactAppServerCapabilities },
+    { capabilities: workflowArtifactAppServerCapabilities },
   )
   registerAgentGeneratedArtifactViews({
     server,

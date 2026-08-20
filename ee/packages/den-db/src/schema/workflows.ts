@@ -7,10 +7,10 @@ const encryptedJsonColumn = <TData>(name: string) => encryptedColumn<TData>(name
   deserialize: JSON.parse,
 })
 
-export const CodemodeRunTable = mysqlTable(
-  "codemode_run",
+export const WorkflowRunTable = mysqlTable(
+  "workflow_run",
   {
-    id: denTypeIdColumn("codemodeRun", "id").notNull().primaryKey(),
+    id: denTypeIdColumn("workflowRun", "id").notNull().primaryKey(),
     organization_id: denTypeIdColumn("organization", "organization_id").notNull(),
     org_membership_id: denTypeIdColumn("member", "org_membership_id"),
     automation_run_id: denTypeIdColumn("automationRun", "automation_run_id"),
@@ -39,8 +39,8 @@ export const CodemodeRunTable = mysqlTable(
     created_at: timestamp("created_at", { fsp: 3 }).notNull().defaultNow(),
   },
   (table) => [
-    index("codemode_run_org_created").on(table.organization_id, table.created_at),
-    index("codemode_run_automation").on(table.automation_run_id),
-    index("codemode_run_artifact_history").on(table.config_object_id, table.finished_at),
+    index("workflow_run_org_created").on(table.organization_id, table.created_at),
+    index("workflow_run_automation").on(table.automation_run_id),
+    index("workflow_run_artifact_history").on(table.config_object_id, table.finished_at),
   ],
 )

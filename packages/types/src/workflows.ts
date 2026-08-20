@@ -20,22 +20,22 @@ export const artifactFreshnessSchema = z.discriminatedUnion("state", [
 ])
 export type ArtifactFreshness = z.infer<typeof artifactFreshnessSchema>
 
-export const savedScriptCapabilitySchema = z.object({
+export const workflowCapabilitySchema = z.object({
   capabilityName: z.string().trim().min(1).max(255),
   scriptPath: z.string().trim().min(1).max(255),
 })
-export type SavedScriptCapability = z.infer<typeof savedScriptCapabilitySchema>
+export type WorkflowCapability = z.infer<typeof workflowCapabilitySchema>
 
-export const savedScriptAutomationReferenceSchema = z.object({
+export const workflowAutomationReferenceSchema = z.object({
   id: idSchema,
   name: z.string().trim().min(1).max(120),
   state: z.enum(["active", "inactive", "needs_attention", "archived"]),
   configObjectVersionId: idSchema,
   input: z.unknown().optional(),
 })
-export type SavedScriptAutomationReference = z.infer<typeof savedScriptAutomationReferenceSchema>
+export type WorkflowAutomationReference = z.infer<typeof workflowAutomationReferenceSchema>
 
-export const savedScriptVersionSchema = z.object({
+export const workflowVersionSchema = z.object({
   id: idSchema,
   // Authoring source and example input are OpenWork management data, not MCP
   // runtime data. Non-manager detail responses intentionally return null.
@@ -43,16 +43,16 @@ export const savedScriptVersionSchema = z.object({
   inputSchema: z.unknown().nullable(),
   outputSchema: z.unknown().nullable(),
   exampleInput: z.unknown().nullable().optional(),
-  requiredCapabilities: z.array(savedScriptCapabilitySchema),
+  requiredCapabilities: z.array(workflowCapabilitySchema),
   codeDigest: digestSchema,
   inputSchemaDigest: digestSchema.nullable(),
   outputSchemaDigest: digestSchema.nullable(),
   createdAt: z.string().datetime(),
-  automationReferences: z.array(savedScriptAutomationReferenceSchema),
+  automationReferences: z.array(workflowAutomationReferenceSchema),
 })
-export type SavedScriptVersion = z.infer<typeof savedScriptVersionSchema>
+export type WorkflowVersion = z.infer<typeof workflowVersionSchema>
 
-export const savedScriptArtifactSnapshotSchema = z.object({
+export const workflowArtifactSnapshotSchema = z.object({
   receiptId: idSchema,
   pluginId: idSchema,
   configObjectId: idSchema,
@@ -73,24 +73,24 @@ export const savedScriptArtifactSnapshotSchema = z.object({
   finishedAt: z.string().datetime(),
   contentDeletedAt: z.string().datetime().nullable(),
 })
-export type SavedScriptArtifactSnapshot = z.infer<typeof savedScriptArtifactSnapshotSchema>
+export type WorkflowArtifactSnapshot = z.infer<typeof workflowArtifactSnapshotSchema>
 
-export const savedScriptDetailSchema = z.object({
+export const workflowDetailSchema = z.object({
   pluginId: idSchema,
   configObjectId: idSchema,
   title: z.string().trim().min(1).max(255),
   description: z.string().nullable(),
   canRun: z.boolean(),
   canManage: z.boolean(),
-  currentVersion: savedScriptVersionSchema,
-  versions: z.array(savedScriptVersionSchema),
-  latestSnapshot: savedScriptArtifactSnapshotSchema.nullable(),
-  latestSuccessfulSnapshot: savedScriptArtifactSnapshotSchema.nullable(),
+  currentVersion: workflowVersionSchema,
+  versions: z.array(workflowVersionSchema),
+  latestSnapshot: workflowArtifactSnapshotSchema.nullable(),
+  latestSuccessfulSnapshot: workflowArtifactSnapshotSchema.nullable(),
   freshness: artifactFreshnessSchema,
 })
-export type SavedScriptDetail = z.infer<typeof savedScriptDetailSchema>
+export type WorkflowDetail = z.infer<typeof workflowDetailSchema>
 
-export const savedScriptTestResultSchema = z.object({
+export const workflowTestResultSchema = z.object({
   receiptId: idSchema,
   value: z.unknown(),
   markdown: z.string(),
@@ -99,20 +99,20 @@ export const savedScriptTestResultSchema = z.object({
   inputSchemaDigest: digestSchema.nullable(),
   outputSchemaDigest: digestSchema.nullable(),
   rendererVersion: z.literal("codemode-markdown-v1"),
-  requiredCapabilities: z.array(savedScriptCapabilitySchema),
+  requiredCapabilities: z.array(workflowCapabilitySchema),
   finishedAt: z.string().datetime(),
 })
-export type SavedScriptTestResult = z.infer<typeof savedScriptTestResultSchema>
+export type WorkflowTestResult = z.infer<typeof workflowTestResultSchema>
 
 /**
- * Stable data contract injected into the Dynamic Artifact MCP App view.
+ * Stable data contract injected into the Workflow Artifact MCP App view.
  *
  * Keep this independent from the presentation resource so MCP hosts and other
  * OpenWork surfaces can validate the same result without understanding the UI.
  */
-export const dynamicArtifactAppSchemaVersion = "1" as const
-export const dynamicArtifactAppPayloadSchema = z.object({
-  schemaVersion: z.literal(dynamicArtifactAppSchemaVersion),
+export const workflowArtifactSchemaVersion = "1" as const
+export const workflowArtifactPayloadSchema = z.object({
+  schemaVersion: z.literal(workflowArtifactSchemaVersion),
   artifact: z.object({
     title: z.string().trim().min(1).max(255),
     description: z.string().nullable(),
@@ -129,7 +129,7 @@ export const dynamicArtifactAppPayloadSchema = z.object({
   }),
   data: z.unknown(),
 })
-export type DynamicArtifactAppPayload = z.infer<typeof dynamicArtifactAppPayloadSchema>
+export type WorkflowArtifactPayload = z.infer<typeof workflowArtifactPayloadSchema>
 
 export const generatedArtifactViewCspSchema = z.object({
   connectDomains: z.array(z.string()).length(0),

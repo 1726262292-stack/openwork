@@ -26,8 +26,8 @@ const requirements: TestNeeds = {
 };
 const missingRequirements = unmetNeeds(requirements, process.env);
 const title = missingRequirements.length > 0
-  ? `codemode scripts skipped — needs: ${missingRequirements.join(", ")}`
-  : "codemode scripts: a 40-step question becomes one step, gets saved, and a teammate reuses it";
+  ? `Workflows skipped — needs: ${missingRequirements.join(", ")}`
+  : "Workflows: a 40-step question becomes one step, gets saved, and a teammate reuses it";
 const modelId = process.env.OPENWORK_EVAL_MODEL?.trim() || "";
 
 let requestId = 0;
@@ -116,7 +116,7 @@ async function mintMcpToken(session: DenSession, orgId: string): Promise<string>
 
 async function dumpScriptReceipts(session: DenSession): Promise<string> {
   try {
-    const receipts = await denFetch(session, "/v1/codemode-runs", {
+    const receipts = await denFetch(session, "/v1/workflow-runs", {
       headers: { authorization: `Bearer ${session.token}` },
     });
     const runs = isRecord(receipts.body) && Array.isArray(receipts.body.runs) ? receipts.body.runs.filter(isRecord) : [];
@@ -238,10 +238,10 @@ test(title, { timeout: 1_500_000 }, async ({ evidence, place }) => {
   const flip = await denFetch(den.admin, `/v1/admin/organizations/${orgId}/capabilities`, {
     method: "PUT",
     headers: { authorization: `Bearer ${den.admin.token}` },
-    body: JSON.stringify({ capabilities: { codemodeScripts: true } }),
+    body: JSON.stringify({ capabilities: { workflows: true } }),
   });
   if (!flip.response.ok) {
-    throw new Error(`Enabling codemodeScripts failed: HTTP ${flip.response.status} ${flip.text.slice(0, 500)}`);
+    throw new Error(`Enabling workflows failed: HTTP ${flip.response.status} ${flip.text.slice(0, 500)}`);
   }
   const toolsAfter = await listAgentToolNames(den.ref.apiUrl, adminMcpToken);
   evidence.recordAssertionEvidence(
@@ -371,8 +371,8 @@ test(title, { timeout: 1_500_000 }, async ({ evidence, place }) => {
   // The content rails (skills, marketplace, admin) are present because the capability
   // set is one set for all three verbs — this admin is on the bootstrap allowlist, so
   // admin capabilities are in their set; a non-admin member's set has none. No
-  // marketplace namespace yet: this org's only marketplace object is the saved script
-  // created later, and saved scripts are deliberately excluded (no script recursion).
+  // marketplace namespace yet: this org's only marketplace object is the Workflow
+  // created later, and Workflows are deliberately excluded (no Workflow recursion).
   const expectedNamespaces = ["$codemode", "admin", "den", "drive_mock", "gmail_mock", "skills"];
   evidence.recordAssertionEvidence(
     "An unconnected native provider does not surface a callable script namespace",
@@ -464,7 +464,7 @@ test(title, { timeout: 1_500_000 }, async ({ evidence, place }) => {
     );
   } catch (error) {
     evidence.recordAssertionEvidence(
-      "DEBUG: idle-workers prompt did not complete; script run receipts follow",
+      "DEBUG: idle-workers prompt did not complete; Workflow run receipts follow",
       await dumpScriptReceipts(den.admin),
       false,
     );
@@ -535,7 +535,7 @@ return { drive, gmail }`,
       description: "Lists idle workers",
       orgWide: true,
       components: [{
-        type: "script",
+        type: "workflow",
         input: {
           rawSourceText: idleScriptSource,
           normalizedPayloadJson: {
@@ -556,19 +556,19 @@ return { drive, gmail }`,
     `execute_capability(${String(createPluginOp.name)}) → ${saveText.slice(0, 200)}`,
     saveText.includes("idle-workers-report"),
   );
-  const savedObjects = await denFetch(den.admin, "/v1/config-objects?type=script", {
+  const savedObjects = await denFetch(den.admin, "/v1/config-objects?type=workflow", {
     headers: { authorization: `Bearer ${den.admin.token}` },
   });
   const savedList = isRecord(savedObjects.body) && Array.isArray(savedObjects.body.items)
     ? savedObjects.body.items.filter(isRecord)
     : [];
-  const savedScript = savedList.find((object) => String(object.title ?? "").includes("idle-workers-report"));
+  const savedWorkflow = savedList.find((object) => String(object.title ?? "").includes("idle-workers-report"));
   evidence.recordAssertionEvidence(
-    "The agent saved the script as an org config object of type script",
-    `config-objects?type=script returned ${savedList.length} row(s); idle-workers-report present: ${String(Boolean(savedScript))}`,
-    Boolean(savedScript),
+    "The agent saved the procedure as an org config object of type workflow",
+    `config-objects?type=workflow returned ${savedList.length} row(s); idle-workers-report present: ${String(Boolean(savedWorkflow))}`,
+    Boolean(savedWorkflow),
   );
-  expect(savedScript).toBeTruthy();
+  expect(savedWorkflow).toBeTruthy();
 
   // ---- Frame 6: a teammate finds it by search and runs it -------------------
   const jordan = den.members.jordan;
@@ -580,9 +580,9 @@ return { drive, gmail }`,
   });
   const searchPayload = requireRecord(JSON.parse(toolText(searchResult)), "search payload");
   const matches = Array.isArray(searchPayload.matches) ? searchPayload.matches.filter(isRecord) : [];
-  const scriptMatch = matches.find((match) => String(match.name ?? "").startsWith("plugin:") && match.kind === "script");
+  const scriptMatch = matches.find((match) => String(match.name ?? "").startsWith("plugin:") && match.kind === "workflow");
   evidence.recordAssertionEvidence(
-    "A teammate's agent discovers the saved script through capability search",
+    "A teammate's agent discovers the Workflow through capability search",
     `Member search matches: ${JSON.stringify(matches.map((match) => ({ name: match.name, kind: match.kind })))}`,
     Boolean(scriptMatch),
   );
@@ -597,7 +597,7 @@ return { drive, gmail }`,
   const memberRunExecuted = memberRunPayload.status === "executed";
   const memberRunValue = JSON.stringify(memberRunPayload.value ?? null);
   evidence.recordAssertionEvidence(
-    "The teammate runs the saved script by name with typed input and gets fresh data from the same program",
+    "The teammate runs the Workflow by name with typed input and gets fresh data from the same procedure",
     `status: ${String(memberRunPayload.status)}; value: ${memberRunValue.slice(0, 300)}`,
     memberRunExecuted && memberRunValue.includes("builder"),
   );
@@ -605,7 +605,7 @@ return { drive, gmail }`,
   expect(memberRunValue).toContain("builder");
 
   // ---- Frame 7a: every run left a receipt ------------------------------------
-  const receipts = await denFetch(den.admin, "/v1/codemode-runs", {
+  const receipts = await denFetch(den.admin, "/v1/workflow-runs", {
     headers: { authorization: `Bearer ${den.admin.token}` },
   });
   const runs = isRecord(receipts.body) && Array.isArray(receipts.body.runs) ? receipts.body.runs.filter(isRecord) : [];
@@ -614,7 +614,7 @@ return { drive, gmail }`,
   const receiptsHaveDetail = runs.every((run) =>
     typeof run.durationMs === "number" && Array.isArray(run.toolCalls));
   evidence.recordAssertionEvidence(
-    "Every script run left a receipt with its tool calls and duration",
+    "Every Workflow run left a receipt with its tool calls and duration",
     `runs: ${runs.length} (adhoc: ${adhocRuns.length}, saved: ${savedRuns.length}); all carry toolCalls+durationMs: ${String(receiptsHaveDetail)}`,
     adhocRuns.length >= 2 && savedRuns.length >= 1 && receiptsHaveDetail,
   );
@@ -653,11 +653,11 @@ return { drive, gmail }`,
   );
   const runsShot = await screenshot(browser);
   const runsSeen = await validateWithRetry(runsShot, [
-    "A dashboard screen lists script runs with status and duration information",
+    "A dashboard screen lists Workflow runs with status and duration information",
   ]);
   expect(runsSeen.ok, runsSeen.why).toBe(true);
 
-  // ---- Frame 7b: disabling a tool makes dependent saved scripts fail closed --
+  // ---- Frame 7b: disabling a tool makes dependent Workflows fail closed --
   // Org-wide plugin creation is a step-up-protected admin write, and this spec runs
   // long enough for the admin session's fresh-auth window to lapse. Re-authenticate
   // first, the same way behaviors' connection helpers do on `reauth`.
@@ -670,7 +670,7 @@ return { drive, gmail }`,
       description: "Echoes offsite mentions through the Drive Mock connection",
       orgWide: true,
       components: [{
-        type: "script",
+        type: "workflow",
         input: {
           rawSourceText: `return await tools.drive_mock.mock_echo({ text: "offsite" })`,
           normalizedPayloadJson: {
@@ -694,7 +694,7 @@ return { drive, gmail }`,
   });
   const mentionsMatches = requireRecord(JSON.parse(toolText(mentionsSearch)), "mentions search payload");
   const mentionsMatchList = Array.isArray(mentionsMatches.matches) ? mentionsMatches.matches.filter(isRecord) : [];
-  const mentionsMatch = mentionsMatchList.find((match) => String(match.name ?? "").startsWith("plugin:") && match.kind === "script");
+  const mentionsMatch = mentionsMatchList.find((match) => String(match.name ?? "").startsWith("plugin:") && match.kind === "workflow");
   if (!mentionsMatch) throw new Error(`offsite-mentions-report not discoverable: ${JSON.stringify(mentionsMatchList)}`);
   const mentionsName = String(mentionsMatch.name);
 
@@ -729,7 +729,7 @@ return { drive, gmail }`,
     blockedWitnessCalls = 0;
   }
   evidence.recordAssertionEvidence(
-    "Disabling a connection tool makes the dependent saved script fail closed without reaching the provider",
+    "Disabling a connection tool makes the dependent Workflow fail closed without reaching the provider",
     `Blocked run payload: ${blockedText.slice(0, 400)}; provider calls after policy flip: ${blockedWitnessCalls}`,
     blockedText.includes("capability_unavailable") && blockedWitnessCalls === 0,
   );

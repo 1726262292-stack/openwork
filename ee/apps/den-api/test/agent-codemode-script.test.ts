@@ -74,11 +74,11 @@ function buildApp() {
           tags: ["Workers"],
         },
       },
-      "/v1/codemode-scripts": {
+      "/v1/workflows": {
         post: {
-          operationId: "saveProgram",
-          summary: "Save a successful Code Mode run as a Program inside an OpenWork Connect Plugin",
-          tags: ["Codemode Runs"],
+          operationId: "saveWorkflow",
+          summary: "Save a successful Code Mode run as a Workflow inside an OpenWork Connect Plugin",
+          tags: ["Workflows"],
         },
       },
     },
@@ -148,9 +148,10 @@ test("does not register execute_capability_script when the org flag is off", asy
 })
 
 test("registers Code Mode without enabling agent-authored MCP App views", async () => {
-  organizationMetadata = { capabilities: { codemodeScripts: true } }
+  organizationMetadata = { capabilities: { workflows: true } }
   const names = listedToolNames(await rpc(buildApp(), "tools/list"))
   expect(names).toContain("execute_capability_script")
+  expect(names).toContain("render_workflow_artifact")
   expect(names).toContain("render_dynamic_artifact")
   expect(names).not.toContain("save_artifact_view")
   expect(names).not.toContain("activate_artifact_view_revision")
@@ -158,8 +159,8 @@ test("registers Code Mode without enabling agent-authored MCP App views", async 
   expect(names.filter((name) => /^(search|select|clear)_programs?$|^(run|render)_selected_program$/.test(name))).toEqual([])
 })
 
-test("rejects guessed generated-view tool calls while keeping Programs enabled", async () => {
-  organizationMetadata = { capabilities: { codemodeScripts: true } }
+test("rejects guessed generated-view tool calls while keeping Workflows enabled", async () => {
+  organizationMetadata = { capabilities: { workflows: true } }
   for (const name of ["save_artifact_view", "activate_artifact_view_revision", "retire_artifact_view"]) {
     const payload = await rpc(buildApp(), "tools/call", { name, arguments: {} })
     expect(resultRecord(payload).isError).toBe(true)
@@ -167,18 +168,20 @@ test("rejects guessed generated-view tool calls while keeping Programs enabled",
   }
 })
 
-test("advertises standard Program discovery and execution instructions", async () => {
+test("advertises standard Workflow discovery and execution instructions", async () => {
   const initialized = resultRecord(await rpc(buildApp(), "initialize", {
     protocolVersion: "2025-11-25",
     capabilities: {},
     clientInfo: { name: "agent-codemode-test", version: "1.0.0" },
   }))
-  expect(initialized.instructions).toContain("Programs are discovered by Library metadata through search_capabilities")
-  expect(initialized.instructions).toContain("executed through execute_capability using the exact capability name returned by search")
+  expect(initialized.instructions).toContain("Workflows are saved procedures discovered through search_capabilities")
+  expect(initialized.instructions).toContain("run through execute_capability using the exact capability name returned by search")
+  expect(initialized.instructions).toContain("Workflow runs produce artifacts rendered by render_workflow_artifact")
+  expect(initialized.instructions).not.toContain("search/selection tools")
 })
 
 test("executes a confined script when the org flag is on", async () => {
-  organizationMetadata = { capabilities: { codemodeScripts: true } }
+  organizationMetadata = { capabilities: { workflows: true } }
   const payload = await rpc(buildApp(), "tools/call", {
     name: "execute_capability_script",
     arguments: { code: "return 1 + 1" },
@@ -187,7 +190,7 @@ test("executes a confined script when the org flag is on", async () => {
 })
 
 test("exposes in-program capability search over the Den namespace", async () => {
-  organizationMetadata = { capabilities: { codemodeScripts: true } }
+  organizationMetadata = { capabilities: { workflows: true } }
   const payload = await rpc(buildApp(), "tools/call", {
     name: "execute_capability_script",
     arguments: { code: "return await tools.$codemode.search({ query: \"workers\" })" },
@@ -195,11 +198,11 @@ test("exposes in-program capability search over the Den namespace", async () => 
   expect(firstText(payload)).toContain("tools.den.getWorkers")
 })
 
-test("makes the Program save operation discoverable through the standard capability catalog", async () => {
-  organizationMetadata = { capabilities: { codemodeScripts: true } }
+test("makes the Workflow save operation discoverable through the standard capability catalog", async () => {
+  organizationMetadata = { capabilities: { workflows: true } }
   const payload = await rpc(buildApp(), "tools/call", {
     name: "search_capabilities",
-    arguments: { query: "save Program to Plugin" },
+    arguments: { query: "save Workflow to Plugin" },
   })
-  expect(firstText(payload)).toContain("saveProgram")
+  expect(firstText(payload)).toContain("saveWorkflow")
 })

@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto"
-import type { ArtifactFreshness } from "@openwork/types/dynamic-artifacts"
+import type { ArtifactFreshness } from "@openwork/types/workflows"
 
-export const SAVED_SCRIPT_MARKDOWN_RENDERER_VERSION = "codemode-markdown-v1" as const
+export const WORKFLOW_MARKDOWN_RENDERER_VERSION = "codemode-markdown-v1" as const
 
 function canonical(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`
@@ -25,7 +25,7 @@ export function optionalArtifactDigest(value: unknown): string | null {
   return value === undefined || value === null ? null : artifactDigest(value)
 }
 
-export function savedScriptArtifactSource(trigger: "scheduled" | "recovery" | "manual" | null): "scheduled" | "manual" {
+export function workflowArtifactSource(trigger: "scheduled" | "recovery" | "manual" | null): "scheduled" | "manual" {
   return trigger && trigger !== "manual" ? "scheduled" : "manual"
 }
 
@@ -57,7 +57,7 @@ function table(headers: string[], rows: unknown[][]): string {
   ].join("\n")
 }
 
-export function renderSavedScriptMarkdown(value: unknown): string {
+export function renderWorkflowMarkdown(value: unknown): string {
   if (typeof value === "string") return escapeHtml(value)
 
   if (isRecord(value) && Object.values(value).every(isScalar)) {

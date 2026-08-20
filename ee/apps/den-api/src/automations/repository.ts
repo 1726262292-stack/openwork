@@ -151,7 +151,7 @@ function normalizedDefinition(definition: Parameters<AutomationRepository["creat
       schedule: definition.schedule,
       action: definition.action,
       executionTarget: definition.executionTarget,
-      instructions: definition.action.kind === "agent" ? definition.action.instructions : "Execute the pinned saved Code Mode script.",
+      instructions: definition.action.kind === "agent" ? definition.action.instructions : "Execute the pinned Workflow.",
       model,
     }
   }
@@ -278,7 +278,7 @@ export class DenAutomationRepository implements AutomationRepository {
           }
         : currentAction)
       const executionTarget = current.execution_target
-      const instructions = action.kind === "agent" ? action.instructions : "Execute the pinned saved Code Mode script."
+      const instructions = action.kind === "agent" ? action.instructions : "Execute the pinned Workflow."
       const schedule = input.changes.schedule ?? current.schedule_config
       const model = action.kind === "agent"
         ? action.model
@@ -659,7 +659,7 @@ export class DenAutomationRepository implements AutomationRepository {
       now: input.now,
     })
     await db.update(AutomationRunTable).set({
-      codemode_receipt_id: input.codemodeReceiptId ? normalizeDenTypeId("codemodeRun", input.codemodeReceiptId) : null,
+      codemode_receipt_id: input.codemodeReceiptId ? normalizeDenTypeId("workflowRun", input.codemodeReceiptId) : null,
       validated_result: input.validatedResult,
       updated_at: new Date(input.now),
     }).where(eq(AutomationRunTable.id, normalizeRunId(input.runId)))

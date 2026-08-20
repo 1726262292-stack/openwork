@@ -70,7 +70,7 @@ import { db } from "../../../db.js"
 import { env } from "../../../env.js"
 import { appLogger } from "../../../observability/logger.js"
 import { roleIncludesOwner } from "../../../orgs.js"
-import { redactSavedScriptNormalizedPayloadAuthoringDetails } from "../../../saved-script-projections.js"
+import { redactWorkflowNormalizedPayloadAuthoringDetails } from "../../../workflow-projections.js"
 import { memberFacingMcpConnectionsEnabled } from "../../../capability-sources/external-mcp-rollout.js"
 import { comparablePluginMcpRequirementUrl, marketplaceMcpServerEntries, resolveMarketplacePluginCloudReadiness } from "../../../mcp/marketplace-capabilities.js"
 import { assertPublicUrl } from "../../../capability-sources/url-guard.js"
@@ -703,9 +703,9 @@ async function getLatestVersions(configObjectIds: ConfigObjectId[]) {
 }
 
 function serializeVersion(row: ConfigObjectVersionRow) {
-  // Program authoring data belongs to the role-aware Program management API.
+  // Workflow authoring data belongs to the role-aware Workflow management API.
   // Generic config-object reads must not bypass that boundary for viewers.
-  const isCodemodeProgramVersion = row.schemaVersion === "codemode-script-v1"
+  const isCodemodeWorkflowVersion = row.schemaVersion === "codemode-script-v1"
   return {
     configObjectId: row.configObjectId,
     connectorSyncEventId: row.connectorSyncEventId,
@@ -714,10 +714,10 @@ function serializeVersion(row: ConfigObjectVersionRow) {
     createdVia: row.createdVia,
     id: row.id,
     isDeletedVersion: row.isDeletedVersion,
-    normalizedPayloadJson: isCodemodeProgramVersion
-      ? redactSavedScriptNormalizedPayloadAuthoringDetails(row.normalizedPayloadJson)
+    normalizedPayloadJson: isCodemodeWorkflowVersion
+      ? redactWorkflowNormalizedPayloadAuthoringDetails(row.normalizedPayloadJson)
       : row.normalizedPayloadJson,
-    rawSourceText: isCodemodeProgramVersion ? null : row.rawSourceText,
+    rawSourceText: isCodemodeWorkflowVersion ? null : row.rawSourceText,
     schemaVersion: row.schemaVersion,
     sourceRevisionRef: row.sourceRevisionRef,
   }
@@ -1840,9 +1840,9 @@ export async function listConfigObjectPlugins(input: { context: PluginArchActorC
 
 export async function attachConfigObjectToPlugin(input: { context: PluginArchActorContext; configObjectId: ConfigObjectId; membershipSource?: PluginMembershipRow["membershipSource"]; pluginId: PluginId }) {
   const configObject = await ensureVisibleConfigObject(input.context, input.configObjectId)
-  if (configObject.objectType === "script") {
-    // Adding a Program to a Plugin can expand its audience through Plugin and
-    // Marketplace grants, so only a Program manager may make that sharing
+  if (configObject.objectType === "workflow" || configObject.objectType === "script") {
+    // Adding a Workflow to a Plugin can expand its audience through Plugin and
+    // Marketplace grants, so only a Workflow manager may make that sharing
     // decision. Other config-object membership behavior stays compatible.
     await requirePluginArchResourceRole({
       context: input.context,
@@ -1883,7 +1883,7 @@ export async function attachConfigObjectToPlugin(input: { context: PluginArchAct
 
 export async function removeConfigObjectFromPlugin(input: { context: PluginArchActorContext; configObjectId: ConfigObjectId; pluginId: PluginId }) {
   const configObject = await ensureVisibleConfigObject(input.context, input.configObjectId)
-  if (configObject.objectType === "script") {
+  if (configObject.objectType === "workflow" || configObject.objectType === "script") {
     await requirePluginArchResourceRole({
       context: input.context,
       resourceId: configObject.id,

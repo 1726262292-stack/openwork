@@ -34,10 +34,10 @@
       "development": "./src/automations.ts",
       "default": "./src/automations.ts"
     },
-    "./dynamic-artifacts": {
-      "types": "./src/dynamic-artifacts.ts",
-      "development": "./src/dynamic-artifacts.ts",
-      "default": "./src/dynamic-artifacts.ts"
+    "./workflows": {
+      "types": "./src/workflows.ts",
+      "development": "./src/workflows.ts",
+      "default": "./src/workflows.ts"
     },
     "./skill-created-app": {
       "types": "./src/skill-created-app.ts",

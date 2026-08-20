@@ -2,26 +2,26 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  savedScriptArtifactSnapshotSchema,
-  savedScriptDetailSchema,
-  savedScriptTestResultSchema,
-  type SavedScriptCapability,
-} from "@openwork/types/dynamic-artifacts";
+  workflowArtifactSnapshotSchema,
+  workflowDetailSchema,
+  workflowTestResultSchema,
+  type WorkflowCapability,
+} from "@openwork/types/workflows";
 import { getErrorMessage, requestJson } from "../../_lib/den-flow";
 
-export type SavedScriptDraft = {
+export type WorkflowDraft = {
   name: string;
   description?: string;
   code: string;
   exampleInput?: unknown;
   inputSchema?: unknown;
   outputSchema?: unknown;
-  requiredCapabilities: SavedScriptCapability[];
+  requiredCapabilities: WorkflowCapability[];
 };
 
 const keys = {
-  detail: (id: string, maxAgeMs: number) => ["saved-script", id, "detail", maxAgeMs] as const,
-  snapshots: (id: string) => ["saved-script", id, "snapshots"] as const,
+  detail: (id: string, maxAgeMs: number) => ["workflow", id, "detail", maxAgeMs] as const,
+  snapshots: (id: string) => ["workflow", id, "snapshots"] as const,
 };
 
 async function checkedRequest(path: string, init: RequestInit, fallback: string) {
@@ -30,31 +30,35 @@ async function checkedRequest(path: string, init: RequestInit, fallback: string)
   return payload;
 }
 
-export function useSavedScriptDetail(configObjectId: string, maxAgeMs: number) {
+export function useWorkflowDetail(configObjectId: string, maxAgeMs: number) {
   return useQuery({
     queryKey: keys.detail(configObjectId, maxAgeMs),
-    queryFn: async () => savedScriptDetailSchema.parse(await checkedRequest(
-      `/v1/codemode-scripts/${encodeURIComponent(configObjectId)}?maxAgeMs=${maxAgeMs}`,
+    queryFn: async () => {
+      const payload = await checkedRequest(
+      `/v1/workflows/${encodeURIComponent(configObjectId)}?maxAgeMs=${maxAgeMs}`,
       { method: "GET" },
-      "Failed to load Script",
-    )),
+      "Failed to load Workflow",
+      );
+      if (typeof payload !== "object" || payload === null || !("script" in payload)) throw new Error("The Workflow response was invalid.");
+      return workflowDetailSchema.parse(payload.script);
+    },
     enabled: Boolean(configObjectId),
   });
 }
 
-export function useSavedScriptSnapshots(configObjectId: string) {
+export function useWorkflowSnapshots(configObjectId: string) {
   return useQuery({
     queryKey: keys.snapshots(configObjectId),
     queryFn: async () => {
       const payload = await checkedRequest(
-        `/v1/codemode-scripts/${encodeURIComponent(configObjectId)}/snapshots?limit=100`,
+        `/v1/workflows/${encodeURIComponent(configObjectId)}/snapshots?limit=100`,
         { method: "GET" },
         "Failed to load snapshots",
       );
       if (typeof payload !== "object" || payload === null || !("items" in payload) || !Array.isArray(payload.items)) {
         throw new Error("The snapshot response was invalid.");
       }
-      return payload.items.map((item) => savedScriptArtifactSnapshotSchema.parse(item));
+      return payload.items.map((item) => workflowArtifactSnapshotSchema.parse(item));
     },
     enabled: Boolean(configObjectId),
   });
@@ -68,58 +72,58 @@ function useLifecycleMutation<TInput, TResult>(input: {
   return useMutation({
     mutationFn: input.mutation,
     onSettled: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["saved-script", input.configObjectId] });
+      await queryClient.invalidateQueries({ queryKey: ["workflow", input.configObjectId] });
       await queryClient.invalidateQueries({ queryKey: ["plugins"] });
       await queryClient.invalidateQueries({ queryKey: ["automations"] });
     },
   });
 }
 
-export function useTestSavedScript(configObjectId: string) {
-  return useLifecycleMutation<SavedScriptDraft, ReturnType<typeof savedScriptTestResultSchema.parse>>({
+export function useTestWorkflow(configObjectId: string) {
+  return useLifecycleMutation<WorkflowDraft, ReturnType<typeof workflowTestResultSchema.parse>>({
     configObjectId,
-    mutation: async (draft) => savedScriptTestResultSchema.parse(await checkedRequest(
-      "/v1/codemode-scripts/test",
+    mutation: async (draft) => workflowTestResultSchema.parse(await checkedRequest(
+      "/v1/workflows/test",
       { method: "POST", body: JSON.stringify({ configObjectId, ...draft }) },
-      "Script test failed",
+      "Workflow test failed",
     )),
   });
 }
 
-export function useSaveSavedScriptVersion(configObjectId: string) {
-  return useLifecycleMutation<{ receiptId: string; draft: SavedScriptDraft }, ReturnType<typeof savedScriptDetailSchema.parse>>({
+export function useSaveWorkflowVersion(configObjectId: string) {
+  return useLifecycleMutation<{ receiptId: string; draft: WorkflowDraft }, ReturnType<typeof workflowDetailSchema.parse>>({
     configObjectId,
-    mutation: async ({ receiptId, draft }) => savedScriptDetailSchema.parse(await checkedRequest(
-      `/v1/codemode-scripts/${encodeURIComponent(configObjectId)}/versions`,
+    mutation: async ({ receiptId, draft }) => workflowDetailSchema.parse(await checkedRequest(
+      `/v1/workflows/${encodeURIComponent(configObjectId)}/versions`,
       { method: "POST", body: JSON.stringify({ receiptId, ...draft }) },
-      "Script version could not be saved",
+      "Workflow version could not be saved",
     )),
   });
 }
 
-export function useRunSavedScript(configObjectId: string) {
+export function useRunWorkflow(configObjectId: string) {
   return useLifecycleMutation<{ pluginId: string; configObjectVersionId: string; input: unknown }, unknown>({
     configObjectId,
     mutation: async (value) => checkedRequest(
-      `/v1/codemode-scripts/${encodeURIComponent(configObjectId)}/run`,
+      `/v1/workflows/${encodeURIComponent(configObjectId)}/run`,
       { method: "POST", body: JSON.stringify(value) },
-      "Script refresh failed",
+      "Workflow refresh failed",
     ),
   });
 }
 
-export function useDeleteSavedScriptSnapshot(configObjectId: string) {
+export function useDeleteWorkflowSnapshot(configObjectId: string) {
   return useLifecycleMutation<string, unknown>({
     configObjectId,
     mutation: async (receiptId) => checkedRequest(
-      `/v1/codemode-scripts/${encodeURIComponent(configObjectId)}/snapshots/${encodeURIComponent(receiptId)}/content`,
+      `/v1/workflows/${encodeURIComponent(configObjectId)}/snapshots/${encodeURIComponent(receiptId)}/content`,
       { method: "DELETE" },
       "Snapshot content could not be deleted",
     ),
   });
 }
 
-export function useUpdateSavedScriptAutomation(configObjectId: string) {
+export function useUpdateWorkflowAutomation(configObjectId: string) {
   return useLifecycleMutation<{
     automationId: string;
     pluginId: string;
