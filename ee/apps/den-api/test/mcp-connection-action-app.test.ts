@@ -7,6 +7,7 @@ import {
   CONNECTION_ACTION_APP_RESOURCE_URI,
   CONNECTION_ACTION_TOOL_NAME,
   connectedConnectionActionPayload,
+  connectionActionErrorCard,
   connectionActionLaunch,
   connectionActionPayloadFromStatus,
   connectionActionPayloadSchema,
@@ -128,6 +129,20 @@ test("connection status payloads carry the exact human action and same-server la
   expect(connected.state).toBe("connected")
   expect(connected.action).toBeNull()
   expect(connectionActionTextFallback(connected)).toContain("# Connection ready: Gmail")
+})
+
+test("needs_connection tool failures carry the same card as the probe", () => {
+  const card = connectionActionErrorCard(needsSignInStatus)
+  const parsed = connectionActionPayloadSchema.parse(card.structuredContent)
+  expect(parsed.state).toBe("needs_connection")
+  expect(parsed.action?.label).toBe("Connect Gmail")
+  expect(card.meta).toEqual({
+    "openwork/mcpApp": {
+      toolName: CONNECTION_ACTION_TOOL_NAME,
+      resourceUri: CONNECTION_ACTION_APP_RESOURCE_URI,
+      arguments: { connectionId: "emc_gmail" },
+    },
+  })
 })
 
 test("the app-only tool probes live status and returns schema-valid structured content", async () => {

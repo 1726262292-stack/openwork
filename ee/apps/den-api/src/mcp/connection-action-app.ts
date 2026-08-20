@@ -93,6 +93,22 @@ export function connectionActionLaunch(payload: ConnectionActionPayload) {
   }
 }
 
+/**
+ * Card attachment for connection-level tool failures: the same first-party
+ * connection card as the status probe, so hosts that render apps for failed
+ * results can show the exact human action inline.
+ */
+export function connectionActionErrorCard(status: ExternalConnectionStatus): {
+  structuredContent: Record<string, unknown>
+  meta: Record<string, unknown>
+} {
+  const payload = connectionActionPayloadFromStatus(status)
+  return {
+    structuredContent: { ...payload },
+    meta: { "openwork/mcpApp": connectionActionLaunch(payload) },
+  }
+}
+
 export function registerAgentConnectionActionApp(input: {
   server: McpServer
   probe: (request: { connectionId: string }) => Promise<ConnectionActionProbeResult>
