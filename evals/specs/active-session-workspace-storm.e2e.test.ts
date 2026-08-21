@@ -99,6 +99,7 @@ interface SurfaceFacts {
   crash: boolean;
   bodyHasMarker: boolean;
   bodyHasToolActivity: boolean;
+  bodyHasSlowMarker: boolean;
 }
 
 interface EngineGenerationFact {
@@ -161,6 +162,7 @@ function parseSurfaceFacts(value: unknown): SurfaceFacts {
     crash: value.crash === true,
     bodyHasMarker: value.bodyHasMarker === true,
     bodyHasToolActivity: value.bodyHasToolActivity === true,
+    bodyHasSlowMarker: value.bodyHasSlowMarker === true,
   };
 }
 
@@ -433,7 +435,7 @@ async function readSessionFacts(desktopApp: App, workspaceId: string, sessionId:
   return parseSessionFacts(value);
 }
 
-async function readSurfaceFacts(desktopApp: App, marker: string): Promise<SurfaceFacts> {
+async function readSurfaceFacts(desktopApp: App, marker: string, slowMarker: string): Promise<SurfaceFacts> {
   const value = await evalIn(desktopApp, `(() => {
     const body = document.body.innerText ?? "";
     const authActions = [...document.querySelectorAll("button, a")]
@@ -446,6 +448,7 @@ async function readSurfaceFacts(desktopApp: App, marker: string): Promise<Surfac
       crash: /aw, snap|renderer process gone|application error|uncaught exception/i.test(body),
       bodyHasMarker: body.includes(${JSON.stringify(marker)}),
       bodyHasToolActivity: body.includes("Hold workspace") || body.includes("sleep "),
+      bodyHasSlowMarker: body.includes(${JSON.stringify(slowMarker)}),
     };
   })()`);
   return parseSurfaceFacts(value);
@@ -696,9 +699,10 @@ test.skipIf(!runnable)(
     const engineBeforeStorm = await readEngineRuntimeFacts(desktopApp);
 
     await openExactSessionRoute(desktopApp, plans[0]);
-    const liveSurface = await readSurfaceFacts(desktopApp, plans[0].marker);
+    const liveSurface = await readSurfaceFacts(desktopApp, plans[0].marker, plans[0].slowMarker);
     expect(liveSurface.bodyHasMarker).toBe(true);
     expect(liveSurface.bodyHasToolActivity).toBe(true);
+    expect(liveSurface.bodyHasSlowMarker).toBe(true);
     expect(liveSurface.sessionId).toBe(plans[0].sessionId);
     expect(liveSurface.authActions).toEqual([]);
     const liveShot = await screenshot(desktopApp);
@@ -713,6 +717,7 @@ test.skipIf(!runnable)(
     const orgChanges: string[] = [];
     const connectFailures: string[] = [];
     const reconnectSurfaces: string[] = [];
+    const missingRenderedLiveTools: string[] = [];
     const nonLiveSamples: string[] = [];
     const liveSamples = new Map(plans.map((plan) => [plan.sessionId, 0]));
     const stormStartedAt = Date.now();
@@ -724,10 +729,13 @@ test.skipIf(!runnable)(
         const [facts, denState, surface] = await Promise.all([
           readSessionFacts(desktopApp, plan.workspaceId, plan.sessionId),
           readDenClientState(desktopApp),
-          readSurfaceFacts(desktopApp, plan.marker),
+          readSurfaceFacts(desktopApp, plan.marker, plan.slowMarker),
         ]);
         if (slowToolRunning(facts)) {
           liveSamples.set(plan.sessionId, (liveSamples.get(plan.sessionId) ?? 0) + 1);
+          if (!surface.bodyHasSlowMarker) {
+            missingRenderedLiveTools.push(`switch ${switches}: ${plan.sessionId} server=${JSON.stringify(facts.tools)} surface=${JSON.stringify(surface)}`);
+          }
         } else {
           nonLiveSamples.push(`switch ${switches}: ${plan.sessionId} tools=${JSON.stringify(facts.tools)}`);
         }
@@ -751,16 +759,18 @@ test.skipIf(!runnable)(
     expect(orgChanges).toEqual([]);
     expect(connectFailures).toEqual([]);
     expect(reconnectSurfaces).toEqual([]);
+    expect(missingRenderedLiveTools).toEqual([]);
     evidence.recordAssertionEvidence(
       "Repeated exact-session-route switching preserves every in-flight turn and Cloud identity",
-      `${switches} exact route switches over ${Date.now() - stormStartedAt}ms; live samples=${JSON.stringify([...liveSamples])}; non-live=${JSON.stringify(nonLiveSamples)}; auth drops=${JSON.stringify(authDrops)}; org changes=${JSON.stringify(orgChanges)}; Connect failures=${JSON.stringify(connectFailures)}; reconnect/crash surfaces=${JSON.stringify(reconnectSurfaces)}.`,
+      `${switches} exact route switches over ${Date.now() - stormStartedAt}ms; live samples=${JSON.stringify([...liveSamples])}; missing rendered live tools=${JSON.stringify(missingRenderedLiveTools)}; non-live=${JSON.stringify(nonLiveSamples)}; auth drops=${JSON.stringify(authDrops)}; org changes=${JSON.stringify(orgChanges)}; Connect failures=${JSON.stringify(connectFailures)}; reconnect/crash surfaces=${JSON.stringify(reconnectSurfaces)}.`,
       switches >= 9
         && [...liveSamples.values()].every((count) => count >= 3)
         && nonLiveSamples.length === 0
         && authDrops.length === 0
         && orgChanges.length === 0
         && connectFailures.length === 0
-        && reconnectSurfaces.length === 0,
+        && reconnectSurfaces.length === 0
+        && missingRenderedLiveTools.length === 0,
     );
     const engineAfterStorm = await readEngineRuntimeFacts(desktopApp);
     evidence.recordAssertionEvidence(
@@ -836,7 +846,7 @@ test.skipIf(!runnable)(
       }
       expect(wrongWorkspaceStatuses.every((status) => status === 404)).toBe(true);
 
-      const finalSurface = await readSurfaceFacts(desktopApp, plan.marker);
+      const finalSurface = await readSurfaceFacts(desktopApp, plan.marker, plan.slowMarker);
       expect(finalSurface.sessionId).toBe(plan.sessionId);
       expect(finalSurface.bodyHasMarker).toBe(true);
       expect(finalSurface.authActions).toEqual([]);
