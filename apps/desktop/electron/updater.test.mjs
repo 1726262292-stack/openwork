@@ -666,10 +666,11 @@ describe("release channel changes", () => {
     const { tempDir, handlers, updater, feeds } = await registerFakeUpdaterIpc({
       version: "0.18.0",
     });
-    let finishStableCheck;
+    /** @type {{ finish: null | (() => void) }} */
+    const stableCheckControl = { finish: null };
     const stableCheckStarted = new Promise((resolve) => {
       updater.checkForUpdates = () => new Promise((finish) => {
-        finishStableCheck = () => finish({ updateInfo: { version: "0.18.0" } });
+        stableCheckControl.finish = () => finish({ updateInfo: { version: "0.18.0" } });
         resolve();
         updater.checkForUpdates = async () => ({ updateInfo: { version: "0.18.0-alpha.1" } });
       });
@@ -683,6 +684,7 @@ describe("release channel changes", () => {
       await stableCheckStarted;
       const alphaSelection = setChannel(null, "alpha");
       const alphaCheck = check(null, "alpha");
+      const finishStableCheck = stableCheckControl.finish;
       if (!finishStableCheck) throw new Error("Stable update check did not start.");
       finishStableCheck();
 
