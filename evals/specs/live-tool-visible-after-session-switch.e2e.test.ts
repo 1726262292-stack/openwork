@@ -424,6 +424,7 @@ test.skipIf(!runnable)(
     expect(visibleAfterReturn.currentSessionId).toBe(chatA);
     expect(visibleAfterReturn.found, JSON.stringify(visibleAfterReturn)).toBe(true);
     expect(visibleAfterReturn.visible, JSON.stringify(visibleAfterReturn)).toBe(true);
+    expect(visibleAfterReturn.text).toContain(toolDescription);
     evidence.recordAssertionEvidence(
       "A tool that started while away is visible when the user returns to its chat",
       `The first tool completed and tool ${laterTool.callId} started while workspace B chat ${chatB} was visible; after returning to workspace A chat ${chatA}, scoped CDP found its visible row with text ${JSON.stringify(visibleAfterReturn.text)}.`,
