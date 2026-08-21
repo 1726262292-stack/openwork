@@ -82,6 +82,12 @@ import {
 } from "@/components/ui/message"
 import { Tool } from "@/components/ui/tool"
 import { CapabilityCallLine } from "@/components/chat/capability-call-line"
+import {
+  isLiveStepAtBottom,
+  pinnedAfterUserScroll,
+  pinnedAfterWheel,
+  shouldFollowLiveStepGrowth,
+} from "@/components/chat/live-step-scroll"
 import { hasPreservedMcpAppResult, McpAppFrame } from "@/components/chat/mcp-app-frame"
 import { ReasoningBlock } from "@/components/chat/reasoning-block"
 import { SubagentRunLine } from "@/components/chat/subagent-run-line"
@@ -960,13 +966,42 @@ function MessageGroup({
   const lastRealItem = items.findLast((item) => !isSessionErrorMessage(item.message))
   const isLiveGroup = isStreaming && lastItem !== undefined && lastItem.index === messages.length - 1
   const stepsRef = React.useRef<HTMLDivElement>(null)
+  const stepsPinnedRef = React.useRef(true)
+  const stepsProgrammaticRef = React.useRef(false)
 
-  // Keep the capped step run pinned to the latest step while streaming.
-  React.useEffect(() => {
+  const handleStepsScroll = React.useCallback((event: React.UIEvent<HTMLDivElement>) => {
+    const atBottom = isLiveStepAtBottom(event.currentTarget)
+    if (stepsProgrammaticRef.current && atBottom) return
+    stepsProgrammaticRef.current = false
+    stepsPinnedRef.current = pinnedAfterUserScroll(atBottom)
+  }, [])
+
+  const handleStepsWheel = React.useCallback((event: React.WheelEvent<HTMLDivElement>) => {
+    const nextPinned = pinnedAfterWheel({
+      deltaY: event.deltaY,
+      pinned: stepsPinnedRef.current,
+      atBottom: isLiveStepAtBottom(event.currentTarget),
+    })
+    stepsPinnedRef.current = nextPinned
+    if (!nextPinned) stepsProgrammaticRef.current = false
+  }, [])
+
+  // Follow the latest live step only while the user is still at the tail.
+  // Wheel-up unpins immediately so streaming re-renders cannot yank the list
+  // back to the bottom while they browse earlier thinking.
+  React.useLayoutEffect(() => {
     const node = stepsRef.current
-    if (node && isLiveGroup) {
-      node.scrollTop = node.scrollHeight
+    if (!node) return
+    if (!shouldFollowLiveStepGrowth({ isLive: isLiveGroup, pinned: stepsPinnedRef.current })) {
+      node.style.overflowAnchor = "auto"
+      return
     }
+    node.style.overflowAnchor = "none"
+    stepsProgrammaticRef.current = true
+    node.scrollTop = node.scrollHeight
+    window.requestAnimationFrame(() => {
+      stepsProgrammaticRef.current = false
+    })
   })
 
   if (!lastItem || isMessageEmptyGroup(items)) {
@@ -1106,13 +1141,20 @@ function MessageGroup({
       {stepItems.length > 0 ? (
         collapseSteps ? (
           <CompletedStepRun label={stepRunLabel}>
-            <div className="flex max-h-[520px] flex-col gap-2 overflow-y-auto">
+            <div data-scrollable="" className="flex max-h-[520px] flex-col gap-2 overflow-y-auto overscroll-y-contain">
               {renderItems(stepItems, 0)}
               {foldedReasoning}
             </div>
           </CompletedStepRun>
         ) : (
-          <div ref={stepsRef} className="flex max-h-[520px] flex-col gap-2 overflow-y-auto">
+          <div
+            ref={stepsRef}
+            data-scrollable=""
+            data-live-steps=""
+            onScroll={handleStepsScroll}
+            onWheel={handleStepsWheel}
+            className="flex max-h-[520px] flex-col gap-2 overflow-y-auto overscroll-y-contain"
+          >
             {renderItems(stepItems, 0)}
           </div>
         )
