@@ -13,7 +13,8 @@ import type { TestNeeds } from "@openwork/testkit";
 // completes the full public OAuth path against the Den MCP gateway — RFC9728
 // discovery, dynamic client registration, PKCE authorize + consent, loopback
 // callback, token exchange, credential storage, transparent refresh with
-// rotation, and logout — and the minted token works on the /mcp/agent surface.
+// rotation, and logout — and the minted token works on the /mcp/agent surface
+// without reopening the optional standalone SSE listener.
 const MCP_NAME = "openwork";
 const ORGANIZATION_NAME = "OAuth Lab";
 const EXPECTED_TOOLS = ["create_skill", "execute_capability", "search_capabilities"] as const;
@@ -533,11 +534,24 @@ test.skipIf(missingRequirements.length > 0)(title, { timeout: 30 * 60_000 }, asy
   expect(authResult.exitCode, `opencode mcp auth failed:\n${authResult.combined.slice(0, 2_000)}`).toBe(0);
   expect(containsTokenMaterial(authResult.combined)).toBe(false);
 
-  // Claim 3 — opencode persisted rotating OAuth credentials and reports the
-  // connection as authenticated.
+  // Claim 3 — opencode persisted rotating OAuth credentials, accepts Den's
+  // standards-based standalone-SSE rejection, and reports the connection as
+  // authenticated instead of treating 405 as a connection failure.
   const credential = await readStoredCredential(home);
   const storedShape = credential.accessToken.split(".").length === 3
     && credential.refreshToken.startsWith("ow_mcp_rt_");
+  const standaloneGet = await fetch(mcpUrl, {
+    method: "GET",
+    headers: {
+      accept: "text/event-stream",
+      authorization: `Bearer ${credential.accessToken}`,
+    },
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+  });
+  const standaloneBody = await standaloneGet.text();
+  const standaloneRejected = standaloneGet.status === 405
+    && standaloneGet.headers.get("allow") === "POST"
+    && standaloneBody === "";
   const authList = await runOpencode(home, ["mcp", "auth", "list"], "opencode mcp auth list");
   const mcpList = await runOpencode(home, ["mcp", "list"], "opencode mcp list");
   const authListSound = authList.exitCode === 0
@@ -551,17 +565,22 @@ test.skipIf(missingRequirements.length > 0)(title, { timeout: 30 * 60_000 }, asy
     && !/failed|needs authentication/i.test(mcpList.combined)
     && !containsTokenMaterial(mcpList.combined);
   evidence.recordAssertionEvidence(
-    "opencode stored a JWT access token with a rotating refresh token and reports the server authenticated and connected",
-    `mcp-auth.json held a ${credential.accessToken.split(".").length}-part access token and an ${credential.refreshToken.slice(0, 10)}… refresh token; auth list said: ${authList.combined.trim().slice(0, 300)}; mcp list said: ${mcpList.combined.trim().slice(0, 300)}.`,
-    storedShape && authListSound && mcpListSound,
+    "opencode accepts Den's 405 standalone-SSE rejection and remains authenticated and connected",
+    `mcp-auth.json held a ${credential.accessToken.split(".").length}-part access token and an ${credential.refreshToken.slice(0, 10)}… refresh token; authenticated GET returned HTTP ${standaloneGet.status}, Allow ${standaloneGet.headers.get("allow") ?? "(missing)"}, and ${standaloneBody.length} body bytes; auth list said: ${authList.combined.trim().slice(0, 300)}; mcp list said: ${mcpList.combined.trim().slice(0, 300)}.`,
+    storedShape && standaloneRejected && authListSound && mcpListSound,
   );
   expect(storedShape, `Stored credential shape was wrong: ${credential.raw.slice(0, 300)}`).toBe(true);
+  expect(standaloneGet.status).toBe(405);
+  expect(standaloneGet.headers.get("allow")).toBe("POST");
+  expect(standaloneBody).toBe("");
   expect(authListSound, `opencode mcp auth list did not report authenticated:\n${authList.combined.slice(0, 1_000)}`).toBe(true);
   expect(mcpListSound, `opencode mcp list did not report connected:\n${mcpList.combined.slice(0, 1_000)}`).toBe(true);
 
   // Claim 4 — the opencode-minted OAuth token works on the MCP surface:
-  // exactly the three canonical agent tools, and a real capability executes.
+  // the three tools this journey depends on are present, and a real capability
+  // executes. Additional catalog-backed tools may be added independently.
   const toolNames = await listToolNames(mcpUrl, credential.accessToken);
+  const expectedToolsPresent = EXPECTED_TOOLS.every((name) => toolNames.includes(name));
   const skillSearch = await callAgentTool(mcpUrl, credential.accessToken, "search_capabilities", {
     query: "create skill",
     limit: 20,
@@ -580,9 +599,9 @@ test.skipIf(missingRequirements.length > 0)(title, { timeout: 30 * 60_000 }, asy
   evidence.recordAssertionEvidence(
     "The OAuth token opencode obtained drives the real capability surface",
     `tools/list returned ${JSON.stringify(toolNames)}; search_capabilities matched ${createSkillName}; execute_capability returned its SKILL.md (kind=${isRecord(execution) ? String(execution.kind) : "?"}).`,
-    JSON.stringify(toolNames) === JSON.stringify([...EXPECTED_TOOLS]) && executionSound,
+    expectedToolsPresent && executionSound,
   );
-  expect(toolNames).toEqual([...EXPECTED_TOOLS]);
+  expect(expectedToolsPresent, `tools/list omitted a required agent tool: ${JSON.stringify(toolNames)}`).toBe(true);
   expect(executionSound, `execute_capability did not return the builtin skill: ${JSON.stringify(execution).slice(0, 500)}`).toBe(true);
 
   // Claim 5 — a stale local credential is refreshed transparently with
@@ -598,11 +617,12 @@ test.skipIf(missingRequirements.length > 0)(title, { timeout: 30 * 60_000 }, asy
     && refreshed.refreshToken.startsWith("ow_mcp_rt_")
     && refreshed.refreshToken !== credential.refreshToken;
   const refreshedToolNames = await listToolNames(mcpUrl, refreshed.accessToken);
+  const refreshedExpectedToolsPresent = EXPECTED_TOOLS.every((name) => refreshedToolNames.includes(name));
   const refreshSound = mcpListAfterExpiry.exitCode === 0
     && /connected/i.test(mcpListAfterExpiry.combined)
     && rotationSound
     && staleRejected.status === 401
-    && JSON.stringify(refreshedToolNames) === JSON.stringify([...EXPECTED_TOOLS]);
+    && refreshedExpectedToolsPresent;
   evidence.recordAssertionEvidence(
     "opencode transparently refreshes an expired credential with refresh-token rotation while the stale token stays rejected",
     `After poisoning the stored credential, opencode mcp list exited ${String(mcpListAfterExpiry.exitCode)} and reported connected; the stale bearer got HTTP ${staleRejected.status}; the store rotated to a new access token (changed: ${String(refreshed.accessToken !== credential.accessToken)}) and new refresh token (changed: ${String(refreshed.refreshToken !== credential.refreshToken)}); tools/list with the refreshed token returned ${JSON.stringify(refreshedToolNames)}.`,
@@ -611,7 +631,7 @@ test.skipIf(missingRequirements.length > 0)(title, { timeout: 30 * 60_000 }, asy
   expect(staleRejected.status).toBe(401);
   expect(mcpListAfterExpiry.exitCode, `opencode mcp list failed after forced expiry:\n${mcpListAfterExpiry.combined.slice(0, 1_000)}`).toBe(0);
   expect(rotationSound, `Refresh did not rotate credentials: before=${credential.refreshToken.slice(0, 14)}… after=${refreshed.refreshToken.slice(0, 14)}…`).toBe(true);
-  expect(refreshedToolNames).toEqual([...EXPECTED_TOOLS]);
+  expect(refreshedExpectedToolsPresent, `refreshed tools/list omitted a required agent tool: ${JSON.stringify(refreshedToolNames)}`).toBe(true);
 
   // Claim 6 — logout removes the stored credential and opencode stops
   // reporting the server as authenticated.

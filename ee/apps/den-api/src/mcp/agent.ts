@@ -16,6 +16,7 @@ import { getMcpResourceContext, verifyMcpRequest } from "./auth.js"
 import { DEN_MCP_APP_HOST_SCOPE, DEN_MCP_WRITE_SCOPE } from "./scopes.js"
 import { getCatalog, protectedResourceMetadata } from "./index.js"
 import { preflightMcpJsonRpcRequest } from "./json-rpc-preflight.js"
+import { rejectStandaloneSseResponse } from "./standalone-sse.js"
 import { appLogger } from "../observability/logger.js"
 import { normalizeMcpProtocolVersionHeader } from "./protocol-version.js"
 import {
@@ -100,12 +101,6 @@ export { EXECUTE_CAPABILITY_TOOL_NAME }
 export const EXECUTE_CAPABILITY_SCRIPT_TOOL_NAME = "execute_capability_script"
 const searchCapabilityTypeSchema = z.enum(["all", "api", "admin", "mcp", "marketplace", "skills"])
 export const EXECUTE_CAPABILITY_TIMEOUT_MS = 180_000
-function closeStandaloneSseResponse() {
-  // Some published OpenCode clients treat 405 as a connection failure even
-  // though standalone SSE is optional. 204 closes the unused listener without
-  // turning the probe into a protocol error.
-  return new Response(null, { status: 204 })
-}
 
 export const SEARCH_CAPABILITIES_ANNOTATIONS: ToolAnnotations = {
   readOnlyHint: true,
@@ -388,7 +383,7 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
     }
 
     if (c.req.method === "GET") {
-      return closeStandaloneSseResponse()
+      return rejectStandaloneSseResponse()
     }
 
     const preflightResponse = await preflightMcpJsonRpcRequest(c.req.raw, requestId)
