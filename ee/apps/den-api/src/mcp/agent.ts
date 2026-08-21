@@ -496,20 +496,22 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
         member: memberIdentity,
         marketplaceEnabled: externalMcpConnectionsEnabled,
       })
-      // Owner-scoped: the index only ever carries this member's own
-      // Automations. Without a resolved member there is no owner to scope to,
-      // and a failure here must not take the whole connection down.
-      const automations = memberIdentity
-        ? await automationService.list({
-          organizationId: principal.organizationId,
-          ownerMemberId: memberIdentity.orgMembershipId,
-        }, { limit: AGENT_AUTOMATION_INDEX_LIMIT }).catch(() => null)
-        : null
-      registerAgentAutomationResources({
-        server,
-        items: automations?.items ?? [],
-        fetchedAt: Date.now(),
-      })
+      if (env.automations.enabled) {
+        // Owner-scoped: the index only ever carries this member's own
+        // Automations. Without a resolved member there is no owner to scope to,
+        // and a failure here must not take the whole connection down.
+        const automations = memberIdentity
+          ? await automationService.list({
+            organizationId: principal.organizationId,
+            ownerMemberId: memberIdentity.orgMembershipId,
+          }, { limit: AGENT_AUTOMATION_INDEX_LIMIT }).catch(() => null)
+          : null
+        registerAgentAutomationResources({
+          server,
+          items: automations?.items ?? [],
+          fetchedAt: Date.now(),
+        })
+      }
     }
 
     server.registerTool(

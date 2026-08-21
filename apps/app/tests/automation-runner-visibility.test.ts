@@ -30,6 +30,18 @@ describe("Automation runner visibility", () => {
     expect(page).toContain("run.error.message.trim() || \"Missed — desktop runner unavailable\"")
   })
 
+  test("the full Automation list does not enter a fast polling window", () => {
+    const page = read("src/react-app/domains/automations/automations-page.tsx")
+    const listQuery = page.slice(
+      page.indexOf("const listQuery"),
+      page.indexOf("const providersQuery"),
+    )
+
+    expect(listQuery).toContain("refetchInterval: AUTOMATIONS_PAGE_SLOW_POLL_MS")
+    expect(listQuery).not.toContain("AUTOMATIONS_PAGE_FAST_POLL_MS")
+    expect(page).not.toContain("AUTOMATIONS_PAGE_FAST_POLL_WINDOW_MS")
+  })
+
   test("the bridge re-registers when the network comes back", () => {
     const bridge = read("src/react-app/domains/automations/automation-runner-bridge.tsx")
     expect(bridge).toContain("window.addEventListener(\"online\", handleSettingsChanged)")

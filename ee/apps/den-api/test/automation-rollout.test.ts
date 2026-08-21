@@ -42,14 +42,18 @@ test("Automations fail closed unless the deployment explicitly enables them", ()
   expect(enabled.stdout.trim()).toBe("true")
 })
 
-test("the availability contract ships without changing Automation execution", () => {
+test("the availability contract gates Automation routes and scheduling in Den", () => {
   const app = readFileSync(path.join(denApiRoot, "src/app.ts"), "utf8")
   const meRoutes = readFileSync(path.join(denApiRoot, "src/routes/me/index.ts"), "utf8")
   const routes = readFileSync(path.join(denApiRoot, "src/routes/automations/index.ts"), "utf8")
+  const agentMcp = readFileSync(path.join(denApiRoot, "src/mcp/agent.ts"), "utf8")
   const server = readFileSync(path.join(denApiRoot, "src/server.ts"), "utf8")
 
   expect(meRoutes).toContain("automationsEnabled: env.automations.enabled")
-  expect(app).toContain("registerAutomationRoutes(app)")
+  expect(app).toContain("registerAutomationRoutes(app, { enabled: env.automations.enabled })")
+  expect(routes).toContain("if (options.enabled === false) return")
   expect(routes).not.toContain("automationsDisabledResponse")
-  expect(server).toContain("startAutomationSchedulerLoop()")
+  expect(agentMcp).toContain("if (env.automations.enabled)")
+  expect(agentMcp).toContain("registerAgentAutomationResources")
+  expect(server).toContain("startAutomationSchedulerLoop({ enabled: env.automations.enabled })")
 })
