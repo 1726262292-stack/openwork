@@ -683,6 +683,7 @@ describe("release channel changes", () => {
       await stableCheckStarted;
       const alphaSelection = setChannel(null, "alpha");
       const alphaCheck = check(null, "alpha");
+      if (!finishStableCheck) throw new Error("Stable update check did not start.");
       finishStableCheck();
 
       assert.equal((await stableCheck).channel, "stable");
