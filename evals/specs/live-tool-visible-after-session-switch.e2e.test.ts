@@ -246,13 +246,21 @@ async function approvePendingPermission(appSurface: App, workspaceId: string, se
   return value.length;
 }
 
-async function readVisibleTool(appSurface: App, sessionId: string, commandMarker: string): Promise<VisibleToolFact> {
+async function readVisibleTool(
+  appSurface: App,
+  sessionId: string,
+  commandMarker: string,
+  description: string,
+): Promise<VisibleToolFact> {
   const value = await evalIn(appSurface, `(() => {
     const surface = document.querySelector(${JSON.stringify(`[data-session-surface-id="${sessionId}"]`)});
     const currentSessionId = document.querySelector("[data-session-surface-id]")?.getAttribute("data-session-surface-id") ?? "";
     if (!(surface instanceof HTMLElement)) return { currentSessionId, found: false, visible: false, text: "" };
-    const row = [...surface.querySelectorAll("[data-tool-aggregate]")]
+    const aggregate = [...surface.querySelectorAll("[data-tool-aggregate]")]
       .find((candidate) => (candidate.textContent ?? "").includes(${JSON.stringify(commandMarker)}));
+    const individual = [...surface.querySelectorAll("button")]
+      .find((candidate) => (candidate.textContent ?? "").includes(${JSON.stringify(description)}));
+    const row = aggregate ?? individual;
     if (!(row instanceof HTMLElement)) return { currentSessionId, found: false, visible: false, text: "" };
     const style = getComputedStyle(row);
     const rect = row.getBoundingClientRect();
@@ -344,7 +352,7 @@ test.skipIf(!runnable)(
     expect(running.facts.sessionId).toBe(chatA);
 
     const visibleBeforeSwitch = await eventually(
-      () => readVisibleTool(desktopApp, chatA, completionMarker),
+      () => readVisibleTool(desktopApp, chatA, completionMarker, toolDescription),
       {
         within: 30_000,
         intervalMs: 250,
@@ -355,7 +363,7 @@ test.skipIf(!runnable)(
     expect(visibleBeforeSwitch.visible).toBe(true);
 
     await openSession(desktopApp, chatB);
-    const absentFromChatB = await readVisibleTool(desktopApp, chatB, completionMarker);
+    const absentFromChatB = await readVisibleTool(desktopApp, chatB, completionMarker, toolDescription);
     expect(absentFromChatB.currentSessionId).toBe(chatB);
     expect(absentFromChatB.found).toBe(false);
 
@@ -366,7 +374,7 @@ test.skipIf(!runnable)(
         && tool.command === command
         && tool.description === toolDescription), JSON.stringify(stillRunning)).toBe(true);
 
-    const visibleAfterReturn = await readVisibleTool(desktopApp, chatA, completionMarker);
+    const visibleAfterReturn = await readVisibleTool(desktopApp, chatA, completionMarker, toolDescription);
     expect(visibleAfterReturn.currentSessionId).toBe(chatA);
     expect(visibleAfterReturn.found, JSON.stringify(visibleAfterReturn)).toBe(true);
     expect(visibleAfterReturn.visible, JSON.stringify(visibleAfterReturn)).toBe(true);
@@ -389,7 +397,7 @@ test.skipIf(!runnable)(
     );
     expect(completed.text).toContain(completionMarker);
     const visibleAfterCompletion = await eventually(
-      () => readVisibleTool(desktopApp, chatA, completionMarker),
+      () => readVisibleTool(desktopApp, chatA, completionMarker, toolDescription),
       {
         within: 30_000,
         intervalMs: 250,
