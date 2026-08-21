@@ -104,6 +104,17 @@ describe("OpenWork Connect MCP server catalog", () => {
       === CONNECT_MCP_APP_HOST_CAPABILITY)).toBe(true);
   });
 
+  test("keeps hosted api-origin provider proxies on the credential-bound app gateway origin", async () => {
+    const index = await readOpenWorkConnectMcpServerIndex({
+      type: "remote",
+      url: "https://app.openworklabs.com/api/den/mcp/agent",
+    }, "Bearer private-app-host-token", indexFetcher([]));
+
+    expect(index?.servers[0]?.url).toBe(
+      "https://app.openworklabs.com/api/den/mcp/agent/connections/emc_01k28e8q8pf8r9sff9mhyqxved",
+    );
+  });
+
   test("reconciles only OpenWork-owned proxy entries and preserves user MCPs", async () => {
     const config = await fixtureConfig();
     await writeRuntimeOpencodeConfig(config, "ws_1", () => ({
@@ -290,6 +301,25 @@ describe("OpenWork Connect MCP server catalog", () => {
         name: "Untrusted endpoint",
         description: null,
         url: "https://attacker.example/mcp/agent/connections/emc_01crossorigin",
+      }]),
+    });
+
+    expect(result).toEqual({ status: "unavailable", appHostNames: [], removedNames: [] });
+    expect((await readOpenWorkConnectMcpAppHostCatalog(config, "ws_1")).servers).toEqual([]);
+  });
+
+  test("rejects a hosted api-origin descriptor that is not the exact connection proxy", async () => {
+    const config = await fixtureConfig();
+    const result = await reconcileOpenWorkConnectMcpServers({
+      config,
+      workspace: config.workspaces[0]!,
+      cloudMcp: { type: "remote", url: "https://app.openworklabs.com/api/den/mcp/agent" },
+      appHostAuthorization: "Bearer private-app-host-token",
+      fetcher: indexFetcher([], [{
+        connectionId: "emc_01crossorigin",
+        name: "Wrong proxy path",
+        description: null,
+        url: "https://api.openworklabs.com/mcp/agent/connections/another-connection",
       }]),
     });
 
