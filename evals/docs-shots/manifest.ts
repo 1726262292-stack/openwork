@@ -50,7 +50,6 @@ const ALLOWLIST = new Set([
   "cloud-team-quickstart/22-desktop-marketplace-plugin.png",
   "cloud-team-quickstart/23-desktop-prompt.png",
   "cloud-team-quickstart/24-desktop-skill-result.png",
-  "cloud-team-templates-library.png",
   "control-chrome-setup-modal.png",
   "deprecated/CleanShot2026-03-25at12.03.06@2x.png",
   "deprecated/CleanShot2026-03-25at12.11.56@2x.png",

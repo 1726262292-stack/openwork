@@ -158,9 +158,8 @@ Once connected, your agent can use OpenWork capabilities from plain English in t
   members; the agent explains when someone still has a pending invitation.
 - **Share skills with your org** — "Create a skill that writes weekly status
   reports and share it with my whole organization." The agent writes the
-  `SKILL.md` locally, then creates a plugin, attaches the skill, publishes it
-  to your marketplace, and grants org-wide access — teammates see it in their
-  marketplace and install it with one click.
+  skill inside a plugin, adds the plugin to a Collection, and grants the
+  Collection org-wide — teammates find the assigned skill in `Settings > Library`.
 
 Org policy still applies: invitations respect seat limits and domain rules, and resource access follows organization membership, roles, policies, and exposure allowlists.
 
@@ -193,7 +192,7 @@ Instead of flooding your client with hundreds of tool definitions, the gateway k
 - `search_capabilities` searches the capabilities available to the signed-in member.
 - `execute_capability` runs an exact capability name returned by `search_capabilities`.
 
-Search can include OpenWork Cloud resources such as skills, plugins, connectors, marketplaces, workers, members, roles, teams, model providers, and org-connected external MCP tools when those capabilities are enabled and shared with the member.
+Search can include OpenWork Cloud resources such as skills, plugins, connectors, Collections, workers, members, roles, teams, model providers, and org-connected external MCP tools when those capabilities are enabled and shared with the member.
 
 Availability is governed by organization membership, role, policy, and exposure allowlists. It intentionally does not expose authentication internals, admin-only system routes, webhooks, API-key creation or deletion, or credential-returning endpoints.
 

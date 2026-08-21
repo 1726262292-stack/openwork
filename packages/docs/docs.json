@@ -116,7 +116,7 @@
           {
             "group": "Share with your team",
             "pages": [
-              "cloud/share-with-your-team/team-templates",
+              "cloud/share-with-your-team/collections",
               "cloud/share-with-your-team/desktop-policies",
               "cloud/share-with-your-team/team-prompt-cards",
               "cloud/share-with-your-team/managed-llm-provider",
@@ -199,6 +199,10 @@
     {
       "source": "/changelog/changelog",
       "destination": "/changelog"
+    },
+    {
+      "source": "/cloud/share-with-your-team/team-templates",
+      "destination": "/cloud/share-with-your-team/collections"
     }
   ],
   "errors": {
