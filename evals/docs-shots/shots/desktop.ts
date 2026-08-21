@@ -1,8 +1,8 @@
-import { clickButton, waitFor } from "@openwork/behaviors";
+import { clickButton, denFetch, waitFor } from "@openwork/behaviors";
 import { connect, debuggerUrlFor, evaluate, listTargets } from "@openwork/cdp";
 import { provider } from "../ctx.ts";
 import { inPage } from "../inpage.ts";
-import { org } from "../seed.ts";
+import { ORG_FIXTURE, org } from "../seed.ts";
 import { desktop } from "../surfaces.ts";
 import type { DesktopShotSurface } from "../surfaces.ts";
 import { dismissOverlays, fillForm, keepExpanded } from "../steps.ts";
@@ -18,6 +18,7 @@ const CHAT_SKILL_DESCRIPTION = "Prepare a call brief whenever you ask to prep a 
 const CHAT_CLOSING_REPLY = "The call-prep skill is saved to your Library and ready to use.";
 const resourceUri = "ui://openwork/skill-created/v1/view.html";
 const composerMessage = "Turn what we just did into a reusable skill for me";
+const ORGANIZATION_PROMPT_INTRO = "Try one of your organization's prompts:";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -92,6 +93,84 @@ const app = desktop({
   as: "admin",
   model,
   workspacePath: "/tmp/acme/acme-robotics",
+});
+
+const teamPromptCardsApp = desktop({
+  org,
+  as: ORG_FIXTURE.desktopPolicy.member,
+  model,
+  workspacePath: "/tmp/acme/acme-robotics",
+});
+
+async function openEmptyTeamPromptSession(surface: DesktopShotSurface): Promise<void> {
+  const member = surface.organization.den.members[ORG_FIXTURE.desktopPolicy.member];
+  if (!member) throw new Error("The docs member was not provisioned.");
+  const config = await denFetch(member, "/v1/me/desktop-config", {
+    headers: {
+      authorization: `Bearer ${member.token}`,
+      "x-openwork-org-id": surface.organization.orgId,
+    },
+  });
+  const expectedPrompts = ORG_FIXTURE.desktopPolicy.promptCards.map((card) => card.prompt);
+  const expectedTitles = ORG_FIXTURE.desktopPolicy.promptCards.map((card) => card.title);
+  const actualPrompts = isRecord(config.body) && Array.isArray(config.body.onboardingPrompts)
+    ? config.body.onboardingPrompts
+    : [];
+  const actualTitles = isRecord(config.body) && Array.isArray(config.body.onboardingPromptDescriptions)
+    ? config.body.onboardingPromptDescriptions
+    : [];
+  if (!config.response.ok
+    || JSON.stringify(actualPrompts) !== JSON.stringify(expectedPrompts)
+    || JSON.stringify(actualTitles) !== JSON.stringify(expectedTitles)) {
+    throw new Error(`The docs member did not receive the seeded prompt policy: HTTP ${config.response.status} ${config.text.slice(0, 600)}`);
+  }
+  const titlesVisible = expectedTitles
+    .map((title) => `document.body.innerText.includes(${JSON.stringify(title)})`)
+    .join(" && ");
+  await waitFor(surface, titlesVisible, {
+    timeoutMs: 60_000,
+    label: "organization prompt config settled",
+  });
+  const task = await inPage(surface, `async () => {
+    const deadline = Date.now() + 60000;
+    let last = null;
+    while (Date.now() < deadline) {
+      last = await window.__openworkControl.execute("session.create_task", null);
+      if (last?.ok === true) return last;
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
+    return last;
+  }`, {}, { awaitPromise: true, timeoutMs: 70_000 });
+  if (!isRecord(task) || task.ok !== true) throw new Error(`Creating an empty prompt-card session failed: ${JSON.stringify(task)}`);
+  await waitFor(surface, `document.body.innerText.includes(${JSON.stringify(ORGANIZATION_PROMPT_INTRO)}) && ${titlesVisible}`, {
+    timeoutMs: 60_000,
+    label: "member-facing organization prompt cards",
+  });
+  await inPage(surface, `() => {
+    const label = [...document.querySelectorAll("span")]
+      .find((element) => (element.textContent ?? "").trim() === "Notifications");
+    const item = label?.closest("a, button");
+    const badge = item && [...item.querySelectorAll("span")]
+      .find((element) => (element.textContent ?? "").trim() === "1");
+    if (badge instanceof HTMLElement) badge.style.display = "none";
+    const account = document.querySelector('[data-testid="account-status-menu"]');
+    const status = account && [...account.children]
+      .find((element) => element instanceof HTMLElement && element.classList.contains("size-4"));
+    if (status instanceof HTMLElement) status.style.display = "none";
+    return true;
+  }`, {});
+}
+
+export const desktopTeamPromptCards = shot("desktop-team-prompt-cards", {
+  use: teamPromptCardsApp,
+  at: (surface) => `/workspace/${surface.workspaceId}`,
+  steps: [dismissOverlays, openEmptyTeamPromptSession],
+  expect: [
+    ORGANIZATION_PROMPT_INTRO,
+    ...ORG_FIXTURE.desktopPolicy.promptCards.map((card) => card.title),
+  ],
+  never: ["What do you need done?", "Opening session…", "Summarize my week", "Connect a model provider"],
+  out: "packages/docs/images/desktop-team-prompt-cards.png",
 });
 
 const skillForm = fillForm({
