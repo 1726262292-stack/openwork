@@ -149,11 +149,19 @@ async function configureWorkspace(appSurface: App, workspaceId: string, baseUrl:
 }
 
 async function createSession(appSurface: App): Promise<string> {
-  const created = await control(appSurface, "session.create_task", undefined, { timeoutMs: 60_000 });
-  if (typeof created !== "string" || !created.startsWith("ses_")) {
-    throw new Error(`session.create_task did not return a session id: ${JSON.stringify(created)}`);
+  const deadline = Date.now() + 60_000;
+  let lastError: unknown = null;
+  while (Date.now() < deadline) {
+    try {
+      const created = await control(appSurface, "session.create_task", undefined, { timeoutMs: 30_000 });
+      if (typeof created === "string" && created.startsWith("ses_")) return created;
+      lastError = new Error(`session.create_task returned ${JSON.stringify(created)}`);
+    } catch (error) {
+      lastError = error;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500));
   }
-  return created;
+  throw new Error(`session.create_task did not return a session id: ${lastError instanceof Error ? lastError.message : String(lastError)}`);
 }
 
 async function openSession(appSurface: App, sessionId: string): Promise<void> {
