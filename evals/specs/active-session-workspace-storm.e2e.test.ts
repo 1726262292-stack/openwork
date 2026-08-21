@@ -66,6 +66,7 @@ interface WorkspacePlan {
   filePath: string;
   marker: string;
   slowMarker: string;
+  lateMarker: string;
   easyMarker: string;
   finalReply: string;
   workspaceId: string;
@@ -100,6 +101,7 @@ interface SurfaceFacts {
   bodyHasMarker: boolean;
   bodyHasToolActivity: boolean;
   bodyHasSlowMarker: boolean;
+  bodyHasLateMarker: boolean;
 }
 
 interface EngineGenerationFact {
@@ -163,6 +165,7 @@ function parseSurfaceFacts(value: unknown): SurfaceFacts {
     bodyHasMarker: value.bodyHasMarker === true,
     bodyHasToolActivity: value.bodyHasToolActivity === true,
     bodyHasSlowMarker: value.bodyHasSlowMarker === true,
+    bodyHasLateMarker: value.bodyHasLateMarker === true,
   };
 }
 
@@ -206,6 +209,7 @@ function buildPlans(runId: string): WorkspacePlan[] {
       filePath: `${path}/storm-output-w${index}.txt`,
       marker,
       slowMarker: `SLOW-${marker}`,
+      lateMarker: `LATE-${marker}`,
       easyMarker: `EASY-${marker}`,
       finalReply: `COMPLETE-${marker}`,
       workspaceId: "",
@@ -240,10 +244,10 @@ function agentWorkloads(plans: WorkspacePlan[]) {
       {
         tool: "bash",
         arguments: {
-          command: `sleep ${Math.ceil(slowToolMs / 1_000)} && printf '%s\\n' '${shellValue(plan.slowMarker)}' >> '${shellValue(plan.filePath)}'`,
-          timeout: slowToolMs + 30_000,
+          command: `sleep 15 && printf '%s\\n' '${shellValue(plan.slowMarker)}' >> '${shellValue(plan.filePath)}'`,
+          timeout: 45_000,
           workdir: plan.path,
-          description: `Hold workspace ${plan.index} live, then append its slow marker`,
+          description: `Start workspace ${plan.index} workload before switching away`,
         },
       },
       {
@@ -253,6 +257,24 @@ function agentWorkloads(plans: WorkspacePlan[]) {
           timeout: 30_000,
           workdir: plan.path,
           description: `Check the slow output for workspace ${plan.index}`,
+        },
+      },
+      {
+        tool: "bash",
+        arguments: {
+          command: `sleep ${Math.ceil(slowToolMs / 1_000)} && printf '%s\\n' '${shellValue(plan.lateMarker)}' >> '${shellValue(plan.filePath)}'`,
+          timeout: slowToolMs + 30_000,
+          workdir: plan.path,
+          description: `Continue workspace ${plan.index} while it is not selected`,
+        },
+      },
+      {
+        tool: "bash",
+        arguments: {
+          command: `cat '${shellValue(plan.filePath)}'`,
+          timeout: 30_000,
+          workdir: plan.path,
+          description: `Check the later slow output for workspace ${plan.index}`,
         },
       },
       {
@@ -435,7 +457,7 @@ async function readSessionFacts(desktopApp: App, workspaceId: string, sessionId:
   return parseSessionFacts(value);
 }
 
-async function readSurfaceFacts(desktopApp: App, marker: string, slowMarker: string): Promise<SurfaceFacts> {
+async function readSurfaceFacts(desktopApp: App, marker: string, slowMarker: string, lateMarker: string): Promise<SurfaceFacts> {
   const value = await evalIn(desktopApp, `(() => {
     const body = document.body.innerText ?? "";
     const authActions = [...document.querySelectorAll("button, a")]
@@ -449,6 +471,7 @@ async function readSurfaceFacts(desktopApp: App, marker: string, slowMarker: str
       bodyHasMarker: body.includes(${JSON.stringify(marker)}),
       bodyHasToolActivity: body.includes("Hold workspace") || body.includes("sleep "),
       bodyHasSlowMarker: body.includes(${JSON.stringify(slowMarker)}),
+      bodyHasLateMarker: body.includes(${JSON.stringify(lateMarker)}),
     };
   })()`);
   return parseSurfaceFacts(value);
@@ -502,6 +525,13 @@ function slowToolRunning(facts: SessionFacts): boolean {
     && (tool.status === "running" || tool.status === "pending")
     && typeof tool.input.command === "string"
     && tool.input.command.includes("sleep "));
+}
+
+function laterToolRunning(facts: SessionFacts, plan: WorkspacePlan): boolean {
+  return facts.tools.some((tool) => tool.tool.endsWith("bash")
+    && (tool.status === "running" || tool.status === "pending")
+    && typeof tool.input.command === "string"
+    && tool.input.command.includes(plan.lateMarker));
 }
 
 function sessionCorpus(facts: SessionFacts): string {
@@ -699,7 +729,7 @@ test.skipIf(!runnable)(
     const engineBeforeStorm = await readEngineRuntimeFacts(desktopApp);
 
     await openExactSessionRoute(desktopApp, plans[0]);
-    const liveSurface = await readSurfaceFacts(desktopApp, plans[0].marker, plans[0].slowMarker);
+    const liveSurface = await readSurfaceFacts(desktopApp, plans[0].marker, plans[0].slowMarker, plans[0].lateMarker);
     expect(liveSurface.bodyHasMarker).toBe(true);
     expect(liveSurface.bodyHasToolActivity).toBe(true);
     expect(liveSurface.bodyHasSlowMarker).toBe(true);
@@ -718,6 +748,7 @@ test.skipIf(!runnable)(
     const connectFailures: string[] = [];
     const reconnectSurfaces: string[] = [];
     const missingRenderedLiveTools: string[] = [];
+    const missingRenderedLaterTools: string[] = [];
     const nonLiveSamples: string[] = [];
     const liveSamples = new Map(plans.map((plan) => [plan.sessionId, 0]));
     const stormStartedAt = Date.now();
@@ -729,12 +760,15 @@ test.skipIf(!runnable)(
         const [facts, denState, surface] = await Promise.all([
           readSessionFacts(desktopApp, plan.workspaceId, plan.sessionId),
           readDenClientState(desktopApp),
-          readSurfaceFacts(desktopApp, plan.marker, plan.slowMarker),
+          readSurfaceFacts(desktopApp, plan.marker, plan.slowMarker, plan.lateMarker),
         ]);
         if (slowToolRunning(facts)) {
           liveSamples.set(plan.sessionId, (liveSamples.get(plan.sessionId) ?? 0) + 1);
           if (!surface.bodyHasSlowMarker) {
             missingRenderedLiveTools.push(`switch ${switches}: ${plan.sessionId} server=${JSON.stringify(facts.tools)} surface=${JSON.stringify(surface)}`);
+          }
+          if (laterToolRunning(facts, plan) && !surface.bodyHasLateMarker) {
+            missingRenderedLaterTools.push(`switch ${switches}: ${plan.sessionId} server=${JSON.stringify(facts.tools)} surface=${JSON.stringify(surface)}`);
           }
         } else {
           nonLiveSamples.push(`switch ${switches}: ${plan.sessionId} tools=${JSON.stringify(facts.tools)}`);
@@ -760,9 +794,10 @@ test.skipIf(!runnable)(
     expect(connectFailures).toEqual([]);
     expect(reconnectSurfaces).toEqual([]);
     expect(missingRenderedLiveTools).toEqual([]);
+    expect(missingRenderedLaterTools).toEqual([]);
     evidence.recordAssertionEvidence(
       "Repeated exact-session-route switching preserves every in-flight turn and Cloud identity",
-      `${switches} exact route switches over ${Date.now() - stormStartedAt}ms; live samples=${JSON.stringify([...liveSamples])}; missing rendered live tools=${JSON.stringify(missingRenderedLiveTools)}; non-live=${JSON.stringify(nonLiveSamples)}; auth drops=${JSON.stringify(authDrops)}; org changes=${JSON.stringify(orgChanges)}; Connect failures=${JSON.stringify(connectFailures)}; reconnect/crash surfaces=${JSON.stringify(reconnectSurfaces)}.`,
+      `${switches} exact route switches over ${Date.now() - stormStartedAt}ms; live samples=${JSON.stringify([...liveSamples])}; missing rendered live tools=${JSON.stringify(missingRenderedLiveTools)}; missing rendered later tools=${JSON.stringify(missingRenderedLaterTools)}; non-live=${JSON.stringify(nonLiveSamples)}; auth drops=${JSON.stringify(authDrops)}; org changes=${JSON.stringify(orgChanges)}; Connect failures=${JSON.stringify(connectFailures)}; reconnect/crash surfaces=${JSON.stringify(reconnectSurfaces)}.`,
       switches >= 9
         && [...liveSamples.values()].every((count) => count >= 3)
         && nonLiveSamples.length === 0
@@ -770,7 +805,8 @@ test.skipIf(!runnable)(
         && orgChanges.length === 0
         && connectFailures.length === 0
         && reconnectSurfaces.length === 0
-        && missingRenderedLiveTools.length === 0,
+        && missingRenderedLiveTools.length === 0
+        && missingRenderedLaterTools.length === 0,
     );
     const engineAfterStorm = await readEngineRuntimeFacts(desktopApp);
     evidence.recordAssertionEvidence(
@@ -779,7 +815,7 @@ test.skipIf(!runnable)(
       engineBeforeStorm.enginePid !== null && engineAfterStorm.enginePid !== null,
     );
 
-    const expectedTools = ["bash", "bash", "bash", "bash", "bash", "bash"];
+    const expectedTools = ["bash", "bash", "bash", "bash", "bash", "bash", "bash", "bash"];
     for (const plan of plans) {
       await openExactSessionRoute(desktopApp, plan);
       const complete = await eventually(
@@ -819,6 +855,7 @@ test.skipIf(!runnable)(
       expect(corpus).toContain(plan.filePath);
       expect(corpus).toContain(`INITIAL-${plan.marker}`);
       expect(corpus).toContain(plan.slowMarker);
+      expect(corpus).toContain(plan.lateMarker);
       expect(corpus).toContain(plan.easyMarker);
       expect(corpus).toContain(plan.finalReply);
       for (const other of plans.filter((candidate) => candidate.index !== plan.index)) {
@@ -832,7 +869,7 @@ test.skipIf(!runnable)(
       });
       const mainRequests = providerRequests.filter((request) => request.kind !== "utility");
       expect(mainRequests.map((request) => request.kind)).toEqual([
-        "tool", "tool", "tool", "tool", "tool", "tool", "final",
+         "tool", "tool", "tool", "tool", "tool", "tool", "tool", "tool", "final",
       ]);
       expect(mainRequests.filter((request) => request.kind === "tool").map((request) => request.toolName)).toEqual(expectedTools);
       expect(mainRequests.every((request) => request.matchedMarkers.length === 1
@@ -846,7 +883,7 @@ test.skipIf(!runnable)(
       }
       expect(wrongWorkspaceStatuses.every((status) => status === 404)).toBe(true);
 
-      const finalSurface = await readSurfaceFacts(desktopApp, plan.marker, plan.slowMarker);
+       const finalSurface = await readSurfaceFacts(desktopApp, plan.marker, plan.slowMarker, plan.lateMarker);
       expect(finalSurface.sessionId).toBe(plan.sessionId);
       expect(finalSurface.bodyHasMarker).toBe(true);
       expect(finalSurface.authActions).toEqual([]);
@@ -859,7 +896,7 @@ test.skipIf(!runnable)(
       ]);
       expect(completeValidation.ok, completeValidation.why).toBe(true);
       evidence.recordAssertionEvidence(
-        `Workspace ${plan.index} completed only its own six-step workload in its originating session`,
+         `Workspace ${plan.index} completed only its own eight-step workload in its originating session`,
         `Origin=${plan.workspaceId}/${plan.sessionId}; tools=${JSON.stringify(complete.tools)}; provider=${JSON.stringify(mainRequests)}; wrong-workspace snapshot statuses=${JSON.stringify(wrongWorkspaceStatuses)}; transcript=${JSON.stringify(complete.text)}.`,
         complete.text.includes(plan.finalReply)
           && complete.tools.map((tool) => tool.tool).join(",") === expectedTools.join(",")
