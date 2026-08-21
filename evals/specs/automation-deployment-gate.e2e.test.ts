@@ -10,11 +10,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
-test("Desktop honors the published Automation availability contract", { timeout: 300_000 }, async ({ evidence, place }) => {
+test("Desktop availability preserves the legacy Den runtime during rollout", { timeout: 300_000 }, async ({ evidence, place }) => {
   needs(requirements)
   await using den = await server({
     place,
-    env: { DEN_AUTOMATIONS_ENABLED: "false" },
+    env: {
+      DEN_AUTOMATIONS_ENABLED: "false",
+      DEN_AUTOMATIONS_RUNTIME_ENABLED: "true",
+    },
   })
 
   const config = await denFetch(den.admin, "/v1/me/desktop-config", {
@@ -42,8 +45,8 @@ test("Desktop honors the published Automation availability contract", { timeout:
     .toBe(runnerTokenCallsBeforeDesktop)
   expect(await den.apiLog()).toContain("Automation scheduler enabled")
   evidence.recordAssertionEvidence(
-    "Desktop Automation availability",
-    "Desktop redirected the disabled Automation route and did not register its runner while Den preserved existing API and scheduler behavior for published older clients.",
+    "Published Desktop compatibility",
+    "Desktop honored unavailable Automations without registering its runner while Den preserved routes and scheduling for published legacy clients until an explicit runtime shutdown.",
     true,
   )
 })

@@ -57,7 +57,6 @@ import { automationModelOptions, describeAutomationModel } from "./automation-mo
 const ACTIVE_RUN_STATUSES = new Set<AutomationRun["status"]>(["queued", "claimed", "running"])
 const AUTOMATIONS_PAGE_FAST_POLL_MS = 10_000
 const AUTOMATIONS_PAGE_SLOW_POLL_MS = 60_000
-const AUTOMATIONS_PAGE_FAST_POLL_WINDOW_MS = 5 * 60_000
 
 function stateLabel(state: AutomationState) {
   if (state === "needs_attention") return "Needs attention"
@@ -163,7 +162,6 @@ export function AutomationsPage(props: { providerCatalog?: AutomationProviderCat
   const selectedRunId = searchParams.get("run")?.trim() || null
   const selectedThreadId = searchParams.get("thread")?.trim() || null
   const creating = searchParams.get("create") === "1"
-  const [pageMountedAt] = useState(() => Date.now())
   const ready = denAuth.isSignedIn && Boolean(client && organizationId)
   const queryRoot = ["den", "automations", organizationId]
   const zenModelRestricted = useDesktopRestriction("allowZenModel")
@@ -175,9 +173,7 @@ export function AutomationsPage(props: { providerCatalog?: AutomationProviderCat
     queryKey: [...queryRoot, "list"],
     queryFn: () => client!.listAutomations(organizationId!, { limit: 100 }),
     enabled: ready,
-    refetchInterval: () => Date.now() - pageMountedAt < AUTOMATIONS_PAGE_FAST_POLL_WINDOW_MS
-      ? AUTOMATIONS_PAGE_FAST_POLL_MS
-      : AUTOMATIONS_PAGE_SLOW_POLL_MS,
+    refetchInterval: AUTOMATIONS_PAGE_SLOW_POLL_MS,
   })
   const providersQuery = useQuery({
     queryKey: [...queryRoot, "models"],

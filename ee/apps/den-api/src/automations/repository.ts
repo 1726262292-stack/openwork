@@ -23,7 +23,7 @@ import type {
   AutomationRunEventType,
   AutomationUsage,
 } from "@openwork/types/automations"
-import { and, asc, desc, eq, gt, inArray, lt, lte, sql } from "@openwork-ee/den-db/drizzle"
+import { and, asc, desc, eq, gt, inArray, lt, lte, or, sql } from "@openwork-ee/den-db/drizzle"
 import {
   AutomationRevisionTable,
   AutomationRunnerTable,
@@ -188,6 +188,46 @@ async function itemFromRows(automation: AutomationRow, revision: RevisionRow): P
   return { automation: mapAutomation(automation), revision: mapRevision(revision), latestRun: await latestRun(automation.id) }
 }
 
+async function itemsFromRows(automations: AutomationRow[]): Promise<AutomationListItem[]> {
+  if (automations.length === 0) return []
+
+  const latestRunConditions = automations.flatMap((automation) => automation.latest_run_at
+    ? [and(
+        eq(AutomationRunTable.automation_id, automation.id),
+        eq(AutomationRunTable.created_at, automation.latest_run_at),
+      )]
+    : [])
+  const [revisions, latestRuns] = await Promise.all([
+    db.select().from(AutomationRevisionTable).where(inArray(
+      AutomationRevisionTable.id,
+      automations.map((automation) => automation.current_revision_id),
+    )),
+    latestRunConditions.length === 0
+      ? Promise.resolve([])
+      : db.select().from(AutomationRunTable)
+          .where(or(...latestRunConditions))
+          .orderBy(desc(AutomationRunTable.created_at), desc(AutomationRunTable.id)),
+  ])
+  const revisionById = new Map(revisions.map((revision) => [revision.id, revision]))
+  const latestRunByAutomationId = new Map<string, RunRow>()
+  for (const run of latestRuns) {
+    if (!latestRunByAutomationId.has(run.automation_id)) {
+      latestRunByAutomationId.set(run.automation_id, run)
+    }
+  }
+
+  return automations.map((automation) => {
+    const revision = revisionById.get(automation.current_revision_id)
+    if (!revision) throw new Error("automation_revision_not_found")
+    const run = latestRunByAutomationId.get(automation.id)
+    return {
+      automation: mapAutomation(automation),
+      revision: mapRevision(revision),
+      latestRun: run ? mapRun(run) : null,
+    }
+  })
+}
+
 export class DenAutomationRepository implements AutomationRepository {
   async listQueuedCloud(input: { limit: number }): Promise<string[]> {
     const rows = await db.select({ id: AutomationRunTable.id }).from(AutomationRunTable).where(and(
@@ -340,13 +380,10 @@ export class DenAutomationRepository implements AutomationRepository {
     const rows = await db.select().from(AutomationTable).where(and(...conditions))
       .orderBy(desc(AutomationTable.id)).limit(limit + 1)
     const selected = rows.slice(0, limit)
-    const items = await Promise.all(selected.map(async (automation) => {
-      const revisions = await db.select().from(AutomationRevisionTable)
-        .where(eq(AutomationRevisionTable.id, automation.current_revision_id)).limit(1)
-      if (!revisions[0]) throw new Error("automation_revision_not_found")
-      return itemFromRows(automation, revisions[0])
-    }))
-    return { items: await Promise.all(items), nextCursor: rows.length > limit ? selected.at(-1)?.id ?? null : null }
+    return {
+      items: await itemsFromRows(selected),
+      nextCursor: rows.length > limit ? selected.at(-1)?.id ?? null : null,
+    }
   }
 
   async get(input: Parameters<AutomationRepository["get"]>[0]): Promise<AutomationListItem | null> {
@@ -384,12 +421,7 @@ export class DenAutomationRepository implements AutomationRepository {
       eq(AutomationTable.state, "active"),
       lte(AutomationTable.next_due_at, new Date(input.now)),
     )).orderBy(asc(AutomationTable.next_due_at), asc(AutomationTable.id)).limit(input.limit)
-    return Promise.all(rows.map(async (automation) => {
-      const revisions = await db.select().from(AutomationRevisionTable)
-        .where(eq(AutomationRevisionTable.id, automation.current_revision_id)).limit(1)
-      if (!revisions[0]) throw new Error("automation_revision_not_found")
-      return itemFromRows(automation, revisions[0])
-    }))
+    return itemsFromRows(rows)
   }
 
   async claim(input: Parameters<AutomationRepository["claim"]>[0]): Promise<AutomationClaimResult> {

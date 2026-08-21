@@ -22,6 +22,7 @@ import { appLogger } from "../observability/logger.js"
 
 const schedulerOwner = `den:${process.pid}:${randomUUID()}`
 const logger = appLogger.child({ component: "automations" })
+const AUTOMATION_LIST_AUTHORITY_BATCH_SIZE = 4
 
 type OwnerScope = {
   organizationId: string
@@ -80,10 +81,30 @@ export class AutomationService {
 
   async list(scope: OwnerScope, input: { cursor?: string; limit?: number }) {
     const page = await automationRepository.list({ ...scope, cursor: input.cursor, limit: input.limit ?? 50 })
-    return {
-      ...page,
-      items: await Promise.all(page.items.map((item) => this.reconcileModelAttention(item, scope))),
+    const modelAccessBySelection = new Map<string, ReturnType<typeof resolveAutomationModelAccess>>()
+    const resolveModelAccess = (item: AutomationListItem) => {
+      const key = JSON.stringify([item.revision.model.providerId, item.revision.model.modelId])
+      const existing = modelAccessBySelection.get(key)
+      if (existing) return existing
+      const access = resolveAutomationModelAccess({
+        organizationId: item.automation.organizationId,
+        ownerMemberId: item.automation.ownerMemberId,
+        ...item.revision.model,
+      })
+      modelAccessBySelection.set(key, access)
+      return access
     }
+    const items: AutomationListItem[] = []
+    for (let offset = 0; offset < page.items.length; offset += AUTOMATION_LIST_AUTHORITY_BATCH_SIZE) {
+      items.push(...await Promise.all(
+        page.items.slice(offset, offset + AUTOMATION_LIST_AUTHORITY_BATCH_SIZE).map((item) => this.reconcileModelAttention(
+          item,
+          scope,
+          () => resolveModelAccess(item),
+        )),
+      ))
+    }
+    return { ...page, items }
   }
 
   async get(scope: OwnerScope, automationId: string) {
@@ -487,13 +508,17 @@ export class AutomationService {
     }
   }
 
-  private async reconcileModelAttention(item: AutomationListItem, scope: OwnerScope): Promise<AutomationListItem> {
-    if (item.automation.state !== "active" || item.revision.action?.kind === "saved_script") return item
-    const access = await resolveAutomationModelAccess({
+  private async reconcileModelAttention(
+    item: AutomationListItem,
+    scope: OwnerScope,
+    resolveModelAccess: () => ReturnType<typeof resolveAutomationModelAccess> = () => resolveAutomationModelAccess({
       organizationId: item.automation.organizationId,
       ownerMemberId: item.automation.ownerMemberId,
       ...item.revision.model,
-    })
+    }),
+  ): Promise<AutomationListItem> {
+    if (item.automation.state !== "active" || item.revision.action?.kind === "saved_script") return item
+    const access = await resolveModelAccess()
     if (access.ok || !shouldApplyAutomationModelAccessFailure({
       model: item.revision.model,
       failure: access,
@@ -635,34 +660,49 @@ export class AutomationService {
       })
       return
     }
-    const interval = setInterval(() => void monitor(), heartbeatIntervalMs)
-    const state = await automationRepository.cloudRunState(claimed.run.id)
-    const result = await executor({
-      organizationId: claimed.automation.organizationId,
-      ownerMemberId: claimed.automation.ownerMemberId,
-      automationRunId: claimed.run.id,
-      automationName: claimed.automation.name,
-      action,
-      maximumRuntimeMs: claimed.revision.maximumRuntimeMs,
-      previousReceipt: state?.receipt ?? null,
-      signal: controller.signal,
-      onAdmitted: async (receipt) => automationRepository.setCloudExecution({
-        runId: claimed.run.id,
-        leaseOwner,
-        engineKind: "openwork-cloud-agent-v1",
-        receipt,
-        now: Date.now(),
-      }),
-    }).catch((error): CloudAgentExecution => ({
-      ok: false,
-      status: controller.signal.aborted ? "cancelled" : "failed",
-      code: controller.signal.aborted ? "cancelled" : "execution_failed",
-      message: controller.signal.aborted ? "The Automation run was cancelled." : error instanceof Error ? error.message : "Cloud agent execution failed.",
-      // The executor may have admitted a deterministic native turn before an
-      // unexpected exception escaped. A person must inspect that run instead
-      // of risking a second set of external side effects.
-      retryable: false,
-    })).finally(() => clearInterval(interval))
+    const interval = setInterval(() => {
+      if (controller.signal.aborted) return
+      void monitor().catch((error) => {
+        logger.error("Cloud Automation heartbeat monitor failed", {
+          run_id: claimed.run.id,
+          error,
+        })
+        controller.abort(error)
+      })
+    }, heartbeatIntervalMs)
+    interval.unref()
+    let result: CloudAgentExecution
+    try {
+      const state = await automationRepository.cloudRunState(claimed.run.id)
+      result = await executor({
+        organizationId: claimed.automation.organizationId,
+        ownerMemberId: claimed.automation.ownerMemberId,
+        automationRunId: claimed.run.id,
+        automationName: claimed.automation.name,
+        action,
+        maximumRuntimeMs: claimed.revision.maximumRuntimeMs,
+        previousReceipt: state?.receipt ?? null,
+        signal: controller.signal,
+        onAdmitted: async (receipt) => automationRepository.setCloudExecution({
+          runId: claimed.run.id,
+          leaseOwner,
+          engineKind: "openwork-cloud-agent-v1",
+          receipt,
+          now: Date.now(),
+        }),
+      }).catch((error): CloudAgentExecution => ({
+        ok: false,
+        status: controller.signal.aborted ? "cancelled" : "failed",
+        code: controller.signal.aborted ? "cancelled" : "execution_failed",
+        message: controller.signal.aborted ? "The Automation run was cancelled." : error instanceof Error ? error.message : "Cloud agent execution failed.",
+        // The executor may have admitted a deterministic native turn before an
+        // unexpected exception escaped. A person must inspect that run instead
+        // of risking a second set of external side effects.
+        retryable: false,
+      }))
+    } finally {
+      clearInterval(interval)
+    }
 
     if (!result.ok && result.retryable && await automationRepository.queueRetry({
       runId: claimed.run.id,
