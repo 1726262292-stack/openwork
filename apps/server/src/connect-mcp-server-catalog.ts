@@ -26,6 +26,11 @@ const BUILTIN_APP_HOST_CLOUD_ORIGINS = new Set([
   "https://app.openwork.software",
 ]);
 
+const BUILTIN_APP_HOST_GATEWAY_PROXY_ORIGINS = new Map([
+  ["https://app.openworklabs.com", "https://api.openworklabs.com"],
+  ["https://app.openwork.software", "https://api.openwork.software"],
+]);
+
 const indexSchema = z.object({
   schemaVersion: z.literal(CONNECT_MCP_SERVER_INDEX_SCHEMA_VERSION),
   servers: z.array(z.object({
@@ -92,6 +97,37 @@ function endpointOrigin(value: unknown): string | null {
   } catch {
     return null;
   }
+}
+
+function normalizeAppHostProxyUrl(
+  cloudMcpUrl: unknown,
+  server: OpenWorkConnectMcpServerIndex["servers"][number],
+): string | null {
+  if (typeof cloudMcpUrl !== "string") return null;
+  let cloudEndpoint: URL;
+  let serverEndpoint: URL;
+  try {
+    cloudEndpoint = new URL(cloudMcpUrl);
+    serverEndpoint = new URL(server.url);
+  } catch {
+    return null;
+  }
+  if (cloudEndpoint.username || cloudEndpoint.password || serverEndpoint.username || serverEndpoint.password) return null;
+  if (serverEndpoint.search || serverEndpoint.hash) return null;
+  if (serverEndpoint.origin === cloudEndpoint.origin) return serverEndpoint.toString();
+
+  // Hosted Desktop talks to Den through the app-origin gateway, while Den's
+  // authenticated member index names its canonical api-origin proxy. Keep the
+  // credential on the configured app origin by translating only this exact,
+  // built-in proxy pair and exact per-connection path. Arbitrary cross-origin
+  // descriptors still fail closed.
+  if (BUILTIN_APP_HOST_GATEWAY_PROXY_ORIGINS.get(cloudEndpoint.origin) !== serverEndpoint.origin) return null;
+  const cloudTerminalPath = "/mcp/agent";
+  if (!cloudEndpoint.pathname.endsWith(cloudTerminalPath) || cloudEndpoint.search || cloudEndpoint.hash) return null;
+  const expectedServerPath = `/mcp/agent/connections/${encodeURIComponent(server.connectionId)}`;
+  if (serverEndpoint.pathname !== expectedServerPath) return null;
+  const gatewayPrefix = cloudEndpoint.pathname.slice(0, -cloudTerminalPath.length);
+  return new URL(`${gatewayPrefix}${serverEndpoint.pathname}`, cloudEndpoint.origin).toString();
 }
 
 function isLoopbackHostname(hostname: string): boolean {
@@ -197,9 +233,13 @@ export async function readOpenWorkConnectMcpServerIndex(
   if (text === null) return null;
   const parsed = indexSchema.safeParse(JSON.parse(text));
   if (!parsed.success) return null;
-  const cloudOrigin = endpointOrigin(cloudMcp.url);
-  if (!cloudOrigin || parsed.data.servers.some((server) => endpointOrigin(server.url) !== cloudOrigin)) return null;
-  return parsed.data;
+  const servers: OpenWorkConnectMcpServerIndex["servers"] = [];
+  for (const server of parsed.data.servers) {
+    const url = normalizeAppHostProxyUrl(cloudMcp.url, server);
+    if (!url) return null;
+    servers.push({ ...server, url });
+  }
+  return { ...parsed.data, servers };
 }
 
 /**
