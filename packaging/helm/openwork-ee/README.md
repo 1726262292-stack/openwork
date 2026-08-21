@@ -120,27 +120,31 @@ This renders `DEN_AUTOMATIONS_ENABLED=true` for Den. Missing configuration is
 treated as unavailable in every deployment; hosted OpenWork Cloud sets the
 variable explicitly to `true`.
 
-The flag is delivered in compatibility-safe phases. Den first publishes its
-effective value through `/v1/me/desktop-config`. The config-aware Desktop then
-hides the Automation surface and does not register its runner when the value is
-not explicitly true, while Den deliberately preserves the existing Automation
-API and scheduler behavior for older published Desktop clients. A later Den
-release enforces disabled execution after this Desktop has been distributed.
+Desktop v0.18.35 and newer consume the value from `/v1/me/desktop-config`, hide
+the Automation surface, and do not register a runner unless the value is
+explicitly true. When the value is false, Den does not register Automation HTTP
+or MCP routes and does not start the Automation scheduler.
+
+Existing deployments must keep the value true while any Desktop older than
+v0.18.35 remains in use. Those older clients predate the availability contract
+and can still call routes that Den now omits when Automations are disabled.
+Fresh installations can keep the default false until they intentionally enable
+Automations.
 
 For an existing deployment, stage the upgrade so independently released Den
 and Desktop versions never observe an unintended flag state:
 
-1. Set `config.public.automationsEnabled: "true"` before upgrading the chart.
+1. If any connected Desktop is older than v0.18.35, set
+   `config.public.automationsEnabled: "true"` before upgrading the chart.
 2. Upgrade Den and verify `/v1/me/desktop-config` reports
    `automationsEnabled: true`.
-3. Roll out the config-aware Desktop follow-up release.
-4. Roll out the Den enforcement follow-up release.
-5. Leave the value `true` to keep Automations, or change it to `"false"` only
-   after both follow-ups are deployed to disable them.
+3. Roll out Desktop v0.18.35 or newer to the whole deployment.
+4. Leave the value true to keep Automations, or change it to false only after
+   the Desktop rollout is complete to disable Automation routes and execution.
 
 New installations that intend to keep Automations off can keep the chart's
-default `"false"`. Until the enforcement follow-up is deployed, that value is
-an advertised availability contract rather than a runtime kill switch.
+default `"false"`; Den will omit the Automation routes and scheduler, and a
+compatible Desktop will keep the unavailable surface dormant.
 
 Provider-specific starter guides:
 
