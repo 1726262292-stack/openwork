@@ -258,7 +258,7 @@ async function readVisibleTool(
     const surface = document.querySelector(${JSON.stringify(`[data-session-surface-id="${sessionId}"]`)});
     const currentSessionId = document.querySelector("[data-session-surface-id]")?.getAttribute("data-session-surface-id") ?? "";
     if (!(surface instanceof HTMLElement)) return { currentSessionId, found: false, visible: false, text: "" };
-    const row = surface.querySelector("[data-tool-aggregate=\"" + CSS.escape(${JSON.stringify(toolCallId)}) + "\"]");
+    const row = surface.querySelector('[data-tool-aggregate="' + CSS.escape(${JSON.stringify(toolCallId)}) + '"]');
     if (!(row instanceof HTMLElement)) return { currentSessionId, found: false, visible: false, text: "" };
     const style = getComputedStyle(row);
     const rect = row.getBoundingClientRect();
