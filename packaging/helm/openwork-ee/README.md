@@ -128,10 +128,13 @@ config:
 ```
 
 These render `DEN_AUTOMATIONS_ENABLED=true` and
-`DEN_AUTOMATIONS_RUNTIME_ENABLED=true` for Den. Missing availability remains
-fail-closed. The runtime defaults to true only to preserve published-client
-compatibility during the rollout; hosted OpenWork Cloud explicitly enables
-availability.
+`DEN_AUTOMATIONS_RUNTIME_ENABLED=true` for Den. An entirely unconfigured Den
+keeps availability fail-closed while preserving the legacy runtime. When using
+raw environment variables, an explicit `DEN_AUTOMATIONS_ENABLED` value also
+becomes the runtime default: `false` is therefore a complete shutdown unless
+`DEN_AUTOMATIONS_RUNTIME_ENABLED=true` explicitly selects mixed-version
+compatibility. The chart always renders both values to make that choice
+unambiguous. Hosted OpenWork Cloud explicitly enables availability.
 
 Desktop v0.18.35 and newer consume the value from `/v1/me/desktop-config`, hide
 the Automation surface, and do not register a runner unless the value is

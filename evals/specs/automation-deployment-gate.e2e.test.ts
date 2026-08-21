@@ -14,7 +14,10 @@ test("Desktop availability preserves the legacy Den runtime during rollout", { t
   needs(requirements)
   await using den = await server({
     place,
-    env: { DEN_AUTOMATIONS_ENABLED: "false" },
+    env: {
+      DEN_AUTOMATIONS_ENABLED: "false",
+      DEN_AUTOMATIONS_RUNTIME_ENABLED: "true",
+    },
   })
 
   const config = await denFetch(den.admin, "/v1/me/desktop-config", {

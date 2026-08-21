@@ -463,12 +463,16 @@ const generatedArtifactViewsEnabled =
 const remoteMcpAppsEnabled =
   (parsed.DEN_REMOTE_MCP_APPS_ENABLED ?? "false").trim().toLowerCase() === "true"
 
-// Desktop availability stays fail-closed, while the server runtime defaults on
-// during the published-client compatibility window. Once every Desktop honors
-// the availability contract, deployments can explicitly disable the runtime
-// to remove routes, MCP resources, and scheduler work. A disabled runtime also
-// forces the advertised Desktop capability off if the flags disagree.
-const automationsRuntimeEnabled = parseBooleanFlag(parsed.DEN_AUTOMATIONS_RUNTIME_ENABLED ?? "true")
+// Desktop availability stays fail-closed, while an entirely unconfigured
+// server preserves the published-client runtime. An explicit availability
+// value also supplies the runtime default, so DEN_AUTOMATIONS_ENABLED=false is
+// a complete shutdown unless a mixed-version deployment explicitly keeps the
+// compatibility runtime on. A disabled runtime always forces availability off.
+const automationsRuntimeEnabled = parseBooleanFlag(
+  parsed.DEN_AUTOMATIONS_RUNTIME_ENABLED
+    ?? parsed.DEN_AUTOMATIONS_ENABLED
+    ?? "true",
+)
 const automationsEnabled = automationsRuntimeEnabled
   && parseBooleanFlag(parsed.DEN_AUTOMATIONS_ENABLED ?? "false")
 

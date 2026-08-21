@@ -35,7 +35,7 @@ function probeAutomations(options: { enabled?: string; runtimeEnabled?: string }
   })
 }
 
-function probeAutomationRoutes(runtimeEnabled?: string) {
+function probeAutomationRoutes(options: { enabled?: string; runtimeEnabled?: string } = {}) {
   return spawnSync(process.execPath, ["--conditions", "development", "--eval", `
     const { default: app } = await import("./src/app.ts")
     const routes = new Set(app.routes.map((route) => route.method + " " + route.path))
@@ -56,10 +56,12 @@ function probeAutomationRoutes(runtimeEnabled?: string) {
       DEN_DB_ENCRYPTION_KEY: "test-db-encryption-key-with-enough-entropy",
       BETTER_AUTH_SECRET: "test-auth-secret-with-enough-entropy-123456789",
       BETTER_AUTH_URL: "https://den.openwork.test",
-      DEN_AUTOMATIONS_ENABLED: "false",
       OPENWORK_DEV_MODE: "0",
       PROVISIONER_MODE: "stub",
-      ...(runtimeEnabled === undefined ? {} : { DEN_AUTOMATIONS_RUNTIME_ENABLED: runtimeEnabled }),
+      ...(options.enabled === undefined ? {} : { DEN_AUTOMATIONS_ENABLED: options.enabled }),
+      ...(options.runtimeEnabled === undefined
+        ? {}
+        : { DEN_AUTOMATIONS_RUNTIME_ENABLED: options.runtimeEnabled }),
     },
   })
 }
@@ -67,27 +69,33 @@ function probeAutomationRoutes(runtimeEnabled?: string) {
 test("Automation availability fails closed while the legacy runtime remains compatible", () => {
   const unset = probeAutomations()
   const disabled = probeAutomations({ enabled: "false" })
+  const compatible = probeAutomations({ enabled: "false", runtimeEnabled: "true" })
   const enabled = probeAutomations({ enabled: "true" })
   const runtimeDisabled = probeAutomations({ enabled: "true", runtimeEnabled: "false" })
 
   expect(unset.status, unset.stderr).toBe(0)
   expect(unset.stdout.trim()).toBe('{"enabled":false,"runtimeEnabled":true}')
   expect(disabled.status, disabled.stderr).toBe(0)
-  expect(disabled.stdout.trim()).toBe('{"enabled":false,"runtimeEnabled":true}')
+  expect(disabled.stdout.trim()).toBe('{"enabled":false,"runtimeEnabled":false}')
+  expect(compatible.status, compatible.stderr).toBe(0)
+  expect(compatible.stdout.trim()).toBe('{"enabled":false,"runtimeEnabled":true}')
   expect(enabled.status, enabled.stderr).toBe(0)
   expect(enabled.stdout.trim()).toBe('{"enabled":true,"runtimeEnabled":true}')
   expect(runtimeDisabled.status, runtimeDisabled.stderr).toBe(0)
   expect(runtimeDisabled.stdout.trim()).toBe('{"enabled":false,"runtimeEnabled":false}')
 })
 
-test("legacy Automation routes remain until the runtime is explicitly disabled", () => {
+test("Automation routes distinguish legacy defaults, explicit shutdown, and compatibility override", () => {
   const compatible = probeAutomationRoutes()
-  const hardDisabled = probeAutomationRoutes("false")
+  const hardDisabled = probeAutomationRoutes({ enabled: "false" })
+  const mixedVersion = probeAutomationRoutes({ enabled: "false", runtimeEnabled: "true" })
 
   expect(compatible.status, compatible.stderr).toBe(0)
   expect(compatible.stdout.trim()).toBe('{"list":true,"runnerToken":true}')
   expect(hardDisabled.status, hardDisabled.stderr).toBe(0)
   expect(hardDisabled.stdout.trim()).toBe('{"list":false,"runnerToken":false}')
+  expect(mixedVersion.status, mixedVersion.stderr).toBe(0)
+  expect(mixedVersion.stdout.trim()).toBe('{"list":true,"runnerToken":true}')
 })
 
 test("the explicit runtime flag gates Automation routes and scheduling in Den", () => {
