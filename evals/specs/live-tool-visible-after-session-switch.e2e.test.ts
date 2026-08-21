@@ -16,6 +16,7 @@ import {
   mcpMock,
   needs,
   server,
+  sleep,
   test,
 } from "@openwork/testkit";
 import type { App } from "@openwork/testkit";
@@ -91,7 +92,7 @@ function parseVisibleToolFact(value: unknown): VisibleToolFact {
   };
 }
 
-async function configureWorkspace(appSurface: App, workspaceId: string, baseUrl: string): Promise<void> {
+async function configureWorkspaces(appSurface: App, workspaceIds: string[], baseUrl: string): Promise<void> {
   const result = await evalIn(appSurface, `(async () => {
     const info = await window.__OPENWORK_ELECTRON__?.invokeDesktop?.("openworkServerInfo");
     if (!info?.running || !info.baseUrl) return "local_server_unavailable";
@@ -100,34 +101,35 @@ async function configureWorkspace(appSurface: App, workspaceId: string, baseUrl:
       Authorization: "Bearer " + String(info.ownerToken ?? info.clientToken ?? ""),
       "Content-Type": "application/json",
     };
-    const workspaceId = ${JSON.stringify(workspaceId)};
-    const configured = await fetch(root + "/workspace/" + encodeURIComponent(workspaceId) + "/config", {
-      method: "PATCH",
-      headers,
-      body: JSON.stringify({
-        opencode: {
-          permission: { bash: "allow" },
-          provider: {
-            [${JSON.stringify(providerId)}]: {
-              npm: "@ai-sdk/openai-compatible",
-              name: ${JSON.stringify(modelName)},
-              options: { baseURL: ${JSON.stringify(`${baseUrl}/v1`)}, apiKey: "sk-live-tool-switch" },
-              models: {
-                [${JSON.stringify(modelId)}]: { name: ${JSON.stringify(modelName)}, tool_call: true },
+    for (const workspaceId of ${JSON.stringify(workspaceIds)}) {
+      const configured = await fetch(root + "/workspace/" + encodeURIComponent(workspaceId) + "/config", {
+        method: "PATCH",
+        headers,
+        body: JSON.stringify({
+          opencode: {
+            permission: { bash: "allow" },
+            provider: {
+              [${JSON.stringify(providerId)}]: {
+                npm: "@ai-sdk/openai-compatible",
+                name: ${JSON.stringify(modelName)},
+                options: { baseURL: ${JSON.stringify(`${baseUrl}/v1`)}, apiKey: "sk-live-tool-switch" },
+                models: {
+                  [${JSON.stringify(modelId)}]: { name: ${JSON.stringify(modelName)}, tool_call: true },
+                },
               },
             },
           },
-        },
-      }),
-      signal: AbortSignal.timeout(30000),
-    });
-    if (!configured.ok) return "config:" + configured.status + ":" + (await configured.text()).slice(0, 300);
-    const reloaded = await fetch(root + "/workspace/" + encodeURIComponent(workspaceId) + "/engine/reload", {
-      method: "POST",
-      headers,
-      signal: AbortSignal.timeout(60000),
-    });
-    if (!reloaded.ok) return "reload:" + reloaded.status + ":" + (await reloaded.text()).slice(0, 300);
+        }),
+        signal: AbortSignal.timeout(30000),
+      });
+      if (!configured.ok) return "config:" + configured.status + ":" + (await configured.text()).slice(0, 300);
+      const reloaded = await fetch(root + "/workspace/" + encodeURIComponent(workspaceId) + "/engine/reload", {
+        method: "POST",
+        headers,
+        signal: AbortSignal.timeout(60000),
+      });
+      if (!reloaded.ok) return "reload:" + reloaded.status + ":" + (await reloaded.text()).slice(0, 300);
+    }
     const raw = localStorage.getItem("openwork.preferences");
     let preferences = {};
     try { preferences = raw ? JSON.parse(raw) : {}; } catch { preferences = {}; }
@@ -166,12 +168,21 @@ async function createSession(appSurface: App): Promise<string> {
   throw new Error(`session.create_task did not return a session id: ${lastError instanceof Error ? lastError.message : String(lastError)}`);
 }
 
-async function openSession(appSurface: App, sessionId: string): Promise<void> {
-  await control(appSurface, "session.open", { sessionId }, { timeoutMs: 60_000 });
+async function clickSessionRow(appSurface: App, workspaceId: string, sessionId: string): Promise<void> {
+  const clicked = await evalIn(appSurface, `(() => {
+    const row = document.querySelector(${JSON.stringify(`[data-sidebar-session-id="${sessionId}"][data-sidebar-session-workspace-id="${workspaceId}"]`)});
+    const button = row?.querySelector("button");
+    if (!(row instanceof HTMLElement) || !(button instanceof HTMLButtonElement)) return false;
+    row.scrollIntoView({ block: "center" });
+    button.click();
+    return true;
+  })()`);
+  expect(clicked).toBe(true);
   await waitFor(appSurface, `(() => {
     const surface = document.querySelector("[data-session-surface-id]");
-    return surface?.getAttribute("data-session-surface-id") === ${JSON.stringify(sessionId)};
-  })()`, { timeoutMs: 60_000, label: `session ${sessionId} visible` });
+    return surface?.getAttribute("data-session-surface-id") === ${JSON.stringify(sessionId)}
+      && (localStorage.getItem("openwork.react.activeWorkspace") ?? "") === ${JSON.stringify(workspaceId)};
+  })()`, { timeoutMs: 60_000, label: `workspace ${workspaceId} session ${sessionId} visible after sidebar click` });
 }
 
 async function readSessionFacts(appSurface: App, workspaceId: string, sessionId: string): Promise<SessionFacts> {
@@ -315,26 +326,29 @@ test.skipIf(!runnable)(
     });
     await using desktopApp = await app({ den, as: "member", place });
 
-    const workspace = await createAndSelectWorkspace(desktopApp, {
-      path: `/tmp/openwork-live-tool-switch-${runId}`,
+    const workspaceB = await createAndSelectWorkspace(desktopApp, {
+      path: `/tmp/openwork-live-tool-switch-${runId}-b`,
     });
-    await configureWorkspace(desktopApp, workspace.workspaceId, den.mocks.agent.url);
-
     const chatB = await createSession(desktopApp);
     await control(desktopApp, "session.rename", { sessionId: chatB, title: "Chat B" });
+
+    const workspaceA = await createAndSelectWorkspace(desktopApp, {
+      path: `/tmp/openwork-live-tool-switch-${runId}-a`,
+    });
+    await configureWorkspaces(desktopApp, [workspaceA.workspaceId, workspaceB.workspaceId], den.mocks.agent.url);
     const chatA = await createSession(desktopApp);
     await control(desktopApp, "session.rename", { sessionId: chatA, title: "Chat A" });
     expect(chatA).not.toBe(chatB);
 
-    await openSession(desktopApp, chatA);
+    await clickSessionRow(desktopApp, workspaceA.workspaceId, chatA);
     const selected = await selectModel(desktopApp, modelId);
     expect(selected.id).toBe(modelId);
     await writeComposerText(desktopApp, `Run the deterministic tool identified by ${promptMarker}.`);
     await control(desktopApp, "composer.send", undefined, { timeoutMs: 120_000 });
 
     const running = await eventually(async () => {
-      const approved = await approvePendingPermission(desktopApp, workspace.workspaceId, chatA);
-      const facts = await readSessionFacts(desktopApp, workspace.workspaceId, chatA);
+      const approved = await approvePendingPermission(desktopApp, workspaceA.workspaceId, chatA);
+      const facts = await readSessionFacts(desktopApp, workspaceA.workspaceId, chatA);
       return { approved, facts };
     }, {
       within: 90_000,
@@ -362,13 +376,16 @@ test.skipIf(!runnable)(
     );
     expect(visibleBeforeSwitch.visible).toBe(true);
 
-    await openSession(desktopApp, chatB);
+    await clickSessionRow(desktopApp, workspaceB.workspaceId, chatB);
     const absentFromChatB = await readVisibleTool(desktopApp, chatB, runningTool.callId);
     expect(absentFromChatB.currentSessionId).toBe(chatB);
     expect(absentFromChatB.found).toBe(false);
+    await sleep(8_000);
 
-    await openSession(desktopApp, chatA);
-    const stillRunning = await readSessionFacts(desktopApp, workspace.workspaceId, chatA);
+    const runningWhileAway = await readSessionFacts(desktopApp, workspaceA.workspaceId, chatA);
+    expect(runningWhileAway.tools.some((tool) => tool.status === "running" && tool.callId === runningTool.callId), JSON.stringify(runningWhileAway)).toBe(true);
+    await clickSessionRow(desktopApp, workspaceA.workspaceId, chatA);
+    const stillRunning = await readSessionFacts(desktopApp, workspaceA.workspaceId, chatA);
     expect(stillRunning.tools.some((tool) =>
       tool.status === "running"
         && tool.command === command
@@ -380,13 +397,13 @@ test.skipIf(!runnable)(
     expect(visibleAfterReturn.visible, JSON.stringify(visibleAfterReturn)).toBe(true);
     evidence.recordAssertionEvidence(
       "A running tool remains visible when the user returns to its chat",
-      `Chat A ${chatA} still reported the unique bash command as running after visiting Chat B ${chatB}; scoped CDP found its visible row with text ${JSON.stringify(visibleAfterReturn.text)}.`,
+      `Workspace A chat ${chatA} still reported the unique bash command as running after eight seconds in workspace B chat ${chatB}; scoped CDP found its visible row with text ${JSON.stringify(visibleAfterReturn.text)}.`,
       true,
     );
     await screenshot(desktopApp);
 
     const completed = await eventually(
-      () => readSessionFacts(desktopApp, workspace.workspaceId, chatA),
+      () => readSessionFacts(desktopApp, workspaceA.workspaceId, chatA),
       {
         within: 90_000,
         intervalMs: 500,
