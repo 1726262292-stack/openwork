@@ -39,6 +39,7 @@ const skipSuffix = !e2eTestsEnabled
       : "";
 
 interface ToolFact {
+  callId: string;
   status: string;
   command: string;
   description: string;
@@ -70,6 +71,7 @@ function parseSessionFacts(value: unknown): SessionFacts {
     for (const candidate of value.tools) {
       if (!isRecord(candidate)) continue;
       tools.push({
+        callId: typeof candidate.callId === "string" ? candidate.callId : "",
         status: typeof candidate.status === "string" ? candidate.status : "",
         command: typeof candidate.command === "string" ? candidate.command : "",
         description: typeof candidate.description === "string" ? candidate.description : "",
@@ -197,6 +199,7 @@ async function readSessionFacts(appSurface: App, workspaceId: string, sessionId:
         const state = part.state && typeof part.state === "object" ? part.state : {};
         const input = state.input && typeof state.input === "object" ? state.input : {};
         return [{
+          callId: typeof part.callID === "string" ? part.callID : "",
           status: typeof state.status === "string" ? state.status : "",
           command: typeof input.command === "string" ? input.command : "",
           description: typeof input.description === "string" ? input.description : "",
@@ -249,18 +252,13 @@ async function approvePendingPermission(appSurface: App, workspaceId: string, se
 async function readVisibleTool(
   appSurface: App,
   sessionId: string,
-  commandMarker: string,
-  description: string,
+  toolCallId: string,
 ): Promise<VisibleToolFact> {
   const value = await evalIn(appSurface, `(() => {
     const surface = document.querySelector(${JSON.stringify(`[data-session-surface-id="${sessionId}"]`)});
     const currentSessionId = document.querySelector("[data-session-surface-id]")?.getAttribute("data-session-surface-id") ?? "";
     if (!(surface instanceof HTMLElement)) return { currentSessionId, found: false, visible: false, text: "" };
-    const aggregate = [...surface.querySelectorAll("[data-tool-aggregate]")]
-      .find((candidate) => (candidate.textContent ?? "").includes(${JSON.stringify(commandMarker)}));
-    const individual = [...surface.querySelectorAll("button")]
-      .find((candidate) => (candidate.textContent ?? "").includes(${JSON.stringify(description)}));
-    const row = aggregate ?? individual;
+    const row = surface.querySelector("[data-tool-aggregate=\"" + CSS.escape(${JSON.stringify(toolCallId)}) + "\"]");
     if (!(row instanceof HTMLElement)) return { currentSessionId, found: false, visible: false, text: "" };
     const style = getComputedStyle(row);
     const rect = row.getBoundingClientRect();
@@ -350,9 +348,11 @@ test.skipIf(!runnable)(
           && tool.description === toolDescription),
     });
     expect(running.facts.sessionId).toBe(chatA);
+    const runningTool = running.facts.tools.find((tool) => tool.command === command);
+    if (!runningTool?.callId) throw new Error(`The running bash tool had no call ID: ${JSON.stringify(running.facts)}`);
 
     const visibleBeforeSwitch = await eventually(
-      () => readVisibleTool(desktopApp, chatA, completionMarker, toolDescription),
+      () => readVisibleTool(desktopApp, chatA, runningTool.callId),
       {
         within: 30_000,
         intervalMs: 250,
@@ -363,7 +363,7 @@ test.skipIf(!runnable)(
     expect(visibleBeforeSwitch.visible).toBe(true);
 
     await openSession(desktopApp, chatB);
-    const absentFromChatB = await readVisibleTool(desktopApp, chatB, completionMarker, toolDescription);
+    const absentFromChatB = await readVisibleTool(desktopApp, chatB, runningTool.callId);
     expect(absentFromChatB.currentSessionId).toBe(chatB);
     expect(absentFromChatB.found).toBe(false);
 
@@ -374,7 +374,7 @@ test.skipIf(!runnable)(
         && tool.command === command
         && tool.description === toolDescription), JSON.stringify(stillRunning)).toBe(true);
 
-    const visibleAfterReturn = await readVisibleTool(desktopApp, chatA, completionMarker, toolDescription);
+    const visibleAfterReturn = await readVisibleTool(desktopApp, chatA, runningTool.callId);
     expect(visibleAfterReturn.currentSessionId).toBe(chatA);
     expect(visibleAfterReturn.found, JSON.stringify(visibleAfterReturn)).toBe(true);
     expect(visibleAfterReturn.visible, JSON.stringify(visibleAfterReturn)).toBe(true);
@@ -397,7 +397,7 @@ test.skipIf(!runnable)(
     );
     expect(completed.text).toContain(completionMarker);
     const visibleAfterCompletion = await eventually(
-      () => readVisibleTool(desktopApp, chatA, completionMarker, toolDescription),
+      () => readVisibleTool(desktopApp, chatA, runningTool.callId),
       {
         within: 30_000,
         intervalMs: 250,
