@@ -1858,7 +1858,23 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     return syncError.message;
   };
 
-  const getCloudProviderSyncContextKey = () => {
+  const getServerCloudProviderSyncContextKey = () => {
+    const settings = readDenSettings();
+    const openworkSnapshot = options.openworkServer.getSnapshot();
+    return [
+      settings.baseUrl,
+      settings.apiBaseUrl ?? "",
+      settings.activeOrgId?.trim() ?? "",
+      settings.authToken?.trim() ?? "",
+      openworkSnapshot.openworkServerStatus,
+      openworkSnapshot.openworkServerClient?.baseUrl ?? "",
+      openworkSnapshot.openworkServerClient?.token ?? "",
+      openworkSnapshot.openworkServerAuth?.hostToken?.trim() ?? "",
+      openworkSnapshot.openworkServerCapabilities?.providerSync === true ? "provider-sync" : "no-provider-sync",
+    ].join("::");
+  };
+
+  const getClientCloudProviderSyncContextKey = () => {
     const settings = readDenSettings();
     return [
       settings.baseUrl,
@@ -2087,7 +2103,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     if (serverHandlesProviderSync()) {
       try {
         const result = await enqueueGlobalCloudProviderSync(
-          `server:${getCloudProviderSyncContextKey()}`,
+          `server:${getServerCloudProviderSyncContextKey()}`,
           async () => {
             const openworkClient = options.openworkServer.getSnapshot().openworkServerClient;
             if (!openworkClient) throw new Error("OpenWork server unavailable.");
@@ -2128,7 +2144,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
     }
 
     return enqueueGlobalCloudProviderSync(
-      `client:${getCloudProviderSyncContextKey()}`,
+      `client:${getClientCloudProviderSyncContextKey()}`,
       () => performCloudProviderSync(reason),
     ).catch((error) => {
       const message = logCloudProviderSyncError(reason, error);
@@ -2275,7 +2291,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
       void refreshImportedCloudProviders();
     }
     if (serverHandlesProviderSync()) {
-      const nextSyncContextKey = getCloudProviderSyncContextKey();
+      const nextSyncContextKey = getServerCloudProviderSyncContextKey();
       if (nextSyncContextKey === cloudProviderSyncContextKey) return;
       cloudProviderSyncContextKey = nextSyncContextKey;
       void pushDenSession().then(() => runCloudProviderSync("app_launch"));
@@ -2286,7 +2302,7 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
       return;
     }
 
-    const nextSyncContextKey = getCloudProviderSyncContextKey();
+    const nextSyncContextKey = getClientCloudProviderSyncContextKey();
     if (nextSyncContextKey === cloudProviderSyncContextKey) {
       return;
     }
