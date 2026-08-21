@@ -10,7 +10,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
-test("Den and Desktop enforce the Automation availability contract", { timeout: 300_000 }, async ({ evidence, place }) => {
+test("Desktop availability preserves the legacy Den runtime during rollout", { timeout: 300_000 }, async ({ evidence, place }) => {
   needs(requirements)
   await using den = await server({
     place,
@@ -26,7 +26,8 @@ test("Den and Desktop enforce the Automation availability contract", { timeout: 
   const list = await denFetch(den.admin, "/v1/automations", {
     headers: { authorization: `Bearer ${den.admin.token}` },
   })
-  expect(list.response.status, list.text).toBe(404)
+  expect(list.response.status, list.text).toBe(200)
+  expect(isRecord(list.body) && Array.isArray(list.body.items)).toBe(true)
 
   const runnerTokenCallsBeforeDesktop = (await den.apiLog()).split("/v1/automation-runners/token").length - 1
   await using desktop = await app({ den, as: "admin", place })
@@ -39,10 +40,10 @@ test("Den and Desktop enforce the Automation availability contract", { timeout: 
   const logAfterDesktopBoot = await den.apiLog()
   expect(logAfterDesktopBoot.split("/v1/automation-runners/token").length - 1)
     .toBe(runnerTokenCallsBeforeDesktop)
-  expect(await den.apiLog()).not.toContain("Automation scheduler enabled")
+  expect(await den.apiLog()).toContain("Automation scheduler enabled")
   evidence.recordAssertionEvidence(
-    "Desktop Automation availability",
-    "Den omitted disabled Automation routes and scheduling while Desktop redirected the disabled Automation route without registering its runner.",
+    "Published Desktop compatibility",
+    "Desktop honored unavailable Automations without registering its runner while Den preserved routes and scheduling for published legacy clients until an explicit runtime shutdown.",
     true,
   )
 })

@@ -496,7 +496,7 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
         member: memberIdentity,
         marketplaceEnabled: externalMcpConnectionsEnabled,
       })
-      if (env.automations.enabled) {
+      if (env.automations.runtimeEnabled) {
         // Owner-scoped: the index only ever carries this member's own
         // Automations. Without a resolved member there is no owner to scope to,
         // and a failure here must not take the whole connection down.

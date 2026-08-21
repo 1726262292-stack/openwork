@@ -23,6 +23,7 @@ function seedSnapshotEnv() {
   setEnvDefault("BETTER_AUTH_SECRET", "local-dev-secret-not-for-production-use!!")
   setEnvDefault("BETTER_AUTH_URL", "http://den.local")
   setEnvDefault("DEN_AUTOMATIONS_ENABLED", "true")
+  setEnvDefault("DEN_AUTOMATIONS_RUNTIME_ENABLED", "true")
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

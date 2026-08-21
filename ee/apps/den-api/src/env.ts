@@ -103,6 +103,7 @@ const EnvSchema = z.object({
   WORKER_URL_TEMPLATE: z.string().optional(),
   WORKER_ACTIVITY_BASE_URL: z.string().optional(),
   DEN_AUTOMATIONS_ENABLED: z.string().optional(),
+  DEN_AUTOMATIONS_RUNTIME_ENABLED: z.string().optional(),
   DEN_AUTOMATIONS_POLL_INTERVAL_MS: z.string().optional(),
   DEN_AUTOMATIONS_BATCH_SIZE: z.string().optional(),
   DEN_AUTOMATIONS_MAX_CONCURRENCY: z.string().optional(),
@@ -462,10 +463,14 @@ const generatedArtifactViewsEnabled =
 const remoteMcpAppsEnabled =
   (parsed.DEN_REMOTE_MCP_APPS_ENABLED ?? "false").trim().toLowerCase() === "true"
 
-// Automations are deployment-sensitive and must be explicitly enabled. This
-// keeps direct and packaged self-hosted deployments fail-closed when the flag
-// is omitted; hosted OpenWork sets the same flag to true in its environment.
-const automationsEnabled = parseBooleanFlag(parsed.DEN_AUTOMATIONS_ENABLED ?? "false")
+// Desktop availability stays fail-closed, while the server runtime defaults on
+// during the published-client compatibility window. Once every Desktop honors
+// the availability contract, deployments can explicitly disable the runtime
+// to remove routes, MCP resources, and scheduler work. A disabled runtime also
+// forces the advertised Desktop capability off if the flags disagree.
+const automationsRuntimeEnabled = parseBooleanFlag(parsed.DEN_AUTOMATIONS_RUNTIME_ENABLED ?? "true")
+const automationsEnabled = automationsRuntimeEnabled
+  && parseBooleanFlag(parsed.DEN_AUTOMATIONS_ENABLED ?? "false")
 
 const devMode = (parsed.OPENWORK_DEV_MODE ?? "0").trim() === "1"
 const botIdProtectionEnabled = (parsed.DEN_BOTID_PROTECTION_ENABLED ?? "0").trim() === "1"
@@ -667,6 +672,7 @@ export const env = {
     parsed.BETTER_AUTH_URL.trim().replace(/\/+$/, ""),
   automations: {
     enabled: automationsEnabled,
+    runtimeEnabled: automationsRuntimeEnabled,
     pollIntervalMs: automationTuning(parsed.DEN_AUTOMATIONS_POLL_INTERVAL_MS, 15_000),
     batchSize: automationTuning(parsed.DEN_AUTOMATIONS_BATCH_SIZE, 25),
     maxConcurrency: automationTuning(parsed.DEN_AUTOMATIONS_MAX_CONCURRENCY, 4),

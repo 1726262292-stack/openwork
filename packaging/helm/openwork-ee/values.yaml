@@ -40,8 +40,10 @@ config:
     bootstrapAdminEmails: ""
     installLinksGatingEnabled: "false"
     # Self-hosted Automations are opt-in. Hosted OpenWork Cloud enables them.
-    # Existing deployments must keep this true until every Desktop is v0.18.35+.
     automationsEnabled: "false"
+    # Preserve the Den runtime for published legacy Desktops during upgrades.
+    # Set false only after every Desktop is v0.18.35+ to hard-disable Automations.
+    automationsRuntimeEnabled: "true"
     # Enable only after compatible Desktop MCP Apps hosts are deployed.
     generatedArtifactViewsEnabled: "false"
     # Master opt-in for native and imported MCP Apps. Each organization must
