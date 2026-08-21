@@ -345,6 +345,12 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
   let cloudOrgProvidersInFlight: Promise<DenOrgLlmProvider[]> | null = null;
   let cloudOrgProvidersGeneration = 0;
   let cloudProviderSyncContextKey = "";
+  let completedAppLaunchSyncContextKey = "";
+  let completedAppLaunchSyncOutcome: CloudProviderSyncWorkResult;
+  let appLaunchSyncInFlight: {
+    contextKey: string;
+    promise: Promise<CloudProviderSyncWorkResult>;
+  } | null = null;
   let lastDenSessionPushKey = "";
   let denSessionPushKey = "";
   let denSessionPushInFlight: Promise<void> | null = null;
@@ -2102,8 +2108,10 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
 
     if (serverHandlesProviderSync()) {
       try {
-        const result = await enqueueGlobalCloudProviderSync(
-          `server:${getServerCloudProviderSyncContextKey()}`,
+        const contextKey = `server:${getServerCloudProviderSyncContextKey()}`;
+        const result = await enqueueStoreCloudProviderSync(
+          reason,
+          contextKey,
           async () => {
             const openworkClient = options.openworkServer.getSnapshot().openworkServerClient;
             if (!openworkClient) throw new Error("OpenWork server unavailable.");
@@ -2143,13 +2151,44 @@ export function createProviderAuthStore(options: CreateProviderAuthStoreOptions)
       }
     }
 
-    return enqueueGlobalCloudProviderSync(
+    return enqueueStoreCloudProviderSync(
+      reason,
       `client:${getClientCloudProviderSyncContextKey()}`,
       () => performCloudProviderSync(reason),
     ).catch((error) => {
       const message = logCloudProviderSyncError(reason, error);
       publishSettingsCloudProviderSyncError(reason, message);
     });
+  }
+
+  function enqueueStoreCloudProviderSync(
+    reason: CloudProviderSyncReason,
+    contextKey: string,
+    sync: () => Promise<CloudProviderSyncWorkResult>,
+  ): Promise<CloudProviderSyncWorkResult> {
+    if (reason !== "app_launch") {
+      return enqueueGlobalCloudProviderSync(contextKey, sync);
+    }
+    if (appLaunchSyncInFlight?.contextKey === contextKey) {
+      return appLaunchSyncInFlight.promise;
+    }
+    if (completedAppLaunchSyncContextKey === contextKey) {
+      return Promise.resolve(completedAppLaunchSyncOutcome);
+    }
+
+    const promise = enqueueGlobalCloudProviderSync(contextKey, sync);
+    appLaunchSyncInFlight = { contextKey, promise };
+    void promise.then(
+      (outcome) => {
+        completedAppLaunchSyncContextKey = contextKey;
+        completedAppLaunchSyncOutcome = outcome;
+        if (appLaunchSyncInFlight?.promise === promise) appLaunchSyncInFlight = null;
+      },
+      () => {
+        if (appLaunchSyncInFlight?.promise === promise) appLaunchSyncInFlight = null;
+      },
+    );
+    return promise;
   }
 
   async function disconnectProvider(providerId: string) {

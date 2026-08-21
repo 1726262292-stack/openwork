@@ -452,21 +452,22 @@ describe("cloud provider sync in server-capability mode", () => {
 
     store.syncFromOptions();
     await waitForRequestCount(requests, "/cloud-provider-sync/run", 1);
+    expect(await store.runCloudProviderSync("app_launch")).toEqual({ outcome: "handled_server_side" });
 
     selectWorkspace("ws_2", "/tmp/workspace_2");
     store.syncFromOptions();
-    await Bun.sleep(10);
+    expect(await store.runCloudProviderSync("app_launch")).toEqual({ outcome: "handled_server_side" });
     expect(
       requests.filter((request) => new URL(request.url).pathname === "/cloud-provider-sync/run"),
     ).toHaveLength(1);
 
     storage.setItem("openwork.den.activeOrgId", "org_changed");
     store.syncFromOptions();
-    await waitForRequestCount(requests, "/cloud-provider-sync/run", 2);
+    expect(await store.runCloudProviderSync("app_launch")).toEqual({ outcome: "handled_server_side" });
 
     rotateServerHostToken("host-token-rotated");
     store.syncFromOptions();
-    await waitForRequestCount(requests, "/cloud-provider-sync/run", 3);
+    expect(await store.runCloudProviderSync("app_launch")).toEqual({ outcome: "handled_server_side" });
     expect(
       requests.filter((request) => new URL(request.url).pathname === "/cloud-provider-sync/run"),
     ).toHaveLength(3);
