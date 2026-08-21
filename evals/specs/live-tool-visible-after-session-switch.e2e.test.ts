@@ -171,7 +171,7 @@ async function createSession(appSurface: App): Promise<string> {
 async function clickSessionRow(appSurface: App, workspaceId: string, sessionId: string): Promise<void> {
   const clicked = await evalIn(appSurface, `(() => {
     const row = document.querySelector(${JSON.stringify(`[data-sidebar-session-id="${sessionId}"][data-sidebar-session-workspace-id="${workspaceId}"]`)});
-    const button = row?.querySelector("button");
+    const button = row?.querySelector(${JSON.stringify(`button[data-session-tab-id="${sessionId}"]`)});
     if (!(row instanceof HTMLElement) || !(button instanceof HTMLButtonElement)) return false;
     row.scrollIntoView({ block: "center" });
     button.click();
