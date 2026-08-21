@@ -1036,10 +1036,17 @@ test.skipIf(missingRequirements.length > 0)(title, { timeout: 15 * 60_000 }, asy
   const serialRuntimeStable = runtimeStayedOn(noOpEndRuntime, serialRuntimeObservations);
   const serialActivationIds = serialActivations.map((activation) => activation.workspaceId);
   const serialDisposeCounts = countByWorkspace(serialDisposes);
+  // Each activation owns one directory dispose. The first changed route may
+  // additionally flush one coalesced config reload; each lifecycle cycle can
+  // reconnect each of the two directory-scoped MCP witnesses at most once.
+  const serialLifecycleBounded = serialDisposes.length >= serialActivations.length
+    && serialDisposes.length <= serialActivations.length + 1;
+  const serialMcpLimit = workspaceIds.length * (serialActivations.length + 1);
   const serialMcpBounded = serialMcp.initialize >= 1
-    && serialMcp.initialize <= serialActivations.length
+    && serialMcp.initialize <= serialMcpLimit
     && serialMcp.toolsList >= 1
-    && serialMcp.toolsList <= serialActivations.length;
+    && serialMcp.toolsList <= serialMcpLimit;
+  const serialCloudSyncStable = serialEndSync.lastRunAt === serialStartSync.lastRunAt;
   evidence.recordAssertionEvidence(
     "Serialized A-B routing reloads instances in place without process or MCP amplification",
     JSON.stringify({
@@ -1049,6 +1056,7 @@ test.skipIf(missingRequirements.length > 0)(title, { timeout: 15 * 60_000 }, asy
       activationCounts: countByWorkspace(serialActivations),
       disposeCounts: serialDisposeCounts,
       mcpDelta: serialMcp,
+      mcpLimit: serialMcpLimit,
       mcpRequests: serialMcpFacts,
       eventConnections: {
         before: serialStartProbe.eventConnections,
@@ -1077,15 +1085,19 @@ test.skipIf(missingRequirements.length > 0)(title, { timeout: 15 * 60_000 }, asy
       },
     }),
     serialActivationIds.join(",") === serialTargets.join(",")
-      && serialDisposes.length === serialActivations.length
+      && serialLifecycleBounded
       && serialMcpBounded
-      && serialRuntimeStable,
+      && serialRuntimeStable
+      && serialCloudSyncStable
+      && serialEngineLogSignals.rollover === 0,
   );
   expect(serialActivationIds).toEqual(serialTargets);
-  expect(serialDisposes).toHaveLength(serialActivations.length);
+  expect(serialLifecycleBounded, JSON.stringify(serialDisposes)).toBe(true);
   expect(serialMcpSettled.reachedMinimum, JSON.stringify(serialMcpSettled)).toBe(true);
   expect(serialMcpBounded, JSON.stringify(serialMcp)).toBe(true);
   expect(serialRuntimeStable, JSON.stringify(serialRuntimeObservations)).toBe(true);
+  expect(serialCloudSyncStable, JSON.stringify({ before: serialStartSync, after: serialEndSync })).toBe(true);
+  expect(serialEngineLogSignals.rollover, JSON.stringify(serialEngineLogFacts)).toBe(0);
 
   // Burst: seven hash-route changes run in one renderer task sequence with no
   // dwell. The final B route must win, while the 750ms product settle window
@@ -1123,11 +1135,13 @@ test.skipIf(missingRequirements.length > 0)(title, { timeout: 15 * 60_000 }, asy
   const burstCoalesced = burstActivations.length >= 1 && burstActivations.length <= 3
     && burstActivations.length < burstTargets.length
     && burstActivationIds.at(-1) === finalWorkspaceId;
-  const burstLifecycleBounded = burstDisposes.length === burstActivations.length
+  const burstMcpLimit = workspaceIds.length * (burstActivations.length + 1);
+  const burstLifecycleBounded = burstDisposes.length >= burstActivations.length
+    && burstDisposes.length <= burstActivations.length + 1
     && burstMcp.initialize >= 1
-    && burstMcp.initialize <= burstActivations.length
+    && burstMcp.initialize <= burstMcpLimit
     && burstMcp.toolsList >= 1
-    && burstMcp.toolsList <= burstActivations.length;
+    && burstMcp.toolsList <= burstMcpLimit;
   const burstRuntimeStable = runtimeStayedOn(burstStartRuntime, [burstEndRuntime]);
   evidence.recordAssertionEvidence(
     "A zero-dwell route burst converges without lifecycle, process, or MCP amplification",
@@ -1139,6 +1153,7 @@ test.skipIf(missingRequirements.length > 0)(title, { timeout: 15 * 60_000 }, asy
       activationCounts: burstActivationCounts,
       disposeCounts: burstDisposeCounts,
       mcpDelta: burstMcp,
+      mcpLimit: burstMcpLimit,
       mcpRequests: burstMcpFacts,
       eventConnections: {
         before: burstStartProbe.eventConnections,
