@@ -1399,16 +1399,20 @@ export function trackWorkspaceSessionSync(input: SyncOptions, sessionId: string 
   if (retainedTimer) {
     clearTimeout(retainedTimer);
     entry.retainedSessionTimers.delete(normalizedSessionId);
-    void getReactQueryClient().invalidateQueries({
-      queryKey: snapshotKey(input.workspaceId, normalizedSessionId),
-      exact: true,
-    });
   }
 
   entry.trackedSessionRefs.set(
     normalizedSessionId,
     (entry.trackedSessionRefs.get(normalizedSessionId) ?? 0) + 1,
   );
+  // Reconcile from durable server state whenever a session becomes tracked.
+  // Its previous workspace sync may have expired while the user was away, so
+  // event-synced transcript state alone cannot guarantee that later tool parts
+  // reached the cache.
+  void getReactQueryClient().invalidateQueries({
+    queryKey: snapshotKey(input.workspaceId, normalizedSessionId),
+    exact: true,
+  });
 
   return () => {
     const current = entry.trackedSessionRefs.get(normalizedSessionId) ?? 0;
