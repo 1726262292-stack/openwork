@@ -1399,6 +1399,10 @@ export function trackWorkspaceSessionSync(input: SyncOptions, sessionId: string 
   if (retainedTimer) {
     clearTimeout(retainedTimer);
     entry.retainedSessionTimers.delete(normalizedSessionId);
+    void getReactQueryClient().invalidateQueries({
+      queryKey: snapshotKey(input.workspaceId, normalizedSessionId),
+      exact: true,
+    });
   }
 
   entry.trackedSessionRefs.set(

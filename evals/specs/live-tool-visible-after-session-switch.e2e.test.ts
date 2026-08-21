@@ -412,7 +412,15 @@ test.skipIf(!runnable)(
         && tool.callId === laterTool.callId
         && tool.description === toolDescription), JSON.stringify(stillRunning)).toBe(true);
 
-    const visibleAfterReturn = await readVisibleTool(desktopApp, chatA, laterTool.callId);
+    const visibleAfterReturn = await eventually(
+      () => readVisibleTool(desktopApp, chatA, laterTool.callId),
+      {
+        within: 30_000,
+        intervalMs: 250,
+        label: "tool started while away visibly rendered after returning",
+        until: (fact) => fact.currentSessionId === chatA && fact.found && fact.visible,
+      },
+    );
     expect(visibleAfterReturn.currentSessionId).toBe(chatA);
     expect(visibleAfterReturn.found, JSON.stringify(visibleAfterReturn)).toBe(true);
     expect(visibleAfterReturn.visible, JSON.stringify(visibleAfterReturn)).toBe(true);
