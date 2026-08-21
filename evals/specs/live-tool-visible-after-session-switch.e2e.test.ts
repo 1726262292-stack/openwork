@@ -16,7 +16,6 @@ import {
   mcpMock,
   needs,
   server,
-  sleep,
   test,
 } from "@openwork/testkit";
 import type { App } from "@openwork/testkit";
@@ -290,14 +289,17 @@ async function readVisibleTool(
 }
 
 test.skipIf(!runnable)(
-  `a running tool remains visible after switching away and back${skipSuffix}`,
+  `a tool started while away is visible after returning to its chat${skipSuffix}`,
   { timeout: 12 * 60_000 },
   async ({ evidence, place }) => {
     needs({ optIn: ["OPENWORK_EVAL_E2E_TESTS"] });
     const runId = `${Date.now().toString(36)}-${process.pid}`;
     const promptMarker = `LIVE-TOOL-SWITCH-${runId}`;
+    const firstMarker = `FIRST-${promptMarker}`;
+    const firstToolDescription = `First tool in chat A — ${promptMarker}`;
     const toolDescription = `Waiting in chat A — ${promptMarker}`;
     const completionMarker = `DONE-${promptMarker}`;
+    const firstCommand = `sleep 15 && printf '%s\\n' '${firstMarker}'`;
     const command = `sleep 45 && printf '%s\\n' '${completionMarker}'`;
 
     await using den = await server({
@@ -307,14 +309,24 @@ test.skipIf(!runnable)(
           agentWorkloads: [{
             promptMarker,
             finalReply: completionMarker,
-            steps: [{
-              tool: "bash",
-              arguments: {
-                command,
-                timeout: 90_000,
-                description: toolDescription,
+            steps: [
+              {
+                tool: "bash",
+                arguments: {
+                  command: firstCommand,
+                  timeout: 30_000,
+                  description: firstToolDescription,
+                },
               },
-            }],
+              {
+                tool: "bash",
+                arguments: {
+                  command,
+                  timeout: 90_000,
+                  description: toolDescription,
+                },
+              },
+            ],
           }],
         }),
       },
@@ -353,16 +365,16 @@ test.skipIf(!runnable)(
     }, {
       within: 90_000,
       intervalMs: 500,
-      label: "chat A unique bash tool running",
+      label: "chat A first bash tool running",
       until: ({ approved, facts }) => approved === 0
         && facts.sessionId === chatA
         && facts.tools.some((tool) =>
         tool.status === "running"
-          && tool.command === command
-          && tool.description === toolDescription),
+          && tool.command === firstCommand
+          && tool.description === firstToolDescription),
     });
     expect(running.facts.sessionId).toBe(chatA);
-    const runningTool = running.facts.tools.find((tool) => tool.command === command);
+    const runningTool = running.facts.tools.find((tool) => tool.command === firstCommand);
     if (!runningTool?.callId) throw new Error(`The running bash tool had no call ID: ${JSON.stringify(running.facts)}`);
 
     const visibleBeforeSwitch = await eventually(
@@ -380,24 +392,33 @@ test.skipIf(!runnable)(
     const absentFromChatB = await readVisibleTool(desktopApp, chatB, runningTool.callId);
     expect(absentFromChatB.currentSessionId).toBe(chatB);
     expect(absentFromChatB.found).toBe(false);
-    await sleep(8_000);
 
-    const runningWhileAway = await readSessionFacts(desktopApp, workspaceA.workspaceId, chatA);
-    expect(runningWhileAway.tools.some((tool) => tool.status === "running" && tool.callId === runningTool.callId), JSON.stringify(runningWhileAway)).toBe(true);
+    const laterRunning = await eventually(async () => {
+      await approvePendingPermission(desktopApp, workspaceA.workspaceId, chatA);
+      return readSessionFacts(desktopApp, workspaceA.workspaceId, chatA);
+    }, {
+      within: 30_000,
+      intervalMs: 500,
+      label: "second chat A tool started while workspace B is visible",
+      until: (facts) => facts.tools.some((tool) => tool.status === "completed" && tool.callId === runningTool.callId)
+        && facts.tools.some((tool) => tool.status === "running" && tool.command === command && tool.description === toolDescription),
+    });
+    const laterTool = laterRunning.tools.find((tool) => tool.command === command);
+    if (!laterTool?.callId) throw new Error(`The later bash tool had no call ID: ${JSON.stringify(laterRunning)}`);
     await clickSessionRow(desktopApp, workspaceA.workspaceId, chatA);
     const stillRunning = await readSessionFacts(desktopApp, workspaceA.workspaceId, chatA);
     expect(stillRunning.tools.some((tool) =>
       tool.status === "running"
-        && tool.command === command
+        && tool.callId === laterTool.callId
         && tool.description === toolDescription), JSON.stringify(stillRunning)).toBe(true);
 
-    const visibleAfterReturn = await readVisibleTool(desktopApp, chatA, runningTool.callId);
+    const visibleAfterReturn = await readVisibleTool(desktopApp, chatA, laterTool.callId);
     expect(visibleAfterReturn.currentSessionId).toBe(chatA);
     expect(visibleAfterReturn.found, JSON.stringify(visibleAfterReturn)).toBe(true);
     expect(visibleAfterReturn.visible, JSON.stringify(visibleAfterReturn)).toBe(true);
     evidence.recordAssertionEvidence(
-      "A running tool remains visible when the user returns to its chat",
-      `Workspace A chat ${chatA} still reported the unique bash command as running after eight seconds in workspace B chat ${chatB}; scoped CDP found its visible row with text ${JSON.stringify(visibleAfterReturn.text)}.`,
+      "A tool that started while away is visible when the user returns to its chat",
+      `The first tool completed and tool ${laterTool.callId} started while workspace B chat ${chatB} was visible; after returning to workspace A chat ${chatA}, scoped CDP found its visible row with text ${JSON.stringify(visibleAfterReturn.text)}.`,
       true,
     );
     await screenshot(desktopApp);
@@ -414,7 +435,7 @@ test.skipIf(!runnable)(
     );
     expect(completed.text).toContain(completionMarker);
     const visibleAfterCompletion = await eventually(
-      () => readVisibleTool(desktopApp, chatA, runningTool.callId),
+      () => readVisibleTool(desktopApp, chatA, laterTool.callId),
       {
         within: 30_000,
         intervalMs: 250,
