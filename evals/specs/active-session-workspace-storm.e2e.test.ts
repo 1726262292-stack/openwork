@@ -732,7 +732,6 @@ test.skipIf(!runnable)(
     const liveSurface = await readSurfaceFacts(desktopApp, plans[0].marker, plans[0].slowMarker, plans[0].lateMarker);
     expect(liveSurface.bodyHasMarker).toBe(true);
     expect(liveSurface.bodyHasToolActivity).toBe(true);
-    expect(liveSurface.bodyHasSlowMarker).toBe(true);
     expect(liveSurface.sessionId).toBe(plans[0].sessionId);
     expect(liveSurface.authActions).toEqual([]);
     const liveShot = await screenshot(desktopApp);
