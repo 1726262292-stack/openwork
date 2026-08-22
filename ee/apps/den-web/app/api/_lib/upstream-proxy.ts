@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { joinBaseUrl, readBaseUrlEnv } from "@openwork/types/url";
 
 import { denWebLogger } from "../../../observability/runtime-logger";
+import { readPublicWebOrigin } from "../../_lib/public-web-origin";
 
 const NO_BODY_STATUS = new Set([204, 205, 304]);
 const HOP_BY_HOP_HEADERS = new Set([
@@ -102,7 +103,7 @@ type ProxyOptions = {
 };
 
 function requestPublicOrigin(request: NextRequest): URL {
-  const configuredOrigin = readBaseUrlEnv(process.env, "DEN_WEB_PUBLIC_ORIGIN");
+  const configuredOrigin = readPublicWebOrigin();
   if (configuredOrigin) {
     try {
       return new URL(configuredOrigin);

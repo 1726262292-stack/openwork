@@ -39,6 +39,7 @@ function memoryStorage(): Storage {
 describe("desktop Den bootstrap settings", () => {
   let bootstrapConfig: {
     baseUrl: string;
+    apiBaseUrl?: string;
     requireSignin: boolean;
     fromFile?: boolean;
     writtenAt?: string;
@@ -67,11 +68,12 @@ describe("desktop Den bootstrap settings", () => {
         localStorage: memoryStorage(),
         dispatchEvent: () => true,
         __OPENWORK_ELECTRON__: {
-          invokeDesktop: async (command: string, payload?: { baseUrl: string; requireSignin: boolean }) => {
+          invokeDesktop: async (command: string, payload?: { baseUrl: string; apiBaseUrl?: string | null; requireSignin: boolean }) => {
             if (command === "getDesktopBootstrapConfig") return bootstrapConfig;
             if (command === "setDesktopBootstrapConfig" && payload) {
               bootstrapConfig = {
                 baseUrl: payload.baseUrl,
+                ...(payload.apiBaseUrl ? { apiBaseUrl: payload.apiBaseUrl } : {}),
                 requireSignin: payload.requireSignin,
                 writtenAt: "2026-07-08T00:00:00.000Z",
               };
@@ -185,6 +187,20 @@ describe("desktop Den bootstrap settings", () => {
     expect(window.localStorage.getItem("openwork.den.baseUrl")).toBeNull();
     expect(window.localStorage.getItem("openwork.den.apiBaseUrl")).toBeNull();
     expect(readDenSettings().baseUrl).toBe("https://saved.example.com");
+  });
+
+  test("sends and preserves an explicit direct API base through desktop IPC", async () => {
+    await initializeDenBootstrapConfig();
+
+    await setDenBootstrapConfig({
+      baseUrl: "https://app.saved.example.com",
+      apiBaseUrl: "https://api.saved.example.com",
+      requireSignin: true,
+    });
+
+    expect(bootstrapConfig.apiBaseUrl).toBe("https://api.saved.example.com");
+    expect(readDenBootstrapConfig().apiBaseUrl).toBe("https://api.saved.example.com");
+    expect(readDenSettings().apiBaseUrl).toBe("https://api.saved.example.com");
   });
 
   test("session or server changes invalidate configured Cloud MCP token markers", async () => {

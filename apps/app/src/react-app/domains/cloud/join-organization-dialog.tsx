@@ -153,6 +153,7 @@ export function JoinOrganizationDialog({
     setStatus({ phase: "connecting", clientName: config.clientName, host });
     await setDenBootstrapConfig({
       baseUrl: config.webUrl,
+      apiBaseUrl: config.apiUrl,
       requireSignin: config.requireSignin,
       // Joining an organization must not silently rewrite activation policy in
       // either direction — dropping this re-gates an enterprise app an admin
@@ -210,11 +211,14 @@ export function JoinOrganizationDialog({
     const parsed = parseManualAuthInput(value);
     if (!parsed) return false;
 
-    const baseUrl = parsed.baseUrl ?? readDenSettings().baseUrl;
+    const settings = readDenSettings();
+    const baseUrl = parsed.baseUrl ?? settings.baseUrl;
+    const apiBaseUrl = parsed.baseUrl ? undefined : settings.apiBaseUrl;
     setStatus({ phase: "connecting", clientName: t("join_org.openwork_cloud"), host: hostFromUrl(baseUrl) });
     const result = await exchangeHandoffAndSignIn(parsed.grant, {
       baseUrl,
-      client: createDenClient({ baseUrl }),
+      apiBaseUrl,
+      client: createDenClient({ baseUrl, apiBaseUrl }),
       // Pasted one-time codes are desktop-initiated sign-ins.
       desktopInitiated: true,
       fallbackErrorMessage: t("den.error_no_token"),

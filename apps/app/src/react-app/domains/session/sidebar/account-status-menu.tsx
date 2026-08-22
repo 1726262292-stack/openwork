@@ -330,7 +330,11 @@ export function AccountStatusMenu(props: AccountStatusMenuProps) {
   const logOut = () => {
     const settings = readDenSettings();
     if (settings.authToken) {
-      void createDenClient({ baseUrl: settings.baseUrl, token: settings.authToken })
+      void createDenClient({
+        baseUrl: settings.baseUrl,
+        apiBaseUrl: settings.apiBaseUrl,
+        token: settings.authToken,
+      })
         .signOut()
         .catch(() => undefined);
     }

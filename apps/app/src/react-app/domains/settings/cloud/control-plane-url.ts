@@ -46,6 +46,7 @@ export async function saveControlPlaneUrl(value: string) {
   const bootstrap = readDenBootstrapConfig();
   const persisted = await setDenBootstrapConfig({
     baseUrl: resolved.baseUrl,
+    apiBaseUrl: resolved.apiBaseUrl,
     requireSignin: bootstrap.requireSignin,
     requireActivation: bootstrap.requireActivation,
   });
@@ -53,6 +54,7 @@ export async function saveControlPlaneUrl(value: string) {
   writeDenSettings(
     {
       baseUrl: persisted.baseUrl,
+      apiBaseUrl: persisted.apiBaseUrl,
       authToken: null,
       activeOrgId: null,
       activeOrgSlug: null,

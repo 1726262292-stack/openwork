@@ -100,6 +100,7 @@ function readForceEnvDenSettings(): boolean {
 }
 
 export const HOSTED_DEFAULT_DEN_BASE_URL = "https://app.openworklabs.com";
+export const HOSTED_DEFAULT_DEN_API_BASE_URL = "https://api.app.openworklabs.com";
 export const DEFAULT_DEN_BASE_URL = BUILD_DEN_BASE_URL;
 export const DEN_INFERENCE_PATH = "/dashboard/inference";
 
@@ -731,18 +732,41 @@ export function resolveDenBaseUrls(input: { baseUrl?: string | null; apiBaseUrl?
   // Build-time API pin (headless/dev web): route API calls through the
   // configured proxy regardless of which web base the caller resolved.
   const buildDenApiBaseUrl = normalizedApiBaseUrl ? null : normalizeDenBaseUrl(readBuildDenApiBaseUrl());
+  const hostedDefaultApiBaseUrl = denOriginComparisonKey(baseUrl) === denOriginComparisonKey(HOSTED_DEFAULT_DEN_BASE_URL)
+    ? HOSTED_DEFAULT_DEN_API_BASE_URL
+    : null;
 
   return {
     baseUrl,
     apiBaseUrl: normalizedApiBaseUrl
-      ? ensureDenApiBasePath(normalizedApiBaseUrl) ?? normalizedApiBaseUrl
+      ? normalizedApiBaseUrl
       : buildDenApiBaseUrl
         ? ensureDenApiBasePath(buildDenApiBaseUrl) ?? buildDenApiBaseUrl
-        : ensureDenApiBasePath(baseUrl) ?? baseUrl,
+        : hostedDefaultApiBaseUrl
+          ? hostedDefaultApiBaseUrl
+          : ensureDenApiBasePath(baseUrl) ?? baseUrl,
   };
 }
 
-/** The MCP endpoint served through the Den web proxy from the single base URL. */
+function resolveDenClientBaseUrls(options: { baseUrl: string; apiBaseUrl?: string | null }): DenBaseUrls {
+  if (options.apiBaseUrl !== undefined) {
+    return resolveDenBaseUrls(options);
+  }
+
+  if (isDesktopRuntime() && typeof window.localStorage !== "undefined") {
+    const settings = readDenSettings();
+    if (denOriginComparisonKey(settings.baseUrl) === denOriginComparisonKey(options.baseUrl)) {
+      return resolveDenBaseUrls({
+        baseUrl: options.baseUrl,
+        apiBaseUrl: settings.apiBaseUrl,
+      });
+    }
+  }
+
+  return resolveDenBaseUrls(options);
+}
+
+/** The MCP endpoint served from the resolved Den API base URL. */
 export function getDenMcpUrl(): string {
   const { apiBaseUrl } = resolveDenBaseUrls(readDenBootstrapConfig());
   return `${apiBaseUrl.replace(/\/+$/, "")}/mcp`;
@@ -821,13 +845,14 @@ function resolveDenBootstrapConfig(
 }
 
 function getPendingBootstrapConfig(next: DenSettings): DenBootstrapConfig | null {
-  if (next.baseUrl === undefined) {
+  if (next.baseUrl === undefined && next.apiBaseUrl === undefined) {
     return null;
   }
 
   const previous = readDenBootstrapConfig();
   return resolveDenBootstrapConfig({
     baseUrl: next.baseUrl ?? previous.baseUrl,
+    apiBaseUrl: next.apiBaseUrl ?? previous.apiBaseUrl,
     requireSignin: previous.requireSignin,
     requireActivation: previous.requireActivation,
     brandAppName: previous.brandAppName,
@@ -976,6 +1001,7 @@ export async function setDenBootstrapConfig(
   if (isDesktopRuntime()) {
     const persisted = await setDesktopBootstrapConfigInShell({
       baseUrl: normalized.baseUrl,
+      apiBaseUrl: normalized.apiBaseUrl,
       requireSignin: normalized.requireSignin,
       ...(typeof normalized.requireActivation === "boolean"
         ? { requireActivation: normalized.requireActivation }
@@ -1049,6 +1075,9 @@ export function buildDenAuthUrl(baseUrl: string, mode: "sign-in" | "sign-up"): s
 }
 
 function resolveRequestBaseUrl(baseUrls: DenBaseUrls, path: string): string {
+  if (isDesktopRuntime() && path.startsWith("/api/auth/")) {
+    return baseUrls.apiBaseUrl;
+  }
   return path.startsWith("/api/") ? baseUrls.baseUrl : baseUrls.apiBaseUrl;
 }
 
@@ -1254,6 +1283,7 @@ export function writeDenSettings(
     ) {
       void setDenBootstrapConfig({
         baseUrl: pendingBootstrap.baseUrl,
+        apiBaseUrl: pendingBootstrap.apiBaseUrl,
         requireSignin: currentBootstrap.requireSignin,
         requireActivation: currentBootstrap.requireActivation,
         brandAppName: currentBootstrap.brandAppName,
@@ -1314,6 +1344,7 @@ export async function ensureDenActiveOrganization(options?: { forceServerSync?: 
 
   const client = createDenClient({
     baseUrl: settings.baseUrl,
+    apiBaseUrl: settings.apiBaseUrl,
     token,
   });
 
@@ -2436,14 +2467,11 @@ async function ensureActiveOrganization(
 }
 
 export function createDenClient(options: { baseUrl: string; apiBaseUrl?: string | null; token?: string | null }) {
-  const baseUrls = resolveDenBaseUrls({
-    baseUrl: options.baseUrl,
-    apiBaseUrl: options.apiBaseUrl,
-  });
+  const baseUrls = resolveDenClientBaseUrls(options);
   const token = options.token?.trim() ?? null;
 
   return {
-    /** The resolved web base URL and its derived `/api/den` proxy URL. */
+    /** The resolved web base URL and API base URL. */
     baseUrls,
 
     async setActiveOrganization(input: { organizationId?: string | null; organizationSlug?: string | null }): Promise<void> {

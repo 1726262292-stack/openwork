@@ -1,0 +1,72 @@
+import { describe, expect, test } from "bun:test"
+import { spawnSync } from "node:child_process"
+import path from "node:path"
+import { fileURLToPath } from "node:url"
+
+const denApiRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
+
+function probeDenUrls(overrides: Record<string, string>) {
+  const result = spawnSync(process.execPath, ["--conditions", "development", "--eval", `
+    const { env } = await import("./src/env.ts")
+    console.log(JSON.stringify({
+      betterAuthUrl: env.betterAuthUrl,
+      webUrl: env.webUrl,
+      apiPublicUrl: env.apiPublicUrl,
+      mcpResourceUrl: env.mcpResourceUrl,
+      desktopDenBaseUrl: env.desktopDenBaseUrl,
+    }))
+  `], {
+    cwd: denApiRoot,
+    encoding: "utf8",
+    env: {
+      PATH: process.env.PATH ?? "",
+      HOME: process.env.HOME ?? "",
+      TMPDIR: process.env.TMPDIR ?? "",
+      DATABASE_URL: "mysql://root:password@127.0.0.1:3306/openwork_test",
+      DB_MODE: "mysql",
+      DEN_DB_ENCRYPTION_KEY: "x".repeat(32),
+      BETTER_AUTH_SECRET: "y".repeat(32),
+      OPENWORK_DEV_MODE: "0",
+      PROVISIONER_MODE: "stub",
+      ...overrides,
+    },
+  })
+  expect(result.stderr).toBe("")
+  expect(result.status).toBe(0)
+  return JSON.parse(result.stdout) as Record<string, string>
+}
+
+describe("DEN_BASE_URL environment defaults", () => {
+  test("derives Den API server URLs from the shared base", () => {
+    expect(probeDenUrls({ DEN_BASE_URL: "https://den.example.com" })).toEqual({
+      betterAuthUrl: "https://den.example.com",
+      webUrl: "https://den.example.com",
+      apiPublicUrl: "https://api.den.example.com",
+      mcpResourceUrl: "https://api.den.example.com/mcp",
+      desktopDenBaseUrl: "https://api.den.example.com",
+    })
+  })
+
+  test("keeps explicit URL settings ahead of DEN_BASE_URL", () => {
+    expect(probeDenUrls({
+      DEN_BASE_URL: "https://den.example.com",
+      BETTER_AUTH_URL: "https://web.explicit.test",
+      DEN_API_PUBLIC_URL: "https://api.explicit.test/prefix",
+      DEN_MCP_RESOURCE_URL: "https://mcp.explicit.test/resource",
+      DEN_DESKTOP_DEN_BASE_URL: "https://desktop.explicit.test/api/den",
+    })).toEqual({
+      betterAuthUrl: "https://web.explicit.test",
+      webUrl: "https://web.explicit.test",
+      apiPublicUrl: "https://api.explicit.test/prefix",
+      mcpResourceUrl: "https://mcp.explicit.test/resource",
+      desktopDenBaseUrl: "https://desktop.explicit.test/api/den",
+    })
+  })
+
+  test("preserves legacy unset defaults without DEN_BASE_URL", () => {
+    expect(probeDenUrls({ BETTER_AUTH_URL: "https://legacy.example.com" })).toEqual({
+      betterAuthUrl: "https://legacy.example.com",
+      webUrl: "https://legacy.example.com",
+    })
+  })
+})
