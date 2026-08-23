@@ -174,13 +174,27 @@ describe("Den upstream proxy", () => {
     const { proxyUpstream } = await import("./upstream-proxy.ts");
     const request = new NextRequest("https://app.example.com/api/auth/session", {
       method: "GET",
-      headers: { origin: INSTANCE_ORIGIN, cookie: "ow_session=sess_test" },
+      headers: { origin: INSTANCE_ORIGIN, cookie: "better-auth.session_token=sess_test" },
     });
 
     const response = await proxyUpstream(request, [], { routePrefix: "/api/auth", upstreamPathPrefix: "api/auth" });
 
     expect(response.headers.get("access-control-allow-origin")).toBeNull();
-    expect(observed.cookie).toBe("ow_session=sess_test");
+    expect(observed.cookie).toBe("better-auth.session_token=sess_test");
+  });
+
+  test("forwards only Better Auth cookies through the auth proxy", async () => {
+    const { proxyUpstream } = await import("./upstream-proxy.ts");
+    const request = new NextRequest("https://app.example.com/api/auth/sign-in/social", {
+      method: "POST",
+      headers: {
+        cookie: "ph_posthog=analytics; better-auth.state=oauth-state; __Secure-better-auth.session_token=session; other=value",
+      },
+    });
+
+    await proxyUpstream(request, [], { routePrefix: "/api/auth", upstreamPathPrefix: "api/auth" });
+
+    expect(observed.cookie).toBe("better-auth.state=oauth-state; __Secure-better-auth.session_token=session");
   });
 
   test("rejects http and lookalike hostnames", async () => {
