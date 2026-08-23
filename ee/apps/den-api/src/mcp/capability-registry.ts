@@ -31,13 +31,23 @@ import {
   type CodemodeConnectionNamespaceContext,
 } from "./codemode-namespaces.js"
 import {
+  connectedConnectionActionPayload,
+  connectionActionErrorCard,
+  connectionActionLaunch,
+  connectionActionPayloadFromStatus,
+  connectionActionTextFallback,
+} from "./connection-action-app.js"
+import {
+  buildExternalCapabilityName,
   executeExternalCapability,
   externalMcpSearchCoverageHint,
   parseExternalCapabilityName,
+  probeExternalConnectionStatus,
   searchExternalCapabilities,
   type ExternalCapabilityExecuteResult,
   type McpMemberIdentity,
 } from "./external-capabilities.js"
+import { attachPluginFlowCard } from "./plugin-flow-app.js"
 import { invokeMcpOperation, normalizeToolBody, normalizeToolRecord } from "./invoke.js"
 import {
   executeMarketplaceCapability,
@@ -160,23 +170,12 @@ export function catalogOperationAvailableToCapabilities(
   context: Pick<CapabilityRegistryContext, "generatedArtifactViewsEnabled">,
   operation: Pick<McpToolOperation, "method" | "path">,
 ) {
-  // Installation is reachable only through the dedicated model-visible MCP
-  // tool. This also prevents a sandboxed App or a Program from finding and
-  // invoking the REST importer through the generic capability gateway.
-  if (operation.method === "POST" && operation.path === "/v1/remote-mcp-apps") return false
+  // Standalone URL-App operations are deferred and never enter the generic
+  // capability gateway, even if their retained storage routes are reworked.
+  if (operation.path.startsWith("/v1/remote-mcp-apps")) return false
   if (context.generatedArtifactViewsEnabled) return true
-  return operation.path !== "/v1/programs/{configObjectId}/views"
+  return operation.path !== "/v1/workflows/{configObjectId}/views"
     && !operation.path.startsWith("/v1/artifact-views/")
-}
-
-export function catalogOperationChangesRemoteMcpAppDiscovery(
-  operation: Pick<McpToolOperation, "method" | "path">,
-) {
-  return operation.method !== "GET"
-    && operation.path.startsWith("/v1/remote-mcp-apps/")
-    && (operation.path.endsWith("/refresh")
-      || operation.path.endsWith("/activate")
-      || operation.path.endsWith("/lifecycle"))
 }
 
 type CapabilitySearchContext = CapabilityRegistryContext & {
@@ -246,11 +245,15 @@ const externalCapabilityErrorPayloadSchema = z.object({
     searchRequired: z.boolean(),
   }).optional(),
   schemaGuidance: z.unknown().optional(),
+  connectionCard: z.string().optional(),
 })
 
 export function externalCapabilityErrorToolResult(
   result: Exclude<ExternalCapabilityExecuteResult, { ok: true }>,
 ): ExecuteCapabilityToolResult {
+  const statusCapability = result.connectionStatus
+    ? buildExternalCapabilityName(result.connectionStatus.connectionId, "*")
+    : undefined
   const payload = externalCapabilityErrorPayloadSchema.parse({
     error: result.error,
     message: result.message,
@@ -264,10 +267,22 @@ export function externalCapabilityErrorToolResult(
     ...(result.sameArgumentsRetryable === false ? { sameArgumentsRetryable: false } : {}),
     ...(result.retry ? { retry: result.retry } : {}),
     ...(result.schemaGuidance ? { schemaGuidance: result.schemaGuidance } : {}),
+    ...(statusCapability
+      ? { connectionCard: `Execute "${statusCapability}" once to show the member an actionable connection card, then relay the action in text.` }
+      : {}),
   })
+  if (!result.connectionStatus) {
+    return {
+      isError: true,
+      content: textContent(JSON.stringify(payload)),
+    }
+  }
+  const card = connectionActionErrorCard(result.connectionStatus)
   return {
     isError: true,
     content: textContent(JSON.stringify(payload)),
+    structuredContent: card.structuredContent,
+    _meta: card.meta,
   }
 }
 
@@ -406,6 +421,7 @@ async function executeMarketplaceSource(
     configObjectId: parsed.configObjectId,
     body: input.body,
     codemodeEnabled: ctx.codemodeEnabled,
+    validateScriptOutput: true,
     enabled: ctx.externalMcpConnectionsEnabled,
     redirectUriBase: ctx.redirectUriBase,
   })
@@ -443,17 +459,20 @@ const catalogSource: CapabilitySource = {
       && catalogOperationAvailableToCapabilities(ctx, candidate)
     ))
     if (!operation) return unknownCapabilityResult(input.name)
-    return invokeMcpOperation({
+    const path = normalizeToolRecord(input.path)
+    const body = normalizeToolBody(input.body)
+    const result = await invokeMcpOperation({
       app: ctx.app,
       env: ctx.env,
       operation,
       principal: ctx.principal,
       toolInput: {
-        path: normalizeToolRecord(input.path),
+        path,
         query: normalizeToolRecord(input.query),
-        body: normalizeToolBody(input.body),
+        body,
       },
     })
+    return attachPluginFlowCard({ name: parsed.name, path, body, result })
   },
 }
 
@@ -537,6 +556,27 @@ const externalMcpSource: CapabilitySource = {
         })),
       }
     }
+    if (parsed.toolName === "*") {
+      // A connection_status match: probing is the capability. Report the live
+      // state as a successful result carrying the first-party connection
+      // card, so compatible hosts render the exact human action inline.
+      const probe = await probeExternalConnectionStatus({
+        organizationId: ctx.organizationId,
+        member: ctx.member,
+        connectionId: parsed.connectionId,
+      })
+      if (!probe.ok) {
+        return { isError: true, content: textContent(JSON.stringify({ error: probe.error, message: probe.message })) }
+      }
+      const payload = probe.connected
+        ? connectedConnectionActionPayload({ connectionId: probe.connection.id, connectionName: probe.connection.name })
+        : connectionActionPayloadFromStatus(probe.status)
+      return {
+        content: textContent(connectionActionTextFallback(payload)),
+        structuredContent: { ...payload },
+        _meta: { "openwork/mcpApp": connectionActionLaunch(payload) },
+      }
+    }
     const result = await executeExternalCapability({
       organizationId: ctx.organizationId,
       member: ctx.member,
@@ -570,7 +610,7 @@ const marketplaceSource: CapabilitySource = {
       limit,
       enabled: ctx.externalMcpConnectionsEnabled,
     })
-    return matches.map((match) => ctx.codemodeEnabled && match.kind !== "script"
+    return matches.map((match) => ctx.codemodeEnabled && match.kind !== "workflow"
       ? { ...match, scriptPath: codemodeScriptPath("marketplace", match.name) }
       : match)
   },
@@ -582,7 +622,7 @@ const marketplaceSource: CapabilitySource = {
       enabled: ctx.externalMcpConnectionsEnabled,
     })
     const uniqueReferences = new Map(references
-      .filter((reference) => reference.objectType !== "script")
+      .filter((reference) => reference.objectType !== "workflow")
       .map((reference) => [`${reference.pluginId}:${reference.configObjectId}`, reference]))
     return [...uniqueReferences.values()].map((reference) => {
       const capabilityName = `plugin:${reference.pluginId}:${reference.configObjectId}`

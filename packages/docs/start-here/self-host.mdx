@@ -5,7 +5,7 @@ description: "Run OpenWork on your own server or infrastructure."
 
 Most users just use the [desktop app](https://openworklabs.com/download). Self-hosting is for teams that want OpenWork to run on their own server, VPC, or private cloud and then connect the desktop app to it remotely.
 
-Want hosted workspaces, team marketplaces, or shared providers without running infra? Use [OpenWork Cloud](/cloud/get-started) instead. Rolling this out across a company? [Book a call](https://calendar.app.google/86QpCENvhfEzDFLu5) about [Enterprise](/cloud/enterprise).
+Want hosted workspaces, team Collections, or shared providers without running infra? Use [OpenWork Cloud](/cloud/get-started) instead. Rolling this out across a company? [Book a call](https://calendar.app.google/86QpCENvhfEzDFLu5) about [Enterprise](/cloud/enterprise).
 
 ## What you deploy
 
@@ -38,7 +38,8 @@ Use the dedicated Self-host planning pages instead of copying hostname, certific
 - [Air-gapped deployment](/start-here/air-gapped-deployment): definitions and the checklist for full isolation.
 - [Outbound network access](/start-here/outbound-network-access): the canonical customer IT destination inventory and "what breaks when blocked" guidance.
 - [Certificate trust and proxies](/start-here/certificate-trust-and-proxies): desktop, sidecar, Den, and MySQL trust surfaces.
-- [Installer delivery](/start-here/installer-delivery): GitHub redirect, mounted artifacts, and MDM bootstrap choices.
+- [Enterprise desktop deployment](/start-here/enterprise-desktop-deployment): the enterprise binary, MDM distribution, and the `desktop-bootstrap.json` reference.
+- [Installer delivery](/start-here/installer-delivery): GitHub redirect and mounted artifacts for organization install links.
 - [Network diagnostics](/start-here/network-diagnostics): Windows doctor, Cloud catalog diagnostic trust, and Den outbound checks.
 
 If you want self-hosted repository imports and sync from GitHub, configure the [GitHub connector for Helm](/start-here/github-connector-helm) after the core Den web and Den controller hosts are reachable.
@@ -130,7 +131,7 @@ OpenWork does not require many third-party services for the core runtime. These 
 
 Skip the server. [**OpenWork Cloud**](/cloud/get-started) runs hosted workers for your team.
 
-Cloud also gives you org-wide primitives you'd otherwise have to build: [team templates](/cloud/share-with-your-team/team-templates), [shared LLM providers](/cloud/share-with-your-team/managed-llm-provider), [RBAC](/cloud/members-and-rbac), and [shared workspaces](/cloud/run-in-the-cloud/shared-workspace).
+Cloud also gives you org-wide primitives you'd otherwise have to build: [Collections](/cloud/share-with-your-team/collections), [shared LLM providers](/cloud/share-with-your-team/managed-llm-provider), [RBAC](/cloud/members-and-rbac), and [shared workspaces](/cloud/run-in-the-cloud/shared-workspace).
 
 ## Looking for support for a larger rollout?
 

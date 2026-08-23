@@ -6,7 +6,6 @@ import {
   OPENWORK_CLOUD_MCP_CONNECTION_ACTION_SOURCE,
   OPENWORK_CLOUD_MCP_CONNECTION_ACTION_VERSION,
 } from "@openwork/types/den/mcp-connection-action"
-import { MemberTable } from "@openwork-ee/den-db/schema"
 import { normalizeDenTypeId, type DenTypeId } from "@openwork-ee/utils/typeid"
 import {
   getExternalMcpConnection,
@@ -31,6 +30,7 @@ import {
   evaluateToolPolicy,
   isToolDisabled,
 } from "../capability-sources/external-mcp-tool-policy.js"
+import { cache } from "../cache.js"
 import { db } from "../db.js"
 import { listTeamsForMember } from "../orgs.js"
 import { openworkOrganizationConnectionsUrl, openworkYourConnectionsUrl } from "./connection-navigation.js"
@@ -109,16 +109,10 @@ export async function resolveMcpMemberIdentity(input: {
   organizationId: string
 }): Promise<McpMemberIdentity | null> {
   const organizationId = normalizeDenTypeId("organization", input.organizationId)
-  const rows = await db
-    .select({ id: MemberTable.id })
-    .from(MemberTable)
-    .where(and(
-      eq(MemberTable.userId, normalizeDenTypeId("user", input.userId)),
-      eq(MemberTable.organizationId, organizationId),
-      isNull(MemberTable.removedAt),
-    ))
-    .limit(1)
-  const member = rows[0]
+  const member = await cache.org.membership({
+    organizationId,
+    userId: normalizeDenTypeId("user", input.userId),
+  })
   if (!member) return null
   const teams = await listTeamsForMember({ organizationId, memberId: member.id })
   return { orgMembershipId: member.id, teamIds: teams.map((team) => team.id) }
@@ -653,6 +647,8 @@ export function externalMcpSearchCoverageHint(coverage: ExternalMcpSearchCoverag
   return `External MCP search inspected ${coverage.probedConnections} of ${coverage.eligibleConnections} eligible connections. Results may be incomplete; narrow the query using a connection name and search again.`
 }
 
+const CONNECTION_CARD_HINT = "Execute this exact capability name once: it returns the live status, renders an actionable connection card for the member in compatible hosts, and includes the action to relay in text."
+
 async function probeExternalMcpConnection(input: {
   connection: ExternalMcpConnectionRow
   member: McpMemberIdentity
@@ -679,7 +675,7 @@ async function probeExternalMcpConnection(input: {
         score,
         summary: `[${connection.name}] OAuth provider settings changed and require administrator review.`,
         status: "error",
-        hint: `Ask an org admin to open OpenWork Cloud -> Connectors, review the live OAuth issuer for "${connection.name}", and reconnect if requested.`,
+        hint: `Ask an org admin to open OpenWork Cloud -> Connectors, review the live OAuth issuer for "${connection.name}", and reconnect if requested. ${CONNECTION_CARD_HINT}`,
         connectionStatus: buildExternalConnectionStatus({
           connection,
           state: "reauth_required",
@@ -710,7 +706,7 @@ async function probeExternalMcpConnection(input: {
           score,
           summary: `[${connection.name}] Available to you, but you haven't connected your ${connection.name} account yet.`,
           status: "needs_connection",
-          hint: `Ask the user to open OpenWork Cloud -> Your Connections and click Connect on "${connection.name}", then search again.`,
+          hint: `Ask the user to open OpenWork Cloud -> Your Connections and click Connect on "${connection.name}", then search again. ${CONNECTION_CARD_HINT}`,
           connectionStatus: buildExternalConnectionStatus({ connection, state: "needs_connection", errorCode: "not_connected", message }),
         }))
       }
@@ -726,7 +722,7 @@ async function probeExternalMcpConnection(input: {
         score,
         summary: `[${connection.name}] Available to your organization, but an admin hasn't connected it yet.`,
         status: "needs_connection",
-        hint: `Ask an org admin to open the OpenWork Cloud dashboard -> Connections and connect "${connection.name}", then search again.`,
+        hint: `Ask an org admin to open the OpenWork Cloud dashboard -> Connections and connect "${connection.name}", then search again. ${CONNECTION_CARD_HINT}`,
         connectionStatus: buildExternalConnectionStatus({ connection, state: "needs_connection", errorCode: "not_connected", message }),
       }))
     }
@@ -782,7 +778,7 @@ async function probeExternalMcpConnection(input: {
         score,
         summary: `[${connection.name}] This connection is set up but returned an error (${message}).`,
         status: "error",
-        hint: externalConnectionErrorHint(connection.name, error, message, connection.credentialMode),
+        hint: `${externalConnectionErrorHint(connection.name, error, message, connection.credentialMode)} ${CONNECTION_CARD_HINT}`,
         connectionStatus: buildExternalConnectionStatus({
           connection,
           state,
@@ -1011,6 +1007,87 @@ function advisorySchemaGuidance(
     message: "OpenWork forwarded the call to the provider. These local schema checks are guidance only; use the provider result as the source of truth.",
     warnings,
   }
+}
+
+export type ExternalConnectionProbe =
+  | { ok: true; connected: true; connection: { id: string; name: string } }
+  | { ok: true; connected: false; status: ExternalConnectionStatus }
+  | { ok: false; error: "forbidden" | "unknown_capability"; message: string }
+
+/**
+ * Probes one connection's live credential state without calling provider
+ * tools. Backs the connection_status capability execution and the app-only
+ * connection_action tool, so the same check renders the connection card and
+ * refreshes it after the member fixes the connection.
+ */
+export async function probeExternalConnectionStatus(input: {
+  organizationId: string
+  member: McpMemberIdentity | null
+  connectionId: string
+}): Promise<ExternalConnectionProbe> {
+  if (!input.member) {
+    return { ok: false, error: "forbidden", message: "No active org membership for this token." }
+  }
+  let connection: Awaited<ReturnType<typeof getExternalMcpConnection>>
+  let connectionId: DenTypeId<"externalMcpConnection">
+  try {
+    connectionId = normalizeDenTypeId("externalMcpConnection", input.connectionId)
+    connection = await getExternalMcpConnection({
+      organizationId: normalizeDenTypeId("organization", input.organizationId),
+      connectionId,
+    })
+  } catch {
+    connection = null
+    connectionId = input.connectionId as DenTypeId<"externalMcpConnection">
+  }
+  if (!connection || connection.kind !== "external_mcp") {
+    return { ok: false, error: "unknown_capability", message: `No external MCP connection "${input.connectionId}" in this organization.` }
+  }
+  const canUse = await memberCanUseExternalMcpConnection({
+    connectionId,
+    orgMembershipId: input.member.orgMembershipId,
+    teamIds: input.member.teamIds,
+  })
+  if (!canUse) {
+    return { ok: false, error: "forbidden", message: `You have not been granted access to "${connection.name}".` }
+  }
+  if (connection.oauthIssuerReviewRequiredAt) {
+    const message = `"${connection.name}" is blocked until an organization admin reviews its changed OAuth issuer.`
+    return {
+      ok: true,
+      connected: false,
+      status: buildExternalConnectionStatus({
+        connection,
+        state: "reauth_required",
+        errorCode: "unauthorized",
+        message,
+        actionOwner: "organization_admin",
+      }),
+    }
+  }
+  if (connection.credentialMode === "per_member") {
+    const account = await getConnectedAccount({
+      organizationId: connection.organizationId,
+      orgMembershipId: input.member.orgMembershipId,
+      providerId: connection.id,
+    })
+    if (!account?.accessToken) {
+      const message = `You haven't connected your ${connection.name} account yet.`
+      return {
+        ok: true,
+        connected: false,
+        status: buildExternalConnectionStatus({ connection, state: "needs_connection", errorCode: "not_connected", message }),
+      }
+    }
+  } else if (!hasSharedCredential(connection)) {
+    const message = `"${connection.name}" is not connected yet.`
+    return {
+      ok: true,
+      connected: false,
+      status: buildExternalConnectionStatus({ connection, state: "needs_connection", errorCode: "not_connected", message }),
+    }
+  }
+  return { ok: true, connected: true, connection: { id: connection.id, name: connection.name } }
 }
 
 /**

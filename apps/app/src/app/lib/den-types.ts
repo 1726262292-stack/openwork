@@ -31,7 +31,7 @@ export type DenPluginConfigObjectType =
   | "hook"
   | "context"
   | "custom"
-  | "script";
+  | "workflow";
 
 export type DenPluginConfigObjectVersion = {
   id: string;

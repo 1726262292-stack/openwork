@@ -6,6 +6,10 @@ const shell = readFileSync(
   fileURLToPath(new URL("../app/(den)/dashboard/_components/org-dashboard-shell.tsx", import.meta.url)),
   "utf8",
 );
+const legacyRunsPage = readFileSync(
+  fileURLToPath(new URL("../app/(den)/dashboard/(admin)/script-runs/page.tsx", import.meta.url)),
+  "utf8",
+);
 
 function indexOfNeedle(needle: string) {
   const index = shell.indexOf(needle);
@@ -50,5 +54,9 @@ describe("Den org sidebar information architecture", () => {
     expect(shell).toContain('badge: "MCPs"');
     expect(shell).toContain('label: "Tool Tester"');
     expect(shell).toContain("mcpConnectionsEnabled && access.isAdmin");
+  });
+
+  test("redirects the old Script runs path to Workflow runs", () => {
+    expect(legacyRunsPage).toContain('redirect("/dashboard/workflow-runs")');
   });
 });

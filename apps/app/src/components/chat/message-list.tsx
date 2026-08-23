@@ -82,6 +82,13 @@ import {
 } from "@/components/ui/message"
 import { Tool } from "@/components/ui/tool"
 import { CapabilityCallLine } from "@/components/chat/capability-call-line"
+import {
+  isLiveStepAtBottom,
+  pinnedAfterUserScroll,
+  pinnedAfterWheel,
+  shouldFollowLiveStepGrowth,
+} from "@/components/chat/live-step-scroll"
+import { hasPreservedMcpAppResult, McpAppFrame } from "@/components/chat/mcp-app-frame"
 import { ReasoningBlock } from "@/components/chat/reasoning-block"
 import { SubagentRunLine } from "@/components/chat/subagent-run-line"
 import { ToolAggregateGroup } from "@/components/chat/tool-aggregate-group"
@@ -104,10 +111,8 @@ import {
 } from "@/lib/build-in-tools"
 import type { ThreadStatus } from "@/lib/messages"
 import { formatToolCallDuration } from "@/lib/tool-call-duration"
-import {
-  collectToolParts,
-  getActiveToolLabel,
-} from "@/lib/tool-activity"
+import { collectLatestAssistantToolParts } from "@/lib/latest-assistant-tool-parts"
+import { getActiveToolLabel } from "@/lib/tool-activity"
 import { faviconUrlForHref } from "@/lib/favicon"
 import { cn } from "@/lib/utils"
 import { groupMessages, isMessageGroup, getLastTextPart, getAggregateOnlyParts, getAssistantRenderGroups, getFileTitle, getMediaBadge, getMessageCompleted, getMessageCreated, formatMessageTimestamp, splitTurnAtAnswer, type UIMessageWithIndex, getMessagesText, getSafeFileDownloadUrl, getSafeFileRevealPath } from "./utils"
@@ -929,6 +934,23 @@ interface AssistantMessageGroupProps {
   isStreaming: boolean
 }
 
+function collectMcpAppParts(items: UIMessageWithIndex[]): DynamicToolUIPart[] {
+  const parts = new Map<string, DynamicToolUIPart>()
+  for (const item of items) {
+    if (item.message.role !== "assistant" || isSessionErrorMessage(item.message)) continue
+    for (const part of item.message.parts) {
+      if (
+        part.type === "dynamic-tool"
+        && (part.state === "output-available" || part.state === "output-error")
+        && hasPreservedMcpAppResult(part)
+      ) {
+        parts.set(part.toolCallId, part)
+      }
+    }
+  }
+  return [...parts.values()]
+}
+
 function MessageGroup({
   items,
   messages,
@@ -942,13 +964,42 @@ function MessageGroup({
   const lastRealItem = items.findLast((item) => !isSessionErrorMessage(item.message))
   const isLiveGroup = isStreaming && lastItem !== undefined && lastItem.index === messages.length - 1
   const stepsRef = React.useRef<HTMLDivElement>(null)
+  const stepsPinnedRef = React.useRef(true)
+  const stepsProgrammaticRef = React.useRef(false)
 
-  // Keep the capped step run pinned to the latest step while streaming.
-  React.useEffect(() => {
+  const handleStepsScroll = React.useCallback((event: React.UIEvent<HTMLDivElement>) => {
+    const atBottom = isLiveStepAtBottom(event.currentTarget)
+    if (stepsProgrammaticRef.current && atBottom) return
+    stepsProgrammaticRef.current = false
+    stepsPinnedRef.current = pinnedAfterUserScroll(atBottom)
+  }, [])
+
+  const handleStepsWheel = React.useCallback((event: React.WheelEvent<HTMLDivElement>) => {
+    const nextPinned = pinnedAfterWheel({
+      deltaY: event.deltaY,
+      pinned: stepsPinnedRef.current,
+      atBottom: isLiveStepAtBottom(event.currentTarget),
+    })
+    stepsPinnedRef.current = nextPinned
+    if (!nextPinned) stepsProgrammaticRef.current = false
+  }, [])
+
+  // Follow the latest live step only while the user is still at the tail.
+  // Wheel-up unpins immediately so streaming re-renders cannot yank the list
+  // back to the bottom while they browse earlier thinking.
+  React.useLayoutEffect(() => {
     const node = stepsRef.current
-    if (node && isLiveGroup) {
-      node.scrollTop = node.scrollHeight
+    if (!node) return
+    if (!shouldFollowLiveStepGrowth({ isLive: isLiveGroup, pinned: stepsPinnedRef.current })) {
+      node.style.overflowAnchor = "auto"
+      return
     }
+    node.style.overflowAnchor = "none"
+    stepsProgrammaticRef.current = true
+    node.scrollTop = node.scrollHeight
+    window.requestAnimationFrame(() => {
+      stepsProgrammaticRef.current = false
+    })
   })
 
   if (!lastItem || isMessageEmptyGroup(items)) {
@@ -957,6 +1008,7 @@ function MessageGroup({
 
   const renderableItems = getRenderableMessages(items)
   const lastTextMessage = getLastTextPart(lastItem.message)
+  const mcpAppParts = collectMcpAppParts(items)
 
   // Leading messages without prose (tool/reasoning steps) render inside a
   // height-capped scroll area so long runs stay compact; messages with text
@@ -1087,17 +1139,32 @@ function MessageGroup({
       {stepItems.length > 0 ? (
         collapseSteps ? (
           <CompletedStepRun label={stepRunLabel}>
-            <div className="flex max-h-[520px] flex-col gap-2 overflow-y-auto">
+            <div data-scrollable="" className="flex max-h-[520px] flex-col gap-2 overflow-y-auto overscroll-y-contain">
               {renderItems(stepItems, 0)}
               {foldedReasoning}
             </div>
           </CompletedStepRun>
         ) : (
-          <div ref={stepsRef} className="flex max-h-[520px] flex-col gap-2 overflow-y-auto">
+          <div
+            ref={stepsRef}
+            data-scrollable=""
+            data-live-steps=""
+            onScroll={handleStepsScroll}
+            onWheel={handleStepsWheel}
+            className="flex max-h-[520px] flex-col gap-2 overflow-y-auto overscroll-y-contain"
+          >
             {renderItems(stepItems, 0)}
           </div>
         )
       ) : null}
+      {mcpAppParts.map((part) => (
+        <Message
+          key={`mcp-app-${part.toolCallId}`}
+          className="mx-auto flex w-full max-w-3xl flex-col px-2 empty:hidden md:px-10"
+        >
+          <McpAppFrame part={part} />
+        </Message>
+      ))}
       {renderItems(proseItems, stepItems.length, collapseSteps)}
       {/* Paper artifact strip: one FILES row per turn, at the end. */}
       <ArtifactList
@@ -1158,7 +1225,7 @@ export function MessageList({ messages, status, retryStatus }: MessageListProps)
   const error = useSessionErrorMessage();
   const hasSessionErrorMessage = React.useMemo(() => messages.some(isSessionErrorMessage), [messages])
   const liveActionLabel = isStreaming
-    ? getActiveToolLabel(collectToolParts(messages))
+    ? getActiveToolLabel(collectLatestAssistantToolParts(messages))
     : null
 
   return (

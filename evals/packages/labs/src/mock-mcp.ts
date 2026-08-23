@@ -22,6 +22,28 @@ export interface MockToolCall {
   at: string;
 }
 
+export interface MockAgentToolStep {
+  tool: string;
+  arguments: Record<string, unknown>;
+}
+
+export interface MockAgentWorkload {
+  promptMarker: string;
+  finalReply: string;
+  steps: MockAgentToolStep[];
+}
+
+export interface MockAgentRequest {
+  model: string;
+  promptMarker: string | null;
+  matchedMarkers: string[];
+  completedTools: number;
+  kind: "utility" | "tool" | "final" | "error";
+  toolName: string | null;
+  arguments: Record<string, unknown>;
+  at: string;
+}
+
 export interface MockMcpHandle {
   url: string;
   mcpUrl: string;
@@ -37,6 +59,7 @@ export interface MockMcpHandle {
    * calls and returns before this run's calls ever arrive.
    */
   toolCalls(opts?: { name?: string; timeoutMs?: number; atLeast?: number; sinceIso?: string }): Promise<MockToolCall[]>;
+  agentRequests(opts?: { promptMarker?: string; timeoutMs?: number; atLeast?: number; sinceIso?: string }): Promise<MockAgentRequest[]>;
   handshakes(opts?: { timeoutMs?: number; atLeast?: number; sinceIso?: string }): Promise<MockAuthorizeRequest[]>;
   configureOAuthRedirectUris(redirectUris: readonly string[]): Promise<void>;
   resetOAuth(): Promise<void>;
@@ -55,6 +78,8 @@ export interface StartMockMcpOptions {
   allowUnauthenticatedMcp?: boolean;
   /** Serve this many additional synthetic mock_tool_<i> tools for scale specs. */
   extraToolCount?: number;
+  /** Script deterministic OpenAI-compatible agent turns through this mock. */
+  agentWorkloads?: MockAgentWorkload[];
 }
 
 export type EnterpriseMcpProfileId =
@@ -230,6 +255,10 @@ async function startEnterpriseProfileMock(options: StartMockMcpOptions): Promise
       if ((opts.atLeast ?? 0) > 0) await sleep(opts.timeoutMs ?? 120_000);
       return [];
     },
+    async agentRequests(opts = {}) {
+      if ((opts.atLeast ?? 0) > 0) await sleep(opts.timeoutMs ?? 120_000);
+      return [];
+    },
     async handshakes(opts = {}) {
       if ((opts.atLeast ?? 0) > 0) await sleep(opts.timeoutMs ?? 120_000);
       return [];
@@ -284,6 +313,18 @@ export async function startMockMcp(options: StartMockMcpOptions = {}): Promise<M
 
   await waitForHealth(url, () => output, child);
 
+  if (options.agentWorkloads) {
+    const response = await fetch(`${url}/admin/agent-workloads`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ workloads: options.agentWorkloads }),
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!response.ok) {
+      throw new Error(`Mock agent workload configuration failed: HTTP ${response.status} ${(await response.text()).slice(0, 500)}`);
+    }
+  }
+
   const requests = async (): Promise<MockAuthorizeRequest[]> => {
     const response = await fetch(`${url}/requests`, { signal: AbortSignal.timeout(15_000) });
     const body: unknown = await response.json().catch(() => null);
@@ -323,6 +364,34 @@ export async function startMockMcp(options: StartMockMcpOptions = {}): Promise<M
     return calls;
   };
 
+  const readAgentRequests = async (promptMarker?: string, sinceIso?: string): Promise<MockAgentRequest[]> => {
+    const completions: MockAgentRequest[] = [];
+    for (const entry of await rawEntries()) {
+      if (!isRecord(entry.agentCompletion)) continue;
+      const completion = entry.agentCompletion;
+      const at = typeof entry.at === "string" ? entry.at : "";
+      if (sinceIso && at < sinceIso) continue;
+      const kind = completion.kind;
+      if (kind !== "utility" && kind !== "tool" && kind !== "final" && kind !== "error") continue;
+      const marker = typeof completion.promptMarker === "string" ? completion.promptMarker : null;
+      if (promptMarker && marker !== promptMarker) continue;
+      if (typeof completion.model !== "string"
+        || !Array.isArray(completion.matchedMarkers)
+        || typeof completion.completedTools !== "number") continue;
+      completions.push({
+        model: completion.model,
+        promptMarker: marker,
+        matchedMarkers: completion.matchedMarkers.filter((value): value is string => typeof value === "string"),
+        completedTools: completion.completedTools,
+        kind,
+        toolName: typeof completion.toolName === "string" ? completion.toolName : null,
+        arguments: isRecord(completion.arguments) ? completion.arguments : {},
+        at,
+      });
+    }
+    return completions;
+  };
+
   const readHandshakes = async (sinceIso?: string): Promise<MockAuthorizeRequest[]> => {
     const handshakes: MockAuthorizeRequest[] = [];
     for (const entry of await rawEntries()) {
@@ -352,6 +421,17 @@ export async function startMockMcp(options: StartMockMcpOptions = {}): Promise<M
         calls = await readToolCalls(opts.name, opts.sinceIso).catch(() => calls);
       }
       return calls;
+    },
+    async agentRequests(opts = {}) {
+      const wanted = opts.atLeast ?? 0;
+      if (wanted <= 0) return readAgentRequests(opts.promptMarker, opts.sinceIso);
+      const deadline = Date.now() + (opts.timeoutMs ?? 120_000);
+      let completions = await readAgentRequests(opts.promptMarker, opts.sinceIso);
+      while (completions.length < wanted && Date.now() < deadline) {
+        await sleep(500);
+        completions = await readAgentRequests(opts.promptMarker, opts.sinceIso).catch(() => completions);
+      }
+      return completions;
     },
     async handshakes(opts = {}) {
       const wanted = opts.atLeast ?? 0;

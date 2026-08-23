@@ -57,13 +57,18 @@ export const AuthAccountTable = mysqlTable(
       .notNull()
       .default(sql`CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3)`),
   },
-  (table) => [index("account_user_id").on(table.userId)],
+  (table) => [
+    index("account_user_id").on(table.userId),
+    index("account_account_id_provider_id").on(sql`${table.accountId}(191)`, sql`${table.providerId}(191)`),
+  ],
 )
 
 export const AuthVerificationTable = mysqlTable(
   "verification",
   {
-    id: denTypeIdColumn("verification", "id").notNull().primaryKey(),
+    // Better Auth uses both generated IDs and deterministic 43-character
+    // SHA-256 reservations here (for example, SAML assertion replay guards).
+    id: varchar("id", { length: 64 }).notNull().primaryKey(),
     identifier: varchar("identifier", { length: 255 }).notNull(),
     value: text("value").notNull(),
     expiresAt: timestamp("expires_at", { fsp: 3 }).notNull(),
@@ -194,6 +199,7 @@ export const OAuthRefreshTokenTable = mysqlTable(
     confirmation: text("confirmation"),
   },
   (table) => [
+    index("oauth_refresh_token_token").on(sql`${table.token}(191)`),
     index("oauth_refresh_token_client_id").on(table.clientId),
     index("oauth_refresh_token_session_id").on(table.sessionId),
     index("oauth_refresh_token_user_id").on(table.userId),

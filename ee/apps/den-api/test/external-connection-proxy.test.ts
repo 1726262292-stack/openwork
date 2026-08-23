@@ -92,30 +92,58 @@ async function withClient<T>(
   }
 }
 
-test("published MCP clients keep their existing per-provider surface during the additive phase", async () => {
-  await withClient({ tools: {}, resources: {} }, async (client) => {
-    expect((await client.listTools()).tools.map((tool) => tool.name)).toEqual(["open_fixture"])
-    expect((await client.listResources()).resources.map((resource) => resource.uri)).toEqual([resourceUri])
-    expect((await client.listResourceTemplates()).resourceTemplates).toEqual([])
-    expect((await client.callTool({ name: "open_fixture", arguments: {} })).structuredContent)
-      .toEqual({ status: "healthy" })
-    expect((await client.readResource({ uri: resourceUri })).contents[0]).toMatchObject({ uri: resourceUri, text: html })
-  }, {}, false)
-})
-
-test("the private App-host view is additive and separately bounded", async () => {
+test("ordinary MCP clients receive only bounded search and execute without the per-provider App surface", async () => {
   await withClient({ tools: {}, resources: {} }, async (client) => {
     expect((await client.listTools()).tools.map((tool) => tool.name)).toEqual([
       "search_capabilities",
       "execute_capability",
-      "open_fixture",
     ])
-    expect((await client.listResources()).resources.map((resource) => resource.uri)).toEqual([resourceUri])
+    expect((await client.listResources()).resources).toEqual([])
     expect((await client.listResourceTemplates()).resourceTemplates).toEqual([])
-  })
+    const searched = await client.callTool({ name: "search_capabilities", arguments: { query: "fixture" } })
+    const matches = (searched.structuredContent as { matches: Array<Record<string, unknown>> }).matches
+    expect(matches).toContainEqual(expect.objectContaining({ name: "open_fixture" }))
+    expect(matches[0]?.kind).toBeUndefined()
+    expect(matches[0]?.mcpApp).toBeUndefined()
+    expect((await client.callTool({ name: "execute_capability", arguments: { name: "open_fixture", body: {} } })).structuredContent)
+      .toEqual({ status: "healthy" })
+    await expect(client.callTool({ name: "open_fixture", arguments: {} }))
+      .rejects.toThrow("Use search_capabilities and execute_capability")
+    await expect(client.readResource({ uri: resourceUri }))
+      .rejects.toThrow("only through the OpenWork App host")
+  }, {}, false)
 })
 
-test("a forged App-host audience header cannot unlock the private gateway", async () => {
+test("legacy clients retain ordinary operations through bounded search and execute only", async () => {
+  await withClient({ tools: {}, resources: {} }, async (client) => {
+    expect((await client.listTools()).tools.map((tool) => tool.name)).toEqual([
+      "search_capabilities",
+      "execute_capability",
+    ])
+    expect((await client.listResources()).resources).toEqual([])
+    expect((await client.listResourceTemplates()).resourceTemplates).toEqual([])
+    const searched = await client.callTool({ name: "search_capabilities", arguments: { query: "ordinary records" } })
+    expect((searched.structuredContent as { matches: Array<Record<string, unknown>> }).matches).toEqual([
+      expect.objectContaining({ name: "search_fixture" }),
+    ])
+    expect((await client.callTool({
+      name: "execute_capability",
+      arguments: { name: "search_fixture", body: { query: "ordinary" } },
+    })).structuredContent).toEqual({ status: "healthy" })
+    await expect(client.callTool({ name: "search_fixture", arguments: { query: "ordinary" } }))
+      .rejects.toThrow("Use search_capabilities and execute_capability")
+    await expect(client.readResource({ uri: resourceUri }))
+      .rejects.toThrow("only through the OpenWork App host")
+  }, {
+    listTools: async () => [{
+      name: "search_fixture",
+      description: "Search ordinary fixture records.",
+      inputSchema: { type: "object" },
+    }],
+  }, false)
+})
+
+test("a forged App-host audience header cannot unlock the provider surface", async () => {
   let toolNames: string[] = []
   const request = new Request("https://openwork.example/mcp/agent/connections/fixture", {
     method: "POST",
@@ -145,7 +173,7 @@ test("a forged App-host audience header cannot unlock the private gateway", asyn
       },
     },
   })
-  expect(toolNames).toEqual(["open_fixture"])
+  expect(toolNames).toEqual(["search_capabilities", "execute_capability"])
 })
 
 test("tool-only downstream servers initialize and never register resource handlers", async () => {

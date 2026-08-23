@@ -35,7 +35,7 @@ describe("OpenWork capabilities knowledge plugin", () => {
     expect(knowledge).not.toContain("create custom skills in `.opencode/skills/`");
     expect(knowledge).not.toContain("First call `openwork-cloud_search_capabilities`");
     expect(knowledge).not.toContain("then call `openwork-cloud_execute_capability`");
-    expect(knowledge).toContain("Settings > Extensions");
+    expect(knowledge).toContain("Settings > Library");
     expect(knowledge).toContain("Settings > Debug");
     expect(knowledge).toContain("custom or local MCP server");
     expect(knowledge).not.toContain("Access tokens are opaque");

@@ -95,7 +95,7 @@ import { addRoute, matchRoute, type AuthMode, type RequestContext, type Route } 
 import { registerSessionRoutes } from "./routes/sessions.js";
 import { registerWorkspaceRoutes } from "./routes/workspaces.js";
 import { registerCloudMcpRoutes } from "./routes/cloud-mcp.js";
-import { captureServerException } from "./telemetry.js";
+import { captureServerException, isExpectedRequestCancellation } from "./telemetry.js";
 import {
   completeLocalManagedMcpAuthorization,
   createLocalManagedMcpConnection,
@@ -1066,12 +1066,15 @@ export async function startServer(config: ServerConfig): Promise<ServeResult> {
           const response = await proxyOpencodeRequest({ config, request, url, workspace, proxyPath: mount.restPath });
           return finalize(response);
         } catch (error) {
-          if (!(error instanceof ApiError)) {
-            captureServerException(error, { method: request.method, route: "/workspace/:id/opencode/*" });
+          const requestCanceled = isExpectedRequestCancellation(error, request.signal);
+          if (!(error instanceof ApiError) && !requestCanceled) {
+            captureServerException(error, { method: request.method, route: "/workspace/:id/opencode/*", requestSignal: request.signal });
           }
           const apiError = error instanceof ApiError
             ? error
-            : new ApiError(500, "internal_error", "Unexpected server error");
+            : requestCanceled
+              ? new ApiError(499, "request_aborted", "Request was canceled")
+              : new ApiError(500, "internal_error", "Unexpected server error");
           recordApiError(apiError);
           return finalize(jsonResponse(formatError(apiError), apiError.status));
         }
@@ -1118,12 +1121,15 @@ export async function startServer(config: ServerConfig): Promise<ServeResult> {
           const response = await proxyOpencodeRequest({ config, request, url, workspace: config.workspaces[0] });
           return finalize(response);
         } catch (error) {
-          if (!(error instanceof ApiError)) {
-            captureServerException(error, { method: request.method, route: "/opencode/*" });
+          const requestCanceled = isExpectedRequestCancellation(error, request.signal);
+          if (!(error instanceof ApiError) && !requestCanceled) {
+            captureServerException(error, { method: request.method, route: "/opencode/*", requestSignal: request.signal });
           }
           const apiError = error instanceof ApiError
             ? error
-            : new ApiError(500, "internal_error", "Unexpected server error");
+            : requestCanceled
+              ? new ApiError(499, "request_aborted", "Request was canceled")
+              : new ApiError(500, "internal_error", "Unexpected server error");
           recordApiError(apiError);
           return finalize(jsonResponse(formatError(apiError), apiError.status));
         }
@@ -1159,13 +1165,16 @@ export async function startServer(config: ServerConfig): Promise<ServeResult> {
         });
         return finalize(response);
       } catch (error) {
-        if (!(error instanceof ApiError)) {
-          captureServerException(error, { method: request.method, route: url.pathname });
+        const requestCanceled = isExpectedRequestCancellation(error, request.signal);
+        if (!(error instanceof ApiError) && !requestCanceled) {
+          captureServerException(error, { method: request.method, route: url.pathname, requestSignal: request.signal });
           console.error("[openwork-server] Unhandled error:", error);
         }
         const apiError = error instanceof ApiError
           ? error
-          : new ApiError(500, "internal_error", "Unexpected server error");
+          : requestCanceled
+            ? new ApiError(499, "request_aborted", "Request was canceled")
+            : new ApiError(500, "internal_error", "Unexpected server error");
         recordApiError(apiError);
         const response = jsonResponse(formatError(apiError), apiError.status);
         const isAgentDiagnosticsRequest =
@@ -1246,6 +1255,11 @@ function opencodeUnreachableError(error: unknown, path: string): ApiError {
     path,
     cause: error instanceof Error ? error.message : String(error),
   });
+}
+
+function agentDiagnosticsTimeoutMs(): number {
+  const configured = Number(process.env.OPENWORK_AGENT_DIAGNOSTICS_TIMEOUT_MS);
+  return Number.isFinite(configured) && configured > 0 ? configured : 24_000;
 }
 
 function buildOpencodeDirectoryHeader(directory: string) {
@@ -1378,6 +1392,7 @@ export async function proxyOpencodeRequest(input: {
   }
   if (pool && method === "GET" && engineAggregateKind(proxyPath)) {
     return proxyEngineAggregateRead({
+      pool,
       connections: pool.connections(),
       proxyPath,
       search: input.url.search,
@@ -1476,6 +1491,7 @@ function pendingItemIdentity(value: unknown): string {
 }
 
 async function proxyEngineAggregateRead(input: {
+  pool: EnginePool;
   connections: EnginePoolConnection[];
   proxyPath: string;
   search: string;
@@ -1507,6 +1523,9 @@ async function proxyEngineAggregateRead(input: {
     return jsonResponse(merged);
   }
 
+  for (const result of results) {
+    input.pool.observePendingRequests(result.connection.generationId, result.payload);
+  }
   const seen = new Set<string>();
   const items: unknown[] = [];
   let containerKey: string | null = null;
@@ -1553,13 +1572,24 @@ function mergedEventBody(input: {
     start(controller) {
       let active = readers.length;
       let closed = false;
+      const close = () => {
+        if (closed) return;
+        closed = true;
+        if (pingTimer) clearInterval(pingTimer);
+        input.lease.signal.removeEventListener("abort", abort);
+        input.lease.release();
+        controller.close();
+      };
+      const abort = () => {
+        if (closed || cancelled) return;
+        cancelled = true;
+        for (const entry of readers) void entry.reader.cancel(input.lease.signal.reason).catch(() => undefined);
+        close();
+      };
       const finish = () => {
         active -= 1;
         if (active > 0 || closed || cancelled) return;
-        closed = true;
-        if (pingTimer) clearInterval(pingTimer);
-        input.lease.release();
-        controller.close();
+        close();
       };
       const pump = async (entry: typeof readers[number]) => {
         const decoder = new TextDecoder();
@@ -1591,6 +1621,8 @@ function mergedEventBody(input: {
         if (!closed && !cancelled) controller.enqueue(encoder.encode(": ping\n\n"));
       }, 30_000);
       pingTimer.unref?.();
+      input.lease.signal.addEventListener("abort", abort, { once: true });
+      if (input.lease.signal.aborted) abort();
     },
     async cancel(reason) {
       cancelled = true;
@@ -2061,6 +2093,7 @@ function createRoutes(
     requireClientScope,
     resolveWorkspace,
     resolveWorkspaceWithoutBootstrap,
+    resolveOpencodeDirectory,
     createWorkspaceOpencodeClient,
     unwrapOpencodeResult,
   });
@@ -2107,33 +2140,42 @@ function createRoutes(
         throw new ApiError(400, "invalid_agent_diagnostics_request", "Agent diagnostics request is invalid");
       }
       const opencode = createWorkspaceOpencodeClient(config, workspace, { boundedDiagnosticsReads: true });
-      const diagnosticsSignal = AbortSignal.any([ctx.request.signal, AbortSignal.timeout(24_000)]);
-      const response = jsonResponse(await runAgentContextDiagnostics({
-        config,
-        workspace,
-        request: parsed.data,
-        inspectRegistration: (name, mcpConfig) =>
-          inspectEngineMcpRegistrationInState(
-            config,
-            engineMcpServerState,
-            workspace,
-            name,
-            mcpConfig,
-          ),
-        dependencies: {
-          signal: diagnosticsSignal,
-          inspectEffectiveEngine: async (signal) => {
-            const [configResult, agentResult] = await Promise.all([
-              opencode.config.get({}, { signal }),
-              opencode.app.agents({}, { signal }),
-            ]);
-            return {
-              config: unwrapOpencodeResult(configResult, "/config"),
-              agents: unwrapOpencodeResult(agentResult, "/agent"),
-            };
+      const timeoutSignal = AbortSignal.timeout(agentDiagnosticsTimeoutMs());
+      const diagnosticsSignal = AbortSignal.any([ctx.request.signal, timeoutSignal]);
+      let response: Response;
+      try {
+        response = jsonResponse(await runAgentContextDiagnostics({
+          config,
+          workspace,
+          request: parsed.data,
+          inspectRegistration: (name, mcpConfig) =>
+            inspectEngineMcpRegistrationInState(
+              config,
+              engineMcpServerState,
+              workspace,
+              name,
+              mcpConfig,
+            ),
+          dependencies: {
+            signal: diagnosticsSignal,
+            inspectEffectiveEngine: async (signal) => {
+              const [configResult, agentResult] = await Promise.all([
+                opencode.config.get({}, { signal }),
+                opencode.app.agents({}, { signal }),
+              ]);
+              return {
+                config: unwrapOpencodeResult(configResult, "/config"),
+                agents: unwrapOpencodeResult(agentResult, "/agent"),
+              };
+            },
           },
-        },
-      }));
+        }));
+      } catch (error) {
+        if (timeoutSignal.aborted && !ctx.request.signal.aborted) {
+          throw new ApiError(504, "agent_diagnostics_timeout", "Agent diagnostics timed out");
+        }
+        throw error;
+      }
       response.headers.set("Cache-Control", "no-store");
       return response;
     } finally {

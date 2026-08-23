@@ -93,6 +93,7 @@ import { useLocal } from "@/react-app/kernel/local-provider";
 import { usePlatform } from "@/react-app/kernel/platform";
 import { SessionPage, type OpenSessionTab } from "@/react-app/domains/session/chat/session-page";
 import { AutomationsPage } from "@/react-app/domains/automations/automations-page";
+import { useAutomationDeploymentEnabled } from "@/react-app/domains/automations/automation-availability";
 import { automationsStateChangedEvent } from "@/react-app/domains/automations/automation-events";
 import type { NewTaskComposerContext } from "@/react-app/domains/session/chat/new-task-composer";
 import { isDesktopProviderBlocked } from "@/app/cloud/desktop-app-restrictions";
@@ -250,6 +251,22 @@ function serializeSDKError(error: unknown): string {
 
 function describeTaskCreateError(error: unknown) {
   const message = describeRouteError(error);
+  let serializedCode: unknown = null;
+  try {
+    const payload: unknown = JSON.parse(message);
+    serializedCode = typeof payload === "object" && payload !== null
+      ? Reflect.get(payload, "code")
+      : null;
+  } catch {
+    // The normal error path is plain text, not a wire payload.
+  }
+  const directCode = typeof error === "object" && error !== null
+    ? Reflect.get(error, "code")
+    : null;
+  const code = typeof directCode === "string" ? directCode : serializedCode;
+  if (code === "opencode_unconfigured") {
+    return "Choose a model for this workspace, then try again.";
+  }
   const lower = message.toLowerCase();
   if (
     lower.includes("failed to fetch") ||
@@ -473,7 +490,8 @@ export function SessionRoute() {
   const denAuth = useDenAuth();
   const { config: shellConfig } = useShellConfig();
   const local = useLocal();
-  const automationsEnabled = isDesktopRuntime();
+  const automationDeploymentEnabled = useAutomationDeploymentEnabled();
+  const automationsEnabled = isDesktopRuntime() && automationDeploymentEnabled;
   const automationsRouteActive = automationsEnabled && automationsRouteRequested;
   const denSettings = readDenSettings();
   const [automationsSupported, setAutomationsSupported] = useState(false);
@@ -506,7 +524,7 @@ export function SessionRoute() {
         });
     };
     refreshAutomationState();
-    const interval = window.setInterval(refreshAutomationState, 15_000);
+    const interval = window.setInterval(refreshAutomationState, 5 * 60_000);
     window.addEventListener(automationsStateChangedEvent, refreshAutomationState);
     return () => {
       cancelled = true;
@@ -573,7 +591,6 @@ export function SessionRoute() {
     routeNotFoundMessage,
     endpointForWorkspace,
     refreshRouteState,
-    loadWorkspaceSessionsInBackground,
     rememberPendingCreatedSession,
     handleRuntimeSessionCreated,
     handleRuntimeSessionUpdated,
@@ -1287,13 +1304,15 @@ export function SessionRoute() {
           void refreshCloudProviderSync("model_picker_open");
         }
       },
-      onModelChange: (model: ModelRef) => {
+      onModelChange: (model: ModelRef, variant?: string | null) => {
         local.setPrefs((previous) => ({
           ...previous,
           defaultModel: model,
-          modelVariant: previous.defaultModel?.providerID === model.providerID && previous.defaultModel.modelID === model.modelID
-            ? previous.modelVariant
-            : null,
+          modelVariant: variant !== undefined
+            ? variant
+            : previous.defaultModel?.providerID === model.providerID && previous.defaultModel.modelID === model.modelID
+              ? previous.modelVariant
+              : null,
         }));
         modelPicker.setCompactOpen(false);
       },
@@ -1596,13 +1615,15 @@ export function SessionRoute() {
           void refreshCloudProviderSync("model_picker_open");
         }
       },
-      onModelChange: (model: ModelRef) => {
+      onModelChange: (model: ModelRef, variant?: string | null) => {
         local.setPrefs((previous) => ({
           ...previous,
           defaultModel: model,
-          modelVariant: previous.defaultModel?.providerID === model.providerID && previous.defaultModel.modelID === model.modelID
-            ? previous.modelVariant
-            : null,
+          modelVariant: variant !== undefined
+            ? variant
+            : previous.defaultModel?.providerID === model.providerID && previous.defaultModel.modelID === model.modelID
+              ? previous.modelVariant
+              : null,
         }));
         modelPicker.setCompactOpen(false);
       },
@@ -1792,6 +1813,24 @@ export function SessionRoute() {
   );
 
 
+  const applyLastUsedModelToSession = useCallback((sessionId: string) => {
+    const previous = selectedSessionId ? getSessionModelSelection(selectedSessionId) : null;
+    const model = previous?.model ?? local.prefs.defaultModel;
+    if (!model?.providerID || !model.modelID) return;
+    const variant = previous ? previous.variant : (local.prefs.modelVariant ?? null);
+    useSessionModelStore.getState().setModel(sessionId, model, variant);
+    local.setPrefs((current) => {
+      if (
+        current.defaultModel?.providerID === model.providerID
+        && current.defaultModel.modelID === model.modelID
+        && (current.modelVariant ?? null) === variant
+      ) {
+        return current;
+      }
+      return { ...current, defaultModel: model, modelVariant: variant };
+    });
+  }, [local, selectedSessionId]);
+
   const handleCreateTaskInWorkspace = useCallback(async (workspaceId: string): Promise<string | null> => {
     const workspace = workspaces.find((item) => item.id === workspaceId);
     if (
@@ -1829,6 +1868,7 @@ export function SessionRoute() {
       writeActiveWorkspaceId(workspaceId || null);
       writeLastSessionFor(workspaceId, session.id);
       rememberPendingCreatedSession(workspaceId, session.id);
+      applyLastUsedModelToSession(session.id);
       setSessionsByWorkspaceId((current) => {
         const next = {
           ...current,
@@ -1865,7 +1905,7 @@ export function SessionRoute() {
       }
       return null;
     }
-  }, [endpointForWorkspace, loading, navigateToWorkspaceSession, refreshCloudProviderSync, refreshRouteState, rememberPendingCreatedSession, retryingWorkspaceIds, selectedWorkspaceId, workspaces]);
+  }, [applyLastUsedModelToSession, endpointForWorkspace, loading, navigateToWorkspaceSession, refreshCloudProviderSync, refreshRouteState, rememberPendingCreatedSession, retryingWorkspaceIds, selectedWorkspaceId, workspaces]);
 
   // Latest session-list state for prev/next session tab navigation. The
   // `options` field is updated by `onSessionTabsChange` from SessionPage so we
@@ -2080,7 +2120,7 @@ export function SessionRoute() {
     });
   }, [handleOpenSettings, restrictionNotice, sessionProviderAuthStore]);
 
-  // "Your API keys → Connect" in the compact model picker (and anything else
+  // "Connect more providers" in the compact model picker (and anything else
   // outside this route's prop tree) requests the provider auth modal here.
   useEffect(() => {
     const handler = () => handleOpenProviderAuth();
@@ -2388,9 +2428,12 @@ export function SessionRoute() {
       await refreshRouteState();
       if (targetWorkspaceId) {
         const workspacePath = targetWorkspace?.path?.trim() || folder;
-        // Best-effort first task creation (mirrors the old welcome flow) — a
-        // failure here must not surface as a failed workspace creation.
-        const session = createdOnServer && sessionBaseUrl && sessionToken
+        const firstTaskPrompt = options?.firstTaskPrompt?.trim() ?? "";
+        const firstTaskAttachments = options?.firstTaskAttachments ?? [];
+        // A workspace registry mutation must not eagerly instantiate an
+        // OpenCode directory. Chat-first creation still needs a session for
+        // its supplied prompt; ordinary creation lands on the New task state.
+        const session = createdOnServer && sessionBaseUrl && sessionToken && (firstTaskPrompt || firstTaskAttachments.length > 0)
           ? await createClient(
               `${(buildOpenworkWorkspaceBaseUrl(sessionBaseUrl, targetWorkspaceId) ?? sessionBaseUrl).replace(/\/+$/, "")}/opencode`,
               workspacePath || undefined,
@@ -2409,9 +2452,7 @@ export function SessionRoute() {
         captureAnalyticsEvent("workspace_created", { workspace_type: "local" });
         if (session?.id) {
           captureAnalyticsEvent("task_created", { source: "workspace_created", workspace_type: "local" });
-          const firstTaskPrompt = options?.firstTaskPrompt?.trim();
           if (firstTaskPrompt) {
-            const firstTaskAttachments = options?.firstTaskAttachments ?? [];
             // Attachment chips only survive in-memory (File objects), so the
             // persisted fallback draft drops their tokens.
             saveSessionDraft(targetWorkspaceId, session.id, { text: firstTaskPrompt.replace(/\[attachment [^\]]+\]/g, "").trim(), mode: "prompt" });
@@ -2679,30 +2720,9 @@ export function SessionRoute() {
           if (workspaceId === selectedWorkspaceId) return true;
           setLegacySelectedWorkspaceId(workspaceId);
           writeActiveWorkspaceId(workspaceId || null);
-          const workspace = workspaces.find((item) => item.id === workspaceId);
-          if (client && workspace && !sessionsByWorkspaceId[workspaceId]?.length) {
-            setRetryingWorkspaceIds((current) => Array.from(new Set([...current, workspaceId])));
-            void loadWorkspaceSessionsInBackground([workspace]);
-          }
-          // Fire Tauri updates but don't await them — they're bookkeeping and
-          // awaiting 2 IPC roundtrips on every click used to stall rapid
-          // workspace switches behind a queue.
-          if (isDesktopRuntime()) {
-            void workspaceSetSelected(workspaceId).catch(() => undefined);
-            void workspaceSetRuntimeActive(workspaceId).catch(() => undefined);
-          }
-          // Tell the OpenWork server this workspace is now active so it can
-          // emit a config reload event that the OpenCode engine picks up.
-          // Without this, the permissions from opencode.jsonc are never
-          // applied on the workspace the user is already on at launch. See
-          // issue #870.
-          if (workspaceId) {
-            const workspace = workspaces.find((item) => item.id === workspaceId) ?? null;
-            const endpoint = endpointForWorkspace(workspace);
-            if (endpoint) {
-              void endpoint.client.activateWorkspace(endpoint.workspaceId, { persist: true }).catch(() => undefined);
-            }
-          }
+          // Route adoption owns desktop persistence and server activation.
+          // Centralizing those effects lets rapid navigation coalesce to the
+          // last route instead of racing stale IPC and engine reloads.
           // If we remember what the user last opened here and that session
           // still exists in our local list, navigate. Otherwise stay put.
           const remembered = readLastSessionFor(workspaceId);
@@ -2768,6 +2788,7 @@ export function SessionRoute() {
               writeActiveWorkspaceId(workspaceId || null);
               writeLastSessionFor(workspaceId, session.id);
               rememberPendingCreatedSession(workspaceId, session.id);
+              applyLastUsedModelToSession(session.id);
               setSessionsByWorkspaceId((current) => ({
                 ...current,
                 [workspaceId]: [session, ...(current[workspaceId] ?? [])],
@@ -2996,9 +3017,16 @@ export function SessionRoute() {
       }
       onSelect={(next: ModelRef) => {
         if (modelPickerSessionId) {
-          // Opened from a session composer: remember for that conversation
-          // only, so the other split pane keeps its own model.
+          // Keep the conversation's own model, and also remember it as the
+          // last used default so a newly created session starts on it.
           useSessionModelStore.getState().setModel(modelPickerSessionId, next);
+          local.setPrefs((previous) => ({
+            ...previous,
+            defaultModel: next,
+            modelVariant: previous.defaultModel?.providerID === next.providerID && previous.defaultModel.modelID === next.modelID
+              ? previous.modelVariant
+              : null,
+          }));
           setModelPickerSessionId(null);
         } else {
           local.setPrefs((previous) => ({

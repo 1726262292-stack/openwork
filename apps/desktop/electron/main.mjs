@@ -96,6 +96,7 @@ const {
   nativeImage,
   nativeTheme,
   net: electronNet,
+  powerMonitor,
   Notification: ElectronNotification,
   session,
   shell,
@@ -103,6 +104,7 @@ const {
 } = require("electron");
 const pty = require(["node", "pty"].join("-"));
 const NATIVE_DEEP_LINK_EVENT = "openwork:deep-link-native";
+const AUTOMATION_RUNNER_CREDENTIAL_REJECTED_EVENT = "openwork:automation-runner:credential-rejected";
 const isDevMode = process.env.OPENWORK_DEV_MODE === "1";
 const DESKTOP_DISTRIBUTION = resolveDesktopDistribution({
   isPackaged: app.isPackaged,
@@ -1256,7 +1258,23 @@ const desktopAutomationRunner = createDesktopAutomationRunner({
     return { baseUrl: server.baseUrl, token: server.clientToken ?? server.ownerToken };
   },
   log: (state) => console.info(`[automation-runner] ${state}`),
+  onCredentialRejected: () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    mainWindow.webContents.send(AUTOMATION_RUNNER_CREDENTIAL_REJECTED_EVENT);
+  },
 });
+
+// Scheduled Automations are due at wall-clock times a laptop routinely sleeps
+// through. Waking the machine has to poll for work now, not up to a full poll
+// interval later, or a recovered occurrence sits queued while the desktop is
+// already back.
+const wakeAutomationRunner = (wakeEvent) => {
+  if (desktopAutomationRunner.wake().polled) {
+    console.info(`[automation-runner] polling for work after ${wakeEvent}`);
+  }
+};
+powerMonitor.on("resume", () => wakeAutomationRunner("resume"));
+powerMonitor.on("unlock-screen", () => wakeAutomationRunner("unlock-screen"));
 
 let runtimeDisposedForQuit = false;
 let runtimeDisposeInProgress = false;

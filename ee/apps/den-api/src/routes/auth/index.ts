@@ -32,9 +32,12 @@ import {
 import { getInvalidMcpOAuthRedirectUris, isAllowedMcpOAuthRedirectUri, MCP_OAUTH_REDIRECT_URI_ERROR_DESCRIPTION } from "../../mcp/oauth-client-policy.js"
 import { normalizeMcpOAuthClientScope } from "../../mcp/scopes.js"
 import { publicRoute, queryValidator, tokenRoute } from "../../middleware/index.js"
+import { checkOAuthTokenRateLimit, recordOAuthTokenFailure } from "../../oauth-token-rate-limit.js"
+import { getOAuthTokenRateLimitLogFields, readBasicAuthClientId } from "../../oauth-token-rate-limit-observability.js"
 import { emptyResponse, jsonResponse } from "../../openapi.js"
 import { getSingletonSsoStatus } from "../../orgs.js"
 import { cache } from "../../cache.js"
+import { appLogger } from "../../observability/logger.js"
 import { getAuthRequestEmail, getSingleOrgEmailSignupPolicyViolation, type SingleOrgEmailSignupPolicyViolation } from "../../single-org-signup-policy.js"
 import { samlResponsePolicyMiddleware } from "../../sso-saml-response-middleware.js"
 import { getRequestSession, readSignedSessionCookieToken, revokeBearerSession, type AuthContextVariables } from "../../session.js"
@@ -42,6 +45,8 @@ import { checkRateLimit } from "../../utils/rate-limit.js"
 import { registerDesktopAuthRoutes } from "./desktop-handoff.js"
 import { normalizeOAuthAuthorizeRedirect } from "./oauth-redirect.js"
 import { registerScimAuthRoutes } from "./scim.js"
+
+const logger = appLogger.child({ component: "auth" })
 
 function rewriteAuthRequest(request: Request, path: string) {
   const url = new URL(request.url)
@@ -93,20 +98,6 @@ function readStoredOAuthClientScopes(scopes: string | null) {
     // Better Auth has used both JSON arrays and space-delimited strings for scopes.
   }
   return readOAuthScopeList(scopes)
-}
-
-function readBasicAuthClientId(headers: Headers) {
-  const authorization = headers.get("authorization")?.trim() ?? ""
-  const match = authorization.match(/^Basic\s+(.+)$/i)
-  if (!match?.[1]) return null
-
-  try {
-    const decoded = atob(match[1])
-    const separator = decoded.indexOf(":")
-    return separator > 0 ? decoded.slice(0, separator) : null
-  } catch {
-    return null
-  }
 }
 
 async function registeredClientHasMcpScope(clientId: string) {
@@ -569,7 +560,7 @@ async function getLoginOptionAccounts(email: string) {
     })
     .from(AuthUserTable)
     .innerJoin(AuthAccountTable, eq(AuthUserTable.id, AuthAccountTable.userId))
-    .where(sql`lower(${AuthUserTable.email}) = ${email}`)
+    .where(eq(AuthUserTable.email, email))
 
   return rows.map((row) => ({
     providerId: row.providerId,
@@ -612,8 +603,28 @@ async function isInvitationSignupAllowed(request: Request) {
 
 async function handleAuthRequest(c: Context) {
   const request = c.req.raw
+  const observabilityRequest = request.method === "POST"
+    && getBetterAuthProxyPath(new URL(request.url).pathname) === "/oauth2/token"
+    ? request.clone()
+    : null
+  const oauthTokenRateLimit = observabilityRequest
+    ? await checkOAuthTokenRateLimit(request, checkRateLimit)
+    : null
+  if (observabilityRequest && oauthTokenRateLimit?.response) {
+    const rateLimitFields = await getOAuthTokenRateLimitLogFields(observabilityRequest, oauthTokenRateLimit.response)
+    if (rateLimitFields) {
+      logger.warn("oauth token request rate limited", rateLimitFields)
+    }
+    return oauthTokenRateLimit.response
+  }
   const authRequest = await normalizeMcpOAuthRequest(request)
   if (authRequest instanceof Response) {
+    if (oauthTokenRateLimit) {
+      // Malformed token requests rejected before auth.handler must still
+      // consume the failure budget, or repeated invalid-resource submissions
+      // would only ever pay the looser attempt buckets.
+      await recordOAuthTokenFailure(oauthTokenRateLimit.failureKey, authRequest, checkRateLimit)
+    }
     return authRequest
   }
   const invitationSignupAllowed = await isInvitationSignupAllowed(authRequest)
@@ -667,7 +678,7 @@ async function handleAuthRequest(c: Context) {
   if (isBetterAuthSignOutRequest(authRequest)) {
     const cookieToken = await readSignedSessionCookieToken(c)
     if (cookieToken) {
-      await cache.auth.deleteSession(cookieToken)
+      await cache.auth.revokeSession(cookieToken)
     }
     await revokeBearerSession(authRequest.headers)
   }
@@ -676,6 +687,14 @@ async function handleAuthRequest(c: Context) {
   try {
     response = await auth.handler(authRequest)
   } catch (error) {
+    const requestId = c.get("requestId")
+    logger.error("better auth handler failed", {
+      auth_session_source: "better_auth_handler",
+      http_method: authRequest.method,
+      http_path: new URL(authRequest.url).pathname,
+      request_id: typeof requestId === "string" ? requestId : undefined,
+      error,
+    })
     throw error
   }
   if (initialAdminBootstrapAuthorization) {
@@ -686,6 +705,15 @@ async function handleAuthRequest(c: Context) {
   }
   if (emailSignInAttempt) {
     await recordEmailSignInResult(emailSignInAttempt, response)
+  }
+  if (oauthTokenRateLimit) {
+    await recordOAuthTokenFailure(oauthTokenRateLimit.failureKey, response, checkRateLimit)
+  }
+  if (observabilityRequest) {
+    const rateLimitFields = await getOAuthTokenRateLimitLogFields(observabilityRequest, response)
+    if (rateLimitFields) {
+      logger.warn("oauth token request rate limited", rateLimitFields)
+    }
   }
   return response
 }

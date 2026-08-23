@@ -104,6 +104,57 @@ helm template openwork-ee ./packaging/helm/openwork-ee -f values.prod.yaml
 helm upgrade --install openwork-ee ./packaging/helm/openwork-ee -f values.prod.yaml
 ```
 
+### Automations rollout
+
+The Helm chart advertises Automations as unavailable by default for self-hosted
+and customer-managed deployments. Availability and server shutdown are
+separate so a Den upgrade cannot remove routes beneath an older published
+Desktop:
+
+| `automationsEnabled` | `automationsRuntimeEnabled` | Behavior |
+| --- | --- | --- |
+| `"false"` | `"true"` | New Desktops hide Automations; legacy routes and scheduling remain available during the upgrade window. |
+| `"false"` | `"false"` | Automations are hard-disabled: routes, MCP resources, and scheduler startup are omitted. |
+| `"true"` | `"true"` | Automations are available and execute normally. |
+| `"true"` | `"false"` | The runtime shutdown wins and Desktop receives `automationsEnabled: false`. |
+
+Set both values explicitly when the deployment is ready to run Automations:
+
+```yaml
+config:
+  public:
+    automationsEnabled: "true"
+    automationsRuntimeEnabled: "true"
+```
+
+These render `DEN_AUTOMATIONS_ENABLED=true` and
+`DEN_AUTOMATIONS_RUNTIME_ENABLED=true` for Den. An entirely unconfigured Den
+keeps availability fail-closed while preserving the legacy runtime. When using
+raw environment variables, an explicit `DEN_AUTOMATIONS_ENABLED` value also
+becomes the runtime default: `false` is therefore a complete shutdown unless
+`DEN_AUTOMATIONS_RUNTIME_ENABLED=true` explicitly selects mixed-version
+compatibility. The chart always renders both values to make that choice
+unambiguous. Hosted OpenWork Cloud explicitly enables availability.
+
+Desktop v0.18.35 and newer consume the value from `/v1/me/desktop-config`, hide
+the Automation surface, and do not register a runner unless the value is
+explicitly true. Older clients predate that contract, so the runtime flag must
+remain true while they are in use even when availability is false.
+
+For an existing deployment, stage the upgrade so independently released Den
+and Desktop versions never observe an unintended flag state:
+
+1. Keep `config.public.automationsRuntimeEnabled: "true"` while any connected
+   Desktop is older than v0.18.35.
+2. Upgrade Den. Legacy Desktops retain their existing routes and scheduling;
+   compatible Desktops honor `automationsEnabled` from desktop config.
+3. Roll out Desktop v0.18.35 or newer to the whole deployment.
+4. To keep Automations, set both values to true. To disable them, set both
+   values to false only after the Desktop rollout is complete.
+
+New installations with no legacy Desktop clients can hard-disable Automations
+immediately by setting both values to false.
+
 Provider-specific starter guides:
 
 - AWS EKS:

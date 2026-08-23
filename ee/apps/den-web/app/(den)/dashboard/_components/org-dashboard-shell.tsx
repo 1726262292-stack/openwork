@@ -54,7 +54,7 @@ import {
   getPluginsRoute,
   getSsoRoute,
   getScimRoute,
-  getScriptRunsRoute,
+  getWorkflowRunsRoute,
   getWebRoute,
 } from "../../_lib/den-org";
 import { useOrgListWindow } from "../../_lib/use-org-list-window";
@@ -302,7 +302,7 @@ function getDashboardPageTitle(pathname: string, orgSlug: string | null) {
   if (pathname.startsWith(getYourConnectionsRoute(orgSlug))) {
     return "Your Connections";
   }
-  if (pathname.startsWith(getScriptRunsRoute(orgSlug))) {
+  if (pathname.startsWith(getWorkflowRunsRoute(orgSlug))) {
     return "Workflow Runs";
   }
   if (pathname.startsWith(getToolTesterRoute(orgSlug))) {
@@ -406,7 +406,7 @@ export function OrgDashboardShell({ children }: { children: React.ReactNode }) {
     orgSlug: activeOrg?.slug,
   });
   const mcpConnectionsEnabled = orgContext?.capabilities.mcpConnections === true;
-  const codemodeScriptsEnabled = orgContext?.capabilities.codemodeScripts === true;
+  const workflowsEnabled = orgContext?.capabilities.workflows === true;
   // Web access is backed by the existing hosted cloud capability. The org
   // payload only reports `cloud` after the server rollout helper has verified
   // the multi-org deployment gate, so the sidebar stays hidden by default until
@@ -427,7 +427,7 @@ export function OrgDashboardShell({ children }: { children: React.ReactNode }) {
       label: "My Library",
       icon: LibraryBig,
     },
-    ...(codemodeScriptsEnabled && activeOrg
+    ...(workflowsEnabled && activeOrg
       ? [{
           href: getAutomationsRoute(activeOrg.slug),
           label: "My Automations",
@@ -492,12 +492,12 @@ export function OrgDashboardShell({ children }: { children: React.ReactNode }) {
     : [];
   const observabilityItems: DashboardNavItem[] = access.isAdmin && activeOrg
     ? [
-        ...(codemodeScriptsEnabled
+        ...(workflowsEnabled
           ? [{
-              href: getScriptRunsRoute(activeOrg.slug),
+              href: getWorkflowRunsRoute(activeOrg.slug),
               label: "Workflow Runs",
               icon: ScrollText,
-              testId: "nav-script-runs",
+              testId: "nav-workflow-runs",
             }]
           : []),
         { href: getAnalyticsRoute(activeOrg.slug), label: "Analytics", icon: BarChart3 },

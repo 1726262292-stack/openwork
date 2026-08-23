@@ -117,7 +117,7 @@ export const AutomationRunTable = mysqlTable(
     finished_at: timestamp("finished_at", { fsp: 3 }),
     error: compatJsonColumn<AutomationError | null>("error"),
     result_summary: text("result_summary"),
-    codemode_receipt_id: denTypeIdColumn("codemodeRun", "codemode_receipt_id"),
+    codemode_receipt_id: denTypeIdColumn("workflowRun", "codemode_receipt_id"),
     validated_result: encryptedJsonColumn<unknown>("validated_result"),
     usage: compatJsonColumn<AutomationUsage>("usage").notNull(),
     cancel_requested_at: timestamp("cancel_requested_at", { fsp: 3 }),

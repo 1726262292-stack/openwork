@@ -104,6 +104,8 @@ const EnvSchema = z.object({
   PROVISIONER_MODE: z.enum(["stub", "render", "daytona"]).optional(),
   WORKER_URL_TEMPLATE: z.string().optional(),
   WORKER_ACTIVITY_BASE_URL: z.string().optional(),
+  DEN_AUTOMATIONS_ENABLED: z.string().optional(),
+  DEN_AUTOMATIONS_RUNTIME_ENABLED: z.string().optional(),
   DEN_AUTOMATIONS_POLL_INTERVAL_MS: z.string().optional(),
   DEN_AUTOMATIONS_BATCH_SIZE: z.string().optional(),
   DEN_AUTOMATIONS_MAX_CONCURRENCY: z.string().optional(),
@@ -479,6 +481,19 @@ const generatedArtifactViewsEnabled =
 const remoteMcpAppsEnabled =
   (parsed.DEN_REMOTE_MCP_APPS_ENABLED ?? "false").trim().toLowerCase() === "true"
 
+// Desktop availability stays fail-closed, while an entirely unconfigured
+// server preserves the published-client runtime. An explicit availability
+// value also supplies the runtime default, so DEN_AUTOMATIONS_ENABLED=false is
+// a complete shutdown unless a mixed-version deployment explicitly keeps the
+// compatibility runtime on. A disabled runtime always forces availability off.
+const automationsRuntimeEnabled = parseBooleanFlag(
+  parsed.DEN_AUTOMATIONS_RUNTIME_ENABLED
+    ?? parsed.DEN_AUTOMATIONS_ENABLED
+    ?? "true",
+)
+const automationsEnabled = automationsRuntimeEnabled
+  && parseBooleanFlag(parsed.DEN_AUTOMATIONS_ENABLED ?? "false")
+
 const devMode = (parsed.OPENWORK_DEV_MODE ?? "0").trim() === "1"
 const botIdProtectionEnabled = (parsed.DEN_BOTID_PROTECTION_ENABLED ?? "0").trim() === "1"
 const diagnosticsOrigin = normalizeDiagnosticsOrigin(parsed.DEN_DIAGNOSTICS_ORIGIN, devMode)
@@ -682,12 +697,19 @@ export const env = {
     optionalString(parsed.WORKER_ACTIVITY_BASE_URL) ??
     betterAuthUrl,
   automations: {
+    enabled: automationsEnabled,
+    runtimeEnabled: automationsRuntimeEnabled,
     pollIntervalMs: automationTuning(parsed.DEN_AUTOMATIONS_POLL_INTERVAL_MS, 15_000),
     batchSize: automationTuning(parsed.DEN_AUTOMATIONS_BATCH_SIZE, 25),
     maxConcurrency: automationTuning(parsed.DEN_AUTOMATIONS_MAX_CONCURRENCY, 4),
     leaseMs: automationTuning(parsed.DEN_AUTOMATIONS_LEASE_MS, 60_000),
     runTimeoutMs: automationTuning(parsed.DEN_AUTOMATIONS_RUN_TIMEOUT_MS, 900_000),
-    runnerClaimDeadlineMs: automationTuning(parsed.DEN_AUTOMATIONS_RUNNER_CLAIM_DEADLINE_MS, 60_000),
+    // How long a desktop occurrence stays claimable. A desktop is a laptop
+    // that sleeps, restarts, and changes networks, so this is a recovery
+    // window rather than a liveness check: a desktop that returns inside it
+    // still runs the occurrence, and only a genuinely absent desktop misses.
+    // Runs never stay claimable past their own next occurrence.
+    runnerClaimDeadlineMs: automationTuning(parsed.DEN_AUTOMATIONS_RUNNER_CLAIM_DEADLINE_MS, 900_000),
   },
   inferenceProxyBaseUrl: optionalString(parsed.INFERENCE_PROXY_BASE_URL) ?? "http://127.0.0.1:8791",
   openRouterManagementApiKey: optionalString(parsed.OPENROUTER_MANAGEMENT_API_KEY),

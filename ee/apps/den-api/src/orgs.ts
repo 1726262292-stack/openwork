@@ -11,6 +11,7 @@ import {
   ScimProviderTable,
   ScimUserTombstoneTable,
   SsoConnectionTable,
+  SsoProviderTable,
   TeamMemberTable,
   TeamTable,
 } from "@openwork-ee/den-db/schema"
@@ -542,7 +543,10 @@ async function insertMemberIfMissing(input: {
     defaultRole: input.role,
   })
   if (invitedMember) {
-    await cache.org.deleteMembers(input.organizationId)
+    // Accepting an invite materializes membership data; cached org/member reads
+    // must be invalidated here because hot cache hits do not re-check the DB.
+    await cache.org.deleteMemberList(input.organizationId)
+    await cache.org.deleteMembership({ organizationId: input.organizationId, userId: input.userId })
     return invitedMember
   }
 
@@ -562,7 +566,9 @@ async function insertMemberIfMissing(input: {
       role: input.role,
       joinedAt: new Date(),
     })
-    await cache.org.deleteMembers(input.organizationId)
+    // Joining an org changes both the aggregate list and this user's membership cache.
+    await cache.org.deleteMemberList(input.organizationId)
+    await cache.org.deleteMembership({ organizationId: input.organizationId, userId: input.userId })
   } catch {}
 
   const created = await db
@@ -1108,7 +1114,15 @@ export async function getSingletonSsoStatus() {
   const rows = await db
     .select({ signInPath: SsoConnectionTable.signInPath })
     .from(SsoConnectionTable)
-    .where(eq(SsoConnectionTable.organizationId, organization.id))
+    .innerJoin(SsoProviderTable, and(
+      eq(SsoConnectionTable.providerId, SsoProviderTable.providerId),
+      eq(SsoConnectionTable.organizationId, SsoProviderTable.organizationId),
+      eq(SsoProviderTable.domainVerified, true),
+    ))
+    .where(and(
+      eq(SsoConnectionTable.organizationId, organization.id),
+      eq(SsoConnectionTable.status, "enabled"),
+    ))
     .limit(1)
   const signInPath = rows[0]?.signInPath || fallbackSignInPath
 
@@ -1405,6 +1419,7 @@ export async function setSessionActiveOrganization(sessionId: SessionId, organiz
   if (session) {
     await cache.auth.deleteSession(session.token)
   }
+  await cache.auth.deleteSessionId(sessionId)
 }
 
 export async function listUserOrgs(userId: UserId) {
@@ -1774,7 +1789,11 @@ export async function updateOrganizationMemberRole(input: {
   })
 
   if (updated.ok && updated.changed) {
-    await cache.org.deleteMembers(input.organizationId)
+    // Role edits change authorization decisions served from membership cache.
+    await cache.org.deleteMemberList(input.organizationId)
+    if (updated.member.userId) {
+      await cache.org.deleteMembership({ organizationId: input.organizationId, userId: updated.member.userId })
+    }
     await revokeOrganizationApiKeysForMember({
       organizationId: input.organizationId,
       orgMembershipId: updated.member.id,
@@ -1909,6 +1928,7 @@ export async function transferOrganizationOwnership(input: {
     return transfer
   }
 
+  // Ownership transfer edits multiple member roles; clear all org membership keys.
   await cache.org.deleteMembers(input.organizationId)
 
   for (const ownerRow of transfer.demotedOwners) {

@@ -78,7 +78,7 @@ const externalMcpProxyRuntime: ExternalMcpProxyRuntime = {
 
 const PROXY_GATEWAY_TOOL_NAMES = new Set([SEARCH_CAPABILITIES_TOOL_NAME, EXECUTE_CAPABILITY_TOOL_NAME])
 
-const appGatewayTools: ExternalMcpProxyTool[] = [
+const boundedGatewayTools: ExternalMcpProxyTool[] = [
   {
     name: SEARCH_CAPABILITIES_TOOL_NAME,
     title: "Search capabilities",
@@ -93,7 +93,6 @@ const appGatewayTools: ExternalMcpProxyTool[] = [
       additionalProperties: false,
     },
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-    _meta: { ui: { visibility: ["app"] } },
   },
   {
     name: EXECUTE_CAPABILITY_TOOL_NAME,
@@ -109,9 +108,13 @@ const appGatewayTools: ExternalMcpProxyTool[] = [
       additionalProperties: false,
     },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
-    _meta: { ui: { visibility: ["app"] } },
   },
 ]
+
+const appGatewayTools: ExternalMcpProxyTool[] = boundedGatewayTools.map((tool) => ({
+  ...tool,
+  _meta: { ui: { visibility: ["app"] } },
+}))
 
 function toolVisibleToApp(tool: ExternalMcpProxyTool): boolean {
   const meta = isRecord(tool._meta) ? tool._meta : {}
@@ -206,26 +209,14 @@ export function createExternalConnectionProxyServer(input: {
     },
     instructions: input.appHostClient
       ? `This member-authorized OpenWork Connect endpoint exposes only app-visible MCP App tools and their bound resources for ${connection.name}. Ordinary provider capabilities remain available exclusively through search_capabilities and execute_capability.`
-      : input.descriptor.instructions
-        ?? `This is the member-authorized OpenWork Connect proxy for ${connection.name}. Tool names and resources are provided by that MCP server.`,
+      : `This compatibility endpoint exposes only bounded search_capabilities and execute_capability for ${connection.name}. Direct provider tools, MCP App launch tools, and resources are not exposed.`,
   })
 
   if (input.descriptor.capabilities.tools) {
     server.server.setRequestHandler(ListToolsRequestSchema, async () => ({
-      tools: input.appHostClient ? [...appGatewayTools, ...await listAppTools()] : await listProviderTools(),
+      tools: input.appHostClient ? [...appGatewayTools, ...await listAppTools()] : boundedGatewayTools,
     }))
     server.server.setRequestHandler(CallToolRequestSchema, async (request) => {
-      if (!input.appHostClient) {
-        const policy = evaluateToolPolicy(connection.toolPolicy, request.params.name)
-        if (policy.blocked) {
-          throw new McpError(ErrorCode.InvalidRequest, `Tool ${request.params.name} is disabled by OpenWork Connect policy.`)
-        }
-        return runtime.callTool({
-          ...input.operation,
-          toolName: request.params.name,
-          args: toolArguments(request.params.arguments),
-        })
-      }
       const args = toolArguments(request.params.arguments)
       if (request.params.name === SEARCH_CAPABILITIES_TOOL_NAME) {
         const query = typeof args.query === "string" ? args.query.trim() : ""
@@ -237,7 +228,7 @@ export function createExternalConnectionProxyServer(input: {
           const summary = tool.description ?? tool.title ?? tool.name
           const score = scoreText(tokenize(tool.name), tokenize(summary), queryTokens)
           if (score <= 0) return []
-          const resourceUri = externalMcpAppResourceUri(tool)
+          const resourceUri = input.appHostClient ? externalMcpAppResourceUri(tool) : null
           return [{
             name: tool.name,
             method: "MCP",
@@ -268,6 +259,12 @@ export function createExternalConnectionProxyServer(input: {
           args: toolArguments(args.body),
         })
       }
+      if (!input.appHostClient) {
+        throw new McpError(
+          ErrorCode.InvalidRequest,
+          `Direct provider tool ${request.params.name} is unavailable. Use search_capabilities and execute_capability.`,
+        )
+      }
       const allowed = (await listAppTools()).some((tool) => tool.name === request.params.name)
       if (!allowed) {
         throw new McpError(
@@ -285,16 +282,14 @@ export function createExternalConnectionProxyServer(input: {
 
   if (input.descriptor.capabilities.resources) {
     server.server.setRequestHandler(ListResourcesRequestSchema, async () => {
-      if (!input.appHostClient) return { resources: await runtime.listResources(input.operation) }
+      if (!input.appHostClient) return { resources: [] }
       const allowedUris = await appResourceUris()
       return { resources: (await runtime.listResources(input.operation)).filter((resource) => allowedUris.has(resource.uri)) }
     })
-    server.server.setRequestHandler(ListResourceTemplatesRequestSchema, async () => ({
-      resourceTemplates: input.appHostClient ? [] : await runtime.listResourceTemplates(input.operation),
-    }))
+    server.server.setRequestHandler(ListResourceTemplatesRequestSchema, async () => ({ resourceTemplates: [] }))
     server.server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
       if (!input.appHostClient) {
-        return runtime.readResource({ ...input.operation, uri: request.params.uri })
+        throw new McpError(ErrorCode.InvalidRequest, "Provider MCP App resources are available only through the OpenWork App host.")
       }
       if (!(await appResourceUris()).has(request.params.uri)) {
         throw new McpError(ErrorCode.InvalidRequest, "The resource is not bound to an available MCP App tool.")
@@ -400,9 +395,10 @@ export async function handleExternalConnectionProxyRequest(input: {
 }
 
 /**
- * Preserves the published member-authorized proxy while adding a separately
- * scoped private App-host view. The legacy surface is removed only after a
- * compatible Desktop release is broadly available.
+ * Exposes one member-authorized connection to Desktop's private App host. A
+ * stale published client receives only a bounded search/execute compatibility
+ * surface: never the provider catalog, App launch tools, or resources. Current
+ * Desktop clients keep these descriptors private and use central openwork-cloud.
  */
 export function registerExternalConnectionProxyRoutes<T extends { Variables: RequestIdVariables & Record<string, unknown> }>(
   app: Hono<T>,

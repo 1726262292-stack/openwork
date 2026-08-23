@@ -21,6 +21,7 @@ import { automationUpdateChangedRows } from "../src/automations/update-result.js
 import { isMcpOperationAllowed } from "../src/mcp/policy.js"
 
 const repositorySource = readFileSync(join(import.meta.dir, "../src/automations/repository.ts"), "utf8")
+const serviceSource = readFileSync(join(import.meta.dir, "../src/automations/service.ts"), "utf8")
 
 test("runner notifications contain only a resumable cursor and wake-up type", () => {
   assert.deepEqual(automationRunnerNotificationSchema.parse({
@@ -123,6 +124,61 @@ test("Desktop and Cloud events remain ordered within their claimed attempt", () 
   assert.match(repositorySource, /orderBy\(asc\(AutomationRunEventTable\.attempt\), asc\(AutomationRunEventTable\.sequence\)\)/)
 })
 
+test("desktop occurrences stay claimable through the recovery window with named missed causes", () => {
+  const claim = repositorySource.slice(
+    repositorySource.indexOf("async claim("),
+    repositorySource.indexOf("async recordSkippedManual"),
+  )
+  const expire = repositorySource.slice(
+    repositorySource.indexOf("async expireUnclaimedDesktop"),
+    repositorySource.indexOf("async getRunReceipt"),
+  )
+  // The recovery window is one policy in @openwork/automations: the claim path
+  // clamps it against the occurrence's own next due time, and the expiry path
+  // records the cause an operator can act on instead of one generic wording.
+  assert.match(claim, /desktopClaimDeadline\(\{[\s\S]*nextDueAt,[\s\S]*\}\)/)
+  assert.match(expire, /missedDesktopReason\(/)
+  assert.match(expire, /code: "runner_unavailable"/)
+})
+
+test("runner presence is a read-only view of existing liveness data", () => {
+  const presence = serviceSource.slice(
+    serviceSource.indexOf("async desktopRunnerPresence"),
+    serviceSource.indexOf("async discoverDesktopRunnerWork"),
+  )
+  const reader = repositorySource.slice(
+    repositorySource.indexOf("async desktopRunnerLastSeenAt"),
+    repositorySource.indexOf("private async missedDesktopReason"),
+  )
+  // Presence answers from the liveness the work poll already records; adding
+  // writes here would reintroduce the idle database traffic the bounded work
+  // poll was introduced to remove.
+  assert.match(presence, /desktopRunnerLastSeenAt/)
+  assert.doesNotMatch(presence, /update|insert|touchDesktopRunner/i)
+  assert.match(reader, /db\.select\(/)
+  assert.doesNotMatch(reader, /db\.(update|insert)/)
+})
+
+test("Desktop completion durably exposes its native local thread", () => {
+  const completion = serviceSource.slice(
+    serviceSource.indexOf("async completeDesktopRunner"),
+    serviceSource.indexOf("runnerNotifications"),
+  )
+  const mapRun = repositorySource.slice(
+    repositorySource.indexOf("function mapRun"),
+    repositorySource.indexOf("function normalizedDefinition"),
+  )
+  const persist = repositorySource.slice(
+    repositorySource.indexOf("async complete(input"),
+    repositorySource.indexOf("async recoverExpiredLeases"),
+  )
+
+  assert.match(completion, /engineReceipt:[\s\S]*nativeThreadId: result\.sessionId[\s\S]*workspaceId: result\.workspaceId/)
+  assert.match(persist, /engine_receipt: input\.engineReceipt/)
+  assert.match(mapRun, /receipt\?\.nativeThreadId[\s\S]*receipt\?\.workspaceId/)
+  assert.doesNotMatch(mapRun, /row\.execution_target === "cloud"/)
+})
+
 test("expired lease recovery cannot clobber a concurrently renewed lease", () => {
   const recovery = repositorySource.slice(
     repositorySource.indexOf("async recoverExpiredLeases"),
@@ -209,7 +265,6 @@ test("idle runner notification polling backs off without delaying keepalives", (
 
 test("idle runner keepalives do not persist liveness in the database", () => {
   const routesSource = readFileSync(join(import.meta.dir, "../src/routes/automations/index.ts"), "utf8")
-  const serviceSource = readFileSync(join(import.meta.dir, "../src/automations/service.ts"), "utf8")
   const repositorySource = readFileSync(join(import.meta.dir, "../src/automations/repository.ts"), "utf8")
   const sse = routesSource.slice(
     routesSource.indexOf("/v1/automation-runners/events\", async"),
@@ -229,7 +284,6 @@ test("idle runner keepalives do not persist liveness in the database", () => {
 })
 
 test("work polling tolerates non-critical runner presence touch failures", () => {
-  const serviceSource = readFileSync(join(import.meta.dir, "../src/automations/service.ts"), "utf8")
   const discover = serviceSource.slice(
     serviceSource.indexOf("async discoverDesktopRunnerWork"),
     serviceSource.indexOf("async claimDesktopRunner"),
@@ -240,8 +294,50 @@ test("work polling tolerates non-critical runner presence touch failures", () =>
   assert.match(discover, /return automationRepository\.discoverDesktopWork/)
 })
 
+test("Automation list and scheduler reads batch revision and latest-run loading", () => {
+  const batch = repositorySource.slice(
+    repositorySource.indexOf("async function itemsFromRows"),
+    repositorySource.indexOf("export class DenAutomationRepository"),
+  )
+  const list = repositorySource.slice(
+    repositorySource.indexOf("async list(input"),
+    repositorySource.indexOf("async get(input"),
+  )
+  const listDue = repositorySource.slice(
+    repositorySource.indexOf("async listDue"),
+    repositorySource.indexOf("async claim(input"),
+  )
+  const serviceList = serviceSource.slice(
+    serviceSource.indexOf("async list(scope"),
+    serviceSource.indexOf("async get(scope"),
+  )
+
+  assert.match(batch, /inArray\([\s\S]*AutomationRevisionTable\.id/)
+  assert.match(batch, /where\(or\(\.\.\.latestRunConditions\)\)/)
+  assert.match(list, /items: await itemsFromRows\(selected\)/)
+  assert.doesNotMatch(list, /selected\.map\(async/)
+  assert.match(listDue, /return itemsFromRows\(rows\)/)
+  assert.doesNotMatch(listDue, /rows\.map\(async/)
+  assert.match(serviceList, /modelAccessBySelection/)
+  assert.match(serviceList, /modelAccessBySelection\.set\(key, access\)/)
+  assert.match(serviceList, /offset \+= AUTOMATION_LIST_AUTHORITY_BATCH_SIZE/)
+  assert.match(serviceList, /slice\(offset, offset \+ AUTOMATION_LIST_AUTHORITY_BATCH_SIZE\)/)
+})
+
+test("Cloud heartbeat monitor failures stay inside the execution task", () => {
+  const execution = serviceSource.slice(
+    serviceSource.indexOf("private async executeCloudAgentRun"),
+    serviceSource.indexOf("export const automationService"),
+  )
+
+  assert.match(execution, /void monitor\(\)\.catch\(\(error\) =>/)
+  assert.match(execution, /Cloud Automation heartbeat monitor failed/)
+  assert.match(execution, /controller\.abort\(error\)/)
+  assert.match(execution, /interval\.unref\(\)/)
+  assert.match(execution, /finally \{\s*clearInterval\(interval\)/)
+})
+
 test("every dispatch path revalidates the owner's model access", () => {
-  const serviceSource = readFileSync(join(import.meta.dir, "../src/automations/service.ts"), "utf8")
   const tick = serviceSource.slice(serviceSource.indexOf("async tick"), serviceSource.indexOf("async stop"))
   assert.match(tick, /resolveAutomationModelAccess\(\{\s*organizationId: item\.automation\.organizationId/)
   assert.match(tick, /shouldApplyAutomationModelAccessFailure\(\{[\s\S]*modelAttentionCapable: \(item\.revision\.executionTarget \?\? "desktop"\) === "cloud"/)
@@ -267,7 +363,6 @@ test("every dispatch path revalidates the owner's model access", () => {
 })
 
 test("Cloud placement never inherits the legacy Desktop model exception", () => {
-  const serviceSource = readFileSync(join(import.meta.dir, "../src/automations/service.ts"), "utf8")
   const create = serviceSource.slice(serviceSource.indexOf("async create"), serviceSource.indexOf("async update"))
   const update = serviceSource.slice(serviceSource.indexOf("async update"), serviceSource.indexOf("async activate"))
   const reconcile = serviceSource.slice(serviceSource.indexOf("private async reconcileModelAttention"))

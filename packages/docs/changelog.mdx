@@ -1,6 +1,72 @@
 ---
 title: "Changelog"
 ---
+<Update label="August 20th" tags={["🚀 New Features", "🐛 Bug Fixes", "🏗️ Refactoring"]}>
+
+  ## [v0.18.35](https://github.com/different-ai/openwork/compare/v0.18.34...v0.18.35): Desktop respects Automation deployment controls
+
+  - Desktop now shows Automation navigation and proposals and registers a runner only when the connected deployment explicitly enables Automations.
+  - Older and self-hosted deployments that do not advertise Automation availability remain safely disabled.
+
+  ## [v0.18.34](https://github.com/different-ai/openwork/compare/v0.18.33...v0.18.34): MCP Apps guide connection setup and Desktop automations recover cleanly
+
+  - First-party MCP App cards now guide connection, plugin, and skill-created flows directly in chat, including useful recovery cards when a connection fails.
+  - Desktop automations report outcomes, open their execution threads, and recover missed runs and credential failures more reliably.
+  - Programs are now called Workflows, with obsolete selection tools and legacy MCP App surfaces removed.
+  - MCP connections are more resilient to server recovery, protocol changes, OAuth refresh bursts, and stale credentials.
+  - Added current product screenshots, enterprise desktop deployment guidance, and a deployment-level Automation control.
+
+</Update>
+
+<Update label="August 19th" tags={["🚀 New Features", "🐛 Bug Fixes", "🏗️ Refactoring"]}>
+
+  ## [v0.18.33](https://github.com/different-ai/openwork/compare/v0.18.32...v0.18.33): Library setup gets clearer and background connections recover cleanly
+
+  - The Library Add flow now starts with clear choices for skills, MCP connections, plugins, and repositories.
+  - Desktop automations recover rejected credentials and slow down repeated reconnect attempts instead of getting stuck.
+  - Cloud MCP health checks and GitHub token requests are bounded, preventing background connection work from running away.
+  - Added a Google Cloud deployment prompt, stronger MCP OAuth validation, and more reliable release publishing.
+
+  ## [v0.18.32](https://github.com/different-ai/openwork/compare/v0.18.31...v0.18.32): Workspace imports and SAML replay protection get safer
+
+  - Workspace imports now reject archives that expand beyond safe file-count or size limits.
+  - Fixed SAML replay protection so its reservation IDs remain compatible with stored identity records.
+  - Clarified how administrators can validate a live Okta SCIM setup.
+
+  ## [v0.18.31](https://github.com/different-ai/openwork/compare/v0.18.30...v0.18.31): Enterprise identity records stay valid
+
+  - Linked SSO and SCIM accounts now always use valid identity IDs, preventing malformed enterprise account records.
+  - Release validation is faster and extended-test failures produce clearer alerts.
+
+</Update>
+
+<Update label="August 18th" tags={["🚀 New Features", "🐛 Bug Fixes", "🏗️ Refactoring"]}>
+
+  ## [v0.18.30](https://github.com/different-ai/openwork/compare/v0.18.29...v0.18.30): Queue follow-ups and simplify the session workspace
+
+  - Follow-up messages now run sequentially, so queued work stays ordered instead of competing with the active turn.
+  - The model picker is more compact and the session sidebar is denser, leaving more room for the conversation.
+  - Improved slow-spec coverage, LiteLLM provider proof, and runtime failure handling make releases easier to validate.
+
+  ## [v0.18.29](https://github.com/different-ai/openwork/compare/v0.18.28...v0.18.29): SSO setup respects verified domains
+
+  - SSO configuration is now gated on domain verification, preventing an organization from enabling an identity provider before its domain is trusted.
+  - Added the Okta SAML callback configuration and setup documentation.
+
+  ## [v0.18.28](https://github.com/different-ai/openwork/compare/v0.18.27...v0.18.28): Connections move into the Library
+
+  - Library and composer Connections now share one consistent experience for discovering and using organization capabilities.
+  - Added the foundation for hosting native MCP Apps in the desktop's private host.
+  - Improved Code Mode routing, public API proxying, and MCP synchronization reliability.
+
+  ## [v0.18.27](https://github.com/different-ai/openwork/compare/v0.18.26...v0.18.27): Safer organization setup and signed Windows releases
+
+  - Added the initial private-admin bootstrap flow for Den organizations.
+  - Added public cloud deployment guides and improved Okta SSO/SCIM setup.
+  - Windows builds are signed by default, and Sentry events now include the app version.
+
+</Update>
+
 <Update label="August 17th" tags={["🚀 New Features", "🐛 Bug Fixes"]}>
 
   ## [v0.18.26](https://github.com/different-ai/openwork/compare/v0.18.13...v0.18.26): Automations graduate, MCP Apps come alive, and sessions stay resilient

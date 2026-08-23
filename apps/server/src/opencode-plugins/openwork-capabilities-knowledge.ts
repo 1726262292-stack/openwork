@@ -50,7 +50,7 @@ Important docs to know:
 - Connect services: packages/docs/start-here/connect-your-stack/connect-services.mdx
 - Cloud MCP: packages/docs/cloud/run-in-the-cloud/cloud-mcp.mdx
 - Shared workspaces: packages/docs/cloud/run-in-the-cloud/shared-workspace.mdx
-- Team templates: packages/docs/cloud/share-with-your-team/team-templates.mdx
+- Collections: packages/docs/cloud/share-with-your-team/collections.mdx
 - Desktop policies: packages/docs/cloud/share-with-your-team/desktop-policies.mdx
 - Custom/local MCP setup: packages/docs/start-here/connect-your-stack/add-an-mcp-server.mdx
 - Cross-chat memory: packages/docs/start-here/do-work-with-it/cross-chat-memory.mdx
@@ -69,7 +69,7 @@ Here is what you can help users with:
 - The agent can navigate there: use the UI control action \`settings.panel.open\` with \`{panel: "permissions"}\`.
 
 ## Enabling Computer Use
-- Go to Settings > Extensions and enable the "Computer Use" extension.
+- Go to Settings > Library and enable the "Computer Use" extension.
 - This requires macOS accessibility permissions; the app will prompt for them.
 - Once enabled, the agent can take screenshots and control the mouse/keyboard on the user's desktop.
 
@@ -77,9 +77,9 @@ Here is what you can help users with:
 - For managed org integrations and remote skills, require the user to sign in to OpenWork first. Direct them to the desktop app's \`Sign in\` button if they are not signed in.
 - Use OpenWork Connect as the default setup path for managed member connections. Runtime steering from the OpenWork extensions plugin is the source of truth for whether Cloud execution tools are currently verified for this exact workspace/model.
 - Only name services that Connect search or \`available_skills\` actually returns for this member — do not assume Gmail, Calendar, Drive, or other connectors are configured.
-- If runtime steering says OpenWork Cloud is not ready, do not substitute documentation, browser, or UI tools for the connected-service action; direct the user to \`Settings > Extensions\` for inventory and \`Settings > Debug\` (developer mode) to repair and test agent access.
-- Prefer organization apps and connections listed in \`Settings > Extensions\` over adding the same managed service as a custom MCP.
-- \`Settings > Extensions\` and custom MCP commands/URLs are also for a custom or local MCP server that is not available through OpenWork Cloud.
+- If runtime steering says OpenWork Cloud is not ready, do not substitute documentation, browser, or UI tools for the connected-service action; direct the user to \`Settings > Library\` for inventory and \`Settings > Debug\` (developer mode) to repair and test agent access.
+- Prefer organization apps and connections listed in \`Settings > Library\` over adding the same managed service as a custom MCP.
+- \`Settings > Library\` and custom MCP commands/URLs are also for a custom or local MCP server that is not available through OpenWork Cloud.
 
 ## Using OpenWork Connect from an external MCP client
 - OpenWork Connect's public hosted endpoint is \`https://api.openworklabs.com/mcp/agent\`. \`app.openworklabs.com/api/den\` is an internal same-origin desktop proxy, not an external-client URL.
@@ -107,13 +107,13 @@ Here is what you can help users with:
 
 ## OpenWork Cloud
 - Users sign up at the Den portal (accessible from the status bar "Sign in" button).
-- Cloud features: managed AI models, team workspaces, shared skills, marketplace extensions, org provisioning, and the hosted OpenWork Cloud MCP server.
+- Cloud features: managed AI models, team workspaces, shared skills, Collections, org provisioning, and the hosted OpenWork Cloud MCP server.
 - Organization owners and admins can use desktop policies to control desktop app capabilities for the whole org, specific members, or teams. For setup details, read packages/docs/cloud/share-with-your-team/desktop-policies.mdx.
 - After signing in, cloud-provisioned providers and extensions appear automatically.
 
 ## Skills
 - Specialized instruction packs for specific workflows.
-- Manageable via Settings > Skills.
+- Manageable via Settings > Library.
 - When Cloud runtime steering is ready and a user asks to create a skill, retrieve the listed remote \`create-skill\` skill with its exact capability and follow it. Follow the separate runtime \`Skill creation:\` instruction; do not default to creating a workspace file.
 
 ## Automations
