@@ -26,7 +26,7 @@ test.skipIf(!optedIn)(title, async () => {
   await using edge = await startEgressLab({ profile: "intercept" });
   await using app = await desktop({
     name: "den-tls-fault",
-    bootstrap: { baseUrl: edge.url, apiBaseUrl: edge.url, requireSignin: false },
+    bootstrap: { baseUrl: edge.url, requireSignin: false },
   });
   await using visualEvidence = createVisualEvidence("app-den-tls-fault");
 

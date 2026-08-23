@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { IBM_Plex_Mono, Inter } from "next/font/google";
 import { headers } from "next/headers";
 import Script from "next/script";
+import { readPublicWebOrigin } from "./_lib/public-web-origin";
 import "./globals.css";
 
 const inter = Inter({
@@ -35,7 +36,7 @@ function forwardedProtocol(value: string | null) {
 }
 
 export async function generateMetadata(): Promise<Metadata> {
-  const configuredOrigin = process.env.DEN_WEB_PUBLIC_ORIGIN?.trim();
+  const configuredOrigin = readPublicWebOrigin();
   const requestHeaders = await headers();
   const host = firstHeaderValue(requestHeaders.get("x-forwarded-host")) || firstHeaderValue(requestHeaders.get("host"));
   const protocol = forwardedProtocol(requestHeaders.get("x-forwarded-proto"));

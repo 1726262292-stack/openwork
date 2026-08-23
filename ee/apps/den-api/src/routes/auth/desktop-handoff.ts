@@ -141,7 +141,7 @@ function withDenProxyPath(origin: string) {
 }
 
 function configuredDesktopDenBaseUrl() {
-  return env.desktopDenBaseUrl ?? withDenProxyPath(process.env.BETTER_AUTH_URL?.trim() || env.betterAuthUrl)
+  return env.desktopDenBaseUrl ?? withDenProxyPath(env.webUrl)
 }
 
 export function resolveDesktopDenBaseUrl(request: Request) {

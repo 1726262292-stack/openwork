@@ -373,7 +373,7 @@ async function writeBootstrap(filePath: string, bootstrap: ElectronSurfaceOption
   await mkdir(dirname(filePath), { recursive: true });
   await writeFile(
     filePath,
-    `${JSON.stringify({ baseUrl: bootstrap.baseUrl, apiBaseUrl: bootstrap.apiBaseUrl, requireSignin: bootstrap.requireSignin }, null, 2)}\n`,
+    `${JSON.stringify(bootstrap, null, 2)}\n`,
     "utf8",
   );
 }

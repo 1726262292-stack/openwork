@@ -281,7 +281,6 @@ test.skipIf(missingRequirements.length > 0)(title, { timeout: 30 * 60_000 }, asy
     host: place.host(),
     bootstrap: {
       baseUrl: den.ref.webUrl,
-      apiBaseUrl: den.ref.webUrl,
       requireSignin: false,
     },
   });

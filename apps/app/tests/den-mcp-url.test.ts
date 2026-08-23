@@ -14,7 +14,7 @@ describe("resolveDenBaseUrls", () => {
       baseUrl: "https://app.openworklabs.com",
       apiBaseUrl: "https://app.openworklabs.com",
     });
-    expect(resolved.apiBaseUrl).toBe("https://app.openworklabs.com/api/den");
+    expect(resolved.apiBaseUrl).toBe("https://app.openworklabs.com");
   });
 
   test("keeps an explicit API origin independent from the web base URL", () => {
@@ -23,7 +23,7 @@ describe("resolveDenBaseUrls", () => {
       apiBaseUrl: "https://api.example.com",
     });
     expect(resolved.baseUrl).toBe("https://app.openworklabs.com");
-    expect(resolved.apiBaseUrl).toBe("https://api.example.com/api/den");
+    expect(resolved.apiBaseUrl).toBe("https://api.example.com");
   });
 
   test("keeps an explicit loopback API URL when a base URL is present", () => {
@@ -32,13 +32,19 @@ describe("resolveDenBaseUrls", () => {
       apiBaseUrl: "http://127.0.0.1:8787",
     });
     expect(resolved.baseUrl).toBe("http://localhost:3000");
-    expect(resolved.apiBaseUrl).toBe("http://127.0.0.1:8787/api/den");
+    expect(resolved.apiBaseUrl).toBe("http://127.0.0.1:8787");
   });
 
   test("derives the /api/den proxy from a web-app baseUrl when no apiBaseUrl is set", () => {
     const resolved = resolveDenBaseUrls({ baseUrl: "https://den.self-hosted.example.com" });
     expect(resolved.baseUrl).toBe("https://den.self-hosted.example.com");
     expect(resolved.apiBaseUrl).toBe("https://den.self-hosted.example.com/api/den");
+  });
+
+  test("uses the nested hosted API origin for the hosted web default", () => {
+    const resolved = resolveDenBaseUrls({ baseUrl: "https://app.openworklabs.com" });
+    expect(resolved.baseUrl).toBe("https://app.openworklabs.com");
+    expect(resolved.apiBaseUrl).toBe("https://api.app.openworklabs.com");
   });
 });
 

@@ -198,6 +198,7 @@ export async function selfHostServer(options: SelfHostServerOptions): Promise<Se
       DEN_DB_ENCRYPTION_KEY: DATABASE_ENCRYPTION_KEY,
       BETTER_AUTH_SECRET,
       BETTER_AUTH_URL: `http://localhost:${webPort}`,
+      DEN_BASE_URL: `http://localhost:${webPort}`,
       DEN_API_PUBLIC_URL: ref.apiUrl,
       DEN_API_PORT: String(apiPort),
       DEN_WEB_PORT: String(webPort),
@@ -223,6 +224,7 @@ export async function selfHostServer(options: SelfHostServerOptions): Promise<Se
       DEN_WEB_HOST: "127.0.0.1",
       ...commonEnv,
       DEN_API_BASE: `http://127.0.0.1:${apiPort}`,
+      DEN_BASE_URL: `http://localhost:${webPort}`,
       DEN_AUTH_ORIGIN: `http://localhost:${webPort}`,
       DEN_AUTH_FALLBACK_BASE: `http://127.0.0.1:${apiPort}`,
     }, join(logsDir, "web.log"));

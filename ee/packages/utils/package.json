@@ -20,11 +20,16 @@
       "types": "./src/observability.ts",
       "development": "./src/observability.ts",
       "default": "./dist/observability.js"
+    },
+    "./den-urls": {
+      "types": "./src/den-urls.ts",
+      "development": "./src/den-urls.ts",
+      "default": "./dist/den-urls.js"
     }
   },
   "scripts": {
     "build": "tsup",
-    "test": "bun test src/observability.test.ts"
+    "test": "bun test src/observability.test.ts src/den-urls.test.ts"
   },
   "dependencies": {
     "luxon": "^3.6.1",

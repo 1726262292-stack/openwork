@@ -25,18 +25,22 @@ config:
     appId: ""
     clientId: ""
   public:
+    # Single public Den web origin. The chart passes this as DEN_BASE_URL; den-api
+    # derives Better Auth, CORS/trusted origins, web-app hosts, API defaults, and
+    # MCP resource defaults from it unless the compatibility overrides below are set.
     webOrigin: https://openwork.example.com
-    apiOrigin: https://api.openwork.example.com
-    mcpResourceUrl: https://api.openwork.example.com/mcp
+    # Compatibility overrides for split-origin or migration deployments.
+    apiOrigin: ""
+    mcpResourceUrl: ""
     mcpAdditionalResources: ""
     # Leave blank to keep External MCP URL SSRF protection enabled.
     # Set "1" only for trusted private-network MCP servers.
     allowPrivateMcpUrls: ""
     mcpClaimNamespace: ""
-    desktopDenBaseUrl: https://openwork.example.com
-    corsOrigins: https://openwork.example.com,https://api.openwork.example.com
-    betterAuthTrustedOrigins: https://openwork.example.com
-    webAppHosts: openwork.example.com
+    desktopDenBaseUrl: ""
+    corsOrigins: ""
+    betterAuthTrustedOrigins: ""
+    webAppHosts: ""
     bootstrapAdminEmails: ""
     installLinksGatingEnabled: "false"
     # Self-hosted Automations are opt-in. Hosted OpenWork Cloud enables them.

@@ -3,6 +3,7 @@ import { defineConfig } from "tsup"
 export default defineConfig({
   entry: {
     index: "src/index.ts",
+    "den-urls": "src/den-urls.ts",
     observability: "src/observability.ts",
     typeid: "src/typeid.ts",
   },
