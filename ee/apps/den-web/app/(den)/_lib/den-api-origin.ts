@@ -30,6 +30,14 @@ export function denApiEndpointForWebOrigin(path: string, webOrigin: string): str
     return path;
   }
 
+  // Better Auth establishes sessions and OAuth callbacks through the Den Web
+  // host. Keep those calls on the same-origin auth proxy so callback URLs stay
+  // on app.* and Cloudflare's stricter API-host WAF does not inspect provider
+  // callback query strings.
+  if (path.startsWith("/api/auth/")) {
+    return path;
+  }
+
   const origin = denApiOriginForWebOrigin(webOrigin);
   if (!origin) {
     return path;
