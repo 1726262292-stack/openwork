@@ -15,15 +15,20 @@ describe("Den API browser origin", () => {
     expect(denApiOriginForWebOrigin("https://api.openworklabs.com")).toBe("https://api.openworklabs.com");
   });
 
-  test("builds direct API URLs instead of same-origin proxy URLs", () => {
+  test("builds direct API URLs instead of same-origin Den proxy URLs", () => {
     expect(denApiEndpointForWebOrigin("/v1/me", "https://app.openworklabs.com")).toBe("https://api.app.openworklabs.com/v1/me");
-    expect(denApiEndpointForWebOrigin("/api/auth/sign-in/email", "https://app.openworklabs.com")).toBe(
-      "https://api.app.openworklabs.com/api/auth/sign-in/email",
+  });
+
+  test("keeps Better Auth traffic on the same-origin auth proxy", () => {
+    expect(denApiEndpointForWebOrigin("/api/auth/sign-in/email", "https://app.openworklabs.com")).toBe("/api/auth/sign-in/email");
+    expect(denApiEndpointForWebOrigin("/api/auth/callback/google?code=provider-token", "https://app.openworklabs.com")).toBe(
+      "/api/auth/callback/google?code=provider-token",
     );
   });
 
-  test("omits cookies for direct API-origin browser requests", () => {
-    expect(denApiCredentialsForEndpoint("https://api.app.openworklabs.com/v1/me", "https://app.openworklabs.com")).toBe("omit");
+  test("includes cookies for same-site direct API-origin browser requests", () => {
+    expect(denApiCredentialsForEndpoint("https://api.app.openworklabs.com/v1/me", "https://app.openworklabs.com")).toBe("include");
     expect(denApiCredentialsForEndpoint("/api/runtime-config", "https://app.openworklabs.com")).toBe("include");
+    expect(denApiCredentialsForEndpoint("https://external.example.com/v1/me", "https://app.openworklabs.com")).toBe("omit");
   });
 });

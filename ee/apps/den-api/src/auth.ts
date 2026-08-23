@@ -854,6 +854,14 @@ export const auth = betterAuth({
     }),
   },
   advanced: {
+    ...(env.betterAuthCookieDomain
+      ? {
+        crossSubDomainCookies: {
+          enabled: true,
+          domain: env.betterAuthCookieDomain,
+        },
+      }
+      : {}),
     ipAddress: {
       ipAddressHeaders: ["x-forwarded-for", "x-real-ip", "cf-connecting-ip"],
       ipv6Subnet: 64,

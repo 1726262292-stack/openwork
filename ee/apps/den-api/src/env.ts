@@ -548,6 +548,19 @@ const apiPublicUrl = normalizeConfiguredPublicApiBaseUrl(
     allowInsecureHttp: devMode,
   },
 )
+function deriveBetterAuthCookieDomain(input: { webOrigin: string; apiPublicUrl: string | undefined }) {
+  if (!input.apiPublicUrl) return undefined
+  const web = new URL(input.webOrigin)
+  const api = new URL(input.apiPublicUrl)
+  if (web.protocol !== "https:" || api.protocol !== "https:") return undefined
+  const webHost = web.hostname.toLowerCase()
+  const apiHost = api.hostname.toLowerCase()
+  return apiHost.endsWith(`.${webHost}`) ? webHost : undefined
+}
+const betterAuthCookieDomain = deriveBetterAuthCookieDomain({
+  webOrigin: betterAuthPublicWebOrigin,
+  apiPublicUrl,
+})
 const mcpResourceUrl = configuredMcpResourceUrl ?? (configuredDenUrls ? `${apiPublicUrl}/mcp` : undefined)
 const publicUrlTrustedOrigins = Array.from(new Set([
   ...corsOrigins,
@@ -598,6 +611,7 @@ export const env = {
   planetscale: planetscaleCredentials,
   betterAuthSecret: parsed.BETTER_AUTH_SECRET,
   betterAuthUrl,
+  betterAuthCookieDomain,
   webUrl: normalizePublicWebOrigin(betterAuthUrl),
   // SECURITY: `redis://` carries cached auth-session material in plaintext.
   // Non-local redis:// is rejected by default. Hosted platforms such as Render
