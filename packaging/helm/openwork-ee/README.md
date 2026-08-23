@@ -38,14 +38,19 @@ config:
     allowPublicSignup: "false"
     requireEmailVerification: "false"
   public:
+    # Single public Den web origin. The chart renders this as DEN_BASE_URL and
+    # den-api derives Better Auth, CORS/trusted origins, web-app hosts, API
+    # defaults, and MCP resource defaults from it.
     webOrigin: "https://openwork.example.com"
-    apiOrigin: "https://api.openwork.example.com"
-    mcpResourceUrl: "https://api.openwork.example.com/mcp"
+    # Leave these blank unless you intentionally expose a split Den API origin
+    # or need migration compatibility with an older topology.
+    apiOrigin: ""
+    mcpResourceUrl: ""
     mcpClaimNamespace: "https://openwork.example.com"
-    desktopDenBaseUrl: "https://openwork.example.com"
-    corsOrigins: "https://openwork.example.com,https://api.openwork.example.com"
-    betterAuthTrustedOrigins: "https://openwork.example.com"
-    webAppHosts: "openwork.example.com"
+    desktopDenBaseUrl: ""
+    corsOrigins: ""
+    betterAuthTrustedOrigins: ""
+    webAppHosts: ""
     bootstrapAdminEmails: "admin@example.com"
     # Self-hosted default: every organization gets install downloads.
     installLinksGatingEnabled: "false"
@@ -79,6 +84,27 @@ ingress:
   api:
     host: api.openwork.example.com
 ```
+
+### Upgrade note: public URL values
+
+Current chart versions make `config.public.webOrigin` the primary public URL.
+It renders as `DEN_BASE_URL`, and Den derives these values from it unless you
+set explicit compatibility overrides:
+
+- `BETTER_AUTH_URL`
+- `CORS_ORIGINS`
+- `DEN_BETTER_AUTH_TRUSTED_ORIGINS`
+- `DEN_WEB_APP_HOSTS`
+- `DEN_API_PUBLIC_URL`
+- `DEN_MCP_RESOURCE_URL`
+
+When upgrading an existing release, inspect your values file for the older
+split-origin keys under `config.public`. If your deployment is single-origin,
+remove `apiOrigin`, `mcpResourceUrl`, `desktopDenBaseUrl`, `corsOrigins`,
+`betterAuthTrustedOrigins`, and `webAppHosts` or set them to `""` so Den can
+derive them from `webOrigin`. Keep `apiOrigin`/`mcpResourceUrl` only when you
+intentionally expose a separate API origin for install-link exchange or external
+MCP clients.
 
 For private GHCR packages, authenticate before installing:
 
