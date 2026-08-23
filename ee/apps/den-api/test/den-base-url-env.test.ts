@@ -14,6 +14,9 @@ function probeDenUrls(overrides: Record<string, string>) {
       apiPublicUrl: env.apiPublicUrl,
       mcpResourceUrl: env.mcpResourceUrl,
       desktopDenBaseUrl: env.desktopDenBaseUrl,
+      corsOrigins: env.corsOrigins,
+      betterAuthTrustedOrigins: env.betterAuthTrustedOrigins,
+      webAppHosts: env.webAppHosts,
     }))
   `], {
     cwd: denApiRoot,
@@ -33,7 +36,7 @@ function probeDenUrls(overrides: Record<string, string>) {
   })
   expect(result.stderr).toBe("")
   expect(result.status).toBe(0)
-  return JSON.parse(result.stdout) as Record<string, string>
+  return JSON.parse(result.stdout) as Record<string, string | string[]>
 }
 
 describe("DEN_BASE_URL environment defaults", () => {
@@ -43,6 +46,38 @@ describe("DEN_BASE_URL environment defaults", () => {
       webUrl: "https://den.example.com",
       apiPublicUrl: "https://api.den.example.com",
       mcpResourceUrl: "https://api.den.example.com/mcp",
+      corsOrigins: ["https://den.example.com"],
+      betterAuthTrustedOrigins: ["https://den.example.com"],
+      webAppHosts: ["den.example.com"],
+    })
+  })
+
+  test("derives local development API and MCP URLs from DEN_BASE_URL and PORT", () => {
+    expect(probeDenUrls({
+      DEN_BASE_URL: "http://localhost:3005",
+      OPENWORK_DEV_MODE: "1",
+      PORT: "8790",
+    })).toEqual({
+      betterAuthUrl: "http://localhost:3005",
+      webUrl: "http://localhost:3005",
+      apiPublicUrl: "http://127.0.0.1:8790",
+      mcpResourceUrl: "http://127.0.0.1:8790/mcp",
+      corsOrigins: ["http://localhost:3005"],
+      betterAuthTrustedOrigins: ["http://localhost:3005"],
+      webAppHosts: ["localhost"],
+    })
+  })
+
+  test("deduplicates DEN_BASE_URL-derived origins with explicit origin lists", () => {
+    expect(probeDenUrls({
+      DEN_BASE_URL: "https://den.example.com",
+      CORS_ORIGINS: "https://den.example.com,https://preview.example.com",
+      DEN_BETTER_AUTH_TRUSTED_ORIGINS: "https://preview.example.com",
+      DEN_WEB_APP_HOSTS: "den.example.com,.preview.example.com",
+    })).toMatchObject({
+      corsOrigins: ["https://den.example.com", "https://preview.example.com"],
+      betterAuthTrustedOrigins: ["https://den.example.com", "https://preview.example.com"],
+      webAppHosts: ["den.example.com", ".preview.example.com"],
     })
   })
 
@@ -59,6 +94,9 @@ describe("DEN_BASE_URL environment defaults", () => {
       apiPublicUrl: "https://api.explicit.test/prefix",
       mcpResourceUrl: "https://mcp.explicit.test/resource",
       desktopDenBaseUrl: "https://desktop.explicit.test/api/den",
+      corsOrigins: ["https://den.example.com", "https://web.explicit.test"],
+      betterAuthTrustedOrigins: ["https://den.example.com", "https://web.explicit.test"],
+      webAppHosts: ["den.example.com", "web.explicit.test"],
     })
   })
 
@@ -68,6 +106,9 @@ describe("DEN_BASE_URL environment defaults", () => {
     })).toEqual({
       betterAuthUrl: "https://user:secret@legacy.example.com/auth/path?token=hidden#fragment",
       webUrl: "https://legacy.example.com",
+      corsOrigins: ["https://legacy.example.com"],
+      betterAuthTrustedOrigins: ["https://legacy.example.com"],
+      webAppHosts: ["legacy.example.com"],
     })
   })
 
@@ -75,6 +116,9 @@ describe("DEN_BASE_URL environment defaults", () => {
     expect(probeDenUrls({ BETTER_AUTH_URL: "https://legacy.example.com" })).toEqual({
       betterAuthUrl: "https://legacy.example.com",
       webUrl: "https://legacy.example.com",
+      corsOrigins: ["https://legacy.example.com"],
+      betterAuthTrustedOrigins: ["https://legacy.example.com"],
+      webAppHosts: ["legacy.example.com"],
     })
   })
 })

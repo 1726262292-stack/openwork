@@ -241,6 +241,10 @@ function splitCsv(value: string | undefined) {
     .filter(Boolean)
 }
 
+function uniqueStrings(values: readonly string[]) {
+  return Array.from(new Set(values.filter(Boolean)))
+}
+
 // Lease and deadline math must never see NaN or a non-positive interval, so a
 // malformed tuning value falls back to the default instead of poisoning it.
 function automationTuning(value: string | undefined, fallback: number) {
@@ -326,6 +330,19 @@ function normalizePublicWebOrigin(origin: string) {
     throw new Error("BETTER_AUTH_URL or DEN_BASE_URL must use http or https")
   }
   return url.origin
+}
+
+function isLoopbackHostname(hostname: string) {
+  return hostname === "localhost" || hostname === "0.0.0.0" || hostname === "127.0.0.1" || hostname === "::1" || hostname === "[::1]"
+}
+
+function denBaseUrlIsLoopback(denBaseUrl: string | undefined) {
+  if (!denBaseUrl) return false
+  try {
+    return isLoopbackHostname(new URL(denBaseUrl).hostname)
+  } catch {
+    return false
+  }
 }
 
 function isLocalRedisHost(hostname: string) {
@@ -426,18 +443,29 @@ function normalizeAbsoluteUrlCsv(envName: string, value: string | undefined) {
   return entries.map((entry) => normalizeOrigin(entry))
 }
 
-const corsOrigins = splitCsv(parsed.CORS_ORIGINS).map((origin) => normalizeOrigin(origin))
-const betterAuthTrustedOrigins = splitCsv(parsed.DEN_BETTER_AUTH_TRUSTED_ORIGINS)
-  .map((origin) => normalizeOrigin(origin))
 const configuredDenUrls = optionalString(parsed.DEN_BASE_URL)
   ? denUrls({ DEN_BASE_URL: parsed.DEN_BASE_URL })
   : undefined
+const configuredDenWebOrigin = configuredDenUrls?.web
 const betterAuthUrlInput = optionalString(parsed.BETTER_AUTH_URL) ?? configuredDenUrls?.web
 if (!betterAuthUrlInput) {
   throw new Error("BETTER_AUTH_URL or DEN_BASE_URL is required")
 }
 const betterAuthUrl = normalizeOrigin(betterAuthUrlInput)
-const mcpResourceUrl = optionalString(parsed.DEN_MCP_RESOURCE_URL) ?? configuredDenUrls?.mcp
+const betterAuthPublicWebOrigin = normalizePublicWebOrigin(betterAuthUrl)
+const derivedWebOrigins = uniqueStrings([
+  ...(configuredDenWebOrigin ? [configuredDenWebOrigin] : []),
+  betterAuthPublicWebOrigin,
+])
+const corsOrigins = uniqueStrings([
+  ...derivedWebOrigins,
+  ...splitCsv(parsed.CORS_ORIGINS).map((origin) => normalizeOrigin(origin)),
+])
+const betterAuthTrustedOrigins = uniqueStrings([
+  ...derivedWebOrigins,
+  ...splitCsv(parsed.DEN_BETTER_AUTH_TRUSTED_ORIGINS).map((origin) => normalizeOrigin(origin)),
+])
+const configuredMcpResourceUrl = optionalString(parsed.DEN_MCP_RESOURCE_URL)
 const mcpAdditionalResources = normalizeAbsoluteUrlCsv(
   "DEN_MCP_ADDITIONAL_RESOURCES",
   parsed.DEN_MCP_ADDITIONAL_RESOURCES,
@@ -504,18 +532,23 @@ const automationsEnabled = automationsRuntimeEnabled
   && parseBooleanFlag(parsed.DEN_AUTOMATIONS_ENABLED ?? "false")
 
 const devMode = (parsed.OPENWORK_DEV_MODE ?? "0").trim() === "1"
+const port = Number(parsed.PORT ?? "8790")
 const botIdProtectionEnabled = (parsed.DEN_BOTID_PROTECTION_ENABLED ?? "0").trim() === "1"
 const diagnosticsOrigin = normalizeDiagnosticsOrigin(parsed.DEN_DIAGNOSTICS_ORIGIN, devMode)
 const diagnosticsBearerToken = optionalString(parsed.DEN_DIAGNOSTICS_BEARER_TOKEN)
 if (diagnosticsBearerToken && diagnosticsBearerToken.length < 24) {
   throw new Error("DEN_DIAGNOSTICS_BEARER_TOKEN must contain at least 24 characters.")
 }
+const derivedDenApiPublicUrl = configuredDenUrls && devMode && denBaseUrlIsLoopback(configuredDenUrls.web)
+  ? `http://127.0.0.1:${port}`
+  : configuredDenUrls?.api
 const apiPublicUrl = normalizeConfiguredPublicApiBaseUrl(
-  optionalString(parsed.DEN_API_PUBLIC_URL) ?? configuredDenUrls?.api,
+  optionalString(parsed.DEN_API_PUBLIC_URL) ?? derivedDenApiPublicUrl,
   {
     allowInsecureHttp: devMode,
   },
 )
+const mcpResourceUrl = configuredMcpResourceUrl ?? (configuredDenUrls ? `${apiPublicUrl}/mcp` : undefined)
 const publicUrlTrustedOrigins = Array.from(new Set([
   ...corsOrigins,
   ...betterAuthTrustedOrigins,
@@ -545,7 +578,6 @@ const requireEmailVerification = parsed.DEN_REQUIRE_EMAIL_VERIFICATION === undef
 const passwordBreachScreeningEnabled = parsed.DEN_PASSWORD_BREACH_SCREENING_ENABLED === undefined
   ? true
   : parsed.DEN_PASSWORD_BREACH_SCREENING_ENABLED.trim().toLowerCase() !== "false"
-const port = Number(parsed.PORT ?? "8790")
 
 const daytonaSandboxPublic =
   (parsed.DAYTONA_SANDBOX_PUBLIC ?? "false").toLowerCase() === "true"
@@ -584,7 +616,10 @@ export const env = {
   // Extra hostnames that serve the den-web frontend (and therefore expose
   // the Den API behind the /api/den proxy path). Entries starting with "."
   // are treated as suffix matches, e.g. ".example.com".
-  webAppHosts: splitCsv(parsed.DEN_WEB_APP_HOSTS).map((host) => host.toLowerCase()),
+  webAppHosts: uniqueStrings([
+    ...derivedWebOrigins.map((origin) => new URL(origin).hostname.toLowerCase()),
+    ...splitCsv(parsed.DEN_WEB_APP_HOSTS).map((host) => host.toLowerCase()),
+  ]),
   devMode,
   botIdProtectionEnabled,
   allowPrivateMcpUrls,
@@ -688,7 +723,7 @@ export const env = {
   microsoftOAuthTokenUrl: optionalString(parsed.DEN_MICROSOFT_OAUTH_TOKEN_URL),
   microsoftGraphBaseUrl: optionalString(parsed.DEN_MICROSOFT_GRAPH_BASE_URL),
   desktopDenBaseUrl: optionalString(parsed.DEN_DESKTOP_DEN_BASE_URL),
-  marketingUrl: optionalString(parsed.DEN_MARKETING_URL),
+  marketingUrl: optionalString(parsed.DEN_MARKETING_URL) ?? configuredDenUrls?.web,
   mcpClaimNamespace: normalizeOrigin(optionalString(parsed.DEN_MCP_CLAIM_NAMESPACE) ?? betterAuthUrl),
   bootstrapAdminEmails: splitCsv(parsed.DEN_BOOTSTRAP_ADMIN_EMAILS).map((email) => email.toLowerCase()),
   initialAdminBootstrapCode,
