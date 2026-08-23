@@ -9,7 +9,7 @@ Frontend for `app.openworklabs.com`.
 - Lists and connects existing cloud workers.
 - Sends users to the organization billing page for subscription management.
 - Offers desktop handoff actions so users can open the generated worker directly in OpenWork or copy the connect credentials manually.
-- Uses a Next.js proxy route (`/api/den/*`) to reach `api.openworklabs.com` without browser CORS issues.
+- Calls the Den API directly at the matching `api.*` origin (for example, `app.openworklabs.com` -> `api.app.openworklabs.com`).
 - Uses a same-origin auth proxy (`/api/auth/*`) so GitHub OAuth callbacks can land on `app.openworklabs.com`.
 
 ## Current hosted user flow
@@ -30,7 +30,7 @@ Frontend for `app.openworklabs.com`.
 
 ### Optional env vars
 
-- `DEN_API_BASE` (server-only): upstream API base used by proxy routes. Required outside local dev wrappers.
+- `DEN_API_BASE` (server-only): upstream API base used by server-side health/readiness and compatibility auth proxy routes. Required outside local dev wrappers.
 - `DEN_AUTH_ORIGIN` (server-only): Origin header sent to Better Auth endpoints when the browser request does not include one. Required outside local dev wrappers.
 - `DEN_AUTH_FALLBACK_BASE` (server-only): fallback Den origin used if `DEN_API_BASE` serves an HTML/5xx error.
 - `DEN_WEB_PUBLIC_ORIGIN` (server/runtime): public origin used for metadata.
@@ -59,7 +59,7 @@ Direct OTLP shutdown/flush for stock `next start` and Vercel deployments is oper
 
 Sentry wraps the Next config for browser Sentry builds (`NEXT_PUBLIC_DEN_OBSERVABILITY_BACKEND=sentry`) and for explicit source-map upload builds. Source-map uploads are disabled by default; enable them with the build-only `DEN_WEB_UPLOAD_SENTRY_SOURCEMAPS=true` flag and provide `SENTRY_AUTH_TOKEN`, `SENTRY_ORG`, and `SENTRY_PROJECT` as build credentials. Normal Docker/image builds do not need runtime `DEN_OBSERVABILITY_BACKEND` or `SENTRY_DSN` values. Never expose `SENTRY_AUTH_TOKEN` to the browser.
 
-Runtime logs and telemetry scrubbing avoid request bodies, cookies, authorization headers, credentials, and target query strings. The `/api/den/*` and `/api/auth/*` upstream proxy emits one structured completion/error log per request and forwards W3C trace context so web-to-api traffic can be correlated with Next traces.
+Runtime logs and telemetry scrubbing avoid request bodies, cookies, authorization headers, credentials, and target query strings. The compatibility `/api/den/*` route redirects legacy callers to the direct `api.*` origin; `/api/auth/*` remains an upstream proxy for auth callback compatibility and emits one structured completion/error log per request while forwarding W3C trace context.
 
 ### Related Den API env vars
 

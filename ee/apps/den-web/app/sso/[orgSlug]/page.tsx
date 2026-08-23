@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
+import { denApiEndpoint } from "../../(den)/_lib/den-api-origin";
 import { getSocialCallbackUrl } from "../../(den)/_lib/den-flow";
 
 export default function OrganizationSsoSignInPage() {
@@ -18,7 +19,7 @@ export default function OrganizationSsoSignInPage() {
 
     void (async () => {
       try {
-        const response = await fetch("/api/auth/sign-in/sso", {
+        const response = await fetch(denApiEndpoint("/api/auth/sign-in/sso"), {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
