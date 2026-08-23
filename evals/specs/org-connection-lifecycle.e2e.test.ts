@@ -130,7 +130,7 @@ test.skipIf(!apiUrl || !e2eTestsEnabled)(title, async () => {
 
   await using app = await desktop({
     name: "org-connection-lifecycle",
-    bootstrap: { baseUrl: den.webUrl, apiBaseUrl: den.webUrl, requireSignin: false },
+    bootstrap: { baseUrl: den.webUrl, requireSignin: false },
   });
   await using visualEvidence = createVisualEvidence("org-connection-lifecycle");
   // Workspace first, then the org sign-in: the signed-in org shell offers no

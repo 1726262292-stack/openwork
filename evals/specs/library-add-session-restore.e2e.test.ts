@@ -69,7 +69,6 @@ test(title, { timeout: 600_000 }, async ({ evidence, place }) => {
     host: place.host(),
     bootstrap: {
       baseUrl: proxy.ref.webUrl,
-      apiBaseUrl: proxy.ref.webUrl,
       requireSignin: false,
     },
   });

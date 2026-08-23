@@ -152,7 +152,6 @@ export function AddLibraryItemModal(props: AddLibraryItemModalProps) {
     let cancelled = false;
     void createDenClient({
       baseUrl: settings.baseUrl,
-      apiBaseUrl: settings.apiBaseUrl,
       token,
     }).listOrgMarketplaces(orgId).then((items) => {
       if (!cancelled) {

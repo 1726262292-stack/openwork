@@ -210,7 +210,8 @@ export function JoinOrganizationDialog({
     const parsed = parseManualAuthInput(value);
     if (!parsed) return false;
 
-    const baseUrl = parsed.baseUrl ?? readDenSettings().baseUrl;
+    const settings = readDenSettings();
+    const baseUrl = parsed.baseUrl ?? settings.baseUrl;
     setStatus({ phase: "connecting", clientName: t("join_org.openwork_cloud"), host: hostFromUrl(baseUrl) });
     const result = await exchangeHandoffAndSignIn(parsed.grant, {
       baseUrl,

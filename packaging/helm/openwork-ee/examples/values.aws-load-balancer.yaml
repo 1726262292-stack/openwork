@@ -28,10 +28,12 @@ config:
     passwordBreachScreeningEnabled: "false"
   public:
     webOrigin: "https://REPLACE_WEB_HOST"
+    # Split-origin compatibility override for this two-load-balancer example.
+    # Leave blank in single-origin deployments so Den derives it from webOrigin.
     apiOrigin: "https://REPLACE_API_HOST"
     mcpResourceUrl: "https://REPLACE_API_HOST/mcp"
     mcpClaimNamespace: "https://REPLACE_WEB_HOST"
-    desktopDenBaseUrl: "https://REPLACE_WEB_HOST"
+    desktopDenBaseUrl: ""
     corsOrigins: "https://REPLACE_WEB_HOST,https://REPLACE_API_HOST"
     betterAuthTrustedOrigins: "https://REPLACE_WEB_HOST"
     webAppHosts: "REPLACE_WEB_HOST"

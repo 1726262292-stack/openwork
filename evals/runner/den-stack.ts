@@ -706,7 +706,7 @@ async function ensureApp(log: (message: string) => void, cdpCandidates: string[]
   await mkdir(dirname(bootstrapPath), { recursive: true });
   await writeFile(
     bootstrapPath,
-    `${JSON.stringify({ baseUrl: DEN_BASE_URL, apiBaseUrl: DEN_BASE_URL, requireSignin: false }, null, 2)}\n`,
+    `${JSON.stringify({ baseUrl: DEN_BASE_URL, requireSignin: false }, null, 2)}\n`,
   );
   await writePidState("bootstrap.path", bootstrapPath);
   log(`Wrote desktop bootstrap -> ${DEN_BASE_URL}`);

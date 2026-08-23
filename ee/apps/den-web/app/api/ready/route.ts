@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { joinBaseUrl, readBaseUrlEnv } from "@openwork/types/url";
+import { denUrls } from "@openwork-ee/utils";
 
 import { denWebLogger } from "../../../observability/runtime-logger";
 
@@ -49,13 +50,18 @@ async function checkUpstream(apiBase: string): Promise<CheckStatus> {
 
 export async function GET() {
   const apiBase = readBaseUrlEnv(process.env, "DEN_API_BASE");
-  const authOrigin = readBaseUrlEnv(process.env, "DEN_AUTH_ORIGIN");
+  let hasPublicWebOrigin = true;
+  try {
+    denUrls(process.env);
+  } catch {
+    hasPublicWebOrigin = false;
+  }
   const missing: string[] = [];
   if (!apiBase) {
     missing.push("DEN_API_BASE");
   }
-  if (!authOrigin) {
-    missing.push("DEN_AUTH_ORIGIN");
+  if (!hasPublicWebOrigin) {
+    missing.push("DEN_BASE_URL");
   }
 
   if (missing.length > 0 || !apiBase) {

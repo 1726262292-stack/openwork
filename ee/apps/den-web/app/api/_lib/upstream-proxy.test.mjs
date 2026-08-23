@@ -5,6 +5,7 @@ import { NextRequest } from "next/server";
 import { setStructuredLogSink, useJsonStdoutStructuredLogSink } from "../../../observability/runtime-logger.ts";
 
 const previousDenApiBase = process.env.DEN_API_BASE;
+const previousDenBaseUrl = process.env.DEN_BASE_URL;
 const previousDenWebPublicOrigin = process.env.DEN_WEB_PUBLIC_ORIGIN;
 
 describe("Den upstream proxy", () => {
@@ -81,6 +82,8 @@ describe("Den upstream proxy", () => {
   });
 
   beforeEach(() => {
+    delete process.env.DEN_BASE_URL;
+    delete process.env.DEN_WEB_PUBLIC_ORIGIN;
     logs = [];
     setStructuredLogSink({
       log(level, message, fields) {
@@ -101,6 +104,11 @@ describe("Den upstream proxy", () => {
       delete process.env.DEN_WEB_PUBLIC_ORIGIN;
     } else {
       process.env.DEN_WEB_PUBLIC_ORIGIN = previousDenWebPublicOrigin;
+    }
+    if (previousDenBaseUrl === undefined) {
+      delete process.env.DEN_BASE_URL;
+    } else {
+      process.env.DEN_BASE_URL = previousDenBaseUrl;
     }
   });
 
@@ -335,6 +343,29 @@ describe("Den upstream proxy", () => {
     expect(observed.forwardedPrefix).toBe("/api/den");
     expect(observed.forwardedProto).toBe("https");
     expect(observed.forwarded).toBeNull();
+  });
+
+  test("uses DEN_BASE_URL for forwarded public origin headers", async () => {
+    process.env.DEN_BASE_URL = "http://cloud.example.test:3005";
+    process.env.DEN_WEB_PUBLIC_ORIGIN = "https://migration.example.test";
+    const { proxyUpstream } = await import("./upstream-proxy.ts");
+    const request = new NextRequest("https://request.example.com/api/den/v1/me");
+
+    await proxyUpstream(request, [], { routePrefix: "/api/den" });
+
+    expect(observed.forwardedHost).toBe("cloud.example.test:3005");
+    expect(observed.forwardedProto).toBe("http");
+  });
+
+  test("keeps DEN_WEB_PUBLIC_ORIGIN as the forwarded origin migration fallback", async () => {
+    process.env.DEN_WEB_PUBLIC_ORIGIN = "https://migration.example.test";
+    const { proxyUpstream } = await import("./upstream-proxy.ts");
+    const request = new NextRequest("https://request.example.com/api/den/v1/me");
+
+    await proxyUpstream(request, [], { routePrefix: "/api/den" });
+
+    expect(observed.forwardedHost).toBe("migration.example.test");
+    expect(observed.forwardedProto).toBe("https");
   });
 
   test("preserves a rotating public ingress origin when the server request URL is internal", async () => {

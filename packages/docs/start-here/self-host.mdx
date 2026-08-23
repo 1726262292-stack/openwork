@@ -57,7 +57,7 @@ The production shape is straightforward:
 - Put HTTPS in front of every public service.
 - Expose the OpenWork server/worker URL, not raw opencode.
 - Keep workspace and data paths on durable storage.
-- Configure public URLs, auth origins, CORS origins, tokens, and provider credentials with env vars.
+- Configure `DEN_BASE_URL`, tokens, and provider credentials with env vars. Den derives the Better Auth URL, CORS/trusted origins, API defaults, MCP resource defaults, and web-app host allowlist from `DEN_BASE_URL` unless you set compatibility overrides for a split-origin deployment.
 - Run Den database migrations before the Den controller receives traffic.
 
 For containerized services, start from the [Docker packaging](https://github.com/different-ai/openwork/tree/dev/packaging/docker) in the repo.
@@ -80,7 +80,7 @@ For a self-hosted production deployment, use a managed MySQL-compatible database
 
 ## Auth and SSO
 
-Den uses Better Auth. It runs in your deployment, uses your database, and is configured with your `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, trusted origins, and optional GitHub/Google OAuth credentials.
+Den uses Better Auth. It runs in your deployment, uses your database, and is configured with your `BETTER_AUTH_SECRET`, `DEN_BASE_URL`, and optional GitHub/Google OAuth credentials. `BETTER_AUTH_URL`, trusted origins, CORS origins, and web-app hosts are derived from `DEN_BASE_URL`; set the older variables only when you are intentionally migrating or running a split-origin topology.
 
 Private deployments should keep public signup disabled and use the one-time [first-administrator setup flow](/self-host/deploy-to-your-cloud/first-administrator). Configuring an owner or platform-admin email does not create an account or password, and OpenWork does not ship a default administrator password.
 

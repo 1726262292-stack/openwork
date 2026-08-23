@@ -302,17 +302,17 @@ async function desktopTokenMatchesActor(ctx: FlowContext, token: string, actor: 
   return stringField(me.body.user, "email").toLowerCase() === actor.email.trim().toLowerCase();
 }
 
-async function writeDesktopBootstrap(ctx: FlowContext, denWebUrlValue: string, denApiUrlValue: string): Promise<void> {
+async function writeDesktopBootstrap(ctx: FlowContext, denWebUrlValue: string): Promise<void> {
   // Provenance: marketplace-connect-only-delivery.flow.mjs:442-463 writes the
   // desktop bootstrap through the Electron bridge, mirrors openwork.den.*
   // localStorage keys, clears stale auth, then reloads before exchange.
-  const bootstrap = { baseUrl: denWebUrlValue, apiBaseUrl: denApiUrlValue, requireSignin: false, handoff: null };
+  const bootstrap = { baseUrl: denWebUrlValue, requireSignin: false, handoff: null };
   const written = await ctx.eval(`(async () => {
     const bridge = window.__OPENWORK_ELECTRON__?.invokeDesktop;
     if (!bridge) return { ok: false, reason: 'desktop bridge missing' };
     await bridge('setDesktopBootstrapConfig', ${JSON.stringify(bootstrap)});
     localStorage.setItem('openwork.den.baseUrl', ${JSON.stringify(denWebUrlValue)});
-    localStorage.setItem('openwork.den.apiBaseUrl', ${JSON.stringify(denApiUrlValue)});
+    localStorage.removeItem('openwork.den.apiBaseUrl');
     for (const key of [
       'openwork.den.authToken',
       'openwork.den.activeOrgId',
@@ -521,7 +521,7 @@ export async function connectDen(ctx: FlowContext, options: ConnectDenOptions): 
       ctx.log(`Desktop is connected to ${current.activeOrgName || "unknown org"}; reconnecting to scope ${options.organizationName ?? "requested org"}.`);
     }
 
-    await writeDesktopBootstrap(ctx, baseUrl, apiBaseUrl);
+    await writeDesktopBootstrap(ctx, baseUrl);
     const grant = await createDesktopHandoff(ctx, actor, baseUrl, apiBaseUrl, options.organizationId);
     await ctx.waitFor("Boolean(window.__openworkControl?.listActions?.().some((action) => action.id === 'auth.exchange-grant' && !action.disabled))", {
       timeoutMs: 30_000,

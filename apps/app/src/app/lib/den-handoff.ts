@@ -1,6 +1,7 @@
 import {
   createDenClient,
   readDenSettings,
+  resolveDenBaseUrls,
   seedDenDesktopConfigConnectPolicy,
   writeDenSettings,
   type DenDesktopHandoffExchange,
@@ -26,6 +27,8 @@ export type HandoffActiveOrg = {
 export type ExchangeHandoffOptions = {
   /** Den base URL to exchange against (and persist on success). */
   baseUrl: string;
+  /** Direct Den API base to exchange against and preserve on success. */
+  apiBaseUrl?: string | null;
   /** Pre-built client to reuse. When omitted, a default client for `baseUrl` is created. */
   client?: DenClient;
   /** Optional active org to select on sign-in (bootstrap prepares this). */
@@ -60,7 +63,16 @@ export async function exchangeHandoffAndSignIn(
   options: ExchangeHandoffOptions,
 ): Promise<ExchangeHandoffResult> {
   const fallback = options.fallbackErrorMessage ?? "Failed to sign in to OpenWork Cloud.";
-  const client = options.client ?? createDenClient({ baseUrl: options.baseUrl });
+  const storedSettings = readDenSettings();
+  const apiBaseUrl = options.apiBaseUrl ?? (
+    storedSettings.baseUrl === resolveDenBaseUrls(options.baseUrl).baseUrl
+      ? storedSettings.apiBaseUrl
+      : undefined
+  );
+  const client = options.client ?? createDenClient({
+    baseUrl: options.baseUrl,
+    apiBaseUrl,
+  });
 
   try {
     const exchange = await client.exchangeDesktopHandoff(grant);
@@ -80,7 +92,6 @@ export async function exchangeHandoffAndSignIn(
       exchangeOrganization: exchange.organization ?? null,
       desktopInitiated,
     });
-    const storedSettings = readDenSettings();
     if (plan.kind === "await-user-selection") {
       // Desktop-initiated sign-in: hold the org choice for the onboarding
       // step. The exchange-reported org is only the chooser's default;
@@ -89,6 +100,7 @@ export async function exchangeHandoffAndSignIn(
       writeDenSettings(
         {
           baseUrl: options.baseUrl,
+          ...(apiBaseUrl ? { apiBaseUrl } : {}),
           authToken: exchange.token,
           activeOrgId: null,
           activeOrgSlug: null,
@@ -106,6 +118,7 @@ export async function exchangeHandoffAndSignIn(
       const activeOrg = plan.organization;
       writeDenSettings({
         baseUrl: options.baseUrl,
+        ...(apiBaseUrl ? { apiBaseUrl } : {}),
         authToken: exchange.token,
         activeOrgId: activeOrg ? activeOrg.id : storedSettings.activeOrgId,
         activeOrgSlug: activeOrg ? activeOrg.slug ?? null : storedSettings.activeOrgSlug,

@@ -18,7 +18,7 @@ Use one desktop-facing Den origin when you can: the Den web origin, with its `/a
 - API: `<den-web-origin>/api/den/v1/...`
 - MCP: `<den-web-origin>/api/den/mcp/...`
 
-`DEN_API_PUBLIC_URL` still must be configured correctly, but it does not need to be a second desktop-facing origin. In the single-origin shape, set it to the proxied API base, for example `https://openwork.example.internal/api/den`. Den uses that value for install-link claims, OAuth callbacks, webhooks, MCP resource/audience values, and links.
+Set `DEN_BASE_URL` to the Den web origin. Den derives Better Auth, CORS/trusted origins, the web-app host allowlist, API defaults, and MCP resource defaults from that single value. If you need a separate externally reachable API origin or a proxied API path for external MCP clients, set `DEN_API_PUBLIC_URL` as a compatibility override, for example `https://openwork.example.internal/api/den`.
 
 If you publish a separate Den API origin, the one-time install-link exchange and external MCP clients must be able to reach that origin too.
 

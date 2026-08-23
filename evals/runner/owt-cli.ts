@@ -362,7 +362,7 @@ function addSurface(surfaces: Record<string, SurfaceHandle>, handle: SurfaceHand
 }
 
 function bootstrapFor(args: UpArgs, den: DenServiceHandle | null): ElectronSurfaceOptions["bootstrap"] {
-  if (den) return { baseUrl: den.webUrl, apiBaseUrl: den.apiUrl, requireSignin: false };
+  if (den) return { baseUrl: den.webUrl, requireSignin: false };
   if (args.denBaseUrl && args.denApiBaseUrl) {
     return { baseUrl: args.denBaseUrl, apiBaseUrl: args.denApiBaseUrl, requireSignin: false };
   }
