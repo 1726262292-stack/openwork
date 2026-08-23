@@ -251,9 +251,45 @@ async function cloneRequestHeaders(
   return headers;
 }
 
-function copySetCookieHeaders(upstreamHeaders: Headers, responseHeaders: Headers): void {
+function isDomainCookieHostEligible(origin: URL): boolean {
+  const hostname = origin.hostname.toLowerCase();
+  return origin.protocol === "https:" && hostname.includes(".") && hostname !== "localhost";
+}
+
+function rewriteAuthSetCookieHeader(cookie: string, request: NextRequest, apiBase: string, options: ProxyOptions): string {
+  if (options.routePrefix !== "/api/auth") return cookie;
+
+  let apiOrigin: URL;
+  try {
+    apiOrigin = new URL(apiBase);
+  } catch {
+    return cookie;
+  }
+
+  const publicOrigin = requestPublicOrigin(request);
+  if (!isDomainCookieHostEligible(publicOrigin)) return cookie;
+  const publicHostname = publicOrigin.hostname.toLowerCase();
+  const apiHostname = apiOrigin.hostname.toLowerCase();
+  const canShareWithApiSubdomain = apiHostname.endsWith(`.${publicHostname}`);
+  let hasDomain = false;
+
+  const rewritten = cookie
+    .split(";")
+    .map((part, index) => {
+      const trimmed = part.trim();
+      if (!/^domain=/iu.test(trimmed)) return index === 0 ? trimmed : ` ${trimmed}`;
+      hasDomain = true;
+      return ` Domain=${publicHostname}`;
+    })
+    .join(";");
+
+  if (hasDomain || !canShareWithApiSubdomain || /^__Host-/u.test(cookie)) return rewritten;
+  return `${rewritten}; Domain=${publicHostname}`;
+}
+
+function copySetCookieHeaders(upstreamHeaders: Headers, responseHeaders: Headers, request: NextRequest, apiBase: string, options: ProxyOptions): void {
   for (const cookie of upstreamHeaders.getSetCookie()) {
-    if (cookie) responseHeaders.append("set-cookie", cookie);
+    if (cookie) responseHeaders.append("set-cookie", rewriteAuthSetCookieHeader(cookie, request, apiBase, options));
   }
 }
 
@@ -326,7 +362,7 @@ function cloneResponseHeaders(request: NextRequest, upstream: Response, options:
     }
     headers.append(name, value);
   });
-  copySetCookieHeaders(upstream.headers, headers);
+  copySetCookieHeaders(upstream.headers, headers, request, apiBase, options);
   sanitizeExposeHeaders(headers);
   return headers;
 }
