@@ -10,7 +10,7 @@ const appVersionResponseSchema = z.object({
   minAppVersion: z.string(),
   latestAppVersion: z.string().min(1),
   publishedDesktopVersions: z.array(z.string().min(1)),
-  webUrl: z.string().min(1),
+  webUrl: z.string().min(1).optional(),
 }).meta({ ref: "DenAppVersionResponse" })
 
 export function registerVersionRoutes<T extends Env>(app: Hono<T>) {
@@ -20,7 +20,7 @@ export function registerVersionRoutes<T extends Env>(app: Hono<T>) {
       tags: ["System"],
       summary: "Get desktop app version metadata",
       description:
-        "Returns the supported desktop app range, stable published desktop releases from GitHub, and this deployment's web app base URL so desktop clients only need to be configured with the API URL.",
+        "Returns the supported desktop app range, stable published desktop releases from GitHub, and, when available, this deployment's web app base URL so desktop clients only need to be configured with the API URL.",
       responses: {
         200: jsonResponse("Desktop app version metadata returned successfully.", appVersionResponseSchema),
       },

@@ -43,7 +43,6 @@ describe("DEN_BASE_URL environment defaults", () => {
       webUrl: "https://den.example.com",
       apiPublicUrl: "https://api.den.example.com",
       mcpResourceUrl: "https://api.den.example.com/mcp",
-      desktopDenBaseUrl: "https://api.den.example.com",
     })
   })
 
