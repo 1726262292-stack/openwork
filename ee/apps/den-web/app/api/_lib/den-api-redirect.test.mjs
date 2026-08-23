@@ -33,4 +33,15 @@ describe("Den API redirect compatibility route", () => {
     expect(response.status).toBe(307);
     expect(response.headers.get("location")).toBe("https://api.app.openworklabs.com/v1/workers");
   });
+
+  test("keeps double-slash suffixes on the Den API host", async () => {
+    delete process.env.DEN_BASE_URL;
+    delete process.env.DEN_WEB_PUBLIC_ORIGIN;
+
+    const { POST } = await import("../den/[...path]/route.ts");
+    const response = await POST(new NextRequest("https://app.openworklabs.com/api/den//evil.example/path?token=secret"));
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe("https://api.app.openworklabs.com//evil.example/path?token=secret");
+  });
 });

@@ -35,7 +35,8 @@ export function redirectToDenApi(request: NextRequest, routePrefix: string): Nex
   }
 
   const incoming = new URL(request.url);
-  const redirectUrl = new URL(forwardedPath(request, routePrefix), apiOrigin);
+  const redirectUrl = new URL(apiOrigin);
+  redirectUrl.pathname = forwardedPath(request, routePrefix);
   redirectUrl.search = incoming.search;
   return NextResponse.redirect(redirectUrl, 307);
 }
