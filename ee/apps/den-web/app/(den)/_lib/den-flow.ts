@@ -1,5 +1,5 @@
 import { DEN_WORKER_POLL_INTERVAL_MS } from "./CONSTS";
-import { denApiEndpoint } from "./den-api-origin";
+import { denApiCredentials, denApiEndpoint } from "./den-api-origin";
 import { ORG_SCOPE_HEADER, getRequestOrgScope, shouldPinOrgScopePath } from "./org-scope";
 
 export type AuthMode = "sign-in" | "sign-up";
@@ -1172,7 +1172,7 @@ export async function requestJson(path: string, init: RequestInit = {}, timeoutM
     response = await fetch(endpoint, {
       ...init,
       headers,
-      credentials: "include",
+      credentials: init.credentials ?? denApiCredentials(endpoint),
       signal: init.signal ?? timeoutController?.signal
     });
   } catch (error) {

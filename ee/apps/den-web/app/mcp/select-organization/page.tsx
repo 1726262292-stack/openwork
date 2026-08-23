@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { denApiEndpoint } from "../../(den)/_lib/den-api-origin";
+import { denApiCredentials, denApiEndpoint } from "../../(den)/_lib/den-api-origin";
 import { useOrgListWindow } from "../../(den)/_lib/use-org-list-window";
 
 type Organization = {
@@ -41,8 +41,9 @@ function getErrorMessage(payload: unknown, fallback: string) {
 }
 
 async function requestJson(path: string, init?: RequestInit) {
-  const response = await fetch(denApiEndpoint(path), {
-    credentials: "include",
+  const endpoint = denApiEndpoint(path);
+  const response = await fetch(endpoint, {
+    credentials: denApiCredentials(endpoint),
     headers: { "content-type": "application/json", ...(init?.headers ?? {}) },
     ...init,
   });
