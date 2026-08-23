@@ -68,6 +68,19 @@ describe("Den upstream proxy", () => {
           });
         }
 
+        if (url.pathname === "/api/auth/callback/google") {
+          const headers = new Headers({ "content-type": "text/plain" });
+          headers.append(
+            "set-cookie",
+            "__Secure-better-auth.session_token=abc; Path=/; Domain=api.app.example.com; Secure; HttpOnly; SameSite=Lax",
+          );
+          headers.append(
+            "set-cookie",
+            "better-auth.session_data=def; Path=/; Secure; HttpOnly; SameSite=Lax",
+          );
+          return new Response("signed in", { headers });
+        }
+
         return new Response("proxied", {
           status: 207,
           headers: {
@@ -195,6 +208,40 @@ describe("Den upstream proxy", () => {
     await proxyUpstream(request, [], { routePrefix: "/api/auth", upstreamPathPrefix: "api/auth" });
 
     expect(observed.cookie).toBe("better-auth.state=oauth-state; __Secure-better-auth.session_token=session");
+  });
+
+  test("rewrites auth Set-Cookie domains to the browser origin", async () => {
+    const { proxyUpstream } = await import("./upstream-proxy.ts");
+    const originalFetch = globalThis.fetch;
+    process.env.DEN_API_BASE = "https://api.app.example.com";
+    globalThis.fetch = async () => {
+      const headers = new Headers({ "content-type": "text/plain" });
+      headers.append(
+        "set-cookie",
+        "__Secure-better-auth.session_token=abc; Path=/; Domain=api.app.example.com; Secure; HttpOnly; SameSite=Lax",
+      );
+      headers.append(
+        "set-cookie",
+        "better-auth.session_data=def; Path=/; Secure; HttpOnly; SameSite=Lax",
+      );
+      return new Response("signed in", { headers });
+    };
+    const request = new NextRequest("https://app.example.com/api/auth/callback/google", {
+      method: "GET",
+    });
+
+    let response;
+    try {
+      response = await proxyUpstream(request, ["callback", "google"], { routePrefix: "/api/auth", upstreamPathPrefix: "api/auth" });
+    } finally {
+      globalThis.fetch = originalFetch;
+      process.env.DEN_API_BASE = `http://127.0.0.1:${server.port}`;
+    }
+
+    expect(response.headers.getSetCookie()).toEqual([
+      "__Secure-better-auth.session_token=abc; Path=/; Domain=app.example.com; Secure; HttpOnly; SameSite=Lax",
+      "better-auth.session_data=def; Path=/; Secure; HttpOnly; SameSite=Lax; Domain=app.example.com",
+    ]);
   });
 
   test("rejects http and lookalike hostnames", async () => {
