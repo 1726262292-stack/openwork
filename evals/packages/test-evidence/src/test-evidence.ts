@@ -17,6 +17,7 @@ export interface EvidenceJudgment {
 }
 
 export interface TestArtifact {
+  kind?: never;
   caption: string;
   fileName: string;
   hash: string;
@@ -27,6 +28,12 @@ export interface TestArtifact {
   ok: boolean | null;
   results: VisualExpectationResult[];
   judgments: EvidenceJudgment[];
+}
+
+export interface JsonArtifact {
+  kind: "json";
+  label: string;
+  fileName: string;
 }
 
 export interface TestRunSummary {
@@ -49,7 +56,7 @@ export interface TestRunRecord {
   gitSha?: string;
   branch?: string;
   summary: TestRunSummary;
-  artifacts: TestArtifact[];
+  artifacts: (TestArtifact | JsonArtifact)[];
 }
 
 interface StoredTestArtifact extends TestArtifact {
@@ -58,11 +65,17 @@ interface StoredTestArtifact extends TestArtifact {
   validationKey: string | null;
 }
 
+interface StoredJsonArtifact extends JsonArtifact {
+  sequence: number;
+  value: unknown;
+}
+
 export interface TestEvidenceRecorder {
   readonly dir: string;
   recordScreenshot(screenshotArtifact: ScreenshotArtifact): string;
   recordVisualValidation(screenshotHash: string, visualEvidence: VisualEvidenceResult): string;
   recordAssertionEvidence(assertion: string, evidence: string, passed: boolean): void;
+  recordJsonArtifact(label: string, value: unknown): void;
   close(): Promise<string>;
   [Symbol.asyncDispose](): Promise<void>;
 }
@@ -98,6 +111,10 @@ function html(value: string): string {
 
 function fileName(sequence: number, caption: string): string {
   return `${String(sequence).padStart(2, "0")}-${slug(caption)}.png`;
+}
+
+function jsonFileName(sequence: number, label: string): string {
+  return `${String(sequence).padStart(2, "0")}-${slug(label)}.json`;
 }
 
 function judgmentsForVisualEvidence(visualEvidence: VisualEvidenceResult): EvidenceJudgment[] {
@@ -181,16 +198,21 @@ function renderArtifact(artifact: TestArtifact): string {
 
 function renderIndex(record: TestRunRecord): string {
   const summary = record.summary;
-  const validatedArtifacts = record.artifacts.filter((artifact) => artifact.judgments.length > 0).map(renderArtifact).join("");
-  const unvalidatedArtifacts = record.artifacts.filter((artifact) => artifact.judgments.length === 0);
+  const testArtifacts = record.artifacts.filter((artifact): artifact is TestArtifact => artifact.kind !== "json");
+  const jsonArtifacts = record.artifacts.filter((artifact): artifact is JsonArtifact => artifact.kind === "json");
+  const validatedArtifacts = testArtifacts.filter((artifact) => artifact.judgments.length > 0).map(renderArtifact).join("");
+  const unvalidatedArtifacts = testArtifacts.filter((artifact) => artifact.judgments.length === 0);
   const unvalidatedMarkup = unvalidatedArtifacts.length > 0
     ? `<details class="unvalidated-artifacts unvalidated"><summary>unvalidated artifacts (${unvalidatedArtifacts.length})</summary>${unvalidatedArtifacts.map(renderArtifact).join("")}</details>`
+    : "";
+  const jsonMarkup = jsonArtifacts.length > 0
+    ? `<details><summary>JSON artifacts (${jsonArtifacts.length})</summary><ul>${jsonArtifacts.map((artifact) => `<li><a href="${html(artifact.fileName)}">${html(artifact.fileName)}</a></li>`).join("")}</ul></details>`
     : "";
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${html(record.name)} test evidence</title><style>
 body{font:15px/1.5 system-ui,sans-serif;max-width:1100px;margin:40px auto;padding:0 20px;background:#f6f7f9;color:#17191d}header,.artifact,details{background:white;border:1px solid #dfe2e8;border-radius:12px;padding:20px;margin:0 0 24px}.artifact.passed{border-left:6px solid #238636}.artifact.failed{border-left:6px solid #cf222e}.artifact.pending,.artifact.unvalidated,details.unvalidated{border-left:6px solid #9a6700}details .artifact{margin-top:20px}summary{cursor:pointer;font-weight:700}img{display:block;width:100%;height:auto;border:1px solid #dfe2e8;border-radius:8px}.meta{color:#636c76}.passed strong{color:#1a7f37}.failed strong{color:#cf222e}.pending strong{color:#9a6700}li{margin:8px 0}
-</style></head><body><header><h1>${html(record.name)}</h1><p>${summary.passedArtifacts}/${summary.totalArtifacts} artifacts passed; ${summary.failedArtifacts} failed; ${summary.pendingArtifacts} pending; ${summary.unvalidatedArtifacts - summary.pendingArtifacts} unvalidated. ${summary.passedExpectations} expectations passed, ${summary.failedExpectations} failed, and ${summary.pendingJudgments} pending.</p></header>${validatedArtifacts}${unvalidatedMarkup}</body></html>
+</style></head><body><header><h1>${html(record.name)}</h1><p>${summary.passedArtifacts}/${summary.totalArtifacts} artifacts passed; ${summary.failedArtifacts} failed; ${summary.pendingArtifacts} pending; ${summary.unvalidatedArtifacts - summary.pendingArtifacts} unvalidated. ${summary.passedExpectations} expectations passed, ${summary.failedExpectations} failed, and ${summary.pendingJudgments} pending.</p></header>${validatedArtifacts}${unvalidatedMarkup}${jsonMarkup}</body></html>
 `;
 }
 
@@ -282,8 +304,17 @@ function parseTestRun(value: unknown): TestRunRecord | null {
     || typeof value.closedAt !== "string"
     || !Array.isArray(value.artifacts)
   ) return null;
-  const artifacts: TestArtifact[] = [];
+  const artifacts: (TestArtifact | JsonArtifact)[] = [];
   for (const artifact of value.artifacts) {
+    if (
+      isRecord(artifact)
+      && artifact.kind === "json"
+      && typeof artifact.label === "string"
+      && typeof artifact.fileName === "string"
+    ) {
+      artifacts.push({ kind: "json", label: artifact.label, fileName: artifact.fileName });
+      continue;
+    }
     const parsed = parseTestArtifact(artifact);
     if (!parsed) return null;
     artifacts.push(parsed);
@@ -297,7 +328,7 @@ function parseTestRun(value: unknown): TestRunRecord | null {
     closedAt: value.closedAt,
     gitSha,
     branch,
-    summary: summarize(artifacts),
+    summary: summarize(artifacts.filter((artifact): artifact is TestArtifact => artifact.kind !== "json")),
     artifacts,
   };
 }
@@ -330,6 +361,7 @@ export async function judgeTestRun(testRunDir: string, opts: JudgeTestRunOptions
   const errors: string[] = [];
 
   for (const artifact of record.artifacts) {
+    if (artifact.kind === "json") continue;
     if (!artifact.fileName) continue;
     const targetIndexes = artifact.judgments.flatMap((judgment, index) => (
       opts.force || judgment.state === "pending" ? [index] : []
@@ -369,9 +401,10 @@ export async function judgeTestRun(testRunDir: string, opts: JudgeTestRunOptions
     artifact.ok = artifactOk(artifact.judgments);
   }
 
-  record.summary = summarize(record.artifacts);
+  const testArtifacts = record.artifacts.filter((artifact): artifact is TestArtifact => artifact.kind !== "json");
+  record.summary = summarize(testArtifacts);
   if (touched) await writeTestRun(record, testRunDir);
-  const visualJudgments = record.artifacts.filter((artifact) => artifact.fileName).flatMap((artifact) => artifact.judgments);
+  const visualJudgments = testArtifacts.filter((artifact) => artifact.fileName).flatMap((artifact) => artifact.judgments);
   return {
     testRunPath,
     judgedValidations,
@@ -386,6 +419,7 @@ export function createTestEvidence(meta: { name: string; outDir?: string }): Tes
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
   const dir = meta.outDir ?? join(REPO_ROOT, "evals", "results", "test-runs", `${stamp}-${slug(name)}`);
   const artifacts: StoredTestArtifact[] = [];
+  const jsonArtifacts: StoredJsonArtifact[] = [];
   const createdAt = new Date().toISOString();
   const gitSha = gitValue(["HEAD"]);
   const branch = gitValue(["--abbrev-ref", "HEAD"]);
@@ -403,6 +437,9 @@ export function createTestEvidence(meta: { name: string; outDir?: string }): Tes
       for (const artifact of artifacts) {
         if (artifact.png) await writeFile(join(dir, artifact.fileName), artifact.png);
       }
+      for (const artifact of jsonArtifacts) {
+        await writeFile(join(dir, artifact.fileName), `${JSON.stringify(artifact.value, null, 2)}\n`, "utf8");
+      }
       const orderedArtifacts = [
         ...artifacts.filter((artifact) => artifact.validationKey !== null),
         ...artifacts.filter((artifact) => artifact.validationKey === null),
@@ -415,7 +452,11 @@ export function createTestEvidence(meta: { name: string; outDir?: string }): Tes
         gitSha,
         branch,
         summary: summarize(orderedArtifacts),
-        artifacts: orderedArtifacts,
+        artifacts: [...orderedArtifacts, ...jsonArtifacts.map(({ kind, label, fileName: artifactFileName }) => ({
+          kind,
+          label,
+          fileName: artifactFileName,
+        }))],
       };
       await writeTestRun(record, dir);
       return join(dir, "index.html");
@@ -499,6 +540,18 @@ export function createTestEvidence(meta: { name: string; outDir?: string }): Tes
         sequence,
         png: null,
         validationKey: JSON.stringify([caption]),
+      });
+    },
+    recordJsonArtifact(label, value) {
+      assertOpen();
+      const sequence = nextSequence;
+      nextSequence += 1;
+      jsonArtifacts.push({
+        kind: "json",
+        label,
+        fileName: jsonFileName(sequence, label),
+        sequence,
+        value,
       });
     },
     close,

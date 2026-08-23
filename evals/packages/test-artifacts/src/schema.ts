@@ -211,6 +211,10 @@ function parseRecord(value: unknown, legacy: boolean): TestRunRecord | null {
   if (!Array.isArray(entries)) return null;
   const artifacts: TestArtifact[] = [];
   for (const entry of entries) {
+    if (isRecord(entry) && entry.kind === "json") {
+      if (typeof entry.label !== "string" || typeof entry.fileName !== "string") return null;
+      continue;
+    }
     const parsed = parseArtifact(entry);
     if (!parsed) return null;
     artifacts.push(parsed);

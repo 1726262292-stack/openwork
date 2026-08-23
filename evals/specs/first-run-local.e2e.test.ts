@@ -152,10 +152,10 @@ test.skipIf(!e2eTestsEnabled)(title, async () => {
   }
 
   // Review-bar limitation: when this no-cloud workspace has no provider key
-  // configured in the app, this spec does not exercise the "runs a task and
-  // sees a response" half of evals/onboarding-welcome-flows.md. It proves the
-  // session/task UI and honest provider-setup affordance instead, because an
-  // external test-runner environment key does not make a model usable in-app.
+  // configured in the app, this spec proves the session/task UI and honest
+  // provider-setup affordance but cannot exercise running a task and seeing a
+  // response, because an external test-runner key does not make a model usable
+  // in-app.
   if (!modelUsable) return;
 
   const models = await readAvailableModels(app);

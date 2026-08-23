@@ -1,5 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { mkdtemp, rm, utimes, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import {
   consentVarsFromSource,
@@ -8,6 +11,7 @@ import {
   resolveRunEnvironment,
   summarize,
   verdictFor,
+  worldSnapshotsSince,
 } from "./evals.mjs";
 
 test("consentVarsFromSource extracts, deduplicates, and sorts only opt-in variables", () => {
@@ -138,4 +142,25 @@ test("summarize reads counts and skipped test details", () => {
     skipped: 1,
     skips: [{ file: "app-smoke.e2e.test.ts", title: "needs provider" }],
   });
+});
+
+test("worldSnapshotsSince returns only snapshots written during the run, newest first", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "openwork-world-snapshots-"));
+  try {
+    await writeFile(join(directory, "old.json"), "{}\n");
+    await utimes(join(directory, "old.json"), new Date(0), new Date(0));
+    const startTime = Date.now();
+    await writeFile(join(directory, "recent.json"), "{}\n");
+    await writeFile(join(directory, "newer.json"), "{}\n");
+    await utimes(join(directory, "recent.json"), new Date(startTime + 1_000), new Date(startTime + 1_000));
+    await utimes(join(directory, "newer.json"), new Date(startTime + 2_000), new Date(startTime + 2_000));
+    await writeFile(join(directory, "ignored.txt"), "not a snapshot\n");
+
+    assert.deepEqual(worldSnapshotsSince(startTime, directory), [
+      join(directory, "newer.json"),
+      join(directory, "recent.json"),
+    ]);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });

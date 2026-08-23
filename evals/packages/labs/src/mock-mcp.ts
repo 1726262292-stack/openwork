@@ -74,6 +74,7 @@ export interface StartMockMcpOptions {
   /** Advertised OAuth/resource origin when the mock sits behind a proxy; defaults to the mock's own URL. */
   issuer?: string;
   profileId?: EnterpriseMcpProfileId;
+  fault?: string;
   oauthClientSecret?: string;
   allowUnauthenticatedMcp?: boolean;
   /** Serve this many additional synthetic mock_tool_<i> tools for scale specs. */
@@ -225,6 +226,7 @@ async function startEnterpriseProfileMock(options: StartMockMcpOptions): Promise
         ...process.env,
         PORT: String(port),
         PROFILE_ID: profileId,
+        ...(options.fault !== undefined ? { ACTIVE_FAULT_ID: options.fault } : {}),
         OAUTH_CLIENT_SECRET: options.oauthClientSecret ?? "enterprise-mcp-eval-client-secret",
         OAUTH_REDIRECT_URIS: redirectUris.join(","),
       },
