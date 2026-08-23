@@ -55,6 +55,15 @@
       "override": "installer apiUrl / self-hosted Den API origin"
     },
     {
+      "host": "api.app.openworklabs.com",
+      "kind": "fetched",
+      "components": ["desktop", "renderer", "server"],
+      "purpose": "Hosted OpenWork Den API origin derived from app.openworklabs.com for desktop Den API and OpenWork Connect MCP calls.",
+      "requirement": "required-for-cloud",
+      "blockedEffect": "Hosted Cloud desktop configuration, telemetry, sign-out, and OpenWork Connect MCP calls cannot reach the Den API.",
+      "override": "desktop apiBaseUrl / self-hosted Den API origin"
+    },
+    {
       "host": "app.openwork.software",
       "kind": "fetched",
       "components": ["server"],
