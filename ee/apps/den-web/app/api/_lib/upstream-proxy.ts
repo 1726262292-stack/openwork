@@ -38,6 +38,7 @@ const INTERNAL_RESPONSE_HEADERS = new Set([
   "x-vercel-id",
 ]);
 const SAFE_X_RESPONSE_HEADERS = new Set(["x-content-type-options"]);
+const AUTH_COOKIE_PREFIXES = ["better-auth.", "__Secure-better-auth.", "better-auth-"];
 
 /**
  * OpenWork Cloud instances are served from Daytona preview origins that are
@@ -230,6 +231,16 @@ async function cloneRequestHeaders(
     // Bearer-only for reflected instance origins - see the note above
     // isCloudInstanceOrigin. This is what makes reflection safe.
     if (stripCookies && name.toLowerCase() === "cookie") return;
+    if (routePrefix === "/api/auth" && name.toLowerCase() === "cookie") {
+      const authCookies = value
+        .split(";")
+        .map((cookie) => cookie.trim())
+        .filter((cookie) => AUTH_COOKIE_PREFIXES.some((prefix) => cookie.startsWith(prefix)));
+      if (authCookies.length > 0) {
+        headers.append(name, authCookies.join("; "));
+      }
+      return;
+    }
     headers.append(name, value);
   });
   const publicOrigin = requestPublicOrigin(request);
