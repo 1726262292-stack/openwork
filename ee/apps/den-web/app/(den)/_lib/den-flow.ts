@@ -1172,7 +1172,7 @@ export async function requestJson(path: string, init: RequestInit = {}, timeoutM
     response = await fetch(endpoint, {
       ...init,
       headers,
-      credentials: init.credentials ?? denApiCredentials(endpoint),
+      credentials: init.credentials ?? denApiCredentials(endpoint, path),
       signal: init.signal ?? timeoutController?.signal
     });
   } catch (error) {

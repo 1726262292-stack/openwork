@@ -47,23 +47,33 @@ export function denApiEndpointForWebOrigin(path: string, webOrigin: string): str
   return `${origin}${normalizedPath}`;
 }
 
-export function denApiCredentialsForEndpoint(endpoint: string, webOrigin: string): RequestCredentials {
+const PUBLIC_DEN_API_PATH_PREFIXES = ["/v1/orgs/sso/resolve"];
+
+function isPublicDenApiPath(path: string): boolean {
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  return PUBLIC_DEN_API_PATH_PREFIXES.some((prefix) => normalizedPath.startsWith(prefix));
+}
+
+export function denApiCredentialsForEndpoint(endpoint: string, webOrigin: string, path = endpoint): RequestCredentials {
   try {
     const endpointOrigin = new URL(endpoint).origin;
     const currentOrigin = new URL(webOrigin).origin;
     const apiOrigin = denApiOriginForWebOrigin(webOrigin);
+    if (endpointOrigin === apiOrigin && isPublicDenApiPath(path)) {
+      return "omit";
+    }
     return endpointOrigin === currentOrigin || endpointOrigin === apiOrigin ? "include" : "omit";
   } catch {
     return "include";
   }
 }
 
-export function denApiCredentials(endpoint: string): RequestCredentials {
+export function denApiCredentials(endpoint: string, path = endpoint): RequestCredentials {
   if (typeof window === "undefined") {
     return "include";
   }
 
-  return denApiCredentialsForEndpoint(endpoint, window.location.origin);
+  return denApiCredentialsForEndpoint(endpoint, window.location.origin, path);
 }
 
 export function denApiEndpoint(path: string): string {
