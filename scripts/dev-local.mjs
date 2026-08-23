@@ -242,6 +242,7 @@ async function main() {
         DATABASE_REDIS_URL: databaseRedisUrl,
         DEN_DB_ENCRYPTION_KEY: dbEncryptionKey,
         BETTER_AUTH_URL: process.env.BETTER_AUTH_URL?.trim() || `http://localhost:${webPort}`,
+        DEN_BASE_URL: process.env.DEN_BASE_URL?.trim() || `http://localhost:${webPort}`,
         DEN_MCP_RESOURCE_URL: process.env.DEN_MCP_RESOURCE_URL?.trim() || `http://127.0.0.1:${apiPort}/mcp`,
         DEN_BETTER_AUTH_TRUSTED_ORIGINS: process.env.DEN_BETTER_AUTH_TRUSTED_ORIGINS?.trim() || webOrigins,
         CORS_ORIGINS: process.env.CORS_ORIGINS?.trim() || webOrigins,
