@@ -232,18 +232,15 @@ function DenAuthControlActions() {
     args: [
       { name: "grant", type: "string", required: true, description: "The raw handoff grant string." },
       { name: "baseUrl", type: "string", required: false, description: "Optional Den base URL." },
-      { name: "apiBaseUrl", type: "string", required: false, description: "Optional Den API base URL." },
     ],
     execute: async (args) => {
-      const { grant, baseUrl: argBaseUrl, apiBaseUrl: argApiBaseUrl } = (args ?? {}) as { grant?: string; baseUrl?: string; apiBaseUrl?: string };
+      const { grant, baseUrl: argBaseUrl } = (args ?? {}) as { grant?: string; baseUrl?: string };
       if (!grant?.trim()) return { ok: false, error: "grant is required" };
       const settings = readDenSettings();
       const targetBaseUrl = argBaseUrl?.trim() || settings.baseUrl;
-      const targetApiBaseUrl = argApiBaseUrl?.trim() || settings.apiBaseUrl;
-      const client = createDenClient({ baseUrl: targetBaseUrl, apiBaseUrl: targetApiBaseUrl });
+      const client = createDenClient({ baseUrl: targetBaseUrl });
       const result = await exchangeHandoffAndSignIn(grant.trim(), {
         baseUrl: targetBaseUrl,
-        apiBaseUrl: targetApiBaseUrl,
         client,
         // Automation surface: commit the exchange-reported org directly; a
         // UI chooser would strand a headless driver.

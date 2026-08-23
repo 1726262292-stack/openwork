@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { resolveDenTelemetryIngestUrl } from "../src/app/lib/den-telemetry";
 
 describe("Den telemetry endpoint", () => {
-  test("uses the configured API base URL rather than deriving from the web base", () => {
+  test("derives the API base URL from the Den web base", () => {
     expect(resolveDenTelemetryIngestUrl({
       baseUrl: "https://app.den.test",
       apiBaseUrl: "https://api.den.test",
@@ -11,7 +11,7 @@ describe("Den telemetry endpoint", () => {
       activeOrgId: null,
       activeOrgSlug: null,
       activeOrgName: null,
-    })).toBe("https://api.den.test/v1/telemetry/ingest");
+    })).toBe("https://app.den.test/api/den/v1/telemetry/ingest");
   });
 
   test("uses the nested hosted API default for hosted desktop telemetry", () => {

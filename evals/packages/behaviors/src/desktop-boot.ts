@@ -42,7 +42,7 @@ export async function signInDesktopAs(app: Surface, den: DenRef, member: DenSess
     label: "auth.exchange-grant action registered",
   });
   const grant = await createDesktopHandoffGrant(member);
-  await control(app, "auth.exchange-grant", { grant, baseUrl: den.webUrl, apiBaseUrl: den.apiUrl });
+  await control(app, "auth.exchange-grant", { grant, baseUrl: den.webUrl });
   await waitForDenState(app, den, "Boolean((localStorage.getItem('openwork.den.authToken') ?? '').trim())", {
     timeoutMs: 45_000,
     label: "persisted den auth token",

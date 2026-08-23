@@ -950,7 +950,7 @@ async function ensureApp(cdpCandidates: string[], options: KubeLayerOptions = {}
   await mkdir(dirname(bootstrapPath), { recursive: true });
   await writeFile(
     bootstrapPath,
-    `${JSON.stringify({ baseUrl: DEN_BASE_URL, apiBaseUrl: DEN_BASE_URL, requireSignin: false }, null, 2)}\n`,
+    `${JSON.stringify({ baseUrl: DEN_BASE_URL, requireSignin: false }, null, 2)}\n`,
   );
   await writePidState(runtime, "bootstrap.path", bootstrapPath);
   runtime.log(`Wrote desktop bootstrap -> ${DEN_BASE_URL}`);

@@ -239,7 +239,6 @@ export function DenAuthProvider({ children }: DenAuthProviderProps) {
     try {
       const nextUser = await createDenClient({
         baseUrl: settings.baseUrl,
-        apiBaseUrl: settings.apiBaseUrl,
         token,
       }).getSession();
 
@@ -375,7 +374,6 @@ export function DenAuthProvider({ children }: DenAuthProviderProps) {
   const clearConsumedBootstrapHandoff = useCallback((bootstrap: DenBootstrapConfig, denBaseUrl: string) => {
     void setDenBootstrapConfig({
       baseUrl: denBaseUrl,
-      apiBaseUrl: bootstrap.apiBaseUrl,
       requireSignin: bootstrap.requireSignin,
       requireActivation: bootstrap.requireActivation,
       ...(bootstrap.brandAppName ? { brandAppName: bootstrap.brandAppName } : {}),
@@ -404,12 +402,10 @@ export function DenAuthProvider({ children }: DenAuthProviderProps) {
     handledGrantsRef.current.add(handoff.grant);
     const client = createDenClient({
       baseUrl: handoff.denBaseUrl,
-      apiBaseUrl: bootstrap.apiBaseUrl,
     });
 
     void exchangeHandoffAndSignIn(handoff.grant, {
       baseUrl: handoff.denBaseUrl,
-      apiBaseUrl: bootstrap.apiBaseUrl,
       client,
       activeOrg: { id: handoff.orgId, slug: handoff.orgSlug || null, name: handoff.orgName || null },
     }).then((result) => {

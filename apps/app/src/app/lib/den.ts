@@ -1345,7 +1345,6 @@ export async function ensureDenActiveOrganization(options?: { forceServerSync?: 
 
   const client = createDenClient({
     baseUrl: settings.baseUrl,
-    apiBaseUrl: settings.apiBaseUrl,
     token,
   });
 

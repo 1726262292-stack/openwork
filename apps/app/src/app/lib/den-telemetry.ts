@@ -47,7 +47,6 @@ export function resolveDenTelemetryIngestUrl(settings: DenSettings): string | nu
 
   const baseUrls = resolveDenBaseUrls({
     baseUrl: settings.baseUrl,
-    apiBaseUrl: settings.apiBaseUrl,
   });
 
   return `${baseUrls.apiBaseUrl}${INGEST_PATH}`;

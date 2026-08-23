@@ -128,7 +128,7 @@ test.skipIf(missingRequirements.length > 0)(title, { timeout: 1_200_000 }, async
         name: "enterprise-tls-before-os-trust",
         host: desktopHost,
         profileDir,
-        bootstrap: { baseUrl: edge.candidateUrl, apiBaseUrl: `${edge.candidateUrl}/api/den`, requireSignin: false },
+        bootstrap: { baseUrl: edge.candidateUrl, requireSignin: false },
       });
       const seededWorkspaceNames = await evalIn(
         rawApp,

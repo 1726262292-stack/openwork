@@ -322,7 +322,7 @@ test.skipIf(!e2eTestsEnabled || !apiUrl)(managedTitle, async () => {
 
   await using app = await desktop({
     name: "models-managed-recovery",
-    bootstrap: { baseUrl: den.webUrl, apiBaseUrl: den.webUrl, requireSignin: false },
+    bootstrap: { baseUrl: den.webUrl, requireSignin: false },
   });
   await using visualEvidence = createVisualEvidence("models-managed-recovery");
   // Workspace first, then the org sign-in: the org's managed-model policy

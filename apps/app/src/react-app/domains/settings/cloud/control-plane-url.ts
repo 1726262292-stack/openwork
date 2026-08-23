@@ -42,11 +42,9 @@ export async function saveControlPlaneUrl(value: string) {
   const normalized = normalizeControlPlaneInput(value);
   if (!normalized) return null;
 
-  const resolved = resolveDenBaseUrls(normalized);
   const bootstrap = readDenBootstrapConfig();
   const persisted = await setDenBootstrapConfig({
-    baseUrl: resolved.baseUrl,
-    apiBaseUrl: resolved.apiBaseUrl,
+    baseUrl: normalized,
     requireSignin: bootstrap.requireSignin,
     requireActivation: bootstrap.requireActivation,
   });
@@ -54,7 +52,6 @@ export async function saveControlPlaneUrl(value: string) {
   writeDenSettings(
     {
       baseUrl: persisted.baseUrl,
-      apiBaseUrl: persisted.apiBaseUrl,
       authToken: null,
       activeOrgId: null,
       activeOrgSlug: null,

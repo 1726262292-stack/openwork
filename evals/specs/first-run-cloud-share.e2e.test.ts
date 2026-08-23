@@ -57,7 +57,7 @@ test.skipIf(!e2eTestsEnabled || !denApiUrl)(title, async () => {
   // The app must find our xdg-open shim first, so we can see where it points.
   await using app = await desktop({
     name: "first-run-cloud-share",
-    bootstrap: { baseUrl: den.webUrl, apiBaseUrl: den.webUrl, requireSignin: false },
+    bootstrap: { baseUrl: den.webUrl, requireSignin: false },
     env: { PATH: `${capture.binDir}:${process.env.PATH ?? ""}` },
   });
   await using visualEvidence = createVisualEvidence("first-run-cloud-share");

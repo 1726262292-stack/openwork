@@ -332,7 +332,6 @@ export function AccountStatusMenu(props: AccountStatusMenuProps) {
     if (settings.authToken) {
       void createDenClient({
         baseUrl: settings.baseUrl,
-        apiBaseUrl: settings.apiBaseUrl,
         token: settings.authToken,
       })
         .signOut()

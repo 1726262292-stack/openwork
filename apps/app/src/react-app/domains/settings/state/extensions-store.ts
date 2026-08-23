@@ -2269,7 +2269,6 @@ export function createExtensionsStore(options: {
     }
     const client = createDenClient({
       baseUrl: settings.baseUrl,
-      apiBaseUrl: settings.apiBaseUrl,
       token,
     });
     const body = denLibraryPluginCreateRequest(kind, {

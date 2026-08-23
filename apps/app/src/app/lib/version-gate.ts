@@ -208,7 +208,6 @@ export async function readFreshDenAppVersionMetadata(): Promise<DenAppVersionMet
   const token = settings.authToken?.trim() ?? "";
   return createDenClient({
     baseUrl: settings.baseUrl,
-    apiBaseUrl: settings.apiBaseUrl,
     ...(token ? { token } : {}),
   }).getAppVersionMetadata();
 }

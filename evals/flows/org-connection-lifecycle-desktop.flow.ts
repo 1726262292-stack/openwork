@@ -595,10 +595,8 @@ export default defineFlow({
       run: async (ctx) => {
         await ctx.waitFor("Boolean(window.__openworkControl)", { timeoutMs: 120_000 });
         await ctx.waitFor("Boolean(window.__OPENWORK_ELECTRON__?.invokeDesktop)", { timeoutMs: 30_000, label: "desktop bridge" });
-        // The app derives its /api/den proxy base from these URLs, so both must
-        // point at the web origin (den-web proxies /api/den/* to den-api; the
-        // bare den-api origin does not serve that prefix).
-        const bootstrap = { baseUrl: DEN_WEB_URL, apiBaseUrl: DEN_WEB_URL, requireSignin: false, handoff: null };
+        // The app derives its /api/den proxy base from the web origin.
+        const bootstrap = { baseUrl: DEN_WEB_URL, requireSignin: false, handoff: null };
         const written = await ctx.eval(`(async () => {
           const bridge = window.__OPENWORK_ELECTRON__?.invokeDesktop;
           if (!bridge) return { ok: false };
@@ -608,7 +606,7 @@ export default defineFlow({
         ctx.assert(isRecord(written) && written.ok === true, "Failed to write desktop bootstrap config.");
         await ctx.eval(`(() => {
           localStorage.setItem('openwork.den.baseUrl', ${JSON.stringify(DEN_WEB_URL)});
-          localStorage.setItem('openwork.den.apiBaseUrl', ${JSON.stringify(DEN_WEB_URL)});
+          localStorage.removeItem('openwork.den.apiBaseUrl');
           let prefs = {};
           try { prefs = JSON.parse(localStorage.getItem('openwork.preferences') || '{}'); } catch {}
           localStorage.setItem('openwork.preferences', JSON.stringify({ ...prefs, selectedAgent: 'openwork' }));

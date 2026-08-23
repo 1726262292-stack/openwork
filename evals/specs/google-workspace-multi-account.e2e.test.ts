@@ -75,7 +75,7 @@ const modelId = process.env.OPENWORK_EVAL_MODEL?.trim() || "";
 async function memberDesktop(den: DenRef, member: DenSession): Promise<{ app: DesktopHandle; workspaceId: string }> {
   const app = await desktop({
     name: "google-workspace-multi-account",
-    bootstrap: { baseUrl: den.webUrl, apiBaseUrl: den.webUrl, requireSignin: false },
+    bootstrap: { baseUrl: den.webUrl, requireSignin: false },
   });
   const path = `/tmp/openwork-google-workspace-multi-account-${Date.now()}`;
   await createAndSelectWorkspace(app, { path });

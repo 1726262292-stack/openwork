@@ -110,7 +110,6 @@ test("managed models survive sign-in before the first workspace exists", async (
     host: place.host(),
     bootstrap: {
       baseUrl: den.ref.webUrl,
-      apiBaseUrl: den.ref.webUrl,
       requireSignin: false,
     },
   });
