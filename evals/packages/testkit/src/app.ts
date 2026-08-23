@@ -41,7 +41,7 @@ export async function app(options: AppOptions): Promise<App> {
     profileDir: options.profileDir,
     bootstrap: {
       baseUrl: options.den.ref.webUrl,
-      apiBaseUrl: options.den.ref.webUrl,
+      apiBaseUrl: options.den.ref.apiUrl,
       requireSignin: false,
     },
     env: Object.keys(env).length > 0 ? env : undefined,
