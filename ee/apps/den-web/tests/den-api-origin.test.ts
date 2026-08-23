@@ -26,8 +26,9 @@ describe("Den API browser origin", () => {
     );
   });
 
-  test("omits cookies for direct API-origin browser requests", () => {
-    expect(denApiCredentialsForEndpoint("https://api.app.openworklabs.com/v1/me", "https://app.openworklabs.com")).toBe("omit");
+  test("includes cookies for same-site direct API-origin browser requests", () => {
+    expect(denApiCredentialsForEndpoint("https://api.app.openworklabs.com/v1/me", "https://app.openworklabs.com")).toBe("include");
     expect(denApiCredentialsForEndpoint("/api/runtime-config", "https://app.openworklabs.com")).toBe("include");
+    expect(denApiCredentialsForEndpoint("https://external.example.com/v1/me", "https://app.openworklabs.com")).toBe("omit");
   });
 });

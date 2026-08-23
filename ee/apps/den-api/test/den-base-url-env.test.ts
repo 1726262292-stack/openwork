@@ -10,6 +10,7 @@ function probeDenUrls(overrides: Record<string, string>) {
     const { env } = await import("./src/env.ts")
     console.log(JSON.stringify({
       betterAuthUrl: env.betterAuthUrl,
+      betterAuthCookieDomain: env.betterAuthCookieDomain ?? null,
       webUrl: env.webUrl,
       apiPublicUrl: env.apiPublicUrl,
       mcpResourceUrl: env.mcpResourceUrl,
@@ -43,6 +44,7 @@ describe("DEN_BASE_URL environment defaults", () => {
   test("derives Den API server URLs from the shared base", () => {
     expect(probeDenUrls({ DEN_BASE_URL: "https://den.example.com" })).toEqual({
       betterAuthUrl: "https://den.example.com",
+      betterAuthCookieDomain: "den.example.com",
       webUrl: "https://den.example.com",
       apiPublicUrl: "https://api.den.example.com",
       mcpResourceUrl: "https://api.den.example.com/mcp",
@@ -59,6 +61,7 @@ describe("DEN_BASE_URL environment defaults", () => {
       PORT: "8790",
     })).toEqual({
       betterAuthUrl: "http://localhost:3005",
+      betterAuthCookieDomain: null,
       webUrl: "http://localhost:3005",
       apiPublicUrl: "http://127.0.0.1:8790",
       mcpResourceUrl: "http://127.0.0.1:8790/mcp",
@@ -90,6 +93,7 @@ describe("DEN_BASE_URL environment defaults", () => {
       DEN_DESKTOP_DEN_BASE_URL: "https://desktop.explicit.test/api/den",
     })).toEqual({
       betterAuthUrl: "https://web.explicit.test",
+      betterAuthCookieDomain: null,
       webUrl: "https://web.explicit.test",
       apiPublicUrl: "https://api.explicit.test/prefix",
       mcpResourceUrl: "https://mcp.explicit.test/resource",
@@ -105,6 +109,7 @@ describe("DEN_BASE_URL environment defaults", () => {
       BETTER_AUTH_URL: "https://user:secret@legacy.example.com/auth/path?token=hidden#fragment",
     })).toEqual({
       betterAuthUrl: "https://user:secret@legacy.example.com/auth/path?token=hidden#fragment",
+      betterAuthCookieDomain: null,
       webUrl: "https://legacy.example.com",
       corsOrigins: ["https://legacy.example.com"],
       betterAuthTrustedOrigins: ["https://legacy.example.com"],
@@ -115,6 +120,7 @@ describe("DEN_BASE_URL environment defaults", () => {
   test("preserves legacy unset defaults without DEN_BASE_URL", () => {
     expect(probeDenUrls({ BETTER_AUTH_URL: "https://legacy.example.com" })).toEqual({
       betterAuthUrl: "https://legacy.example.com",
+      betterAuthCookieDomain: null,
       webUrl: "https://legacy.example.com",
       corsOrigins: ["https://legacy.example.com"],
       betterAuthTrustedOrigins: ["https://legacy.example.com"],

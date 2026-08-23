@@ -51,7 +51,8 @@ export function denApiCredentialsForEndpoint(endpoint: string, webOrigin: string
   try {
     const endpointOrigin = new URL(endpoint).origin;
     const currentOrigin = new URL(webOrigin).origin;
-    return endpointOrigin === currentOrigin ? "include" : "omit";
+    const apiOrigin = denApiOriginForWebOrigin(webOrigin);
+    return endpointOrigin === currentOrigin || endpointOrigin === apiOrigin ? "include" : "omit";
   } catch {
     return "include";
   }
