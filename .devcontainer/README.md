@@ -120,7 +120,7 @@ The Daytona toolbox is exposed to opencode through focused skills:
 - `daytona-secrets-volume`: add and verify provider keys or eval-only secrets in `/daytona-secrets`.
 - `daytona-electron-test`: run and drive the real Electron app through CDP/noVNC.
 - `daytona-recording-artifacts`: screenshots, recordings, before/after videos, and PR evidence.
-- `run-evals`: orchestrates evals and pulls in the relevant Daytona skill based on the flow.
+- `run-tests`: runs `evals/specs` coverage locally or with the relevant Daytona environment.
 
 ## Testing the customization system
 

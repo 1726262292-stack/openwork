@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process";
-import { mkdirSync, readFileSync, readdirSync } from "node:fs";
+import { mkdirSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { basename, join, relative, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const evalsDir = fileURLToPath(new URL("..", import.meta.url));
 const repoRoot = fileURLToPath(new URL("../..", import.meta.url));
 const testsDir = join(evalsDir, "specs");
+const worldsDir = join(evalsDir, "results/.worlds");
 
 const usage = `Usage: node evals/bin/evals.mjs [test-names...] [flags]
 
@@ -233,6 +234,26 @@ export function exitCodeFor(verdict, { named = false } = {}) {
   return 0;
 }
 
+export function worldSnapshotsSince(startTime, directory = worldsDir) {
+  try {
+    return readdirSync(directory, { withFileTypes: true })
+      .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
+      .flatMap((entry) => {
+        try {
+          const path = join(directory, entry.name);
+          const mtime = statSync(path).mtimeMs;
+          return mtime >= startTime ? [{ path, mtime }] : [];
+        } catch {
+          return [];
+        }
+      })
+      .sort((left, right) => right.mtime - left.mtime)
+      .map(({ path }) => path);
+  } catch {
+    return [];
+  }
+}
+
 function childStatus(result) {
   if (result.error) process.stderr.write(`${result.error.message}\n`);
   return result.status ?? 1;
@@ -268,6 +289,7 @@ function publish(options) {
 }
 
 function run(options) {
+  const runStartedAt = Date.now();
   const resolved = resolveTestNames(options.testNames);
   const childEnv = resolveRunEnvironment(options);
   childEnv.OPENWORK_EVAL_E2E_TESTS = "1";
@@ -308,6 +330,13 @@ function run(options) {
   }
   const summary = summarize(report);
   const verdict = verdictFor(summary, { childExit: status });
+  if (verdict === "failed") {
+    const snapshots = worldSnapshotsSince(runStartedAt);
+    if (snapshots.length > 0) {
+      const paths = snapshots.map((path) => relative(repoRoot, path).split(sep).join("/"));
+      process.stderr.write(`world snapshots from this run: ${paths.join(", ")} — rebuild with: pnpm world rebuild ${paths[0]}\n`);
+    }
+  }
   process.stdout.write(`${JSON.stringify({
     command: "evals:e2e",
     lane: "e2e",

@@ -2,7 +2,6 @@
 
 Cross-references:
 
-- `evals/org-mcp-connections-ux.md`
 - `docs/memory-bank-architecture.md`
 - `ee/apps/den-api/src/mcp/README.md`
 

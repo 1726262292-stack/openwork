@@ -8,3 +8,4 @@ export * from "./onboarding.ts";
 export * from "./composer.ts";
 export * from "./models.ts";
 export * from "./skills.ts";
+export * from "./sessions.ts";
