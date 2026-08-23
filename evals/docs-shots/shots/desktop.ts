@@ -2,7 +2,7 @@ import { clickButton, denFetch, waitFor } from "@openwork/behaviors";
 import { connect, debuggerUrlFor, evaluate, listTargets } from "@openwork/cdp";
 import { provider } from "../ctx.ts";
 import { inPage } from "../inpage.ts";
-import { ORG_FIXTURE, org } from "../seed.ts";
+import { DOCS_APP, DOCS_MEMBER, DOCS_PROMPT_CARDS, org } from "../seed.ts";
 import { desktop } from "../surfaces.ts";
 import type { DesktopShotSurface } from "../surfaces.ts";
 import { dismissOverlays, fillForm, keepExpanded } from "../steps.ts";
@@ -90,20 +90,12 @@ const model = provider(async (ctx) => {
 
 const app = desktop({
   org,
-  as: "admin",
+  app: DOCS_APP,
   model,
-  workspacePath: "/tmp/acme/acme-robotics",
-});
-
-const teamPromptCardsApp = desktop({
-  org,
-  as: ORG_FIXTURE.desktopPolicy.member,
-  model,
-  workspacePath: "/tmp/acme/acme-robotics",
 });
 
 async function openEmptyTeamPromptSession(surface: DesktopShotSurface): Promise<void> {
-  const member = surface.organization.den.members[ORG_FIXTURE.desktopPolicy.member];
+  const member = surface.organization.den.members[DOCS_MEMBER];
   if (!member) throw new Error("The docs member was not provisioned.");
   const config = await denFetch(member, "/v1/me/desktop-config", {
     headers: {
@@ -111,8 +103,8 @@ async function openEmptyTeamPromptSession(surface: DesktopShotSurface): Promise<
       "x-openwork-org-id": surface.organization.orgId,
     },
   });
-  const expectedPrompts = ORG_FIXTURE.desktopPolicy.promptCards.map((card) => card.prompt);
-  const expectedTitles = ORG_FIXTURE.desktopPolicy.promptCards.map((card) => card.title);
+  const expectedPrompts = DOCS_PROMPT_CARDS.map((card) => card.prompt);
+  const expectedTitles = DOCS_PROMPT_CARDS.map((card) => card.title);
   const actualPrompts = isRecord(config.body) && Array.isArray(config.body.onboardingPrompts)
     ? config.body.onboardingPrompts
     : [];
@@ -162,12 +154,12 @@ async function openEmptyTeamPromptSession(surface: DesktopShotSurface): Promise<
 }
 
 export const desktopTeamPromptCards = shot("desktop-team-prompt-cards", {
-  use: teamPromptCardsApp,
+  use: app,
   at: (surface) => `/workspace/${surface.workspaceId}`,
   steps: [dismissOverlays, openEmptyTeamPromptSession],
   expect: [
     ORGANIZATION_PROMPT_INTRO,
-    ...ORG_FIXTURE.desktopPolicy.promptCards.map((card) => card.title),
+    ...DOCS_PROMPT_CARDS.map((card) => card.title),
   ],
   never: ["What do you need done?", "Opening session…", "Summarize my week", "Connect a model provider"],
   out: "packages/docs/images/desktop-team-prompt-cards.png",

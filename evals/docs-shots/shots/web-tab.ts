@@ -1,8 +1,9 @@
 import { waitFor } from "@openwork/behaviors";
+import { org } from "../seed.ts";
 import { webTab } from "../surfaces.ts";
 import { shot } from "./shot.ts";
 
-const browser = webTab();
+const browser = webTab({ org });
 
 async function waitForOpenWorkWeb(surface: Awaited<ReturnType<typeof browser.load>>): Promise<void> {
   await waitFor(surface, "Boolean(window.__openworkControl)", {

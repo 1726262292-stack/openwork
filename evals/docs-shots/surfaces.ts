@@ -7,7 +7,6 @@ import { go, waitFor } from "@openwork/behaviors";
 import { navigate } from "@openwork/cdp";
 import type { Surface } from "@openwork/cdp";
 import { chrome } from "@openwork/hosts";
-import { app as bootApp, resolvePlace } from "@openwork/testkit/stack";
 import type { App } from "@openwork/testkit/stack";
 import { provider } from "./ctx.ts";
 import type { Provider } from "./ctx.ts";
@@ -39,6 +38,7 @@ export interface DenWebSurface extends ShotSurface {
 interface HeadlessWebInfo {
   webUrl: string;
   workspace: string;
+  denTarget: string;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -106,19 +106,12 @@ async function configureWorkspaceModel(app: App, model: WorkspaceModel): Promise
 
 export function desktop(options: {
   org: Provider<SeededOrg>;
-  as: string;
+  app: string;
   model: Provider<WorkspaceModel>;
-  workspacePath: string;
 }): Provider<DesktopShotSurface> {
   return provider(async (ctx) => {
     const organization = await ctx.use(options.org);
-    const app = await bootApp({
-      den: organization.den,
-      as: options.as,
-      place: organization.place,
-      workspacePath: options.workspacePath,
-    });
-    ctx.onDispose(() => app[Symbol.asyncDispose]());
+    const app = organization.world.app(options.app);
     const model = await ctx.use(options.model);
     await configureWorkspaceModel(app, model);
     return {
@@ -169,7 +162,11 @@ function parseHeadlessWebInfo(raw: string): HeadlessWebInfo | null {
   try {
     const parsed: unknown = JSON.parse(raw);
     if (isRecord(parsed) && typeof parsed.webUrl === "string" && parsed.webUrl.startsWith("http")) {
-      return { webUrl: parsed.webUrl, workspace: typeof parsed.workspace === "string" ? parsed.workspace : "" };
+      return {
+        webUrl: parsed.webUrl,
+        workspace: typeof parsed.workspace === "string" ? parsed.workspace : "",
+        denTarget: typeof parsed.denTarget === "string" ? parsed.denTarget : "",
+      };
     }
   } catch {
     return null;
@@ -186,46 +183,51 @@ async function headlessWebHealthy(info: HeadlessWebInfo): Promise<boolean> {
   }
 }
 
-async function ensureHeadlessWeb(): Promise<HeadlessWebInfo> {
+async function ensureHeadlessWeb(denWebUrl: string): Promise<HeadlessWebInfo> {
   const infoPath = resolve(REPO_ROOT, "tmp/dev-headless-web.json");
   const onDemoWorkspace = (info: HeadlessWebInfo) => resolve(info.workspace) === WEB_DEMO_WORKSPACE;
+  const onWorldDen = (info: HeadlessWebInfo) => info.denTarget === denWebUrl;
   const readInfo = async (): Promise<HeadlessWebInfo | null> => {
     const raw = await readFile(infoPath, "utf8").catch(() => null);
     return raw ? parseHeadlessWebInfo(raw) : null;
   };
   const existing = await readInfo();
-  if (existing && onDemoWorkspace(existing) && (await headlessWebHealthy(existing))) return existing;
+  if (existing && onDemoWorkspace(existing) && onWorldDen(existing) && (await headlessWebHealthy(existing))) return existing;
   await mkdir(WEB_DEMO_WORKSPACE, { recursive: true });
   const args = ["dev:headless-web", "--detach"];
-  if (existing && !onDemoWorkspace(existing)) {
+  if (existing && (!onDemoWorkspace(existing) || !onWorldDen(existing))) {
     args.push("--replace");
-    await rm(resolve(REPO_ROOT, "tmp/headless-server.json"), { force: true });
+    if (!onDemoWorkspace(existing)) await rm(resolve(REPO_ROOT, "tmp/headless-server.json"), { force: true });
   }
   const child = spawn("pnpm", args, {
     cwd: REPO_ROOT,
     stdio: "ignore",
     detached: true,
-    env: { ...process.env, OPENWORK_WORKSPACE: WEB_DEMO_WORKSPACE },
+    env: {
+      ...process.env,
+      OPENWORK_WORKSPACE: WEB_DEMO_WORKSPACE,
+      OPENWORK_DEV_DEN_PROXY_TARGET: denWebUrl,
+    },
   });
   child.unref();
   const deadline = Date.now() + 240_000;
   while (Date.now() < deadline) {
     const info = await readInfo();
-    if (info && onDemoWorkspace(info) && (await headlessWebHealthy(info))) return info;
+    if (info && onDemoWorkspace(info) && onWorldDen(info) && (await headlessWebHealthy(info))) return info;
     await delay(2_000);
   }
   throw new Error(`dev:headless-web did not become healthy on ${WEB_DEMO_WORKSPACE}; check ${infoPath}`);
 }
 
-export function webTab(): Provider<ShotSurface> {
+export function webTab(options: { org: Provider<SeededOrg> }): Provider<ShotSurface> {
   return provider(async (ctx) => {
-    const info = await ensureHeadlessWeb();
-    const place = resolvePlace(process.env);
+    const organization = await ctx.use(options.org);
+    const info = await ensureHeadlessWeb(organization.den.ref.webUrl);
     const browser = await chrome({
       name: "docs-shots-web-tab",
       startUrl: info.webUrl,
       headless: true,
-      host: place.host(),
+      host: organization.place.host(),
     });
     ctx.onDispose(() => browser[Symbol.asyncDispose]());
     return {

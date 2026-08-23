@@ -18,8 +18,8 @@ harness, an agent-quality benchmark — currently re-implements the same
 sequence by hand against raw HTTP: create a session, submit `prompt_async`,
 poll `/session/status`, poll messages, work out when the turn actually
 finished, then dig text back out of message parts.
-[`evals/flows/windows-workspace-session-performance.flow.mjs`](../../evals/flows/windows-workspace-session-performance.flow.mjs)
-is one such copy. This package is that sequence, typed and tested once.
+Legacy harnesses contained one such copy. This package is that sequence, typed
+and tested once.
 
 Note what the hand-rolled version has to get right, and what this package now
 owns: a thread is still `idle` in the gap between accepting a prompt and

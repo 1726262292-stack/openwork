@@ -93,6 +93,28 @@ test("test evidence writes visual validations, assertions, failures, and unvalid
   }
 });
 
+test("test evidence writes a JSON artifact and lists it in the test run", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "openwork-test-evidence-json-"));
+  try {
+    const testEvidence = createTestEvidence({ name: "world evidence", outDir: dir });
+    testEvidence.recordJsonArtifact("world-snapshot primary", { version: 1, name: "primary" });
+    await testEvidence.close();
+
+    assert.deepEqual(JSON.parse(await readFile(join(dir, "01-world-snapshot-primary.json"), "utf8")), {
+      version: 1,
+      name: "primary",
+    });
+    const testRun = await payload(dir);
+    assert.deepEqual(testRun.artifacts, [{
+      kind: "json",
+      label: "world-snapshot primary",
+      fileName: "01-world-snapshot-primary.json",
+    }]);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("test evidence accepts unchanged screenshots and only lets one validation use their pixel hash", async () => {
   const dir = await mkdtemp(join(tmpdir(), "openwork-test-evidence-retake-"));
   try {

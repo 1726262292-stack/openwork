@@ -1,10 +1,8 @@
 # OpenWork tests and test evidence
 
-All new executable end-to-end coverage lives in
-[`specs/**/*.test.ts`](./specs) and imports `test` from `@openwork/testkit`.
-Tests that drive Electron, Den, or another app surface use `.e2e.test.ts`.
-The legacy corpus under `flows/` is frozen compatibility coverage, not an
-authoring path.
+All executable coverage lives in [`specs/**/*.test.ts`](./specs) and imports
+`test` from `@openwork/testkit`. Tests that drive Electron, Den, or another app
+surface use `.e2e.test.ts`.
 
 ## Paved path
 
@@ -15,10 +13,7 @@ Use the skills in this order:
 3. `diagnose-a-red-run` when the run fails
 4. `publish-evidence` for the existing ambient test evidence
 
-Demo-driven feature work still starts with `/voiceover`. Approve the narration
-before code, create a fresh worktree, then translate its paragraphs directly
-into `evals/specs/<slug>.e2e.test.ts`. Do not create a separate narration or
-legacy-flow artifact.
+Demo-driven features start from a preset or world plus a spec in `evals/specs`.
 
 ## Install and run
 
@@ -27,17 +22,20 @@ installs or image builds.
 
 ```bash
 pnpm --dir evals install
-pnpm evals:pr                      # app-less PR project
+pnpm evals:pr
+pnpm evals:e2e app-smoke
 ```
 
-### CLI
+### E2E CLI
 
 Run the E2E lane with `pnpm evals:e2e [test-names...]`. Naming a test
 auto-satisfies the opt-in flags declared in its source, but value-bearing
 environment variables such as `OPENWORK_EVAL_MODEL` are never auto-set. Vision
 judging is deferred by default; add `--with-llm-vision` to judge inline. Use
-`--daytona` for Daytona resources, `--den <url>` to reuse Den, or
-`--publish --pr <number>` to judge and publish existing evidence.
+`--local` to force isolated local resources, `--daytona` for Daytona resources,
+`--den <url>` to reuse Den, or `--publish --pr <number>` to judge and publish
+existing evidence. Without a placement flag, the CLI preserves the ambient
+placement environment.
 
 | Exit | Named test | Unfiltered E2E suite | Publish |
 | --- | --- | --- | --- |
@@ -45,20 +43,7 @@ judging is deferred by default; add `--with-llm-vision` to judge inline. Use
 | `1` | Failed | Failed | Failed claims published, or publish failed |
 | `2` | Incomplete because it skipped | Not used | Claims pending judgment |
 
-Run one app-driving test through the E2E project:
-
-```bash
-OPENWORK_EVAL_E2E_TESTS=1 \
-  pnpm --dir evals exec vitest run --config vitest.config.ts \
-  --project e2e specs/<slug>.e2e.test.ts
-```
-
-Use `--local` to force isolated local resources even when the invoking shell
-contains inherited Daytona or attached-Den placement variables. Use `--daytona`
-to place supported resources in Daytona sandboxes, or `--den <url>` to attach a
-running Den. Without an explicit flag, the runner preserves the ambient
-placement environment. See `run-tests` for environment requirements and the
-cold-boot verdict check.
+See `run-tests` for environment requirements and the cold-boot verdict check.
 
 ## Authoring contract
 
@@ -71,14 +56,28 @@ cold-boot verdict check.
   dependencies skip with a named reason.
 - Assert both positive and negative sides of identity or permission boundaries.
 
+## Layers
+
+Imports only point down: a layer may use lower layers, never a higher layer.
+This is enforced by `pnpm --dir evals run lint:layers`.
+
+| Layer | Contents | Rule |
+| --- | --- | --- |
+| L0 | `@openwork/matchers` | Turn supplied facts into pure findings; no I/O. |
+| L1 | `@openwork/cdp`, `@openwork/labs` | Provide protocol and lab primitives; do not own journeys or test lifecycle. |
+| L2 | `@openwork/behaviors` | Provide framework-free actions and observations over narrow handles. |
+| L3 | `@openwork/env` | Own environment lifecycle and composition; do not depend on Vitest. |
+| L4 | `@openwork/testkit`, `evals/bin/evals.mjs`, and the world CLI | Adapt environments to specs, Vitest, evidence, and command-line entrypoints. |
+
 ## Composable packages and diagnostics
 
 The packages under [`packages/`](./packages) are independently consumable, but
-new executable coverage is always assembled as a test under `specs/`.
+executable coverage is always assembled as a test under `specs/`.
 
 | Package | Owns |
 | --- | --- |
-| `@openwork/testkit` | test fixture plus `needs()`, `server()`, `app()`, mock, and placement resources |
+| `@openwork/env` | environment lifecycle: places, Den server, desktop apps, mocks, worlds/presets/snapshots, kind stack |
+| `@openwork/testkit` | thin Vitest adapter: fixture, needs/skip mapping, evidence bridging, and spec-facing re-exports |
 | `@openwork/cdp` | raw CDP client, targets, `Surface`, and `attachSurface` |
 | `@openwork/labs` | egress, identity-provider, release-feed, and mock-MCP labs |
 | `@openwork/hosts` | local and Daytona hosts and `resolveHost()` |
@@ -89,20 +88,84 @@ new executable coverage is always assembled as a test under `specs/`.
 | `@openwork/test-artifacts` | index, render, and PR publication for completed test runs |
 
 Because behaviors and matchers do not depend on a test context, they also power
-the standalone diagnostic script:
+the standalone diagnostic script at `evals/scripts/diagnose.mts`. It imports
+only `@openwork/behaviors` and `@openwork/matchers` and can inspect a real
+endpoint without creating test evidence.
+
+## Worlds
+
+A world is a declarative environment topology managed by `@openwork/env`.
+`defineWorld()` validates a `WorldTopology` and returns a definition that can be
+deep-patched with `.with()`. The topology has:
+
+- `den.orgs`: named organizations, each with an optional admin and named members.
+- `den.env`: optional environment variables for the Den server. `den.web` and
+  `den.substrate` also configure that server.
+- `apps`: optional named desktop apps with their target org/member, workspace,
+  model, and optional local server delay.
+- `witnesses`: optional named witnesses; v1 accepts MCP mocks only.
+
+The shipped presets are `solo` (one org and one admin app) and `support-org`
+(two orgs, with admin and member apps in the primary org). `startWorld()` boots
+the Den, organizations, witnesses, and apps in dependency order and disposes
+them together. `fromSnapshot()` validates generated snapshot JSON and returns
+the name and topology needed to start an equivalent fresh world.
+
+Each started world writes a snapshot to
+`evals/results/.worlds/<name>.json`. Snapshots contain the validated topology
+plus resolved Den and app endpoints.
+
+### World CLI
+
+The root `pnpm world` command requires Node 24+ and supports:
+
+| Command | Meaning |
+| --- | --- |
+| `pnpm world up <preset> [--name <name>]` | Start a preset world and keep it alive until Ctrl-C, which tears down its resources. |
+| `pnpm world rebuild <snapshot-path>` | Validate a generated snapshot and start a fresh world from its topology until Ctrl-C. |
+| `pnpm world list` | List generated snapshots with their place, organizations, and apps. |
+| `pnpm world down <name>` | Remove a saved snapshot; there is no world daemon to stop. |
+| `pnpm world help` | Show usage and the available presets. |
+
+A realistic local session uses two terminals:
 
 ```bash
-node evals/scripts/diagnose.mts https://den.customer.example
+# terminal 1; leave this running
+pnpm world up support-org --name support-repro
+
+# terminal 2
+pnpm world list
 ```
 
-It imports only `@openwork/behaviors` and `@openwork/matchers` and can point at
-a real endpoint without creating test evidence.
+Press Ctrl-C in terminal 1 to tear down the running resources. The generated
+snapshot remains available for listing, rebuilding, or removal with
+`pnpm world down support-repro`.
+
+World v1 has deliberate limits:
+
+- Every app signs in.
+- Apps join the first (primary) organization only.
+- Witnesses are MCP mocks only.
+- `onKind()` exists, but `den.substrate: "kind"` is validation-only and
+  `startWorld()` throws `den.substrate "kind" is not wired yet`.
+- There is no session seeding yet.
+
+### Reproducing a failure
+
+A failed local run's world snapshot can be rebuilt with:
+
+```bash
+pnpm world rebuild evals/results/.worlds/<name>.json
+```
+
+Snapshots are generated by `startWorld()` and are never hand-written.
 
 ## Ambient evidence and verdicts
 
 The testkit fixture opens and closes a test-evidence recorder around each test.
 Screenshots become test artifacts, visual validation records their expectations,
-and assertion evidence carries witness assertions. Do not create or pass recorder handles.
+and assertion evidence carries witness assertions. Do not create or pass
+recorder handles.
 
 Report `Passed` only when every claim has observable evidence in the test run.
 A failed assertion is `Failed`; missing requirements, tooling failure, or
@@ -117,9 +180,8 @@ pnpm evals:e2e --publish --pr <number> [--test-run <path|directory-id|latest|nam
 
 `evals:e2e --publish` judges and publishes test evidence without rerunning tests.
 Its optional `--test-run` argument selects an existing test run by path,
-directory ID, record name, or `latest` at
-publish time. Custom screenshots and recordings are supplementary and
-never determine the pass/fail verdict.
+directory ID, record name, or `latest` at publish time. Custom screenshots and
+recordings are supplementary and never determine the pass/fail verdict.
 
 ## Standalone isolated Den
 
@@ -138,18 +200,15 @@ without that origin, Better Auth rejects eval sign-in with
 
 ## Daytona E2E tests
 
-Start the maintained Electron sandbox path:
+Use the maintained Daytona setup from `run-tests`, then run a selected test
+through the E2E CLI:
 
 ```bash
-daytona organization use "<org-name>"
-bash .devcontainer/test-on-daytona.sh [branch-or-commit] --artifacts-volume
+pnpm evals:e2e app-smoke --daytona
 ```
 
-Then run the selected `.e2e.test.ts` with both
-`OPENWORK_EVAL_E2E_TESTS=1` and `OPENWORK_EVAL_DAYTONA=1`. Use direct CDP tools
-only to explore or debug. Convert repeatable new coverage into a testkit test;
-do not add a legacy flow. [`daytona-flows.md`](./daytona-flows.md) retains the
-manual sandbox notes.
+Use direct CDP tools only to explore or debug. Convert repeatable coverage into
+a testkit test.
 
 ## CDP manual-debugging tools
 
@@ -169,32 +228,3 @@ takes `browser_url`; target-specific calls also use the selected target ID.
 Use these calls for exploration and debugging, not as replacement verdict
 evidence. Repeatable executable coverage belongs in a testkit test, where
 observable assertions and validated screenshots are recorded as test evidence.
-
-## Frozen legacy flow compatibility
-
-The existing `evals/flows/**` corpus and `evals/runner/**` remain available only
-for compatibility. The corpus is frozen:
-
-- Deleting an obsolete flow is allowed.
-- Adding, modifying, copying, renaming, or scaffolding a flow is forbidden.
-- A user request for new coverage always goes to `evals/specs` and
-  `@openwork/testkit`.
-
-Only when a user explicitly requests an existing legacy flow, load the
-`run-evals` or the deprecated `fraimz` compatibility skill and run that unchanged flow:
-
-```bash
-pnpm evals:legacy --list
-pnpm evals:legacy --flow <existing-id> --cdp-url <electron-cdp-url>
-pnpm evals:legacy:demo --flow <existing-id> --cdp-url <electron-cdp-url>
-```
-
-If the existing flow is broken or obsolete, report that limitation rather than
-changing it. Legacy results continue to land under `evals/results/`; they do
-not define the evidence contract for new work.
-
-## Historical scenario notes
-
-The remaining Markdown scenario documents describe existing product journeys
-and manual debugging procedures. They are not templates for new executable
-coverage. New automation derived from them belongs in `specs/`.

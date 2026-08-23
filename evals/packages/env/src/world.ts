@@ -1,0 +1,738 @@
+import { mkdir, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
+import { fileURLToPath } from "node:url";
+import {
+  createOrgConnection,
+  createPluginWithSkill,
+  denFetch,
+  freshSession,
+  provisionOrg,
+  seedSessions,
+  signIn,
+} from "@openwork/behaviors";
+import { desktop, freePort } from "@openwork/hosts";
+import { Effect, Exit, Scope } from "effect";
+import { createConnection } from "mysql2/promise";
+import { z } from "zod";
+import type { ProvisionedOrg } from "@openwork/behaviors";
+import type { DesktopHandle } from "@openwork/hosts";
+import { app as bootApp } from "./desktop-app.ts";
+import type { App } from "./desktop-app.ts";
+import { defaultReuseAdmin, personDefaults, server } from "./den.ts";
+import type { Den } from "./den.ts";
+import { DEMO_PASSWORD, ensureKindDenReady, exposeEndpointHandles, kubeProfileConfig } from "./kind-stack.ts";
+import { mcpMock } from "./mock.ts";
+import { resolvePlace } from "./place.ts";
+import type { Place } from "./place.ts";
+import { defineWorld, worldTopologySchema } from "./topology.ts";
+import type { WorldDefinition, WorldOrg, WorldTopology } from "./topology.ts";
+import type { DenRef, DenSession } from "@openwork/behaviors";
+
+const REPO_ROOT = fileURLToPath(new URL("../../../..", import.meta.url));
+const WORLDS_DIR = join(REPO_ROOT, "evals", "results", ".worlds");
+const DEFAULT_LOCAL_MYSQL_URL = "mysql://root:password@127.0.0.1:3306";
+
+export interface World extends AsyncDisposable {
+  name: string;
+  topology: WorldTopology;
+  den: Den;
+  apps: Record<string, App>;
+  app(name: string): App;
+  snapshotPath: string;
+}
+
+export interface WorldSnapshotResolved {
+  den: {
+    apiUrl: string;
+    webUrl: string;
+    substrate?: "kind";
+    database?: string;
+    ports?: { api: number; web: number };
+  };
+  apps: Record<string, { cdpUrl: string; workspaceId: string; sessions: string[] }>;
+}
+
+export interface WorldTeardownResult {
+  denPorts: number[];
+  apps: string[];
+  database?: string;
+}
+
+export interface ResumedWorld {
+  name: string;
+  den: { ref: DenRef; admin: DenSession };
+  apps: Record<string, DesktopHandle>;
+  detach(): Promise<void>;
+  teardown(): Promise<WorldTeardownResult>;
+}
+
+export interface WorldSnapshot {
+  version: 1;
+  name: string;
+  createdAt: string;
+  place: "local" | "daytona";
+  topology: WorldTopology;
+  resolved: WorldSnapshotResolved;
+}
+
+export interface BuildSnapshotInput {
+  name: string;
+  createdAt?: string;
+  place: "local" | "daytona";
+  topology: WorldTopology;
+  resolved: WorldSnapshotResolved;
+}
+
+const resolvedAppSchema = z.strictObject({
+  cdpUrl: z.string(),
+  workspaceId: z.string(),
+  sessions: z.array(z.string()),
+});
+
+const resolvedPortsSchema = z.strictObject({
+  api: z.number().int().min(1024).max(65_535),
+  web: z.number().int().min(1024).max(65_535),
+});
+
+const worldSnapshotSchema = z.strictObject({
+  version: z.literal(1),
+  name: z.string(),
+  createdAt: z.iso.datetime(),
+  place: z.enum(["local", "daytona"]),
+  topology: worldTopologySchema,
+  resolved: z.strictObject({
+    den: z.strictObject({
+      apiUrl: z.string(),
+      webUrl: z.string(),
+      substrate: z.literal("kind").optional(),
+      database: z.string().regex(/^[a-z][a-z0-9_]{0,62}$/).optional(),
+      ports: resolvedPortsSchema.optional(),
+    }),
+    apps: z.record(z.string(), resolvedAppSchema),
+  }),
+});
+
+function messageText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function primaryOrganization(topology: WorldTopology): [string, WorldOrg] {
+  const primary = Object.entries(topology.den.orgs)[0];
+  if (!primary) throw new Error("World topology must define at least one organization in den.orgs.");
+  return primary;
+}
+
+function auth(token: string): Record<string, string> {
+  return { authorization: `Bearer ${token}` };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function stringField(value: unknown, key: string): string | null {
+  if (!isRecord(value)) return null;
+  return typeof value[key] === "string" ? value[key] : null;
+}
+
+async function organizationIdByName(admin: DenSession, name: string): Promise<string> {
+  const listed = await denFetch(admin, "/v1/me/orgs", { headers: auth(admin.token) });
+  const organizations = isRecord(listed.body) && Array.isArray(listed.body.orgs)
+    ? listed.body.orgs.filter(isRecord)
+    : [];
+  const organization = organizations.find((candidate) => candidate.name === name);
+  const id = organization ? stringField(organization, "id") : null;
+  if (!listed.response.ok || !id) {
+    throw new Error(`Organization ${JSON.stringify(name)} was not visible to its admin: HTTP ${listed.response.status} ${listed.text.slice(0, 500)}`);
+  }
+  return id;
+}
+
+async function organizationMemberId(
+  den: Den,
+  organizationId: string,
+  memberKey: string,
+): Promise<string> {
+  const member = den.members[memberKey];
+  if (!member) {
+    throw new Error(`World desktop policy member ${JSON.stringify(memberKey)} was not provisioned.`);
+  }
+  const route = "/v1/me/orgs";
+  const listed = await denFetch(member, route, { headers: auth(member.token) });
+  const organizations = isRecord(listed.body) && Array.isArray(listed.body.orgs)
+    ? listed.body.orgs.filter(isRecord)
+    : [];
+  const organization = organizations.find((candidate) => stringField(candidate, "id") === organizationId);
+  const memberId = organization
+    ? stringField(organization, "membershipId") ?? stringField(organization, "orgMemberId")
+    : null;
+  if (!listed.response.ok || !memberId) {
+    throw new Error(
+      `GET ${route} could not resolve member ${JSON.stringify(memberKey)} in organization ${JSON.stringify(organizationId)}: HTTP ${listed.response.status} ${listed.text.slice(0, 500)}`,
+    );
+  }
+  return memberId;
+}
+
+async function policyMemberIds(
+  den: Den,
+  organizationId: string,
+  memberKeys: string[],
+): Promise<string[]> {
+  const ids: string[] = [];
+  for (const memberKey of memberKeys) {
+    ids.push(await organizationMemberId(den, organizationId, memberKey));
+  }
+  return ids;
+}
+
+async function createPolicyTeam(
+  den: Den,
+  organizationId: string,
+  team: { name: string; members: string[] },
+): Promise<string> {
+  const route = "/v1/teams";
+  const created = await denFetch(den.admin, route, {
+    method: "POST",
+    headers: { ...auth(den.admin.token), "x-openwork-org-id": organizationId },
+    body: JSON.stringify({
+      name: team.name,
+      memberIds: await policyMemberIds(den, organizationId, team.members),
+    }),
+  });
+  const teamRecord = isRecord(created.body) && isRecord(created.body.team) ? created.body.team : null;
+  const teamId = teamRecord ? stringField(teamRecord, "id") : null;
+  if (created.response.status !== 201 || !teamId) {
+    throw new Error(`POST ${route} failed for team ${JSON.stringify(team.name)}: HTTP ${created.response.status} ${created.text.slice(0, 500)}`);
+  }
+  return teamId;
+}
+
+async function createDesktopPolicy(
+  den: Den,
+  organizationId: string,
+  policy: {
+    name: string;
+    priority?: number;
+    promptCards?: { title: string; prompt: string }[];
+    members?: string[];
+    teams?: { name: string; members: string[] }[];
+  },
+): Promise<void> {
+  const teamIds: string[] = [];
+  for (const team of policy.teams ?? []) {
+    teamIds.push(await createPolicyTeam(den, organizationId, team));
+  }
+  const route = "/v1/desktop-policies";
+  const promptCards = policy.promptCards ?? [];
+  const created = await denFetch(den.admin, route, {
+    method: "POST",
+    headers: { ...auth(den.admin.token), "x-openwork-org-id": organizationId },
+    body: JSON.stringify({
+      policyName: policy.name,
+      priority: policy.priority ?? 1,
+      isEnabled: true,
+      policy: {
+        onboardingPrompts: promptCards.map((card) => card.prompt),
+        onboardingPromptDescriptions: promptCards.map((card) => card.title),
+      },
+      memberIds: await policyMemberIds(den, organizationId, policy.members ?? []),
+      teamIds,
+    }),
+  });
+  if (created.response.status !== 201) {
+    throw new Error(`POST ${route} failed for policy ${JSON.stringify(policy.name)}: HTTP ${created.response.status} ${created.text.slice(0, 500)}`);
+  }
+}
+
+async function realizePrimaryOrganizationContent(
+  den: Den,
+  organizationId: string,
+  org: WorldOrg,
+): Promise<void> {
+  if (org.capabilities !== undefined) {
+    const route = `/v1/admin/organizations/${organizationId}/capabilities`;
+    const updated = await denFetch(den.admin, route, {
+      method: "PUT",
+      headers: auth(den.admin.token),
+      body: JSON.stringify({ capabilities: org.capabilities }),
+    });
+    if (!updated.response.ok) {
+      throw new Error(`PUT ${route} failed: HTTP ${updated.response.status} ${updated.text.slice(0, 500)}`);
+    }
+  }
+
+  for (const plugin of org.plugins ?? []) {
+    try {
+      await createPluginWithSkill(den.admin, {
+        name: plugin.name,
+        skillName: plugin.skill.name,
+        skillBody: plugin.skill.body,
+        ...(plugin.description === undefined ? {} : { description: plugin.description }),
+        ...(plugin.skill.description === undefined ? {} : { skillDescription: plugin.skill.description }),
+      });
+    } catch (error) {
+      throw new Error(`POST /v1/plugins failed for plugin ${JSON.stringify(plugin.name)}: ${messageText(error).slice(0, 500)}`);
+    }
+  }
+
+  for (const connection of org.connections ?? []) {
+    const mock = den.mocks[connection.witness];
+    if (!mock) {
+      throw new Error(`World connection ${JSON.stringify(connection.name)} witness ${JSON.stringify(connection.witness)} was not booted.`);
+    }
+    try {
+      await createOrgConnection(den.admin, {
+        name: connection.name,
+        url: mock.mcpUrl,
+        authType: "oauth",
+        credentialMode: "per_member",
+        access: { orgWide: true },
+      });
+    } catch (error) {
+      throw new Error(`POST /v1/mcp-connections failed for connection ${JSON.stringify(connection.name)}: ${messageText(error).slice(0, 500)}`);
+    }
+  }
+
+  for (const policy of org.desktopPolicies ?? []) {
+    await createDesktopPolicy(den, organizationId, policy);
+  }
+}
+
+async function addPrimaryAdminToOrganization(
+  provisioned: ProvisionedOrg,
+  primaryAdmin: DenSession,
+  primaryOrganizationId: string,
+): Promise<void> {
+  const invited = await denFetch(provisioned.admin, "/v1/invitations", {
+    method: "POST",
+    headers: auth(provisioned.admin.token),
+    body: JSON.stringify({ email: primaryAdmin.email, role: "member" }),
+  });
+  const inviteToken = stringField(invited.body, "inviteToken");
+  if (!invited.response.ok || !inviteToken) {
+    throw new Error(`Primary admin invitation failed: HTTP ${invited.response.status} ${invited.text.slice(0, 500)}`);
+  }
+  const accepted = await denFetch(primaryAdmin, "/v1/orgs/invitations/accept", {
+    method: "POST",
+    headers: auth(primaryAdmin.token),
+    body: JSON.stringify({ id: inviteToken }),
+  });
+  if (!accepted.response.ok || !isRecord(accepted.body) || accepted.body.accepted !== true) {
+    throw new Error(`Primary admin invitation accept failed: HTTP ${accepted.response.status} ${accepted.text.slice(0, 500)}`);
+  }
+  const selected = await denFetch(primaryAdmin, "/v1/me/active-organization", {
+    method: "POST",
+    headers: auth(primaryAdmin.token),
+    body: JSON.stringify({ organizationId: primaryOrganizationId }),
+  });
+  if (!selected.response.ok) {
+    throw new Error(`Primary organization restore failed: HTTP ${selected.response.status} ${selected.text.slice(0, 500)}`);
+  }
+}
+
+async function renameProvisionedOrganization(provisioned: ProvisionedOrg, name: string): Promise<void> {
+  const renamed = await denFetch(provisioned.admin, "/v1/org", {
+    method: "PATCH",
+    headers: auth(provisioned.admin.token),
+    body: JSON.stringify({ name }),
+  });
+  if (!renamed.response.ok) {
+    throw new Error(`Organization rename to ${JSON.stringify(name)} failed: HTTP ${renamed.response.status} ${renamed.text.slice(0, 500)}`);
+  }
+}
+
+async function deleteProvisionedOrganization(provisioned: ProvisionedOrg): Promise<void> {
+  const active = await freshSession(provisioned.admin).catch(() => provisioned.admin);
+  const selected = await denFetch(active, "/v1/me/active-organization", {
+    method: "POST",
+    headers: auth(active.token),
+    body: JSON.stringify({ organizationId: provisioned.orgId }),
+  });
+  if (selected.response.status === 404) return;
+  if (!selected.response.ok) {
+    throw new Error(`Organization cleanup selection returned HTTP ${selected.response.status}: ${selected.text.slice(0, 500)}`);
+  }
+  const deleted = await denFetch(active, "/v1/org", {
+    method: "DELETE",
+    headers: auth(active.token),
+  });
+  if (!deleted.response.ok && deleted.response.status !== 404) {
+    throw new Error(`Organization cleanup returned HTTP ${deleted.response.status}: ${deleted.text.slice(0, 500)}`);
+  }
+}
+
+function emailSegment(value: string): string {
+  const segment = [...value.toLowerCase()]
+    .map((character) => /[a-z0-9]/.test(character) ? character : "-")
+    .join("")
+    .replace(/^-+|-+$/g, "");
+  return segment || "member";
+}
+
+function extraOrganizationMembers(
+  worldName: string,
+  orgName: string,
+  org: WorldOrg,
+): string[] {
+  const members = new Set<string>();
+  for (const [memberName, person] of Object.entries(org.members ?? {})) {
+    members.add(
+      person.email?.trim()
+      || `${emailSegment(memberName)}+${emailSegment(worldName)}-${emailSegment(orgName)}@openwork.test`,
+    );
+  }
+  return [...members];
+}
+
+function witnessMocks(topology: WorldTopology) {
+  return Object.fromEntries(
+    Object.entries(topology.witnesses ?? {}).map(([name, witness]) => [
+      name,
+      mcpMock({
+        allowUnauthenticatedMcp: witness.allowUnauthenticatedMcp,
+        profileId: witness.profileId,
+        fault: witness.fault,
+      }),
+    ]),
+  );
+}
+
+async function kindDen(): Promise<Den> {
+  await ensureKindDenReady();
+  const endpoints = await exposeEndpointHandles(kubeProfileConfig("single-org"));
+  const ref: DenRef = { apiUrl: endpoints.apiUrl, webUrl: endpoints.webUrl };
+  try {
+    const admin = await signIn(ref, { email: endpoints.adminEmail, password: DEMO_PASSWORD });
+    let disposed = false;
+    return {
+      ref,
+      admin,
+      members: {},
+      mocks: {},
+      async apiLog(): Promise<string> {
+        throw new Error(
+          "den.apiLog() is not available for kind worlds; read the shared den-api deployment logs with kubectl.",
+        );
+      },
+      async [Symbol.asyncDispose](): Promise<void> {
+        if (disposed) return;
+        disposed = true;
+        // The kind cluster is shared developer infrastructure; a world owns only its port-forwards.
+        await endpoints.stop();
+      },
+    };
+  } catch (error) {
+    await endpoints.stop();
+    throw error;
+  }
+}
+
+function resolvedApps(
+  apps: Record<string, App>,
+  seededTitles: Record<string, string[]>,
+): WorldSnapshotResolved["apps"] {
+  const resolved: WorldSnapshotResolved["apps"] = {};
+  for (const [name, booted] of Object.entries(apps)) {
+    resolved[name] = {
+      cdpUrl: booted.handle.cdpUrl,
+      workspaceId: booted.workspaceId,
+      sessions: seededTitles[name],
+    };
+  }
+  return resolved;
+}
+
+export function buildSnapshot(input: BuildSnapshotInput): WorldSnapshot {
+  const snapshot: WorldSnapshot = worldSnapshotSchema.parse({
+    version: 1,
+    name: input.name,
+    createdAt: input.createdAt ?? new Date().toISOString(),
+    place: input.place,
+    topology: defineWorld(input.topology).topology,
+    resolved: input.resolved,
+  });
+  return snapshot;
+}
+
+function parseSnapshot(jsonText: string): WorldSnapshot {
+  const json: unknown = JSON.parse(jsonText);
+  return worldSnapshotSchema.parse(json);
+}
+
+export function fromSnapshot(jsonText: string): { topology: WorldTopology; name: string } {
+  const snapshot = parseSnapshot(jsonText);
+  return {
+    topology: defineWorld(snapshot.topology).topology,
+    name: snapshot.name,
+  };
+}
+
+async function requireRunningWorld(snapshot: WorldSnapshot): Promise<void> {
+  const url = `${snapshot.resolved.den.apiUrl.replace(/\/+$/, "")}/health`;
+  let last = "not attempted";
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    try {
+      const response = await fetch(url, { signal: AbortSignal.timeout(2_000) });
+      if (response.ok) return;
+      last = `HTTP ${response.status}`;
+    } catch (error) {
+      last = messageText(error);
+    }
+    if (attempt < 5) await delay(500);
+  }
+  throw new Error(`world is not running: Den health check failed at ${url} (${last}).`);
+}
+
+function localUrlPort(value: string): number | null {
+  try {
+    const url = new URL(value);
+    if (!["127.0.0.1", "localhost", "::1"].includes(url.hostname)) return null;
+    const port = Number(url.port);
+    return Number.isInteger(port) && port > 0 && port <= 65_535 ? port : null;
+  } catch {
+    return null;
+  }
+}
+
+async function dropSnapshotDatabase(name: string): Promise<void> {
+  const connection = await createConnection(DEFAULT_LOCAL_MYSQL_URL);
+  try {
+    await connection.query(`DROP DATABASE IF EXISTS \`${name}\``);
+  } finally {
+    await connection.end();
+  }
+}
+
+export async function resumeWorld(
+  snapshotJsonText: string,
+  options: { teardown?: boolean } = {},
+): Promise<ResumedWorld> {
+  const snapshot = parseSnapshot(snapshotJsonText);
+  const topology = defineWorld(snapshot.topology).topology;
+  await requireRunningWorld(snapshot);
+  const [, primaryOrg] = primaryOrganization(topology);
+  const adminPerson = topology.den.seed === "demo-org"
+    ? defaultReuseAdmin()
+    : personDefaults("admin", primaryOrg.admin, emailSegment(snapshot.name));
+  const ref: DenRef = {
+    apiUrl: snapshot.resolved.den.apiUrl,
+    webUrl: snapshot.resolved.den.webUrl,
+  };
+  const admin = await signIn(ref, { email: adminPerson.email, password: adminPerson.password });
+  const apps: Record<string, DesktopHandle> = {};
+  if (options.teardown !== true) {
+    for (const [name, resolved] of Object.entries(snapshot.resolved.apps)) {
+      try {
+        apps[name] = await desktop({
+          name: `world-resume-${name}`,
+          mode: "attach",
+          cdpUrl: resolved.cdpUrl,
+          timeoutMs: 10_000,
+        });
+      } catch (error) {
+        console.warn(`[openwork/testkit] World app ${JSON.stringify(name)} could not be attached during resume: ${messageText(error)}`);
+      }
+    }
+  }
+
+  let detached = false;
+  const detach = async (): Promise<void> => {
+    if (detached) return;
+    detached = true;
+    for (const [name, app] of Object.entries(apps)) {
+      await app.stop().catch((error: unknown) => {
+        console.error(`[openwork/testkit] World app ${JSON.stringify(name)} CDP detach failed: ${messageText(error)}`);
+      });
+    }
+  };
+
+  let teardownResult: WorldTeardownResult | null = null;
+  const teardown = async (): Promise<WorldTeardownResult> => {
+    if (teardownResult) return teardownResult;
+    await detach();
+    const stoppedApps: string[] = [];
+    for (const [name, resolved] of Object.entries(snapshot.resolved.apps)) {
+      const port = localUrlPort(resolved.cdpUrl);
+      if (port === null) continue;
+      await freePort(port)
+        .then(() => stoppedApps.push(name))
+        .catch((error: unknown) => {
+          console.error(`[openwork/testkit] World app ${JSON.stringify(name)} teardown failed on CDP port ${port}: ${messageText(error)}`);
+        });
+    }
+
+    const denPortCandidates: number[] = [];
+    if (snapshot.resolved.den.ports) {
+      denPortCandidates.push(snapshot.resolved.den.ports.api, snapshot.resolved.den.ports.web);
+    } else {
+      const apiPort = localUrlPort(snapshot.resolved.den.apiUrl);
+      const webPort = localUrlPort(snapshot.resolved.den.webUrl);
+      if (apiPort !== null) denPortCandidates.push(apiPort);
+      if (webPort !== null) denPortCandidates.push(webPort);
+    }
+    const stoppedDenPorts: number[] = [];
+    for (const port of new Set(denPortCandidates)) {
+      await freePort(port)
+        .then(() => stoppedDenPorts.push(port))
+        .catch((error: unknown) => {
+          console.error(`[openwork/testkit] World Den teardown failed on port ${port}: ${messageText(error)}`);
+        });
+    }
+
+    let droppedDatabase: string | undefined;
+    if (snapshot.place === "local" && snapshot.resolved.den.database) {
+      await dropSnapshotDatabase(snapshot.resolved.den.database)
+        .then(() => { droppedDatabase = snapshot.resolved.den.database; })
+        .catch((error: unknown) => {
+          console.error(`[openwork/testkit] World database ${snapshot.resolved.den.database} teardown failed: ${messageText(error)}`);
+        });
+    }
+    teardownResult = {
+      denPorts: stoppedDenPorts,
+      apps: stoppedApps,
+      ...(droppedDatabase === undefined ? {} : { database: droppedDatabase }),
+    };
+    return teardownResult;
+  };
+
+  return {
+    name: snapshot.name,
+    den: { ref, admin },
+    apps,
+    detach,
+    teardown,
+  };
+}
+
+function worldTopology(definition: WorldDefinition | WorldTopology): WorldTopology {
+  return defineWorld("topology" in definition ? definition.topology : definition).topology;
+}
+
+export async function startWorld(
+  definition: WorldDefinition | WorldTopology,
+  options: { place?: Place; name?: string } = {},
+): Promise<World> {
+  const topology = worldTopology(definition);
+  const place = options.place ?? resolvePlace(process.env);
+  const name = options.name ?? `world-${Date.now().toString(36)}-${process.pid.toString(36)}`;
+  const [primaryOrgName, primaryOrg] = primaryOrganization(topology);
+  const scope = await Effect.runPromise(Scope.make("sequential"));
+
+  const acquisition = Effect.gen(function*() {
+    const den = yield* Effect.acquireRelease(
+      Effect.promise(() => topology.den.substrate === "kind"
+        ? kindDen()
+        : server({
+            place,
+            org: {
+              name: primaryOrgName,
+              admin: topology.den.seed === "demo-org"
+                ? primaryOrg.admin
+                : personDefaults("admin", primaryOrg.admin, emailSegment(name)),
+              members: primaryOrg.members,
+            },
+            provision: topology.den.seed === "demo-org" ? false : undefined,
+            web: topology.den.web,
+            env: topology.den.env,
+            mocks: witnessMocks(topology),
+            ports: topology.den.ports,
+            seedProfile: topology.den.seed,
+          })),
+      (booted) => Effect.promise(() => booted[Symbol.asyncDispose]()),
+    );
+    if (topology.den.substrate !== "kind" && topology.den.seed !== "demo-org") {
+      const primaryOrganizationId = yield* Effect.promise(() => organizationIdByName(den.admin, primaryOrgName));
+
+      for (const [orgName, org] of Object.entries(topology.den.orgs).slice(1)) {
+        const provisioned = yield* Effect.acquireRelease(
+          Effect.promise(() => provisionOrg(den.ref, {
+            members: extraOrganizationMembers(name, orgName, org),
+          })),
+          (created) => Effect.promise(() => deleteProvisionedOrganization(created).catch((error: unknown) => {
+            console.error(`[openwork/testkit] world org ${orgName} cleanup failed: ${messageText(error)}`);
+          })),
+        );
+        yield* Effect.promise(() => renameProvisionedOrganization(provisioned, orgName));
+        yield* Effect.promise(() => addPrimaryAdminToOrganization(provisioned, den.admin, primaryOrganizationId));
+      }
+
+      // Local/Daytona DBs are ephemeral; attached-Den reuse can leak rows not covered by organization deletion.
+      yield* Effect.promise(() => realizePrimaryOrganizationContent(den, primaryOrganizationId, primaryOrg));
+    }
+
+    const apps: Record<string, App> = {};
+    const seededTitles: Record<string, string[]> = {};
+    for (const [appName, appDefinition] of Object.entries(topology.apps ?? {})) {
+      const booted = yield* Effect.acquireRelease(
+        Effect.promise(() => bootApp({
+          den,
+          place,
+          workspacePath: appDefinition.workspacePath,
+          model: appDefinition.model,
+          localServerDelayMs: appDefinition.localServerDelayMs,
+          ...(appDefinition.signedInTo
+            ? { as: appDefinition.signedInTo.as }
+            : { signIn: false }),
+        })),
+        (running) => Effect.promise(() => running[Symbol.asyncDispose]()),
+      );
+      apps[appName] = booted;
+      const declaredSessions = appDefinition.sessions;
+      seededTitles[appName] = declaredSessions === undefined
+        ? []
+        : (yield* Effect.promise(() => seedSessions(booted, declaredSessions))).map((session) => session.title);
+    }
+
+    const snapshotPath = join(WORLDS_DIR, `${name}.json`);
+    const snapshot = buildSnapshot({
+      name,
+      place: place.kind,
+      topology,
+      resolved: {
+        den: {
+          ...den.ref,
+          ...(topology.den.substrate === "kind" ? { substrate: "kind" } : {}),
+          ...(den.database ? { database: den.database.name } : {}),
+          ...(den.ports ? { ports: den.ports } : {}),
+        },
+        apps: resolvedApps(apps, seededTitles),
+      },
+    });
+    yield* Effect.promise(async () => {
+      await mkdir(WORLDS_DIR, { recursive: true });
+      await writeFile(snapshotPath, `${JSON.stringify(snapshot, null, 2)}\n`, "utf8");
+    });
+    return { den, apps, snapshotPath };
+  });
+
+  try {
+    const acquired = await Effect.runPromise(Scope.provide(acquisition, scope));
+    let disposed = false;
+    return {
+      name,
+      topology,
+      den: acquired.den,
+      apps: acquired.apps,
+      app(appName) {
+        const found = acquired.apps[appName];
+        if (!found) {
+          throw new Error(`Unknown world app ${JSON.stringify(appName)}. Available: ${Object.keys(acquired.apps).join(", ") || "(none)"}`);
+        }
+        return found;
+      },
+      snapshotPath: acquired.snapshotPath,
+      async [Symbol.asyncDispose](): Promise<void> {
+        if (disposed) return;
+        disposed = true;
+        await Effect.runPromise(Scope.close(scope, Exit.void));
+      },
+    };
+  } catch (error) {
+    await Effect.runPromise(Scope.close(scope, Exit.die(error))).catch((cleanupError: unknown) => {
+      console.error(`[openwork/testkit] world cleanup after acquisition failure failed: ${messageText(cleanupError)}`);
+    });
+    throw error;
+  }
+}

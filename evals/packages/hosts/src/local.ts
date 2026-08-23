@@ -4,7 +4,7 @@ import { access, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promise
 import { homedir } from "node:os";
 import { delimiter, dirname, join } from "node:path";
 import { allocateFreePort, allocateFreePorts, listTargets, waitForCdp } from "@openwork/cdp";
-import { ensureDenStack } from "../../../runner/den-stack.ts";
+import { ensureDenStack } from "./den-stack.ts";
 import type { ChildProcess } from "node:child_process";
 import type { DisposableHost, SurfaceHandle, ElectronSurfaceOptions, ChromeSurfaceOptions, DenServiceOptions, DenServiceHandle, ShareLinks } from "./types.ts";
 
