@@ -319,6 +319,15 @@ function normalizeOrigin(origin: string) {
   return value.replace(/\/+$/, "")
 }
 
+function normalizePublicWebOrigin(origin: string) {
+  const value = origin.trim()
+  const url = new URL(value)
+  if (url.protocol !== "https:" && url.protocol !== "http:") {
+    throw new Error("BETTER_AUTH_URL or DEN_BASE_URL must use http or https")
+  }
+  return url.origin
+}
+
 function isLocalRedisHost(hostname: string) {
   return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]" || hostname === "::1"
 }
@@ -557,7 +566,7 @@ export const env = {
   planetscale: planetscaleCredentials,
   betterAuthSecret: parsed.BETTER_AUTH_SECRET,
   betterAuthUrl,
-  webUrl: betterAuthUrl,
+  webUrl: normalizePublicWebOrigin(betterAuthUrl),
   // SECURITY: `redis://` carries cached auth-session material in plaintext.
   // Non-local redis:// is rejected by default. Hosted platforms such as Render
   // may provide a private, non-public internal Redis URL without TLS; operators

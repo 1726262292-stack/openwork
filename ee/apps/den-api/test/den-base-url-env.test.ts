@@ -62,6 +62,15 @@ describe("DEN_BASE_URL environment defaults", () => {
     })
   })
 
+  test("exposes only the public web origin when BETTER_AUTH_URL includes URL components", () => {
+    expect(probeDenUrls({
+      BETTER_AUTH_URL: "https://user:secret@legacy.example.com/auth/path?token=hidden#fragment",
+    })).toEqual({
+      betterAuthUrl: "https://user:secret@legacy.example.com/auth/path?token=hidden#fragment",
+      webUrl: "https://legacy.example.com",
+    })
+  })
+
   test("preserves legacy unset defaults without DEN_BASE_URL", () => {
     expect(probeDenUrls({ BETTER_AUTH_URL: "https://legacy.example.com" })).toEqual({
       betterAuthUrl: "https://legacy.example.com",

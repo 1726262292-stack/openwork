@@ -32,6 +32,6 @@ test("GET /v1/app-version advertises the deployment web app base URL", async () 
 
   const payload = await response.json() as Record<string, unknown>
   // Desktop clients configured with only the API URL discover the web app from here.
-  expect(payload.webUrl).toBe(env.betterAuthUrl)
+  expect(payload.webUrl).toBe(env.webUrl)
   expect(payload.latestAppVersion).toBe(PUBLISHED_DESKTOP_VERSIONS[0])
 })
