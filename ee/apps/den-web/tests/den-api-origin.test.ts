@@ -31,4 +31,12 @@ describe("Den API browser origin", () => {
     expect(denApiCredentialsForEndpoint("/api/runtime-config", "https://app.openworklabs.com")).toBe("include");
     expect(denApiCredentialsForEndpoint("https://external.example.com/v1/me", "https://app.openworklabs.com")).toBe("omit");
   });
+
+  test("omits cookies for public direct API endpoints", () => {
+    expect(denApiCredentialsForEndpoint(
+      "https://api.app.openworklabs.com/v1/orgs/sso/resolve?email=omar%40openworklabs.com",
+      "https://app.openworklabs.com",
+      "/v1/orgs/sso/resolve?email=omar%40openworklabs.com",
+    )).toBe("omit");
+  });
 });
