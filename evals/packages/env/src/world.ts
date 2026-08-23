@@ -574,7 +574,12 @@ async function kindDen(): Promise<Den> {
   const endpoints = await exposeEndpointHandles(kubeProfileConfig("single-org"));
   const ref: DenRef = { apiUrl: endpoints.apiUrl, webUrl: endpoints.webUrl };
   try {
-    const admin = await signIn(ref, { email: endpoints.adminEmail, password: DEMO_PASSWORD });
+    const admin: DenSession = {
+      ...ref,
+      token: endpoints.token,
+      email: endpoints.adminEmail,
+      password: DEMO_PASSWORD,
+    };
     let disposed = false;
     return {
       ref,
@@ -791,6 +796,9 @@ export async function startWorld(
 ): Promise<World> {
   const topology = worldTopology(definition);
   const place = options.place ?? resolvePlace(process.env);
+  if (topology.den.substrate === "kind" && place.kind !== "local") {
+    throw new Error('den.substrate "kind" requires local placement because the kind cluster and its port-forwards run on the local Docker host.');
+  }
   const name = options.name ?? `world-${Date.now().toString(36)}-${process.pid.toString(36)}`;
   const [primaryOrgName, primaryOrg] = primaryOrganization(topology);
   const scope = await Effect.runPromise(Scope.make("sequential"));

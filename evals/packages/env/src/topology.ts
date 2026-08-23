@@ -247,10 +247,6 @@ function validateReferences(topology: WorldTopology): void {
   }
 
   if (topology.den.substrate === "kind") {
-    const appKeys = Object.keys(topology.apps ?? {});
-    if (appKeys.length > 0) {
-      throw new Error('den.substrate "kind" cannot define apps: v1 limitation: kind worlds expose only the seeded Den.');
-    }
     const witnessKeys = Object.keys(topology.witnesses ?? {});
     if (witnessKeys.length > 0) {
       throw new Error('den.substrate "kind" cannot define witnesses: v1 limitation: the shared kind Den cannot inject world witnesses.');
@@ -280,6 +276,13 @@ function validateReferences(topology: WorldTopology): void {
     }
     if (seededOrg.admin?.password !== undefined && seededOrg.admin.password !== "OpenWorkDemo123!") {
       throw new Error('den.substrate "kind" admin.password must match the seeded demo admin password.');
+    }
+    for (const [appName, app] of Object.entries(topology.apps ?? {})) {
+      if (app.signedInTo?.as !== "admin") {
+        throw new Error(
+          `World app ${JSON.stringify(appName)} on den.substrate "kind" must sign in as "admin": only the seeded admin session has been proved on the shared kind Den.`,
+        );
+      }
     }
   }
 

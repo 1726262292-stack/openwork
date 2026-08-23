@@ -226,6 +226,52 @@ test("endpoint handles return credentials and stop only their recorded port-forw
   }
 });
 
+test("endpoint acquisition failure stops both newly started port-forwards", async () => {
+  const stateDir = await mkdtemp(join(tmpdir(), "openwork-kind-endpoints-failure-test-"));
+  const killed: number[] = [];
+  const pids = [987_661, 987_662];
+  let spawned = 0;
+  const spawnDetached: KubeSpawnDetached = () => {
+    const pid = pids[spawned];
+    spawned += 1;
+    if (pid === undefined) throw new Error("Unexpected extra detached process.");
+    return pid;
+  };
+  const { exec } = createExec((call) => call.command === "lsof"
+    ? { stdout: "", stderr: "", code: 1 }
+    : success());
+  const previousFetch = globalThis.fetch;
+  globalThis.fetch = async (input) => {
+    const url = typeof input === "string"
+      ? input
+      : input instanceof URL
+        ? input.href
+        : input.url;
+    return new Response(url.endsWith("/api/auth/sign-in/email") ? "no" : "ok", {
+      status: url.endsWith("/api/auth/sign-in/email") ? 401 : 200,
+    });
+  };
+  try {
+    await assert.rejects(
+      () => exposeEndpointHandles(kubeProfileConfig("single-org"), {
+        stateDir,
+        exec,
+        spawnDetached,
+        sleep: async () => undefined,
+        killProcess: (pid) => killed.push(pid),
+      }),
+      /Could not obtain a demo-owner session.*HTTP 401/,
+    );
+
+    assert.deepEqual(killed, [-987_662, 987_662, -987_661, 987_661]);
+    await assert.rejects(() => readFile(join(stateDir, "api-port-forward.pid"), "utf8"), /ENOENT/);
+    await assert.rejects(() => readFile(join(stateDir, "web-port-forward.pid"), "utf8"), /ENOENT/);
+  } finally {
+    globalThis.fetch = previousFetch;
+    await rm(stateDir, { recursive: true, force: true });
+  }
+});
+
 test("ensureKindDenReady fails fast when the shared kind cluster is absent", async () => {
   const { exec, calls } = createExec(() => success(""));
 
@@ -234,6 +280,28 @@ test("ensureKindDenReady fails fast when the shared kind cluster is absent", asy
     /ensureKubeStack\(\{ cdpCandidates: \[\], skipApp: true \}\)/,
   );
   assert.deepEqual(calls.map((call) => `${call.command} ${call.args.join(" ")}`), ["kind get clusters"]);
+});
+
+test("ensureKindDenReady verifies both Den rollouts before reading shared state", async () => {
+  const { exec, calls } = createExec((call) => {
+    const text = `${call.command} ${call.args.join(" ")}`;
+    if (text === "kind get clusters") return success("openwork-kube-lab\n");
+    if (text.includes("SHOW TABLES LIKE")) {
+      return success("organization\ndesktop_connect_grant\nscim_group\ngroup_mapping_mode\n");
+    }
+    if (text.includes("SELECT id FROM `user`")) return success("seeded-owner-id\n");
+    return success();
+  });
+
+  await ensureKindDenReady({ exec });
+
+  const commands = calls.map((call) => `${call.command} ${call.args.join(" ")}`);
+  const apiRollout = commands.findIndex((command) => command.includes("rollout status deployment/openwork-ee-den-api"));
+  const webRollout = commands.findIndex((command) => command.includes("rollout status deployment/openwork-ee-den-web"));
+  const schemaQuery = commands.findIndex((command) => command.includes("SHOW TABLES LIKE"));
+  assert(apiRollout >= 0);
+  assert(webRollout > apiRollout);
+  assert(schemaQuery > webRollout);
 });
 
 test("kubeStackDown stops port-forwards before uninstalling the release", async () => {
