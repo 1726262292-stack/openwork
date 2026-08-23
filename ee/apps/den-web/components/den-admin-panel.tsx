@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Copy, Pencil, Trash2 } from "lucide-react";
+import { denApiEndpoint } from "../app/(den)/_lib/den-api-origin";
 
 type AccessState = "loading" | "ready" | "signed-out" | "forbidden" | "error";
 type ViewMode = "users" | "companies" | "organizations";
@@ -956,12 +957,9 @@ function adminScaleFixturePayload(path: string): unknown | null {
 
 const AUTH_TOKEN_STORAGE_KEY = "openwork:web:auth-token";
 
-// The den proxy strips cookies from requests whose Origin matches a cloud
-// instance origin (they are bearer-only by design), and browsers always send
-// an Origin header on mutating fetches. Cookie-only admin writes therefore
-// 401 when den-web itself is served from such an origin. Attach the stored
-// bearer token like den-flow's requestJson does; den-api accepts either
-// credential, so cookie-authenticated sessions keep working unchanged.
+// Browser calls go straight to the api.* origin. Attach the stored bearer token
+// like den-flow's requestJson does; den-api accepts either bearer or cookie
+// credentials, so cookie-authenticated sessions keep working unchanged.
 function withStoredBearer(headers: Record<string, string>): Record<string, string> {
   if (typeof window === "undefined") {
     return headers;
@@ -979,7 +977,7 @@ async function requestJson(path: string, signal?: AbortSignal) {
     return { response: new Response(JSON.stringify(fixturePayload), { status: 200 }), payload: fixturePayload };
   }
 
-  const response = await fetch(`/api/den${path}`, {
+  const response = await fetch(denApiEndpoint(path), {
     method: "GET",
     credentials: "include",
     signal,
@@ -1007,7 +1005,7 @@ function isAbortError(error: unknown): boolean {
 }
 
 async function patchJson(path: string, body: unknown) {
-  const response = await fetch(`/api/den${path}`, {
+  const response = await fetch(denApiEndpoint(path), {
     method: "PATCH",
     credentials: "include",
     headers: withStoredBearer({
@@ -1032,7 +1030,7 @@ async function patchJson(path: string, body: unknown) {
 }
 
 async function postJson(path: string, body: unknown) {
-  const response = await fetch(`/api/den${path}`, {
+  const response = await fetch(denApiEndpoint(path), {
     method: "POST",
     credentials: "include",
     headers: withStoredBearer({
@@ -1055,7 +1053,7 @@ async function postJson(path: string, body: unknown) {
 }
 
 async function putJson(path: string, body: unknown) {
-  const response = await fetch(`/api/den${path}`, {
+  const response = await fetch(denApiEndpoint(path), {
     method: "PUT",
     credentials: "include",
     headers: withStoredBearer({
@@ -1080,7 +1078,7 @@ async function putJson(path: string, body: unknown) {
 }
 
 async function deleteJson(path: string) {
-  const response = await fetch(`/api/den${path}`, {
+  const response = await fetch(denApiEndpoint(path), {
     method: "DELETE",
     credentials: "include",
     headers: withStoredBearer({

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { denApiEndpoint } from "../../(den)/_lib/den-api-origin";
 import { useOrgListWindow } from "../../(den)/_lib/use-org-list-window";
 
 type Organization = {
@@ -40,7 +41,7 @@ function getErrorMessage(payload: unknown, fallback: string) {
 }
 
 async function requestJson(path: string, init?: RequestInit) {
-  const response = await fetch(path, {
+  const response = await fetch(denApiEndpoint(path), {
     credentials: "include",
     headers: { "content-type": "application/json", ...(init?.headers ?? {}) },
     ...init,
@@ -119,7 +120,7 @@ export default function McpSelectOrganizationPage() {
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      const { response, payload } = await requestJson("/api/den/v1/me/orgs", {
+      const { response, payload } = await requestJson("/v1/me/orgs", {
         method: "GET",
       });
       if (cancelled) return;

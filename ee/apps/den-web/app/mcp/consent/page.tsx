@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { denApiEndpoint } from "../../(den)/_lib/den-api-origin";
 
 function getErrorMessage(payload: unknown, fallback: string) {
   if (payload && typeof payload === "object" && "message" in payload && typeof payload.message === "string") return payload.message;
@@ -9,7 +10,7 @@ function getErrorMessage(payload: unknown, fallback: string) {
 }
 
 async function submitConsent(accept: boolean, oauthQuery: string, scope: string) {
-  const response = await fetch("/api/auth/oauth2/consent", {
+  const response = await fetch(denApiEndpoint("/api/auth/oauth2/consent"), {
     method: "POST",
     credentials: "include",
     headers: { "content-type": "application/json" },
