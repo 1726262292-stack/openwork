@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Copy, Pencil, Trash2 } from "lucide-react";
-import { denApiEndpoint } from "../app/(den)/_lib/den-api-origin";
+import { denApiCredentials, denApiEndpoint } from "../app/(den)/_lib/den-api-origin";
 
 type AccessState = "loading" | "ready" | "signed-out" | "forbidden" | "error";
 type ViewMode = "users" | "companies" | "organizations";
@@ -977,9 +977,10 @@ async function requestJson(path: string, signal?: AbortSignal) {
     return { response: new Response(JSON.stringify(fixturePayload), { status: 200 }), payload: fixturePayload };
   }
 
-  const response = await fetch(denApiEndpoint(path), {
+  const endpoint = denApiEndpoint(path);
+  const response = await fetch(endpoint, {
     method: "GET",
-    credentials: "include",
+    credentials: denApiCredentials(endpoint),
     signal,
     headers: withStoredBearer({
       Accept: "application/json"
@@ -1005,9 +1006,10 @@ function isAbortError(error: unknown): boolean {
 }
 
 async function patchJson(path: string, body: unknown) {
-  const response = await fetch(denApiEndpoint(path), {
+  const endpoint = denApiEndpoint(path);
+  const response = await fetch(endpoint, {
     method: "PATCH",
-    credentials: "include",
+    credentials: denApiCredentials(endpoint),
     headers: withStoredBearer({
       Accept: "application/json",
       "Content-Type": "application/json"
@@ -1030,9 +1032,10 @@ async function patchJson(path: string, body: unknown) {
 }
 
 async function postJson(path: string, body: unknown) {
-  const response = await fetch(denApiEndpoint(path), {
+  const endpoint = denApiEndpoint(path);
+  const response = await fetch(endpoint, {
     method: "POST",
-    credentials: "include",
+    credentials: denApiCredentials(endpoint),
     headers: withStoredBearer({
       Accept: "application/json",
       "Content-Type": "application/json"
@@ -1053,9 +1056,10 @@ async function postJson(path: string, body: unknown) {
 }
 
 async function putJson(path: string, body: unknown) {
-  const response = await fetch(denApiEndpoint(path), {
+  const endpoint = denApiEndpoint(path);
+  const response = await fetch(endpoint, {
     method: "PUT",
-    credentials: "include",
+    credentials: denApiCredentials(endpoint),
     headers: withStoredBearer({
       Accept: "application/json",
       "Content-Type": "application/json"
@@ -1078,9 +1082,10 @@ async function putJson(path: string, body: unknown) {
 }
 
 async function deleteJson(path: string) {
-  const response = await fetch(denApiEndpoint(path), {
+  const endpoint = denApiEndpoint(path);
+  const response = await fetch(endpoint, {
     method: "DELETE",
-    credentials: "include",
+    credentials: denApiCredentials(endpoint),
     headers: withStoredBearer({
       Accept: "application/json"
     })

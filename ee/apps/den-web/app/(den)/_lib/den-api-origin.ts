@@ -39,6 +39,24 @@ export function denApiEndpointForWebOrigin(path: string, webOrigin: string): str
   return `${origin}${normalizedPath}`;
 }
 
+export function denApiCredentialsForEndpoint(endpoint: string, webOrigin: string): RequestCredentials {
+  try {
+    const endpointOrigin = new URL(endpoint).origin;
+    const currentOrigin = new URL(webOrigin).origin;
+    return endpointOrigin === currentOrigin ? "include" : "omit";
+  } catch {
+    return "include";
+  }
+}
+
+export function denApiCredentials(endpoint: string): RequestCredentials {
+  if (typeof window === "undefined") {
+    return "include";
+  }
+
+  return denApiCredentialsForEndpoint(endpoint, window.location.origin);
+}
+
 export function denApiEndpoint(path: string): string {
   if (/^https?:\/\//i.test(path)) {
     return path;
