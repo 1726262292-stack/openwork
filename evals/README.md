@@ -114,6 +114,9 @@ the name and topology needed to start an equivalent fresh world.
 Each started world writes a snapshot to
 `evals/results/.worlds/<name>.json`. Snapshots contain the validated topology
 plus resolved Den and app endpoints.
+Snapshots are data: `rebuild` and `resume` treat them as untrusted and constrain
+Den environment keys, database names, ports, app workspace paths/models/faults,
+and resolved CDP URLs before starting, attaching to, or tearing down resources.
 
 ### World CLI
 

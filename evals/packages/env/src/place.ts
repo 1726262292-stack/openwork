@@ -36,7 +36,7 @@ function messageText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function validateDatabaseName(name: string): void {
+export function validateDatabaseName(name: string): void {
   if (!/^[a-z][a-z0-9_]{0,62}$/.test(name)) {
     throw new Error(`Invalid ephemeral database name: ${name}`);
   }

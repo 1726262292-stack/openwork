@@ -1,5 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import {
@@ -23,7 +24,7 @@ import { defaultReuseAdmin, personDefaults, server } from "./den.ts";
 import type { Den } from "./den.ts";
 import { DEMO_PASSWORD, ensureKindDenReady, exposeEndpointHandles, kubeProfileConfig } from "./kind-stack.ts";
 import { mcpMock } from "./mock.ts";
-import { resolvePlace } from "./place.ts";
+import { resolvePlace, validateDatabaseName } from "./place.ts";
 import type { Place } from "./place.ts";
 import { defineWorld, worldTopologySchema } from "./topology.ts";
 import type { WorldDefinition, WorldOrg, WorldTopology } from "./topology.ts";
@@ -31,7 +32,18 @@ import type { DenRef, DenSession } from "@openwork/behaviors";
 
 const REPO_ROOT = fileURLToPath(new URL("../../../..", import.meta.url));
 const WORLDS_DIR = join(REPO_ROOT, "evals", "results", ".worlds");
+const RESULTS_DIR = join(REPO_ROOT, "evals", "results");
 const DEFAULT_LOCAL_MYSQL_URL = "mysql://root:password@127.0.0.1:3306";
+const SNAPSHOT_ENV_KEY = /^(DEN_|OPENWORK_)[A-Z0-9_]+$/;
+const SNAPSHOT_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+const SNAPSHOT_MODEL = /^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,255}$/;
+const SNAPSHOT_FAULT = /^[a-z0-9][a-z0-9-]{0,127}$/;
+const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost"]);
+const ALLOWED_WORKSPACE_ROOTS = [
+  resolve(tmpdir()),
+  RESULTS_DIR,
+  ...(process.platform === "win32" ? [] : [resolve("/tmp")]),
+];
 
 export interface World extends AsyncDisposable {
   name: string;
@@ -106,7 +118,7 @@ const worldSnapshotSchema = z.strictObject({
       apiUrl: z.string(),
       webUrl: z.string(),
       substrate: z.literal("kind").optional(),
-      database: z.string().regex(/^[a-z][a-z0-9_]{0,62}$/).optional(),
+      database: z.string().optional(),
       ports: resolvedPortsSchema.optional(),
     }),
     apps: z.record(z.string(), resolvedAppSchema),
@@ -115,6 +127,164 @@ const worldSnapshotSchema = z.strictObject({
 
 function messageText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function displayedSnapshotValue(value: unknown): string {
+  const encoded = JSON.stringify(value);
+  const displayed = encoded === undefined ? String(value) : encoded;
+  return displayed.length > 300 ? `${displayed.slice(0, 297)}...` : displayed;
+}
+
+function rejectSnapshotField(field: string, value: unknown, requirement: string): never {
+  throw new Error(
+    `Untrusted world snapshot rejected: ${field}=${displayedSnapshotValue(value)}; ${requirement}. Use a generated world snapshot or correct this field.`,
+  );
+}
+
+function snapshotValueAtPath(value: unknown, path: readonly PropertyKey[]): unknown {
+  let current = value;
+  for (const segment of path) {
+    if (typeof segment === "number" && Array.isArray(current)) {
+      current = current[segment];
+      continue;
+    }
+    if (typeof segment === "string" && isRecord(current)) {
+      current = current[segment];
+      continue;
+    }
+    return undefined;
+  }
+  return current;
+}
+
+function parseSnapshotStructure(jsonText: string): { json: unknown; snapshot: WorldSnapshot } {
+  let json: unknown;
+  try {
+    json = JSON.parse(jsonText);
+  } catch (error) {
+    throw new Error(`Untrusted world snapshot is not valid JSON: ${messageText(error)}`);
+  }
+  const parsed = worldSnapshotSchema.safeParse(json);
+  if (parsed.success) return { json, snapshot: parsed.data };
+  const issue = parsed.error.issues[0];
+  if (!issue) throw new Error("Untrusted world snapshot failed structural validation.");
+  const field = issue.path.length > 0 ? issue.path.map(String).join(".") : "<root>";
+  throw new Error(
+    `Untrusted world snapshot rejected: ${field}=${displayedSnapshotValue(snapshotValueAtPath(json, issue.path))}; ${issue.message}.`,
+  );
+}
+
+function validateSnapshotPort(field: string, value: number): void {
+  if (!Number.isInteger(value) || value < 1024 || value > 65_535) {
+    rejectSnapshotField(field, value, "expected an integer port from 1024 to 65535");
+  }
+}
+
+function validateSnapshotWorkspacePath(field: string, value: string): void {
+  if (!isAbsolute(value)) {
+    rejectSnapshotField(field, value, "expected an absolute path inside a temporary directory or evals/results");
+  }
+  const candidate = resolve(value);
+  const allowed = ALLOWED_WORKSPACE_ROOTS.some((root) => {
+    const child = relative(root, candidate);
+    return child.length > 0 && child !== ".." && !child.startsWith(`..${sep}`) && !isAbsolute(child);
+  });
+  if (!allowed) {
+    rejectSnapshotField(
+      field,
+      value,
+      `expected a path inside one of ${ALLOWED_WORKSPACE_ROOTS.map(displayedSnapshotValue).join(", ")}`,
+    );
+  }
+}
+
+function validateSnapshotCdpUrl(field: string, value: string): void {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    rejectSnapshotField(field, value, "expected an http(s) loopback CDP URL");
+  }
+  if (!["http:", "https:"].includes(url.protocol) || !LOOPBACK_HOSTS.has(url.hostname)) {
+    rejectSnapshotField(field, value, "expected an http(s) URL whose hostname is 127.0.0.1 or localhost");
+  }
+  if (!url.port) {
+    rejectSnapshotField(field, value, "expected an explicit CDP port from 1024 to 65535");
+  }
+  validateSnapshotPort(`${field}.port`, Number(url.port));
+}
+
+function validateSnapshotLoopbackUrlPort(field: string, value: string): void {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    // Malformed and non-HTTP resolved Den URLs cannot reach the local freePort teardown path.
+    return;
+  }
+  if (LOOPBACK_HOSTS.has(url.hostname) && url.port) {
+    validateSnapshotPort(`${field}.port`, Number(url.port));
+  }
+}
+
+function validateUntrustedSnapshot(snapshot: WorldSnapshot): void {
+  if (!SNAPSHOT_NAME.test(snapshot.name)) {
+    rejectSnapshotField("name", snapshot.name, "expected a filesystem-safe name using letters, numbers, dots, underscores, or hyphens");
+  }
+
+  for (const [key, value] of Object.entries(snapshot.topology.den.env ?? {})) {
+    if (!SNAPSHOT_ENV_KEY.test(key)) {
+      rejectSnapshotField(`topology.den.env.${key}`, value, "environment keys must match ^(DEN_|OPENWORK_)[A-Z0-9_]+$");
+    }
+    if (value.includes("\0")) {
+      rejectSnapshotField(`topology.den.env.${key}`, value, "environment values must not contain NUL bytes");
+    }
+  }
+
+  if (snapshot.topology.den.ports) {
+    validateSnapshotPort("topology.den.ports.api", snapshot.topology.den.ports.api);
+    validateSnapshotPort("topology.den.ports.web", snapshot.topology.den.ports.web);
+  }
+  for (const [name, app] of Object.entries(snapshot.topology.apps ?? {})) {
+    if (app.workspacePath !== undefined) {
+      validateSnapshotWorkspacePath(`topology.apps.${name}.workspacePath`, app.workspacePath);
+    }
+    if (app.model !== undefined && !SNAPSHOT_MODEL.test(app.model)) {
+      rejectSnapshotField(`topology.apps.${name}.model`, app.model, "expected a model identifier containing only letters, numbers, ._:/@+-");
+    }
+    if (
+      app.localServerDelayMs !== undefined
+      && (!Number.isInteger(app.localServerDelayMs) || app.localServerDelayMs < 0 || app.localServerDelayMs > 300_000)
+    ) {
+      rejectSnapshotField(`topology.apps.${name}.localServerDelayMs`, app.localServerDelayMs, "expected an integer from 0 to 300000");
+    }
+  }
+  for (const [name, witness] of Object.entries(snapshot.topology.witnesses ?? {})) {
+    if (witness.fault !== undefined && !SNAPSHOT_FAULT.test(witness.fault)) {
+      rejectSnapshotField(`topology.witnesses.${name}.fault`, witness.fault, "expected a lowercase fault id containing only letters, numbers, or hyphens");
+    }
+  }
+
+  const database = snapshot.resolved.den.database;
+  if (database !== undefined) {
+    try {
+      validateDatabaseName(database);
+    } catch {
+      rejectSnapshotField("resolved.den.database", database, "expected a valid ephemeral database name matching ^[a-z][a-z0-9_]{0,62}$");
+    }
+    if (!database.startsWith("openwork_eval_")) {
+      rejectSnapshotField("resolved.den.database", database, "only generated openwork_eval_* databases may be torn down");
+    }
+  }
+  if (snapshot.resolved.den.ports) {
+    validateSnapshotPort("resolved.den.ports.api", snapshot.resolved.den.ports.api);
+    validateSnapshotPort("resolved.den.ports.web", snapshot.resolved.den.ports.web);
+  }
+  validateSnapshotLoopbackUrlPort("resolved.den.apiUrl", snapshot.resolved.den.apiUrl);
+  validateSnapshotLoopbackUrlPort("resolved.den.webUrl", snapshot.resolved.den.webUrl);
+  for (const [name, app] of Object.entries(snapshot.resolved.apps)) {
+    validateSnapshotCdpUrl(`resolved.apps.${name}.cdpUrl`, app.cdpUrl);
+  }
 }
 
 function primaryOrganization(topology: WorldTopology): [string, WorldOrg] {
@@ -453,16 +623,21 @@ export function buildSnapshot(input: BuildSnapshotInput): WorldSnapshot {
     topology: defineWorld(input.topology).topology,
     resolved: input.resolved,
   });
+  if (snapshot.resolved.den.database !== undefined) {
+    validateDatabaseName(snapshot.resolved.den.database);
+  }
   return snapshot;
 }
 
-function parseSnapshot(jsonText: string): WorldSnapshot {
-  const json: unknown = JSON.parse(jsonText);
-  return worldSnapshotSchema.parse(json);
+/** Snapshot files cross artifact, bug-report, and chat boundaries; unlike in-code topologies, they are hostile input. */
+export function parseUntrustedSnapshot(jsonText: string): WorldSnapshot {
+  const { snapshot } = parseSnapshotStructure(jsonText);
+  validateUntrustedSnapshot(snapshot);
+  return snapshot;
 }
 
 export function fromSnapshot(jsonText: string): { topology: WorldTopology; name: string } {
-  const snapshot = parseSnapshot(jsonText);
+  const snapshot = parseUntrustedSnapshot(jsonText);
   return {
     topology: defineWorld(snapshot.topology).topology,
     name: snapshot.name,
@@ -490,7 +665,7 @@ function localUrlPort(value: string): number | null {
     const url = new URL(value);
     if (!["127.0.0.1", "localhost", "::1"].includes(url.hostname)) return null;
     const port = Number(url.port);
-    return Number.isInteger(port) && port > 0 && port <= 65_535 ? port : null;
+    return Number.isInteger(port) && port >= 1024 && port <= 65_535 ? port : null;
   } catch {
     return null;
   }
@@ -509,7 +684,7 @@ export async function resumeWorld(
   snapshotJsonText: string,
   options: { teardown?: boolean } = {},
 ): Promise<ResumedWorld> {
-  const snapshot = parseSnapshot(snapshotJsonText);
+  const snapshot = parseUntrustedSnapshot(snapshotJsonText);
   const topology = defineWorld(snapshot.topology).topology;
   await requireRunningWorld(snapshot);
   const [, primaryOrg] = primaryOrganization(topology);
