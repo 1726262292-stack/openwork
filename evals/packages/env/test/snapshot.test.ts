@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { defineWorld } from "../src/topology.ts";
-import { buildSnapshot, fromSnapshot } from "../src/world.ts";
+import { buildSnapshot, fromSnapshot, parseUntrustedSnapshot, resumeWorld } from "../src/world.ts";
 
 function safeSnapshot() {
   return buildSnapshot({
@@ -16,6 +16,7 @@ function safeSnapshot() {
       den: {
         apiUrl: "http://127.0.0.1:8790",
         webUrl: "http://127.0.0.1:3005",
+        origin: "launched",
         database: "openwork_eval_safe_snapshot",
         ports: { api: 8790, web: 3005 },
       },
@@ -26,6 +27,47 @@ function safeSnapshot() {
           sessions: [],
         },
       },
+    },
+  });
+}
+
+function attachedSnapshot(apiUrl: string) {
+  return buildSnapshot({
+    name: "attached-snapshot",
+    createdAt: "2026-08-23T12:00:00.000Z",
+    place: "local",
+    topology: defineWorld({
+      den: {
+        attach: { apiUrl, tier: "staging" },
+        orgs: { acme: {} },
+      },
+    }).topology,
+    resolved: {
+      den: { apiUrl, webUrl: apiUrl, origin: "attached" },
+      apps: {},
+    },
+  });
+}
+
+function secretRefSnapshot() {
+  return buildSnapshot({
+    name: "secret-ref-snapshot",
+    createdAt: "2026-08-23T12:00:00.000Z",
+    place: "local",
+    topology: defineWorld({
+      den: {
+        orgs: {
+          acme: { admin: { secretRef: "OPENWORK_EVAL_SECRET_SNAPSHOT_ADMIN" } },
+        },
+      },
+    }).topology,
+    resolved: {
+      den: {
+        apiUrl: "http://127.0.0.1:8790",
+        webUrl: "http://127.0.0.1:3005",
+        origin: "launched",
+      },
+      apps: {},
     },
   });
 }
@@ -54,6 +96,7 @@ test("buildSnapshot output round-trips through untrusted boot-shape validation",
       den: {
         apiUrl: "http://127.0.0.1:8790",
         webUrl: "http://127.0.0.1:3005",
+        origin: "launched",
         database: "openwork_eval_round_trip",
         ports: { api: 8790, web: 3005 },
       },
@@ -75,9 +118,53 @@ test("buildSnapshot output round-trips through untrusted boot-shape validation",
   assert.deepEqual(snapshot.resolved.den, {
     apiUrl: "http://127.0.0.1:8790",
     webUrl: "http://127.0.0.1:3005",
+    origin: "launched",
     database: "openwork_eval_round_trip",
     ports: { api: 8790, web: 3005 },
   });
+});
+
+test("attached snapshots remain parseable for listing but cannot rebuild or resume", async () => {
+  for (const apiUrl of ["https://den.example.test", "http://127.0.0.1:8790"]) {
+    const json = JSON.stringify(attachedSnapshot(apiUrl));
+    assert.doesNotThrow(() => parseUntrustedSnapshot(json));
+    assert.throws(
+      () => fromSnapshot(json),
+      /Attached worlds cannot be resumed or rebuilt from snapshots/,
+    );
+    await assert.rejects(
+      () => resumeWorld(json),
+      /Attached worlds cannot be resumed or rebuilt from snapshots/,
+    );
+  }
+
+  const attached = attachedSnapshot("http://127.0.0.1:8790");
+  const originOnly = {
+    ...attached,
+    topology: {
+      ...attached.topology,
+      den: { orgs: attached.topology.den.orgs },
+    },
+  };
+  const originOnlyJson = JSON.stringify(originOnly);
+  assert.doesNotThrow(() => parseUntrustedSnapshot(originOnlyJson));
+  assert.throws(
+    () => fromSnapshot(originOnlyJson),
+    /Attached worlds cannot be resumed or rebuilt from snapshots/,
+  );
+});
+
+test("secretRef snapshots remain parseable for listing but cannot rebuild or resume", async () => {
+  const json = JSON.stringify(secretRefSnapshot());
+  assert.doesNotThrow(() => parseUntrustedSnapshot(json));
+  assert.throws(
+    () => fromSnapshot(json),
+    /Snapshots naming secretRef people cannot be resumed or rebuilt/,
+  );
+  await assert.rejects(
+    () => resumeWorld(json),
+    /Snapshots naming secretRef people cannot be resumed or rebuilt/,
+  );
 });
 
 test("Warden VLA-BHM: fromSnapshot rejects NODE_OPTIONS import execution", () => {
@@ -199,6 +286,7 @@ test("fromSnapshot rejects out-of-range topology and resolved ports", () => {
     resolved: {
       ...derivedPortSnapshot.resolved,
       den: {
+        ...derivedPortSnapshot.resolved.den,
         apiUrl: "http://127.0.0.1:81",
         webUrl: derivedPortSnapshot.resolved.den.webUrl,
       },
@@ -241,7 +329,11 @@ test("fromSnapshot rejects unknown fields", () => {
     place: "local",
     topology,
     resolved: {
-      den: { apiUrl: "http://127.0.0.1:8788", webUrl: "http://127.0.0.1:3005" },
+      den: {
+        apiUrl: "http://127.0.0.1:8788",
+        webUrl: "http://127.0.0.1:3005",
+        origin: "launched",
+      },
       apps: {},
     },
   });
@@ -268,6 +360,7 @@ test("kind world snapshots preserve their resolved Den substrate", () => {
       den: {
         apiUrl: "http://127.0.0.1:8790",
         webUrl: "http://127.0.0.1:3005",
+        origin: "launched",
         substrate: "kind",
       },
       apps: {},

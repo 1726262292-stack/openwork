@@ -5,6 +5,8 @@ export interface WorldPerson {
   email?: string;
   name?: string;
   password?: string;
+  /** Must match `^OPENWORK_EVAL_SECRET_[A-Z][A-Z0-9_]*$`; resolves `${secretRef}_EMAIL` and `${secretRef}_PASSWORD` at world start. */
+  secretRef?: string;
 }
 
 export interface WorldOrg {
@@ -48,6 +50,7 @@ export interface WorldWitness {
 export interface WorldTopology {
   den: {
     orgs: Record<string, WorldOrg>;
+    attach?: { apiUrl: string; webUrl?: string; tier: "prod" | "staging" | "demo" };
     env?: Record<string, string>;
     web?: boolean;
     substrate?: "local" | "kind";
@@ -71,6 +74,20 @@ const worldPersonSchema = z.strictObject({
   email: z.string().optional(),
   name: z.string().optional(),
   password: z.string().optional(),
+  secretRef: z.string()
+    .regex(
+      /^OPENWORK_EVAL_SECRET_[A-Z][A-Z0-9_]*$/,
+      "secretRef must match ^OPENWORK_EVAL_SECRET_[A-Z][A-Z0-9_]*$",
+    )
+    .optional(),
+}).superRefine((person, context) => {
+  if (person.secretRef !== undefined && person.password !== undefined) {
+    context.addIssue({
+      code: "custom",
+      path: ["secretRef"],
+      message: "secretRef and password are mutually exclusive",
+    });
+  }
 });
 
 const worldPluginSchema = z.strictObject({
@@ -155,12 +172,42 @@ const worldPortsSchema = z.strictObject({
 export const worldTopologySchema = z.strictObject({
   den: z.strictObject({
     orgs: z.record(z.string(), worldOrgSchema),
+    attach: z.strictObject({
+      apiUrl: z.string(),
+      webUrl: z.string().optional(),
+      tier: z.enum(["prod", "staging", "demo"]),
+    }).optional(),
     env: z.record(z.string(), z.string()).optional(),
     web: z.boolean().optional(),
-    substrate: z.enum(["local", "kind"]).default("local"),
+    substrate: z.enum(["local", "kind"]).optional(),
     ports: worldPortsSchema.optional(),
     seed: z.literal("demo-org").optional(),
-  }),
+  }).superRefine((den, context) => {
+    if (!den.attach) return;
+    const conflictingOptions: readonly ("seed" | "substrate" | "env" | "ports" | "web")[] = [
+      "seed",
+      "substrate",
+      "env",
+      "ports",
+      "web",
+    ];
+    for (const key of conflictingOptions) {
+      if (den[key] !== undefined) {
+        context.addIssue({
+          code: "custom",
+          path: ["attach"],
+          message: `den.attach conflicts with den.${key}`,
+        });
+      }
+    }
+    if (den.attach.tier === "prod" && Object.keys(den.orgs).length > 0) {
+      context.addIssue({
+        code: "custom",
+        path: ["orgs"],
+        message: 'den.attach tier "prod" refuses organization provisioning: you own what you launch; you never own what you attach.',
+      });
+    }
+  }).transform((den) => den.attach ? den : { ...den, substrate: den.substrate ?? "local" }),
   apps: z.record(z.string(), worldAppSchema).optional(),
   witnesses: z.record(z.string(), worldWitnessSchema).optional(),
 });
@@ -182,6 +229,16 @@ function validateReferences(topology: WorldTopology): void {
   const orgKeys = Object.keys(topology.den.orgs);
   const primaryOrg = orgKeys[0];
   if (!primaryOrg) {
+    if (topology.den.attach?.tier === "prod") {
+      for (const [appName, app] of Object.entries(topology.apps ?? {})) {
+        if (app.signedInTo) {
+          throw new Error(
+            `World app ${JSON.stringify(appName)} signedInTo.org ${JSON.stringify(app.signedInTo.org)} does not exist in den.orgs.`,
+          );
+        }
+      }
+      return;
+    }
     throw new Error("World topology must define at least one organization in den.orgs.");
   }
 
@@ -309,6 +366,31 @@ function parseTopology(input: unknown): WorldTopology {
   const topology: WorldTopology = worldTopologySchema.parse(input);
   validateReferences(topology);
   return topology;
+}
+
+export function resolveWorldPerson(
+  person: WorldPerson,
+  env: NodeJS.ProcessEnv = process.env,
+): WorldPerson {
+  if (person.secretRef === undefined) return person;
+  const emailVariable = `${person.secretRef}_EMAIL`;
+  const passwordVariable = `${person.secretRef}_PASSWORD`;
+  const email = env[emailVariable];
+  const password = env[passwordVariable];
+  if (email === undefined || password === undefined) {
+    const missing = [
+      ...(email === undefined ? [emailVariable] : []),
+      ...(password === undefined ? [passwordVariable] : []),
+    ];
+    throw new Error(
+      `World person namespaced secretRef ${JSON.stringify(person.secretRef)} is missing environment variable(s): ${missing.join(", ")}; secretRef names must match ^OPENWORK_EVAL_SECRET_[A-Z][A-Z0-9_]*$.`,
+    );
+  }
+  return {
+    email,
+    password,
+    ...(person.name === undefined ? {} : { name: person.name }),
+  };
 }
 
 function makeDefinition(topology: WorldTopology): WorldDefinition {
