@@ -345,6 +345,16 @@ function denBaseUrlIsLoopback(denBaseUrl: string | undefined) {
   }
 }
 
+function deriveApiPublicUrlFromWebOrigin(input: { devMode: boolean; port: number; webOrigin: string }) {
+  const web = new URL(input.webOrigin)
+  if (input.devMode && isLoopbackHostname(web.hostname)) {
+    return `http://127.0.0.1:${input.port}`
+  }
+  const api = new URL(web.toString())
+  api.hostname = `api.${web.hostname}`
+  return api.origin
+}
+
 function isLocalRedisHost(hostname: string) {
   return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]" || hostname === "::1"
 }
@@ -541,7 +551,7 @@ if (diagnosticsBearerToken && diagnosticsBearerToken.length < 24) {
 }
 const derivedDenApiPublicUrl = configuredDenUrls && devMode && denBaseUrlIsLoopback(configuredDenUrls.web)
   ? `http://127.0.0.1:${port}`
-  : configuredDenUrls?.api
+  : configuredDenUrls?.api ?? deriveApiPublicUrlFromWebOrigin({ devMode, port, webOrigin: betterAuthPublicWebOrigin })
 const apiPublicUrl = normalizeConfiguredPublicApiBaseUrl(
   optionalString(parsed.DEN_API_PUBLIC_URL) ?? derivedDenApiPublicUrl,
   {
