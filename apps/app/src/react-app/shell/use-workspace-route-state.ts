@@ -677,12 +677,16 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
       workspaceSelectionCommitTimerRef.current = null;
       workspaceSelectionCommitterRef.current?.request(routeWorkspaceId);
     }, ROUTE_WORKSPACE_ACTIVATION_SETTLE_MS);
+    // On navigation only the routed workspace needs a load: boot already
+    // scheduled background loads for every other unloaded workspace.
     const workspaceIdsToLoad = planRouteWorkspaceLoads(
       workspacesRef.current.map((workspace) => workspace.id),
       routeWorkspaceId,
       loadedWorkspaceIdsRef.current,
     );
-    const workspace = workspacesRef.current.find((item) => item.id === workspaceIdsToLoad[0]);
+    const workspace = workspaceIdsToLoad.includes(routeWorkspaceId)
+      ? workspacesRef.current.find((item) => item.id === routeWorkspaceId)
+      : undefined;
     if (workspace) {
       setRetryingWorkspaceIds((current) => Array.from(new Set([...current, workspace.id])));
       void loadWorkspaceSessionsInBackground([workspace]);

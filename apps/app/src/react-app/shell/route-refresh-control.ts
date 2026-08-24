@@ -79,15 +79,26 @@ export function createLatestWorkspaceCommitter(
   };
 }
 
-/** Only the routed workspace needs an OpenCode session index immediately. */
+/**
+ * Every workspace with an unloaded session index gets a background load, with
+ * the routed workspace first so the visible pane fills fastest. Loading only
+ * the routed workspace left every other workspace's sidebar showing the
+ * "No tasks yet." empty state on launch even when it had sessions, because
+ * nothing else ever fetched their session lists. Session-list loads are
+ * read-only `listSessions` calls, so this does not interact with the
+ * workspace-activation serialization from the switching-coherence fix.
+ */
 export function planRouteWorkspaceLoads(
   workspaceIds: string[],
   selectedWorkspaceId: string,
   loadedWorkspaceIds: ReadonlySet<string>,
 ): string[] {
   const selectedId = selectedWorkspaceId.trim();
-  if (!selectedId || loadedWorkspaceIds.has(selectedId) || !workspaceIds.includes(selectedId)) return [];
-  return [selectedId];
+  const selectedFirst = selectedId && !loadedWorkspaceIds.has(selectedId) && workspaceIds.includes(selectedId)
+    ? [selectedId]
+    : [];
+  const remaining = workspaceIds.filter((id) => id !== selectedId && !loadedWorkspaceIds.has(id));
+  return [...selectedFirst, ...remaining];
 }
 
 export function createRouteRefreshLifecycle(): RouteRefreshLifecycle {
