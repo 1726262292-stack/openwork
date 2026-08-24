@@ -9,3 +9,9 @@ export function isMcpAppsDashboardEnabled(): boolean {
   if (typeof window === "undefined") return false;
   return window.localStorage.getItem(MCP_APPS_DASHBOARD_FLAG_KEY) === "1";
 }
+
+export function setMcpAppsDashboardEnabled(enabled: boolean): void {
+  if (typeof window === "undefined") return;
+  if (enabled) window.localStorage.setItem(MCP_APPS_DASHBOARD_FLAG_KEY, "1");
+  else window.localStorage.removeItem(MCP_APPS_DASHBOARD_FLAG_KEY);
+}
