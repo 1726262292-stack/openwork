@@ -1,4 +1,11 @@
 export function denApiOriginForWebOrigin(webOrigin: string): string | null {
+  const configuredOrigin = process.env.DEN_API_BASE?.trim();
+  if (configuredOrigin) {
+    try {
+      return new URL(configuredOrigin).origin;
+    } catch {}
+  }
+
   let url: URL;
   try {
     url = new URL(webOrigin);

@@ -15,6 +15,51 @@ Use the skills in this order:
 
 Demo-driven features start from a preset or world plus a spec in `evals/specs`.
 
+## Glossary
+
+| Term | Meaning |
+| --- | --- |
+| world | A declarative environment and the resources started from it. |
+| topology | The `WorldTopology` shape: Den organizations, environment, web, substrate, ports, and seed, plus apps and witnesses. |
+| preset | Code: a typed, composable, reviewed world definition. |
+| snapshot | A generated receipt of one run. It is data and untrusted input. |
+| place | Where launched resources run: `local` or `daytona`. |
+| substrate | What runs the Den control plane: local processes or `kind`. |
+| witness | A deterministic provider stand-in that records what it saw. |
+| fault | Declared misbehavior used to reproduce a failure condition. |
+| surface | A drivable UI: Electron, or Chrome on Den Web. |
+| origin | Whether a resource is launched or attached. See below. |
+
+### Origin: launch vs attach
+
+Every world resource has an origin. *Launched* resources are created by the
+world, owned by it, and disposed with it; plain nouns in a topology mean
+launched. *Attached* resources pre-exist the world; the world binds to them and
+never creates or destroys them. The law: **you own what you launch; you never
+own what you attach.** Dispose, cleanup, and `world rebuild` follow from it:
+rebuild relaunches launched resources and reattaches attached ones.
+
+The term is `attach`, not `connect` (`connections` already names org-to-provider
+bindings in topology), and not `reuse` or `prepared` (legacy names in
+`@openwork/env` internals that will migrate to attach).
+
+## Skills map
+
+Skills own mechanics; this README owns the map and vocabulary.
+
+| Task | Skill to load | When |
+| --- | --- | --- |
+| Author a spec | `write-a-spec` | Add executable coverage under `evals/specs`. |
+| Run tests | `run-tests` | Run a selected testkit spec locally or on Daytona. |
+| Failing or red run | `diagnose-a-red-run` | Classify a failure before changing code. |
+| Publish evidence | `publish-evidence` | Publish an existing ambient evidence run. |
+| Declare a PR verdict | `prove-a-pr` | Decide Passed, Incomplete, or Failed from assertions. |
+| Missing secret or environment variable | `get-env-var` | Load a required team secret into the shell. |
+| Drive local Electron via CDP | `browser-automation` | Explore or debug the local desktop surface. |
+| Daytona E2E | `daytona-electron-test` | Launch and drive Electron in Daytona. |
+| Daytona server or Den setup | `daytona-cloud-server` | Prepare the server-side Daytona sandbox. |
+| Provider keys in Daytona | `daytona-secrets-volume` | Use provider credentials from the Daytona secrets volume. |
+
 ## Install and run
 
 `evals/` is a standalone pnpm workspace so its tooling cannot affect product
@@ -100,58 +145,55 @@ deep-patched with `.with()`. The topology has:
 
 - `den.orgs`: named organizations, each with an optional admin and named members.
 - `den.env`: optional environment variables for the Den server. `den.web` and
-  `den.substrate` also configure that server.
+  `den.substrate` also configure that server; `den.ports` fixes API and Web
+  ports, and `den.seed` selects the supported demo seed.
 - `apps`: optional named desktop apps with their target org/member, workspace,
-  model, and optional local server delay.
+  model, sessions, and optional local server delay.
 - `witnesses`: optional named witnesses; v1 accepts MCP mocks only.
 
-The shipped presets are `solo` (one org and one admin app) and `support-org`
-(two orgs, with admin and member apps in the primary org). `startWorld()` boots
-the Den, organizations, witnesses, and apps in dependency order and disposes
-them together. `fromSnapshot()` validates generated snapshot JSON and returns
-the name and topology needed to start an equivalent fresh world.
+The shipped definitions are `soloWorkspace`, `supportOrg`, `acmeDemo`, and
+`acmeDocs`; their CLI names are `solo`, `support-org`, `acme-demo`, and
+`acme-docs`. `startWorld()` boots the Den, organizations, witnesses, and apps in
+dependency order and disposes them together. `fromSnapshot()` validates
+generated snapshot JSON and returns the name and topology needed to start an
+equivalent fresh world.
 
 Each started world writes a snapshot to
 `evals/results/.worlds/<name>.json`. Snapshots contain the validated topology
-plus resolved Den and app endpoints.
-Snapshots are data: `rebuild` and `resume` treat them as untrusted and constrain
-Den environment keys, database names, ports, app workspace paths/models/faults,
-and resolved CDP URLs before starting, attaching to, or tearing down resources.
+plus resolved Den and app endpoints. They are generated, never hand-written.
+Snapshots are untrusted input: `rebuild` and `resume` allowlist Den environment
+keys, database names, ports, paths, models and faults, and require loopback-only
+resolved CDP URLs before starting, attaching to, or tearing down resources.
 
 ### World CLI
 
-The root `pnpm world` command requires Node 24+ and supports:
-
-| Command | Meaning |
-| --- | --- |
-| `pnpm world up <preset> [--name <name>]` | Start a preset world and keep it alive until Ctrl-C, which tears down its resources. |
-| `pnpm world rebuild <snapshot-path>` | Validate a generated snapshot and start a fresh world from its topology until Ctrl-C. |
-| `pnpm world list` | List generated snapshots with their place, organizations, and apps. |
-| `pnpm world down <name>` | Remove a saved snapshot; there is no world daemon to stop. |
-| `pnpm world help` | Show usage and the available presets. |
-
-A realistic local session uses two terminals:
+The root `pnpm world` command requires Node 24+. Its interactive lifecycle is:
 
 ```bash
-# terminal 1; leave this running
-pnpm world up support-org --name support-repro
-
-# terminal 2
+pnpm world up support-org          # boot a world; stays up until Ctrl-C
+pnpm world up acme-demo --name acme-demo --keep
+                                    # keep resources after exit
+pnpm world resume acme-demo        # attach to that running world
+pnpm world resume acme-demo --teardown
+                                    # attach and stop it
+pnpm world rebuild <snapshot>      # rebuild the world a failed run was in
 pnpm world list
+pnpm world forget <name>
 ```
 
-Press Ctrl-C in terminal 1 to tear down the running resources. The generated
-snapshot remains available for listing, rebuilding, or removal with
-`pnpm world down support-repro`.
+`up` also accepts `--name <name>`. Without `--keep`, Ctrl-C tears down the
+resources; with `--keep`, Ctrl-C leaves them detached. `resume` accepts a world
+name or snapshot path and detaches on Ctrl-C unless `--teardown` is present.
+`forget` removes snapshot metadata without stopping detached services. `help`
+prints usage and the available presets.
 
 World v1 has deliberate limits:
 
-- Every app signs in.
-- Apps join the first (primary) organization only.
+- Apps may sign in only to the first (primary) organization; an app without
+  `signedInTo` remains fresh and signed out.
 - Witnesses are MCP mocks only.
-- `onKind()` exists, but `den.substrate: "kind"` is validation-only and
-  `startWorld()` throws `den.substrate "kind" is not wired yet`.
-- There is no session seeding yet.
+- `den.substrate: "kind"` exposes only the seeded Den: no apps, witnesses,
+  world seed, or fixed ports.
 
 ### Reproducing a failure
 
@@ -161,7 +203,54 @@ A failed local run's world snapshot can be rebuilt with:
 pnpm world rebuild evals/results/.worlds/<name>.json
 ```
 
-Snapshots are generated by `startWorld()` and are never hand-written.
+## Recipes
+
+### Drive the app
+
+Use `startWorld()` and select named surfaces with `world.app("name")`. Compose
+journeys from `@openwork/behaviors`; executable coverage belongs in `evals/specs`.
+
+```ts
+import { startWorld, supportOrg } from "@openwork/testkit";
+
+await using world = await startWorld(supportOrg, { place });
+const alice = world.app("alice"); // signed in
+const bob = world.app("bob"); // fresh, not signed in
+```
+
+### Provision a fresh setup
+
+Create a topology with `defineWorld()` or patch a preset with `.with()`. Use
+`pnpm world up <preset>` interactively and `startWorld()` in specs.
+
+```ts
+const slowSupport = supportOrg.with({ apps: { bob: { localServerDelayMs: 500 } } });
+```
+
+### Reproduce network conditions
+
+Declare provider faults at `witnesses.<name>.fault` in the topology; fault proxy
+controls live in `faults.ts`. Use `localServerDelayMs` on apps for delayed local
+server startup.
+
+```ts
+const faulted = acmeDocs.with({
+  witnesses: { slack: { profileId: "slack-user-mcp", fault: "provider-throttled" } },
+});
+```
+
+### Reproduce a failure
+
+Take the snapshot from the failed run and rebuild its topology in a fresh world:
+
+```bash
+pnpm world rebuild evals/results/.worlds/<name>.json
+```
+
+### Docs screenshots and demos
+
+The same `startWorld()` lifecycle powers docs shots and demos, so docs, CI, and
+reproduction cannot diverge. Use the `acmeDocs` and `acmeDemo` presets.
 
 ## Ambient evidence and verdicts
 
@@ -231,3 +320,21 @@ takes `browser_url`; target-specific calls also use the selected target ID.
 Use these calls for exploration and debugging, not as replacement verdict
 evidence. Repeatable executable coverage belongs in a testkit test, where
 observable assertions and validated screenshots are recorded as test evidence.
+
+## Reserved names (not implemented)
+
+These names are designed but not built. Do not attempt to use them:
+
+- `attach.den({ url, tier })`
+- `attach.user({ secretRef })`
+- `attach.sandbox(...)`
+- `tier: "prod" | "staging" | "demo"`; the production tier will structurally
+  refuse organization provisioning, seeding, and database access.
+- `secretRef`; secrets will be named and resolved at start. Snapshots may carry
+  secret references, never secret values.
+
+The low-level escape hatch available today is
+`OPENWORK_EVAL_DEN_API_URL` with `OPENWORK_EVAL_DEN_WEB_URL`. It attaches an
+existing Den at the `server()` level and is called `reuse` in current code.
+Attached mode has no `apiLog()` and does not support `seedProfile`. Locally
+launched mocks are loopback-only and therefore unreachable from a remote Den.
