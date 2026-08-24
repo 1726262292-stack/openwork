@@ -438,8 +438,8 @@ function hostPnpmHome(): string | null {
 
 export function electronSurfaceEnv(paths: ElectronProfilePaths, options: ElectronSurfaceEnvOptions): Record<string, string> {
   const pnpmHome = hostPnpmHome();
-  // Provenance: mirrors scripts/dev-two-electron-demo.mjs demoEnv() so local
-  // eval Electron surfaces stay fully isolated from the user's real desktop app.
+  // Give local eval Electron surfaces isolated app data, config, and identity so
+  // they cannot affect the user's real desktop app.
   return {
     ...(pnpmHome ? { PNPM_HOME: pnpmHome } : {}),
     APPDATA: paths.appDataDir,
