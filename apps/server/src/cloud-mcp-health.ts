@@ -667,6 +667,11 @@ function normalizeCloudEndpointUrl(value: string): string | null {
     if (url.search || url.hash) return null;
     const normalizedPath = url.pathname.replace(/\/+$/, "") || "/";
     if (!normalizedPath.endsWith("/mcp/agent")) return null;
+    if (url.protocol === "https:" && url.hostname.toLowerCase() === "app.openworklabs.com" && normalizedPath === "/api/den/mcp/agent") {
+      url.hostname = "api.app.openworklabs.com";
+      url.pathname = "/mcp/agent";
+      return url.toString();
+    }
     url.pathname = normalizedPath;
     return url.toString();
   } catch {

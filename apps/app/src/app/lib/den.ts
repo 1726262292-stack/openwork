@@ -670,6 +670,22 @@ function isHostedWebAppHost(hostname: string): boolean {
   return hostname.trim().toLowerCase().startsWith("app.");
 }
 
+function directHostedApiMcpResourceUrl(input: URL): string | null {
+  if (input.protocol !== "https:" || input.hostname.toLowerCase() !== "app.openworklabs.com") {
+    return null;
+  }
+  const pathname = input.pathname.replace(/\/+$/, "");
+  if (pathname !== "/mcp" && pathname !== "/api/den/mcp") {
+    return null;
+  }
+  const output = new URL(input.toString());
+  output.hostname = "api.app.openworklabs.com";
+  output.pathname = "/mcp";
+  output.search = "";
+  output.hash = "";
+  return output.toString().replace(/\/+$/, "");
+}
+
 function stripDenApiBasePath(input: string | null | undefined): string | null {
   const normalized = normalizeDenBaseUrl(input);
   if (!normalized) return null;
@@ -802,6 +818,8 @@ export function resolveCloudMcpResourceUrl(resource: string | null | undefined):
   try {
     const url = new URL(trimmed);
     if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+    const directHostedApiResource = directHostedApiMcpResourceUrl(url);
+    if (directHostedApiResource) return directHostedApiResource;
     if (isLegacyWebAppMcpUrl(trimmed)) {
       url.pathname = "/api/den/mcp";
     }
