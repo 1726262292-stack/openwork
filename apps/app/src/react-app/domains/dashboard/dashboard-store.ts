@@ -12,6 +12,8 @@ export type DashboardMcpAppEntry = {
   title: string;
   /** Optional launch arguments captured when the app was added; every (re)launch reuses them. */
   launchArguments?: Record<string, unknown>;
+  /** True when the launch tool modifies data: the tile only runs on request, never on mount. */
+  requiresApproval?: boolean;
   /** True once the user approved this tile's write-tool launch; removing the tile revokes it. */
   launchApproved?: boolean;
 };
@@ -65,6 +67,7 @@ function parseEntry(value: unknown): DashboardEntry | null {
     resourceUri: value.resourceUri,
     title: value.title,
     ...(isRecord(value.launchArguments) ? { launchArguments: value.launchArguments } : {}),
+    ...(value.requiresApproval === true ? { requiresApproval: true } : {}),
     ...(value.launchApproved === true ? { launchApproved: true } : {}),
   };
 }

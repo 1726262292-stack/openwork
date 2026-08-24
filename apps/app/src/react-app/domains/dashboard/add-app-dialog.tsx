@@ -1,7 +1,7 @@
 /** @jsxImportSource react */
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, Check, Plus, RefreshCw } from "lucide-react";
+import { AlertTriangle, Check, Plus, RefreshCw, SquarePen } from "lucide-react";
 
 import type { OpenworkMcpAppCatalogApp, OpenworkMcpAppCatalogServer } from "@/app/lib/openwork-server";
 import { Badge } from "@/components/ui/badge";
@@ -104,25 +104,36 @@ function CatalogAppRow({ app, added, onAdd }: {
   added: boolean;
   onAdd: (entry: DashboardEntry) => void;
 }) {
-  const [inputOpen, setInputOpen] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const [argsText, setArgsText] = useState("");
   const [argsError, setArgsError] = useState<string | null>(null);
   const entry = mcpEntryFromCatalogApp(app);
-  const addWithInput = () => {
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(argsText);
-    } catch {
-      setArgsError("This is not valid JSON.");
-      return;
-    }
-    if (!isRecord(parsed)) {
-      setArgsError("Launch input must be a JSON object, for example {\"query\": \"…\"}.");
-      return;
+  // Input capture and write-consent both happen once, at add time.
+  const needsDetails = app.requiresInput || app.requiresApproval;
+  const buildEntry = (launchArguments?: Record<string, unknown>): DashboardMcpAppEntry => ({
+    ...entry,
+    ...(launchArguments ? { launchArguments } : {}),
+    ...(app.requiresApproval ? { requiresApproval: true, launchApproved: true } : {}),
+  });
+  const addFromDetails = () => {
+    let launchArguments: Record<string, unknown> | undefined;
+    if (app.requiresInput) {
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(argsText);
+      } catch {
+        setArgsError("This is not valid JSON.");
+        return;
+      }
+      if (!isRecord(parsed)) {
+        setArgsError("Launch input must be a JSON object, for example {\"query\": \"…\"}.");
+        return;
+      }
+      launchArguments = parsed;
     }
     setArgsError(null);
-    setInputOpen(false);
-    onAdd({ ...entry, launchArguments: parsed });
+    setDetailsOpen(false);
+    onAdd(buildEntry(launchArguments));
   };
   return (
     <div className="min-w-0 space-y-2 rounded-lg border border-border px-3 py-2">
@@ -138,17 +149,22 @@ function CatalogAppRow({ app, added, onAdd }: {
             <AlertTriangle className="size-3" /> Requires input
           </Badge>
         ) : null}
+        {app.requiresApproval ? (
+          <Badge variant="outline" title="This app modifies data when it runs; its tile only runs on request.">
+            <SquarePen className="size-3" /> Modifies data
+          </Badge>
+        ) : null}
         {added ? (
           <Button variant="ghost" size="sm" disabled>
             <Check className="size-4" /> Added
           </Button>
-        ) : app.requiresInput ? (
+        ) : needsDetails ? (
           <Button
             variant="outline"
             size="sm"
-            aria-label={`Add ${entry.title} with input`}
-            aria-expanded={inputOpen}
-            onClick={() => setInputOpen((value) => !value)}
+            aria-label={`Add ${entry.title}`}
+            aria-expanded={detailsOpen}
+            onClick={() => setDetailsOpen((value) => !value)}
           >
             <Plus className="size-4" /> Add…
           </Button>
@@ -158,25 +174,36 @@ function CatalogAppRow({ app, added, onAdd }: {
           </Button>
         )}
       </div>
-      {inputOpen && !added ? (
+      {detailsOpen && !added ? (
         <div className="space-y-1">
-          <Textarea
-            value={argsText}
-            onChange={(event) => setArgsText(event.target.value)}
-            placeholder='{"key": "value"}'
-            rows={3}
-            className="font-mono text-xs"
-            aria-label={`Launch input for ${entry.title}`}
-          />
-          <p className="text-xs text-muted-foreground">
-            Paste the launch arguments as a JSON object. The tile reuses them on
-            every launch and refresh.
-          </p>
+          {app.requiresInput ? (
+            <>
+              <Textarea
+                value={argsText}
+                onChange={(event) => setArgsText(event.target.value)}
+                placeholder='{"key": "value"}'
+                rows={3}
+                className="font-mono text-xs"
+                aria-label={`Launch input for ${entry.title}`}
+              />
+              <p className="text-xs text-muted-foreground">
+                Paste the launch arguments as a JSON object. The tile reuses them
+                on every launch and refresh.
+              </p>
+            </>
+          ) : null}
+          {app.requiresApproval ? (
+            <p className="text-xs text-muted-foreground">
+              This app modifies data when it runs ({entry.toolName} on{" "}
+              {entry.serverName}). Adding it allows that call, and the tile only
+              runs when you press Run — never automatically.
+            </p>
+          ) : null}
           {argsError ? <p className="text-xs text-destructive" role="alert">{argsError}</p> : null}
           <div className="flex justify-end gap-2">
-            <Button variant="ghost" size="sm" onClick={() => setInputOpen(false)}>Cancel</Button>
-            <Button variant="outline" size="sm" onClick={addWithInput}>
-              <Plus className="size-4" /> Add with input
+            <Button variant="ghost" size="sm" onClick={() => setDetailsOpen(false)}>Cancel</Button>
+            <Button variant="outline" size="sm" onClick={addFromDetails}>
+              <Plus className="size-4" /> {app.requiresApproval ? "Add and allow" : "Add with input"}
             </Button>
           </div>
         </div>

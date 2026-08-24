@@ -329,6 +329,8 @@ export type McpAppCatalogApp = {
   description: string | null;
   /** True when the launch tool declares required input, so a host cannot start it with empty arguments. */
   requiresInput: boolean;
+  /** True when calling the launch tool needs user approval (not explicitly read-only, or destructive). */
+  requiresApproval: boolean;
 };
 
 export type McpAppCatalogServer = {
@@ -345,6 +347,11 @@ function toolRequiresInput(tool: Tool): boolean {
   const schema: unknown = tool.inputSchema;
   if (!isRecord(schema)) return false;
   return Array.isArray(schema.required) && schema.required.length > 0;
+}
+
+/** Mirrors the exact approval rule `callMcpAppTool` enforces at call time. */
+function toolRequiresApproval(tool: Tool): boolean {
+  return tool.annotations?.readOnlyHint !== true || tool.annotations?.destructiveHint === true;
 }
 
 function toolDisplayTitle(tool: Tool): string | null {
@@ -394,6 +401,7 @@ export async function listMcpAppCatalog(input: {
             title: toolDisplayTitle(tool),
             description: typeof tool.description === "string" ? tool.description : null,
             requiresInput: toolRequiresInput(tool),
+            requiresApproval: toolRequiresApproval(tool),
           });
         }
         return catalog;
@@ -473,6 +481,7 @@ export async function listMcpAppCatalog(input: {
             title: toolDisplayTitle(tool),
             description: typeof tool.description === "string" ? tool.description : null,
             requiresInput: toolRequiresInput(tool),
+            requiresApproval: toolRequiresApproval(tool),
           });
         }
         return catalog;

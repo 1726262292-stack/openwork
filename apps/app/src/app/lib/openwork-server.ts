@@ -432,6 +432,8 @@ export type OpenworkMcpAppCatalogApp = {
   description: string | null;
   /** True when the launch tool declares required input, so a host cannot start it with empty arguments. */
   requiresInput: boolean;
+  /** True when calling the launch tool needs user approval (not explicitly read-only, or destructive). */
+  requiresApproval: boolean;
 };
 
 export type OpenworkMcpAppCatalogServer = {

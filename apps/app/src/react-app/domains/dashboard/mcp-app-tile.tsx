@@ -1,11 +1,13 @@
 /** @jsxImportSource react */
 import { useEffect, useRef, useState } from "react";
+import { Play } from "lucide-react";
 
 import {
   OpenworkServerError,
   type OpenworkMcpAppResource,
 } from "@/app/lib/openwork-server";
 import { McpAppSandboxView, type PreservedMcpAppResult } from "@/components/chat/mcp-app-frame";
+import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useWorkspace } from "@/react-app/shell/workspace-provider";
 import { DashboardTileShell } from "./dashboard-tile-shell";
@@ -18,16 +20,34 @@ import type { DashboardMcpAppEntry } from "./dashboard-store";
 const EMPTY_ARGUMENTS: Record<string, unknown> = {};
 
 type TileState =
+  | { phase: "idle" }
   | { phase: "loading" }
   | { phase: "ready"; app: OpenworkMcpAppResource; result: PreservedMcpAppResult }
   | { phase: "closed" }
   | { phase: "error"; message: string };
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
 
 function firstTextContent(content: Array<Record<string, unknown>>): string | null {
   for (const item of content) {
     if (item.type === "text" && typeof item.text === "string" && item.text.trim()) return item.text;
   }
   return null;
+}
+
+/** Providers often return machine-shaped JSON errors; surface their message text. */
+function launchFailureMessage(content: Array<Record<string, unknown>>): string | null {
+  const text = firstTextContent(content);
+  if (!text) return null;
+  try {
+    const parsed: unknown = JSON.parse(text);
+    if (isRecord(parsed) && typeof parsed.message === "string" && parsed.message.trim()) return parsed.message;
+  } catch {
+    // Plain-text errors pass through unchanged.
+  }
+  return text;
 }
 
 export function McpAppTile({ entry, onRemove, onApprovedLaunch }: {
@@ -37,8 +57,12 @@ export function McpAppTile({ entry, onRemove, onApprovedLaunch }: {
   onApprovedLaunch?: () => void;
 }) {
   const { openworkServerClient, workspaceId } = useWorkspace();
+  // Write-tools only run on request: mount shows an idle card with a Run
+  // button, so a dashboard visit can never repeat a data-modifying call.
+  const manualLaunch = entry.requiresApproval === true;
+  const [started, setStarted] = useState(!manualLaunch);
   const [nonce, setNonce] = useState(0);
-  const [state, setState] = useState<TileState>({ phase: "loading" });
+  const [state, setState] = useState<TileState>({ phase: manualLaunch ? "idle" : "loading" });
   const launchArguments = entry.launchArguments ?? EMPTY_ARGUMENTS;
   // Read consent through refs so persisting it after the first approval does
   // not re-run the launch effect and duplicate a write-tool call.
@@ -49,6 +73,10 @@ export function McpAppTile({ entry, onRemove, onApprovedLaunch }: {
 
   useEffect(() => {
     let cancelled = false;
+    if (!started) {
+      setState({ phase: "idle" });
+      return;
+    }
     setState({ phase: "loading" });
     if (!openworkServerClient || !workspaceId) {
       setState({ phase: "error", message: "No connected workspace is available to launch this app." });
@@ -92,7 +120,7 @@ export function McpAppTile({ entry, onRemove, onApprovedLaunch }: {
       if (result.isError) {
         return {
           phase: "error",
-          message: firstTextContent(result.content)
+          message: launchFailureMessage(result.content)
             ?? (entry.launchArguments
               ? "This app could not start with the saved launch input. Remove the tile and add it again with corrected input."
               : "This app could not start without input, which this tile does not provide."),
@@ -121,15 +149,31 @@ export function McpAppTile({ entry, onRemove, onApprovedLaunch }: {
     return () => {
       cancelled = true;
     };
-  }, [entry.connectionId, entry.launchArguments, entry.projectedToolName, entry.resourceUri, entry.toolName, launchArguments, nonce, openworkServerClient, workspaceId]);
+  }, [entry.connectionId, entry.launchArguments, entry.projectedToolName, entry.resourceUri, entry.toolName, launchArguments, nonce, openworkServerClient, started, workspaceId]);
+
+  const run = () => {
+    setStarted(true);
+    setNonce((value) => value + 1);
+  };
 
   return (
     <DashboardTileShell
       title={entry.title}
       subtitle={entry.serverName}
-      onRefresh={() => setNonce((value) => value + 1)}
+      onRefresh={run}
       onRemove={onRemove}
     >
+      {state.phase === "idle" ? (
+        <div className="flex flex-1 flex-col items-center justify-center gap-2 py-6 text-center">
+          <Play className="size-6 text-muted-foreground" aria-hidden />
+          <p className="max-w-xs text-xs text-muted-foreground">
+            This app modifies data when it runs, so it only runs when you ask.
+          </p>
+          <Button variant="outline" size="sm" onClick={run} aria-label={`Run ${entry.title}`}>
+            <Play className="size-4" /> Run
+          </Button>
+        </div>
+      ) : null}
       {state.phase === "loading" ? (
         <div className="space-y-2 pt-3" role="status" aria-label={`Loading ${entry.title}`}>
           <Skeleton className="h-4 w-2/3" />

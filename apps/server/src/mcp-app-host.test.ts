@@ -109,6 +109,13 @@ async function startFixtureMcp(
         _meta: { ui: { resourceUri: activeResourceUri, visibility: ["model", "app"] } },
       },
       {
+        name: "render_editor",
+        description: "Render an editor that writes fixture state",
+        inputSchema: { type: "object", properties: {} },
+        annotations: { readOnlyHint: false, destructiveHint: false },
+        _meta: { ui: { resourceUri: activeResourceUri, visibility: ["model", "app"] } },
+      },
+      {
         name: "read_detail",
         description: "Read fixture detail",
         inputSchema: { type: "object", properties: { id: { type: "string" } } },
@@ -349,8 +356,13 @@ describe("MCP Apps host transport", () => {
     expect(renderFixture?.projectedToolName).toBe("fixture_render_fixture");
     expect(renderFixture?.resourceUri).toBe(RESOURCE_URI);
     expect(renderFixture?.requiresInput).toBe(false);
+    expect(renderFixture?.requiresApproval).toBe(false);
     const renderReport = fixture?.apps.find((app) => app.toolName === "render_report");
     expect(renderReport?.requiresInput).toBe(true);
+    // Non-read-only launch tools need the same approval `callMcpAppTool` enforces.
+    const renderEditor = fixture?.apps.find((app) => app.toolName === "render_editor");
+    expect(renderEditor?.requiresInput).toBe(false);
+    expect(renderEditor?.requiresApproval).toBe(true);
   });
 
   test("lists Connect app-host apps with their connection references", async () => {
