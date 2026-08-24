@@ -17,7 +17,7 @@ capability names instead of loading hundreds of tool definitions into context.
 ## Server URL
 
 ```text
-https://api.app.openworklabs.com/mcp/agent
+https://api.openworklabs.com/mcp/agent
 ```
 
 OAuth sign-in uses your OpenWork account, and the organization you pick is
@@ -29,7 +29,7 @@ pinned into the token. If you do not have an account, create a
 Run this command:
 
 ```sh
-code --add-mcp '{"name":"openwork","type":"http","url":"https://api.app.openworklabs.com/mcp/agent"}'
+code --add-mcp '{"name":"openwork","type":"http","url":"https://api.openworklabs.com/mcp/agent"}'
 ```
 
 Then open the Command Palette and run `MCP: List Servers` > `openwork` >
@@ -45,7 +45,7 @@ Open the Command Palette and run `MCP: Open User Configuration`, or edit
   "servers": {
     "openwork": {
       "type": "http",
-      "url": "https://api.app.openworklabs.com/mcp/agent"
+      "url": "https://api.openworklabs.com/mcp/agent"
     }
   }
 }
