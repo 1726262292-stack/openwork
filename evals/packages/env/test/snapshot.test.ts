@@ -49,18 +49,6 @@ function attachedSnapshot(apiUrl: string) {
   });
 }
 
-function withAttachHosts(hosts: string | undefined, run: () => void): void {
-  const previous = process.env.OPENWORK_EVAL_ATTACH_HOSTS;
-  if (hosts === undefined) delete process.env.OPENWORK_EVAL_ATTACH_HOSTS;
-  else process.env.OPENWORK_EVAL_ATTACH_HOSTS = hosts;
-  try {
-    run();
-  } finally {
-    if (previous === undefined) delete process.env.OPENWORK_EVAL_ATTACH_HOSTS;
-    else process.env.OPENWORK_EVAL_ATTACH_HOSTS = previous;
-  }
-}
-
 test("buildSnapshot output round-trips through untrusted boot-shape validation", () => {
   const topology = defineWorld({
     den: {
@@ -113,30 +101,23 @@ test("buildSnapshot output round-trips through untrusted boot-shape validation",
   });
 });
 
-test("fromSnapshot allows attached hosts only through loopback or OPENWORK_EVAL_ATTACH_HOSTS", () => {
+test("fromSnapshot allows snapshot-driven attach only through loopback", () => {
   const remote = JSON.stringify(attachedSnapshot("https://den.example.test"));
-  withAttachHosts(undefined, () => {
-    assert.throws(
-      () => fromSnapshot(remote),
-      /OPENWORK_EVAL_ATTACH_HOSTS/,
-    );
-    for (const url of [
-      "http://127.0.0.1:8790",
-      "http://localhost:8790",
-      "http://[::1]:8790",
-    ]) {
-      assert.doesNotThrow(() => fromSnapshot(JSON.stringify(attachedSnapshot(url))));
-    }
-  });
-  withAttachHosts(" DEN.EXAMPLE.TEST , other.example.test ", () => {
-    assert.doesNotThrow(() => fromSnapshot(remote));
-  });
-  withAttachHosts("*", () => {
-    assert.throws(
-      () => fromSnapshot(remote),
-      /OPENWORK_EVAL_ATTACH_HOSTS/,
-    );
-  });
+  assert.throws(
+    () => fromSnapshot(remote),
+    /snapshot-driven attach is loopback-only/,
+  );
+  assert.throws(
+    () => fromSnapshot(JSON.stringify(attachedSnapshot("https://*.example.test"))),
+    /snapshot-driven attach is loopback-only/,
+  );
+  for (const url of [
+    "http://127.0.0.1:8790",
+    "http://localhost:8790",
+    "http://[::1]:8790",
+  ]) {
+    assert.doesNotThrow(() => fromSnapshot(JSON.stringify(attachedSnapshot(url))));
+  }
 });
 
 test("Warden VLA-BHM: fromSnapshot rejects NODE_OPTIONS import execution", () => {
