@@ -171,8 +171,8 @@ export function AddAppDialog({ open, onOpenChange, existingIds, onAdd }: AddAppD
           </section>
           {!workspaceReady ? (
             <p className="text-xs text-muted-foreground" role="status">
-              MCP apps cannot be listed until a workspace connection is ready.
-              Open a session in this workspace first, then try again.
+              MCP apps launch through a workspace&apos;s MCP runtime and none is
+              available yet. Create or open a workspace, then refresh.
             </p>
           ) : null}
           {workspaceReady && catalog.isFetching ? (

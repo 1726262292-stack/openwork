@@ -606,6 +606,17 @@ export function SessionRoute() {
     onServerSettingsChanged: () => setOpenworkServerSettingsVersion((value) => value + 1),
     onHostInfo: setOpenworkServerHostInfoState,
   });
+  // The dashboard is user-scoped: it borrows any available workspace MCP
+  // runtime for app launches instead of requiring the selected workspace.
+  const dashboardEndpoint = useMemo(() => {
+    if (!dashboardRouteActive) return null;
+    if (selectedWorkspaceEndpoint) return selectedWorkspaceEndpoint;
+    for (const workspace of workspaces) {
+      const endpoint = endpointForWorkspace(workspace);
+      if (endpoint) return endpoint;
+    }
+    return null;
+  }, [dashboardRouteActive, endpointForWorkspace, selectedWorkspaceEndpoint, workspaces]);
   const cloudWorkspace = useCloudWorkspaceStatus();
   const bootOverlayVisible = useBootOverlayVisible();
   const previousCloudWorkspaceStatusRef = useRef<typeof cloudWorkspace.viewModel.variant | null>(null);
@@ -2696,7 +2707,15 @@ export function SessionRoute() {
       primarySlot={automationsRouteActive ? (
         <AutomationsPage providerCatalog={providerCatalog} />
       ) : dashboardRouteActive ? (
-        <DashboardPage />
+        <WorkspaceProvider
+          client={opencodeClient}
+          opencodeBaseUrl={opencodeBaseUrl}
+          openworkServerClient={dashboardEndpoint?.client ?? null}
+          workspaceId={dashboardEndpoint?.workspaceId ?? ""}
+          selectedWorkspaceRoot={selectedWorkspaceRoot}
+        >
+          <DashboardPage />
+        </WorkspaceProvider>
       ) : undefined}
       terminalOpen={terminalOpen}
       onTerminalOpenChange={setTerminalOpen}
