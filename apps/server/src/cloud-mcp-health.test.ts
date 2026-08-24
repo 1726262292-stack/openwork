@@ -31,7 +31,7 @@ const roots: string[] = [];
 const runtimeDbRoots: string[] = [];
 const stops: Array<() => void> = [];
 
-type DirectProbeMode = "ok" | "missing" | "unauthorized" | "bad_gateway";
+type DirectProbeMode = "ok" | "missing" | "unauthorized" | "status_missing_token" | "bad_gateway";
 type ReadHealthOptions = {
   probe?: boolean;
   beforeRead?: (directUrl: string) => void;
@@ -111,6 +111,14 @@ function startMockOpencode(initialMode: DirectProbeMode) {
       const url = new URL(request.url);
       if (url.pathname === "/global/health") return Response.json({ healthy: true, version: "1.17.11" });
       if (url.pathname === "/mcp" && request.method === "GET") {
+        if (mode === "status_missing_token") {
+          return Response.json({
+            "openwork-cloud": {
+              status: "failed",
+              error: "Streamable HTTP error: Error POSTing to endpoint: {\"error\":\"missing_mcp_token\",\"message\":\"Provide a Bearer token with MCP scope to access this resource.\",\"referenceId\":\"req_missing\"}",
+            },
+          });
+        }
         return Response.json({
           "openwork-cloud": { status: "connected" },
           "sibling-remote": { status: "failed", error: "fetch failed" },
@@ -595,6 +603,15 @@ describe("cloud MCP health foundation", () => {
 
     expect(health.usable).toBe(false);
     expect(health.firstFailure?.code).toBe("invalid_mcp_token");
+  });
+
+  test("classifies missing MCP bearer status as remintable auth failure", async () => {
+    const harness = await setupDirectProbeHarness("status_missing_token");
+    const health = await harness.read();
+
+    expect(health.usable).toBe(false);
+    expect(health.firstFailure?.code).toBe("missing_mcp_token");
+    expect(health.firstFailure?.aliases).toContain("openwork_cloud_auth_required");
   });
 
   test("still reports missing Cloud tools when tools/list completes without required tools", async () => {

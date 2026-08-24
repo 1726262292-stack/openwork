@@ -53,6 +53,7 @@ export type CloudMcpFailureCode =
   | "cloud_endpoint_invalid"
   | "cloud_token_org_mismatch"
   | "cloud_mcp_needs_auth"
+  | "missing_mcp_token"
   | "invalid_mcp_token"
   | "mcp_session_revoked"
   | "mcp_membership_revoked"
@@ -667,6 +668,11 @@ function normalizeCloudEndpointUrl(value: string): string | null {
     if (url.search || url.hash) return null;
     const normalizedPath = url.pathname.replace(/\/+$/, "") || "/";
     if (!normalizedPath.endsWith("/mcp/agent")) return null;
+    if (url.protocol === "https:" && url.hostname.toLowerCase() === "app.openworklabs.com" && normalizedPath === "/api/den/mcp/agent") {
+      url.hostname = "api.app.openworklabs.com";
+      url.pathname = "/mcp/agent";
+      return url.toString();
+    }
     url.pathname = normalizedPath;
     return url.toString();
   } catch {
@@ -1622,6 +1628,9 @@ function inferFailedStatus(error: string): CloudMcpFailure {
     lower.includes("self-signed");
   if (!certTransport && lower.includes("expired")) {
     return failure({ code: "invalid_mcp_token", stage: "transport_auth", retryable: false, recommendedAction: "Reconnect OpenWork Cloud", message: "openwork-cloud token is expired.", aliases: ["openwork_cloud_token_expired"], details: { error } });
+  }
+  if (!certTransport && (lower.includes("missing_mcp_token") || lower.includes("missing mcp token") || lower.includes("provide a bearer token"))) {
+    return failure({ code: "missing_mcp_token", stage: "transport_auth", retryable: false, recommendedAction: "Refresh OpenWork Cloud authentication", message: "openwork-cloud token is missing.", aliases: ["openwork_cloud_auth_required"], details: { error } });
   }
   if (!certTransport && (lower.includes("invalid_token") || lower.includes("unauthorized") || lower.includes("401") || lower.includes("auth"))) {
     return failure({ code: "invalid_mcp_token", stage: "transport_auth", retryable: false, recommendedAction: "Reconnect OpenWork Cloud", message: "openwork-cloud authentication failed.", aliases: ["openwork_cloud_auth_invalid"], details: { error } });
