@@ -11,7 +11,6 @@ import {
   readOpenWorkConnectMcpAppHostCatalog,
   refreshOpenWorkConnectMcpAppHostCatalog,
 } from "./connect-mcp-server-catalog.js";
-import { OPENWORK_CLOUD_MCP_NAME } from "./cloud-mcp-health.js";
 import type { ServerConfig } from "./types.js";
 import {
   assertLocalManagedMcpUrl,
@@ -369,9 +368,6 @@ export async function listMcpAppCatalog(input: {
   const configured = await listMcp(input.serverConfig, input.workspaceId, input.workspaceRoot);
   const servers: McpAppCatalogServer[] = [];
   for (const item of configured) {
-    // The Cloud capability gateway is not a direct app source: its providers
-    // surface below through the private Connect app-host catalog instead.
-    if (item.name === OPENWORK_CLOUD_MCP_NAME) continue;
     if (item.config.enabled === false || !remoteUrl(item.config)) continue;
     try {
       const apps = await withRemoteClient(item.config, async (client) => {

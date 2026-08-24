@@ -168,6 +168,7 @@ async function startFixtureMcp(
       if (new URL(request.url).pathname !== "/catalog" || !connectionId) {
         return await transport.handleRequest(request);
       }
+      if (request.method !== "POST") return new Response(null, { status: 405 });
       const body: unknown = await request.json();
       const method = body && typeof body === "object" ? Reflect.get(body, "method") : null;
       const id = body && typeof body === "object" ? Reflect.get(body, "id") : null;
@@ -367,8 +368,8 @@ describe("MCP Apps host transport", () => {
       workspaceId: WORKSPACE_ID,
       workspaceRoot: root,
     });
-    // The Cloud capability gateway itself is not an app source.
-    expect(servers.some((server) => server.serverName === "openwork-cloud")).toBe(false);
+    // The gateway's own workspace entry may appear alongside the Connect
+    // provider section; the provider section is the one carrying references.
     const connect = servers.find((server) => server.connectionId === connectionId);
     expect(connect?.serverName).toBe(serverName);
     expect(connect?.displayName).toBe("Fixture provider");
