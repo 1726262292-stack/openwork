@@ -16,6 +16,7 @@ function safeSnapshot() {
       den: {
         apiUrl: "http://127.0.0.1:8790",
         webUrl: "http://127.0.0.1:3005",
+        origin: "launched",
         database: "openwork_eval_safe_snapshot",
         ports: { api: 8790, web: 3005 },
       },
@@ -54,6 +55,7 @@ test("buildSnapshot output round-trips through untrusted boot-shape validation",
       den: {
         apiUrl: "http://127.0.0.1:8790",
         webUrl: "http://127.0.0.1:3005",
+        origin: "launched",
         database: "openwork_eval_round_trip",
         ports: { api: 8790, web: 3005 },
       },
@@ -75,6 +77,7 @@ test("buildSnapshot output round-trips through untrusted boot-shape validation",
   assert.deepEqual(snapshot.resolved.den, {
     apiUrl: "http://127.0.0.1:8790",
     webUrl: "http://127.0.0.1:3005",
+    origin: "launched",
     database: "openwork_eval_round_trip",
     ports: { api: 8790, web: 3005 },
   });
@@ -199,6 +202,7 @@ test("fromSnapshot rejects out-of-range topology and resolved ports", () => {
     resolved: {
       ...derivedPortSnapshot.resolved,
       den: {
+        ...derivedPortSnapshot.resolved.den,
         apiUrl: "http://127.0.0.1:81",
         webUrl: derivedPortSnapshot.resolved.den.webUrl,
       },
@@ -241,7 +245,11 @@ test("fromSnapshot rejects unknown fields", () => {
     place: "local",
     topology,
     resolved: {
-      den: { apiUrl: "http://127.0.0.1:8788", webUrl: "http://127.0.0.1:3005" },
+      den: {
+        apiUrl: "http://127.0.0.1:8788",
+        webUrl: "http://127.0.0.1:3005",
+        origin: "launched",
+      },
       apps: {},
     },
   });
@@ -268,6 +276,7 @@ test("kind world snapshots preserve their resolved Den substrate", () => {
       den: {
         apiUrl: "http://127.0.0.1:8790",
         webUrl: "http://127.0.0.1:3005",
+        origin: "launched",
         substrate: "kind",
       },
       apps: {},

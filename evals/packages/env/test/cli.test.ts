@@ -111,7 +111,7 @@ test("main lists valid snapshots from an injected directory", async () => {
     place: "daytona",
     topology: supportOrg.topology,
     resolved: {
-      den: { apiUrl: "http://api.test", webUrl: "http://web.test" },
+      den: { apiUrl: "http://api.test", webUrl: "http://web.test", origin: "launched" },
       apps: {},
     },
   });

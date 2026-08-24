@@ -26,8 +26,8 @@ import { DEMO_PASSWORD, ensureKindDenReady, exposeEndpointHandles, kubeProfileCo
 import { mcpMock } from "./mock.ts";
 import { resolvePlace, validateDatabaseName } from "./place.ts";
 import type { Place } from "./place.ts";
-import { defineWorld, worldTopologySchema } from "./topology.ts";
-import type { WorldDefinition, WorldOrg, WorldTopology } from "./topology.ts";
+import { defineWorld, resolveWorldPerson, worldTopologySchema } from "./topology.ts";
+import type { WorldDefinition, WorldOrg, WorldPerson, WorldTopology } from "./topology.ts";
 import type { DenRef, DenSession } from "@openwork/behaviors";
 
 const REPO_ROOT = fileURLToPath(new URL("../../../..", import.meta.url));
@@ -58,6 +58,7 @@ export interface WorldSnapshotResolved {
   den: {
     apiUrl: string;
     webUrl: string;
+    origin: "attached" | "launched";
     substrate?: "kind";
     database?: string;
     ports?: { api: number; web: number };
@@ -117,6 +118,7 @@ const worldSnapshotSchema = z.strictObject({
     den: z.strictObject({
       apiUrl: z.string(),
       webUrl: z.string(),
+      origin: z.enum(["attached", "launched"]),
       substrate: z.literal("kind").optional(),
       database: z.string().optional(),
       ports: resolvedPortsSchema.optional(),
@@ -227,6 +229,24 @@ function validateSnapshotLoopbackUrlPort(field: string, value: string): void {
   }
 }
 
+function validateSnapshotAttachedUrl(field: string, value: string): void {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    rejectSnapshotField(field, value, "expected an http(s) URL without userinfo or a hash");
+  }
+  if (!["http:", "https:"].includes(url.protocol)) {
+    rejectSnapshotField(field, value, "expected an http(s) URL without userinfo or a hash");
+  }
+  if (url.username || url.password) {
+    rejectSnapshotField(field, value, "attached Den URLs must not contain username or password userinfo");
+  }
+  if (url.hash) {
+    rejectSnapshotField(field, value, "attached Den URLs must not contain a hash");
+  }
+}
+
 function validateUntrustedSnapshot(snapshot: WorldSnapshot): void {
   if (!SNAPSHOT_NAME.test(snapshot.name)) {
     rejectSnapshotField("name", snapshot.name, "expected a filesystem-safe name using letters, numbers, dots, underscores, or hyphens");
@@ -280,6 +300,22 @@ function validateUntrustedSnapshot(snapshot: WorldSnapshot): void {
     validateSnapshotPort("resolved.den.ports.api", snapshot.resolved.den.ports.api);
     validateSnapshotPort("resolved.den.ports.web", snapshot.resolved.den.ports.web);
   }
+  const expectedOrigin = snapshot.topology.den.attach ? "attached" : "launched";
+  if (snapshot.resolved.den.origin !== expectedOrigin) {
+    rejectSnapshotField(
+      "resolved.den.origin",
+      snapshot.resolved.den.origin,
+      `expected ${JSON.stringify(expectedOrigin)} to match topology.den.attach`,
+    );
+  }
+  if (snapshot.topology.den.attach) {
+    validateSnapshotAttachedUrl("topology.den.attach.apiUrl", snapshot.topology.den.attach.apiUrl);
+    if (snapshot.topology.den.attach.webUrl !== undefined) {
+      validateSnapshotAttachedUrl("topology.den.attach.webUrl", snapshot.topology.den.attach.webUrl);
+    }
+    validateSnapshotAttachedUrl("resolved.den.apiUrl", snapshot.resolved.den.apiUrl);
+    validateSnapshotAttachedUrl("resolved.den.webUrl", snapshot.resolved.den.webUrl);
+  }
   validateSnapshotLoopbackUrlPort("resolved.den.apiUrl", snapshot.resolved.den.apiUrl);
   validateSnapshotLoopbackUrlPort("resolved.den.webUrl", snapshot.resolved.den.webUrl);
   for (const [name, app] of Object.entries(snapshot.resolved.apps)) {
@@ -291,6 +327,53 @@ function primaryOrganization(topology: WorldTopology): [string, WorldOrg] {
   const primary = Object.entries(topology.den.orgs)[0];
   if (!primary) throw new Error("World topology must define at least one organization in den.orgs.");
   return primary;
+}
+
+function resolveOrganizationPeople(org: WorldOrg, env: NodeJS.ProcessEnv): WorldOrg {
+  const members: Record<string, WorldPerson> = {};
+  for (const [key, person] of Object.entries(org.members ?? {})) {
+    members[key] = resolveWorldPerson(person, env);
+  }
+  return {
+    ...org,
+    ...(org.admin === undefined ? {} : { admin: resolveWorldPerson(org.admin, env) }),
+    ...(org.members === undefined ? {} : { members }),
+  };
+}
+
+function resolveOrganizationMap(
+  organizations: Record<string, WorldOrg>,
+  env: NodeJS.ProcessEnv,
+): Record<string, WorldOrg> {
+  const resolved: Record<string, WorldOrg> = {};
+  for (const [name, org] of Object.entries(organizations)) {
+    resolved[name] = resolveOrganizationPeople(org, env);
+  }
+  return resolved;
+}
+
+function snapshotPerson(person: WorldPerson): WorldPerson {
+  return person.secretRef === undefined ? person : { secretRef: person.secretRef };
+}
+
+function snapshotOrganization(org: WorldOrg): WorldOrg {
+  const members: Record<string, WorldPerson> = {};
+  for (const [key, person] of Object.entries(org.members ?? {})) {
+    members[key] = snapshotPerson(person);
+  }
+  return {
+    ...org,
+    ...(org.admin === undefined ? {} : { admin: snapshotPerson(org.admin) }),
+    ...(org.members === undefined ? {} : { members }),
+  };
+}
+
+function snapshotTopology(topology: WorldTopology): WorldTopology {
+  const organizations: Record<string, WorldOrg> = {};
+  for (const [name, org] of Object.entries(topology.den.orgs)) {
+    organizations[name] = snapshotOrganization(org);
+  }
+  return { ...topology, den: { ...topology.den, orgs: organizations } };
 }
 
 function auth(token: string): Record<string, string> {
@@ -615,12 +698,13 @@ function resolvedApps(
 }
 
 export function buildSnapshot(input: BuildSnapshotInput): WorldSnapshot {
+  const topology = defineWorld(input.topology).topology;
   const snapshot: WorldSnapshot = worldSnapshotSchema.parse({
     version: 1,
     name: input.name,
     createdAt: input.createdAt ?? new Date().toISOString(),
     place: input.place,
-    topology: defineWorld(input.topology).topology,
+    topology: snapshotTopology(topology),
     resolved: input.resolved,
   });
   if (snapshot.resolved.den.database !== undefined) {
@@ -688,9 +772,12 @@ export async function resumeWorld(
   const topology = defineWorld(snapshot.topology).topology;
   await requireRunningWorld(snapshot);
   const [, primaryOrg] = primaryOrganization(topology);
+  const resolvedAdmin = primaryOrg.admin === undefined
+    ? undefined
+    : resolveWorldPerson(primaryOrg.admin, process.env);
   const adminPerson = topology.den.seed === "demo-org"
     ? defaultReuseAdmin()
-    : personDefaults("admin", primaryOrg.admin, emailSegment(snapshot.name));
+    : personDefaults("admin", resolvedAdmin, emailSegment(snapshot.name));
   const ref: DenRef = {
     apiUrl: snapshot.resolved.den.apiUrl,
     webUrl: snapshot.resolved.den.webUrl,
@@ -738,26 +825,32 @@ export async function resumeWorld(
         });
     }
 
-    const denPortCandidates: number[] = [];
-    if (snapshot.resolved.den.ports) {
-      denPortCandidates.push(snapshot.resolved.den.ports.api, snapshot.resolved.den.ports.web);
-    } else {
-      const apiPort = localUrlPort(snapshot.resolved.den.apiUrl);
-      const webPort = localUrlPort(snapshot.resolved.den.webUrl);
-      if (apiPort !== null) denPortCandidates.push(apiPort);
-      if (webPort !== null) denPortCandidates.push(webPort);
-    }
     const stoppedDenPorts: number[] = [];
-    for (const port of new Set(denPortCandidates)) {
-      await freePort(port)
-        .then(() => stoppedDenPorts.push(port))
-        .catch((error: unknown) => {
-          console.error(`[openwork/testkit] World Den teardown failed on port ${port}: ${messageText(error)}`);
-        });
+    if (snapshot.resolved.den.origin === "launched") {
+      const denPortCandidates: number[] = [];
+      if (snapshot.resolved.den.ports) {
+        denPortCandidates.push(snapshot.resolved.den.ports.api, snapshot.resolved.den.ports.web);
+      } else {
+        const apiPort = localUrlPort(snapshot.resolved.den.apiUrl);
+        const webPort = localUrlPort(snapshot.resolved.den.webUrl);
+        if (apiPort !== null) denPortCandidates.push(apiPort);
+        if (webPort !== null) denPortCandidates.push(webPort);
+      }
+      for (const port of new Set(denPortCandidates)) {
+        await freePort(port)
+          .then(() => stoppedDenPorts.push(port))
+          .catch((error: unknown) => {
+            console.error(`[openwork/testkit] World Den teardown failed on port ${port}: ${messageText(error)}`);
+          });
+      }
     }
 
     let droppedDatabase: string | undefined;
-    if (snapshot.place === "local" && snapshot.resolved.den.database) {
+    if (
+      snapshot.resolved.den.origin === "launched"
+      && snapshot.place === "local"
+      && snapshot.resolved.den.database
+    ) {
       await dropSnapshotDatabase(snapshot.resolved.den.database)
         .then(() => { droppedDatabase = snapshot.resolved.den.database; })
         .catch((error: unknown) => {
@@ -790,9 +883,12 @@ export async function startWorld(
   options: { place?: Place; name?: string } = {},
 ): Promise<World> {
   const topology = worldTopology(definition);
+  const resolvedOrganizations = resolveOrganizationMap(topology.den.orgs, process.env);
   const place = options.place ?? resolvePlace(process.env);
   const name = options.name ?? `world-${Date.now().toString(36)}-${process.pid.toString(36)}`;
-  const [primaryOrgName, primaryOrg] = primaryOrganization(topology);
+  const primary = Object.entries(resolvedOrganizations)[0];
+  const primaryOrgName = primary?.[0];
+  const primaryOrg = primary?.[1];
   const scope = await Effect.runPromise(Scope.make("sequential"));
 
   const acquisition = Effect.gen(function*() {
@@ -801,26 +897,40 @@ export async function startWorld(
         ? kindDen()
         : server({
             place,
-            org: {
-              name: primaryOrgName,
-              admin: topology.den.seed === "demo-org"
-                ? primaryOrg.admin
-                : personDefaults("admin", primaryOrg.admin, emailSegment(name)),
-              members: primaryOrg.members,
-            },
-            provision: topology.den.seed === "demo-org" ? false : undefined,
+            ...(primaryOrgName === undefined || primaryOrg === undefined
+              ? {}
+              : {
+                  org: {
+                    name: primaryOrgName,
+                    admin: topology.den.attach
+                      ? primaryOrg.admin
+                      : topology.den.seed === "demo-org"
+                        ? primaryOrg.admin
+                        : personDefaults("admin", primaryOrg.admin, emailSegment(name)),
+                    members: primaryOrg.members,
+                  },
+                }),
+            provision: topology.den.seed === "demo-org" || topology.den.attach?.tier === "prod" ? false : undefined,
             web: topology.den.web,
             env: topology.den.env,
             mocks: witnessMocks(topology),
             ports: topology.den.ports,
             seedProfile: topology.den.seed,
+            reuse: topology.den.attach === undefined
+              ? undefined
+              : { apiUrl: topology.den.attach.apiUrl, webUrl: topology.den.attach.webUrl },
           })),
       (booted) => Effect.promise(() => booted[Symbol.asyncDispose]()),
     );
-    if (topology.den.substrate !== "kind" && topology.den.seed !== "demo-org") {
+    if (
+      primaryOrgName !== undefined
+      && primaryOrg !== undefined
+      && topology.den.substrate !== "kind"
+      && topology.den.seed !== "demo-org"
+    ) {
       const primaryOrganizationId = yield* Effect.promise(() => organizationIdByName(den.admin, primaryOrgName));
 
-      for (const [orgName, org] of Object.entries(topology.den.orgs).slice(1)) {
+      for (const [orgName, org] of Object.entries(resolvedOrganizations).slice(1)) {
         const provisioned = yield* Effect.acquireRelease(
           Effect.promise(() => provisionOrg(den.ref, {
             members: extraOrganizationMembers(name, orgName, org),
@@ -868,6 +978,7 @@ export async function startWorld(
       resolved: {
         den: {
           ...den.ref,
+          origin: topology.den.attach ? "attached" : "launched",
           ...(topology.den.substrate === "kind" ? { substrate: "kind" } : {}),
           ...(den.database ? { database: den.database.name } : {}),
           ...(den.ports ? { ports: den.ports } : {}),
