@@ -32,9 +32,6 @@ export function mcpEntryFromCatalogApp(app: OpenworkMcpAppCatalogApp): Dashboard
     projectedToolName: app.projectedToolName,
     resourceUri: app.resourceUri,
     title: app.title ?? app.toolName,
-    // Adding through the picker is the user's consent to automatic launches;
-    // write-tools stay run-on-request regardless.
-    ...(app.requiresApproval ? {} : { autoLaunch: true }),
   };
 }
 
@@ -200,8 +197,9 @@ function CatalogAppRow({ app, added, onAdd }: {
             </p>
           ) : (
             <p className="text-xs text-muted-foreground">
-              Adding this app ({entry.toolName} on {entry.serverName}) lets its
-              tile launch automatically whenever you open the dashboard.
+              This app runs {entry.toolName} on {entry.serverName}. Its tile
+              waits for you to run it once; after that first run it launches
+              automatically whenever you open the dashboard.
             </p>
           )}
           {argsError ? <p className="text-xs text-destructive" role="alert">{argsError}</p> : null}
@@ -239,9 +237,9 @@ export function AddAppDialog({ open, onOpenChange, existingIds, onAdd }: AddAppD
           <DialogTitle>Add app</DialogTitle>
           <DialogDescription>
             MCP apps available via OpenWork Connect and this workspace&apos;s MCP
-            servers. Added apps launch automatically when the dashboard opens;
-            apps that modify data only run on request. Apps that need input ask
-            for JSON launch arguments when you add them.
+            servers. New tiles wait for a first manual run before launching
+            automatically; apps that modify data always run on request. Apps
+            that need input ask for JSON launch arguments when you add them.
           </DialogDescription>
         </DialogHeader>
         <div className="min-w-0 space-y-4">

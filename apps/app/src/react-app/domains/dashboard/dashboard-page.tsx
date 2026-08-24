@@ -82,6 +82,9 @@ function DashboardBoard({ scopeKey, fallbackEndpoints }: {
   const markLaunchApproved = (id: string) => updateEntries(entries.map((entry) => (
     entry.kind === "mcp" && entry.id === id ? { ...entry, launchApproved: true } : entry
   )));
+  const markAutoLaunchUnlocked = (id: string) => updateEntries(entries.map((entry) => (
+    entry.kind === "mcp" && entry.id === id ? { ...entry, autoLaunch: true } : entry
+  )));
 
   return (
     <div className="mx-auto w-full max-w-6xl px-6 py-6" data-dashboard-page>
@@ -119,6 +122,7 @@ function DashboardBoard({ scopeKey, fallbackEndpoints }: {
                 entry={entry}
                 onRemove={() => removeEntry(entry.id)}
                 onApprovedLaunch={() => markLaunchApproved(entry.id)}
+                onFirstRunCompleted={() => markAutoLaunchUnlocked(entry.id)}
                 fallbackEndpoints={fallbackEndpoints}
               />
             )

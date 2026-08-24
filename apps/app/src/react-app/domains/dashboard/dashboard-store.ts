@@ -13,9 +13,9 @@ export type DashboardMcpAppEntry = {
   /** Optional launch arguments captured when the app was added; every (re)launch reuses them. */
   launchArguments?: Record<string, unknown>;
   /**
-   * True only when the user added this app through the picker, consenting to
-   * automatic launches. Entries without it (tampered or imported storage)
-   * stay run-on-request.
+   * True once the user has launched this tile manually and seen what it does;
+   * only then do later dashboard opens launch it automatically. Never granted
+   * at add time or by storage alone, and write-tools stay run-on-request.
    */
   autoLaunch?: boolean;
   /** True when the launch tool modifies data: the tile only runs on request, never on mount. */

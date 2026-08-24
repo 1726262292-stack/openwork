@@ -57,20 +57,22 @@ function launchFailureMessage(content: Array<Record<string, unknown>>): string |
   return text;
 }
 
-export function McpAppTile({ entry, onRemove, onApprovedLaunch, fallbackEndpoints }: {
+export function McpAppTile({ entry, onRemove, onApprovedLaunch, onFirstRunCompleted, fallbackEndpoints }: {
   entry: DashboardMcpAppEntry;
   onRemove: () => void;
   /** Persists the user's one-time launch approval on the stored entry. */
   onApprovedLaunch?: () => void;
+  /** Persists that the user has run this tile once, unlocking automatic launches. */
+  onFirstRunCompleted?: () => void;
   /** Other workspace runtimes to try when the primary one cannot resolve the app. */
   fallbackEndpoints?: DashboardLaunchEndpoint[];
 }) {
   const workspace = useWorkspace();
   const { openworkServerClient, workspaceId } = workspace;
-  // Write-tools only run on request: mount shows an idle card with a Run
-  // button, so a dashboard visit can never repeat a data-modifying call.
-  // Entries without the picker's add-time auto-launch consent (tampered or
-  // imported storage) are also run-on-request.
+  // Automatic launches are earned, not granted: a tile runs on dashboard open
+  // only after the user has run it manually once and seen what it does.
+  // Write-tools stay run-on-request forever, so a dashboard visit can never
+  // repeat a data-modifying call.
   const manualLaunch = entry.requiresApproval === true || entry.autoLaunch !== true;
   const [started, setStarted] = useState(!manualLaunch);
   const [nonce, setNonce] = useState(0);
@@ -82,6 +84,8 @@ export function McpAppTile({ entry, onRemove, onApprovedLaunch, fallbackEndpoint
   launchApprovedRef.current = entry.launchApproved === true;
   const onApprovedLaunchRef = useRef(onApprovedLaunch);
   onApprovedLaunchRef.current = onApprovedLaunch;
+  const onFirstRunCompletedRef = useRef(onFirstRunCompleted);
+  onFirstRunCompletedRef.current = onFirstRunCompleted;
   // A write-tool launch must map 1:1 to a Run/refresh press. The effect also
   // re-runs when the client or workspace identity changes; this ref keeps such
   // re-runs from repeating an already-executed data-modifying call.
@@ -171,6 +175,9 @@ export function McpAppTile({ entry, onRemove, onApprovedLaunch, fallbackEndpoint
               : "This app could not start without input, which this tile does not provide."),
         };
       }
+      if (userInitiated && entry.requiresApproval !== true && entry.autoLaunch !== true) {
+        onFirstRunCompletedRef.current?.();
+      }
       return {
         phase: "ready",
         app,
@@ -215,7 +222,7 @@ export function McpAppTile({ entry, onRemove, onApprovedLaunch, fallbackEndpoint
           <p className="max-w-xs text-xs text-muted-foreground">
             {entry.requiresApproval === true
               ? "This app modifies data when it runs, so it only runs when you ask."
-              : "This app only runs when you ask."}
+              : "Run this app once; after that it launches automatically when the dashboard opens."}
           </p>
           <Button variant="outline" size="sm" onClick={run} aria-label={`Run ${entry.title}`}>
             <Play className="size-4" /> Run
