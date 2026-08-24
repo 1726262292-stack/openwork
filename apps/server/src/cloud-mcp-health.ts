@@ -53,6 +53,7 @@ export type CloudMcpFailureCode =
   | "cloud_endpoint_invalid"
   | "cloud_token_org_mismatch"
   | "cloud_mcp_needs_auth"
+  | "missing_mcp_token"
   | "invalid_mcp_token"
   | "mcp_session_revoked"
   | "mcp_membership_revoked"
