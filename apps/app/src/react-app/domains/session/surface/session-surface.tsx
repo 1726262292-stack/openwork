@@ -43,6 +43,7 @@ import type {
 import { ReactSessionComposer } from "./composer/composer";
 import { useSessionModelSelection } from "./session-model-store";
 import type { ProviderCatalog } from "./use-model-behavior";
+import type { ModelAvailability } from "./model-availability";
 import { decodeComposerMentionValue, encodeComposerMentionValue, type ComposerMentionKind } from "./composer/mention-encoding";
 import { desktopBridge, openDesktopUrl } from "@/app/lib/desktop";
 import { parseSlashCommandInvocation } from "./composer/slash-command";
@@ -309,6 +310,13 @@ export type SessionSurfaceProps = {
   modelPickerOpen: boolean;
   modelUnavailable?: boolean;
   modelUnavailableMessage?: string | null;
+  /**
+   * Resolves availability for one provider/model identity against the active
+   * workspace's settled catalogs. Each surface validates its OWN effective
+   * session model with it instead of inheriting the route-global default
+   * verdict; `props.modelUnavailable` is only the fallback when absent.
+   */
+  resolveModelAvailability?: (model: ModelRef | null) => ModelAvailability;
   organizationModelsEmpty?: boolean;
   selectedModel: ModelRef;
   /** providerID → modelID → provider model, for per-session variant options. */
@@ -733,6 +741,13 @@ export function SessionSurface(props: SessionSurfaceProps) {
   const handleOpenModelPicker = useCallback(() => {
     props.onModelClick(props.sessionId);
   }, [props.onModelClick, props.sessionId]);
+  // Availability is scoped to THIS conversation's effective model. A missing
+  // global default must not disable a conversation that remembers a valid
+  // model, and a pending catalog (loading or superseded by a workspace
+  // switch) never renders "Model no longer available".
+  const sessionModelUnavailable = props.resolveModelAvailability
+    ? props.resolveModelAvailability(sessionModel.selectedModel).status === "unavailable"
+    : Boolean(props.modelUnavailable);
   const [error, setError] = useState<SessionError | null>(null);
   const [restoringRevertedMessages, setRestoringRevertedMessages] = useState(false);
   const [showDelayedLoading, setShowDelayedLoading] = useState(false);
@@ -1234,11 +1249,11 @@ export function SessionSurface(props: SessionSurfaceProps) {
   useEffect(() => {
     if (model.transitionState !== "idle") return;
     if (chatStreaming) return;
-    if (props.modelUnavailable) return;
+    if (sessionModelUnavailable) return;
     if (!draft.trim()) return;
     if (!consumeComposerAutoSend(props.sessionId)) return;
     void handleSend();
-  }, [chatStreaming, draft, handleSend, model.transitionState, props.modelUnavailable, props.sessionId]);
+  }, [chatStreaming, draft, handleSend, model.transitionState, sessionModelUnavailable, props.sessionId]);
 
   const handleSteer = useCallback(async () => {
     setSteering(true);
@@ -1555,13 +1570,13 @@ export function SessionSurface(props: SessionSurfaceProps) {
     label: "Send the composer prompt",
     description: "Send the currently visible composer draft to the active session.",
     sideEffect: "mutation",
-    disabled: props.modelUnavailable || (!draft.trim() && attachments.length === 0) || model.transitionState !== "idle",
+    disabled: sessionModelUnavailable || (!draft.trim() && attachments.length === 0) || model.transitionState !== "idle",
     targetRef: composerShellRef,
     execute: async () => {
       await handleSend();
       return true;
     },
-  }), [attachments.length, draft, handleSend, model.transitionState, props.modelUnavailable]);
+  }), [attachments.length, draft, handleSend, model.transitionState, sessionModelUnavailable]);
   useControlAction(props.isControlTarget ? composerSendControlAction : null);
 
   const composerStopControlAction = useMemo<OpenworkControlAction>(() => ({
@@ -2165,9 +2180,9 @@ export function SessionSurface(props: SessionSurfaceProps) {
         steering={steering}
         submissionPreparing={preparingCloudTools}
         queuedCount={queuedItems.length}
-        disabled={model.transitionState !== "idle" || Boolean(props.modelUnavailable)}
-        modelUnavailable={Boolean(props.modelUnavailable)}
-        modelUnavailableMessage={props.modelUnavailableMessage}
+        disabled={model.transitionState !== "idle" || sessionModelUnavailable}
+        modelUnavailable={sessionModelUnavailable}
+        modelUnavailableMessage={sessionModelUnavailable ? props.modelUnavailableMessage : null}
         organizationModelsEmpty={props.organizationModelsEmpty}
         statusLabel={statusLabel(snapshot ?? undefined, chatStreaming)}
         modelPickerOpen={modelPickerOpen}
