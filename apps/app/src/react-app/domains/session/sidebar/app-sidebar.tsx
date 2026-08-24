@@ -7,11 +7,11 @@ import {
   ArchiveRestore,
   ArrowLeft,
   ArrowRight,
+  Blocks,
   Clock3,
   ChevronRight,
   Columns2,
   FolderPlus,
-  LayoutDashboard,
   LayoutGrid,
   MoreHorizontal,
   Pencil,
@@ -1196,7 +1196,7 @@ export function AppSidebar(props: AppSidebarProps) {
             {props.onOpenDashboard ? (
               <SidebarDestination
                 active={props.dashboardActive === true}
-                icon={LayoutDashboard}
+                icon={Blocks}
                 label="Dashboard"
                 onSelect={props.onOpenDashboard}
               />

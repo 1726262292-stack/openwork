@@ -1,6 +1,6 @@
 /** @jsxImportSource react */
 import { useEffect, useMemo, useState } from "react";
-import { LayoutDashboard, Plus } from "lucide-react";
+import { Blocks, Plus } from "lucide-react";
 
 import { readDenSettings } from "@/app/lib/den";
 import { Button } from "@/components/ui/button";
@@ -60,7 +60,7 @@ export function DashboardPage() {
       {entries.length === 0 ? (
         <Empty>
           <EmptyHeader>
-            <EmptyMedia variant="icon"><LayoutDashboard /></EmptyMedia>
+            <EmptyMedia variant="icon"><Blocks /></EmptyMedia>
             <EmptyTitle>No apps yet</EmptyTitle>
             <EmptyDescription>
               Add MCP apps available via OpenWork Connect to keep them one click away.

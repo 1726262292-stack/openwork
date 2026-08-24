@@ -94,6 +94,7 @@ import { usePlatform } from "@/react-app/kernel/platform";
 import { SessionPage, type OpenSessionTab } from "@/react-app/domains/session/chat/session-page";
 import { AutomationsPage } from "@/react-app/domains/automations/automations-page";
 import { DashboardPage } from "@/react-app/domains/dashboard/dashboard-page";
+import { isMcpAppsDashboardEnabled } from "@/react-app/domains/dashboard/dashboard-availability";
 import { useAutomationDeploymentEnabled } from "@/react-app/domains/automations/automation-availability";
 import { automationsStateChangedEvent } from "@/react-app/domains/automations/automation-events";
 import type { NewTaskComposerContext } from "@/react-app/domains/session/chat/new-task-composer";
@@ -488,7 +489,9 @@ export function SessionRoute() {
   const navigate = useNavigate();
   const location = useLocation();
   const automationsRouteRequested = /^\/automations(?:\/|$)/.test(location.pathname);
-  const dashboardRouteActive = /^\/dashboard(?:\/|$)/.test(location.pathname);
+  const dashboardRouteRequested = /^\/dashboard(?:\/|$)/.test(location.pathname);
+  const mcpAppsDashboardEnabled = isMcpAppsDashboardEnabled();
+  const dashboardRouteActive = mcpAppsDashboardEnabled && dashboardRouteRequested;
   const platform = usePlatform();
   const denAuth = useDenAuth();
   const { config: shellConfig } = useShellConfig();
@@ -503,6 +506,10 @@ export function SessionRoute() {
     if (!automationsRouteRequested || automationsEnabled) return;
     navigate("/", { replace: true });
   }, [automationsEnabled, automationsRouteRequested, navigate]);
+  useEffect(() => {
+    if (!dashboardRouteRequested || mcpAppsDashboardEnabled) return;
+    navigate("/", { replace: true });
+  }, [dashboardRouteRequested, mcpAppsDashboardEnabled, navigate]);
   useEffect(() => {
     const authToken = denSettings.authToken?.trim();
     const organizationId = denSettings.activeOrgId?.trim();
@@ -2741,9 +2748,11 @@ export function SessionRoute() {
             }
           : undefined,
         dashboardActive: dashboardRouteActive,
-        onOpenDashboard: () => {
-          navigate(dashboardRoute());
-        },
+        onOpenDashboard: mcpAppsDashboardEnabled
+          ? () => {
+              navigate(dashboardRoute());
+            }
+          : undefined,
         onSelectWorkspace: async (workspaceId) => {
           if (workspaceId === selectedWorkspaceId) return true;
           setLegacySelectedWorkspaceId(workspaceId);
