@@ -91,13 +91,6 @@ test("the agent MCP exposes the custom Artifact view authoring lifecycle", { tim
   const rows = isRecord(orgs.body) && Array.isArray(orgs.body.orgs) ? orgs.body.orgs.filter(isRecord) : []
   const organizationId = String(rows[0]?.id ?? "")
   expect(organizationId).not.toBe("")
-  const enabled = await denFetch(den.admin, `/v1/admin/organizations/${organizationId}/capabilities`, {
-    method: "PUT",
-    headers: { authorization: `Bearer ${den.admin.token}` },
-    body: JSON.stringify({ capabilities: { workflows: true } }),
-  })
-  expect(enabled.response.ok, enabled.text).toBe(true)
-
   const tokenResponse = await denFetch(den.admin, "/v1/mcp/token", {
     method: "POST",
     headers: {

@@ -116,7 +116,6 @@ import { isPluginArchOrgAdmin, requirePluginArchCapability, type PluginArchActor
 import { pluginArchRoutePaths } from "./contracts.js"
 import { ensureOrganizationAdmin, orgAccessFailureStatus } from "../shared.js"
 import { isAgentOAuthClientConnection, listMemberUsableConnectionFacts } from "../mcp-connections.js"
-import { workflowsEnabled } from "../../../capability-sources/workflow-rollout.js"
 import { listWorkflowLibraryItems } from "../../../workflow-library.js"
 import {
   PluginArchRouteFailure,
@@ -1054,9 +1053,7 @@ export function registerPluginArchRoutes<T extends { Variables: OrgRouteVariable
         const [pluginItems, connections, workflowItems] = await Promise.all([
           listMeLibraryPluginItems({ context }),
           listMemberUsableConnectionFacts({ context }),
-          workflowsEnabled(context.organizationContext.organization.metadata)
-            ? listWorkflowLibraryItems({ context })
-            : Promise.resolve([]),
+          listWorkflowLibraryItems({ context }),
         ])
         const connectionItems = await listMeLibraryConnectionItems({ connections, context })
         const items = [...pluginItems, ...connectionItems, ...workflowItems]

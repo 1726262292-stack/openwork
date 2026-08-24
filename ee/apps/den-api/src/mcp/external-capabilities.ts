@@ -657,7 +657,6 @@ async function probeExternalMcpConnection(input: {
   limit: number
   deadline: ExternalMcpLifecycleDeadline
   scriptNamespace?: string
-  mcpAppsEnabled: boolean
 }): Promise<ExternalCapabilityMatch[]> {
   const matches: ExternalCapabilityMatch[] = []
   const add = (match: ExternalCapabilityMatch) => {
@@ -798,7 +797,7 @@ async function probeExternalMcpConnection(input: {
     const summaryTokens = tokenize(summary)
     const score = scoreText(nameTokens, summaryTokens, input.queryTokens)
     if (score <= 0) continue
-    const resourceUri = input.mcpAppsEnabled ? externalMcpAppResourceUri(tool) : null
+    const resourceUri = externalMcpAppResourceUri(tool)
     add({
       name: buildExternalCapabilityName(connection.id, tool.name),
       method: "MCP",
@@ -830,10 +829,8 @@ export async function searchExternalCapabilities(input: {
   query: string
   redirectUriBase: string
   limit?: number
-  includeScriptPaths?: boolean
   namespaceContext?: CodemodeConnectionNamespaceContext
   reportCoverage?: (coverage: ExternalMcpSearchCoverage) => void
-  mcpAppsEnabled?: boolean
 }): Promise<ExternalCapabilityMatch[]> {
   if (!input.member) return []
   const queryTokens = tokenize(input.query)
@@ -842,18 +839,16 @@ export async function searchExternalCapabilities(input: {
   if (!Number.isFinite(requestedLimit) || requestedLimit <= 0) return []
   const limit = Math.min(Math.max(1, Math.trunc(requestedLimit)), EXTERNAL_MCP_SEARCH_MATCH_LIMIT)
   const deadline = createExternalMcpLifecycleDeadline(EXTERNAL_MCP_SEARCH_LIFECYCLE_TIMEOUT_MS)
-  const namespaceContext = input.includeScriptPaths
-    ? input.namespaceContext ?? await resolveCodemodeConnectionNamespaceContext({
-      organizationId: input.organizationId,
-      member: input.member,
-    })
-    : input.namespaceContext
+  const namespaceContext = input.namespaceContext ?? await resolveCodemodeConnectionNamespaceContext({
+    organizationId: input.organizationId,
+    member: input.member,
+  })
   const connections = namespaceContext?.externalMcpConnections ?? await listUsableExternalMcpConnections({
     organizationId: normalizeDenTypeId("organization", input.organizationId),
     orgMembershipId: input.member.orgMembershipId,
     teamIds: input.member.teamIds,
   })
-  const scriptNamespaces = input.includeScriptPaths ? namespaceContext?.namespaces.externalMcp : undefined
+  const scriptNamespaces = namespaceContext?.namespaces.externalMcp
   const selectedConnections = selectExternalMcpSearchConnections(connections, queryTokens)
   input.reportCoverage?.({
     eligibleConnections: connections.length,
@@ -872,7 +867,6 @@ export async function searchExternalCapabilities(input: {
       limit,
       deadline: sharedDeadline,
       scriptNamespace: scriptNamespaces?.get(connection.id),
-      mcpAppsEnabled: input.mcpAppsEnabled === true,
     }),
   })
 }
@@ -1108,7 +1102,6 @@ export async function executeExternalCapability(input: {
   requireReadOnly?: boolean
   /** Fail closed when the live input schema no longer matches schemaDigest. */
   requireSchemaMatch?: boolean
-  mcpAppsEnabled?: boolean
 }): Promise<ExternalCapabilityExecuteResult> {
   if (!input.member) {
     return { ok: false, error: "forbidden", message: "No active org membership for this token." }
@@ -1297,7 +1290,7 @@ export async function executeExternalCapability(input: {
 
     schemaGuidance = advisorySchemaGuidance(schemaWarnings)
     const result = await providerCall
-    const resourceUri = input.mcpAppsEnabled === true ? externalMcpAppResourceUri(tool) : null
+    const resourceUri = externalMcpAppResourceUri(tool)
     return {
       ok: true,
       result,

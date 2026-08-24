@@ -11,8 +11,6 @@ import {
 } from "@modelcontextprotocol/sdk/types.js"
 import { StreamableHTTPTransport } from "@hono/mcp"
 import { normalizeDenTypeId } from "@openwork-ee/utils/typeid"
-import { eq } from "@openwork-ee/den-db/drizzle"
-import { OrganizationTable } from "@openwork-ee/den-db/schema"
 import type { Context, Hono } from "hono"
 import type { RequestIdVariables } from "hono/request-id"
 import {
@@ -31,9 +29,7 @@ import {
 import { externalMcpDiagnosticForResponse } from "../capability-sources/external-mcp-diagnostics.js"
 import { evaluateToolPolicy } from "../capability-sources/external-mcp-tool-policy.js"
 import { env } from "../env.js"
-import { db } from "../db.js"
 import { tokenRoute } from "../middleware/index.js"
-import { remoteMcpAppsEnabled } from "../capability-sources/remote-mcp-apps-rollout.js"
 import { resolvePublicOrigin } from "../capability-sources/generic-oauth.js"
 import { getMcpResourceContext, verifyMcpRequest } from "./auth.js"
 import { externalMcpAppResourceUri, resolveMcpMemberIdentity } from "./external-capabilities.js"
@@ -143,30 +139,6 @@ function appOnlyProxyTool(tool: ExternalMcpProxyTool): ExternalMcpProxyTool | nu
   }
 }
 
-export function createDisabledExternalConnectionProxyServer() {
-  const server = new McpServer({
-    name: "OpenWork Connect",
-    version: "1.0.0",
-  }, {
-    capabilities: {
-      tools: { listChanged: false },
-      resources: { listChanged: false, subscribe: false },
-    },
-    instructions: "Native provider MCP Apps are disabled for this OpenWork deployment.",
-  })
-
-  server.server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: [] }))
-  server.server.setRequestHandler(ListResourcesRequestSchema, async () => ({ resources: [] }))
-  server.server.setRequestHandler(ListResourceTemplatesRequestSchema, async () => ({ resourceTemplates: [] }))
-  server.server.setRequestHandler(CallToolRequestSchema, async () => {
-    throw new McpError(ErrorCode.InvalidRequest, "Native provider MCP Apps are disabled.")
-  })
-  server.server.setRequestHandler(ReadResourceRequestSchema, async () => {
-    throw new McpError(ErrorCode.InvalidRequest, "Native provider MCP Apps are disabled.")
-  })
-
-  return server
-}
 
 export function createExternalConnectionProxyServer(input: {
   descriptor: ExternalMcpProxyDescriptor
@@ -402,10 +374,8 @@ export async function handleExternalConnectionProxyRequest(input: {
  */
 export function registerExternalConnectionProxyRoutes<T extends { Variables: RequestIdVariables & Record<string, unknown> }>(
   app: Hono<T>,
-  options: { enabled?: boolean } = {},
 ) {
   const path = "/mcp/agent/connections/:connectionId"
-  const enabled = options.enabled ?? env.remoteMcpAppsEnabled
 
   app.all(path, tokenRoute, async (c) => {
     const requestIdValue = c.get("requestId")
@@ -424,21 +394,6 @@ export function registerExternalConnectionProxyRoutes<T extends { Variables: Req
     }
 
     const organizationId = normalizeDenTypeId("organization", principal.organizationId)
-    const organizationRows = enabled
-      ? await db
-          .select({ metadata: OrganizationTable.metadata })
-          .from(OrganizationTable)
-          .where(eq(OrganizationTable.id, organizationId))
-          .limit(1)
-      : []
-    const remoteAppsEnabled = remoteMcpAppsEnabled(organizationRows[0]?.metadata, {
-      deploymentEnabled: enabled,
-    })
-    if (!remoteAppsEnabled) {
-      const server = createDisabledExternalConnectionProxyServer()
-      const response = await externalMcpProxyRequestDependencies.serve(server, c)
-      return response ?? new Response(null, { status: 204 })
-    }
 
     let connectionId
     try {

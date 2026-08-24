@@ -141,7 +141,6 @@ const EnvSchema = z.object({
   DEN_CONNECT_LINK_KEY_ID: z.string().max(64).optional(),
   DEN_MCP_CONNECTIONS_GATING_ENABLED: z.string().optional(),
   DEN_GENERATED_ARTIFACT_VIEWS_ENABLED: z.string().optional(),
-  DEN_REMOTE_MCP_APPS_ENABLED: z.string().optional(),
   SCIM_MAINTENANCE_INTERVAL_MS: z.string().optional(),
   POLAR_FEATURE_GATE_ENABLED: z.string().optional(),
   POLAR_API_BASE: z.string().optional(),
@@ -524,11 +523,6 @@ const mcpConnectionsGatingEnabled =
 const generatedArtifactViewsEnabled =
   (parsed.DEN_GENERATED_ARTIFACT_VIEWS_ENABLED ?? "false").trim().toLowerCase() === "true"
 
-// Native and imported MCP Apps require an explicit deployment opt-in plus an
-// explicit organization capability. Missing configuration always fails closed.
-const remoteMcpAppsEnabled =
-  (parsed.DEN_REMOTE_MCP_APPS_ENABLED ?? "false").trim().toLowerCase() === "true"
-
 // Desktop availability stays fail-closed, while an entirely unconfigured
 // server preserves the published-client runtime. An explicit availability
 // value also supplies the runtime default, so DEN_AUTOMATIONS_ENABLED=false is
@@ -681,7 +675,6 @@ export const env = {
   connectLink,
   mcpConnectionsGatingEnabled,
   generatedArtifactViewsEnabled,
-  remoteMcpAppsEnabled,
   scimMaintenanceIntervalMs: Number(parsed.SCIM_MAINTENANCE_INTERVAL_MS ?? "300000"),
   requireEmailVerification,
   passwordBreachScreeningEnabled,

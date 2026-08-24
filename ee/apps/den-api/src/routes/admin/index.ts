@@ -36,7 +36,6 @@ import { adminRoute, queryValidator } from "../../middleware/index.js"
 import { denTypeIdSchema, forbiddenSchema, invalidRequestSchema, jsonResponse, unauthorizedSchema } from "../../openapi.js"
 import { appLogger } from "../../observability/logger.js"
 import { organizationCloudEnabled } from "../../capability-sources/cloud-rollout.js"
-import { workflowsEnabled } from "../../capability-sources/workflow-rollout.js"
 import { memberFacingMcpConnectionsEnabled } from "../../capability-sources/external-mcp-rollout.js"
 import { organizationInstallLinksEnabled } from "../../capability-sources/install-links-rollout.js"
 import { normalizeOrganizationCapabilities, readOrganizationCapabilityOverrides } from "../../organization-capabilities.js"
@@ -89,9 +88,6 @@ const updateOrganizationCapabilitiesSchema = z.object({
   capabilities: z.object({
     installLinks: z.boolean().nullable().optional(),
     mcpConnections: z.boolean().nullable().optional(),
-    workflows: z.boolean().nullable().optional(),
-    codemodeScripts: z.boolean().nullable().optional(),
-    remoteMcpApps: z.boolean().nullable().optional(),
     cloud: z.boolean().nullable().optional(),
   }),
 })
@@ -281,8 +277,6 @@ function readAdminVisibleOrganizationCapabilities(metadata: Record<string, unkno
   return {
     installLinks: organizationInstallLinksEnabled(metadata, { gatingEnabled: false }),
     mcpConnections: memberFacingMcpConnectionsEnabled(metadata, { gatingEnabled: false }),
-    workflows: workflowsEnabled(metadata),
-    remoteMcpApps: normalizeOrganizationCapabilities(metadata).remoteMcpApps,
     cloud: organizationCloudEnabled(metadata, { orgMode: env.orgMode }),
   }
 }
@@ -292,6 +286,10 @@ function readUnmanagedCapabilityMetadata(metadata: Record<string, unknown>): Rec
   const capabilities: Record<string, unknown> = {}
 
   for (const [key, value] of Object.entries(raw)) {
+    // "workflows", "codemodeScripts", and "remoteMcpApps" are retired rollout
+    // keys: those features are now always on, so stale stored overrides stay
+    // managed (dropped on the next capabilities write) instead of passing
+    // through as unmanaged metadata.
     if (key !== "installLinks" && key !== "mcpConnections" && key !== "workflows" && key !== "codemodeScripts" && key !== "remoteMcpApps" && key !== "cloud") {
       capabilities[key] = value
     }
@@ -1672,24 +1670,6 @@ export function registerAdminRoutes<T extends { Variables: AuthContextVariables 
           delete capabilities.mcpConnections
         } else {
           capabilities.mcpConnections = mcpConnections
-        }
-      }
-      const workflows = body.data.capabilities.workflows !== undefined
-        ? body.data.capabilities.workflows
-        : body.data.capabilities.codemodeScripts
-      if (workflows !== undefined) {
-        if (workflows === null) {
-          delete capabilities.workflows
-        } else {
-          capabilities.workflows = workflows
-        }
-      }
-      const remoteMcpApps = body.data.capabilities.remoteMcpApps
-      if (remoteMcpApps !== undefined) {
-        if (remoteMcpApps === null) {
-          delete capabilities.remoteMcpApps
-        } else {
-          capabilities.remoteMcpApps = remoteMcpApps
         }
       }
       const cloud = body.data.capabilities.cloud

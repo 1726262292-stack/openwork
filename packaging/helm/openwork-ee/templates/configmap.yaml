@@ -50,7 +50,6 @@ data:
   DEN_AUTOMATIONS_ENABLED: {{ .Values.config.public.automationsEnabled | quote }}
   DEN_AUTOMATIONS_RUNTIME_ENABLED: {{ .Values.config.public.automationsRuntimeEnabled | quote }}
   DEN_GENERATED_ARTIFACT_VIEWS_ENABLED: {{ .Values.config.public.generatedArtifactViewsEnabled | quote }}
-  DEN_REMOTE_MCP_APPS_ENABLED: {{ .Values.config.public.remoteMcpAppsEnabled | quote }}
   DEN_CONNECT_LINK_MODE: {{ .Values.config.public.connectLinkMode | quote }}
   {{ if .Values.config.public.connectLinkKeyId }}
   DEN_CONNECT_LINK_KEY_ID: {{ .Values.config.public.connectLinkKeyId | quote }}

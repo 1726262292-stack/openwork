@@ -1412,7 +1412,6 @@ function commandArguments(body: unknown): string {
 }
 
 export async function searchMarketplaceCapabilities(input: {
-  codemodeEnabled?: boolean
   enabled?: boolean
   limit?: number
   member: McpMemberIdentity | null
@@ -1442,7 +1441,6 @@ export async function searchMarketplaceCapabilities(input: {
 
   for (const row of rows) {
     const objectType = canonicalConfigObjectType(row.configObject.objectType)
-    if (objectType === "workflow" && input.codemodeEnabled !== true) continue
     if (input.objectTypes && !input.objectTypes.includes(objectType)) continue
     const score = scoreMarketplaceRow(row, queryTokens)
     if (score <= 0) continue
@@ -1523,7 +1521,6 @@ export async function listAccessibleWorkflows(input: {
 export async function executeMarketplaceCapability(input: {
   buildTools?: () => Promise<BuiltCodemodeTools>
   body?: unknown
-  codemodeEnabled?: boolean
   configObjectId: string
   configObjectVersionId?: string
   automationRunId?: DenTypeId<"automationRun">
@@ -1555,10 +1552,6 @@ export async function executeMarketplaceCapability(input: {
   if (rows.length === 0) {
     return { ok: false, error: "unknown_capability", message: "No such capability." }
   }
-  if (rows[0] && canonicalConfigObjectType(rows[0].configObject.objectType) === "workflow" && input.codemodeEnabled !== true) {
-    return { ok: false, error: "unknown_capability", message: "No such capability." }
-  }
-
   const memberRow = await getActiveMember(organizationId, input.member)
   if (!memberRow) {
     return { ok: false, error: "forbidden", message: "No active org membership for this token." }

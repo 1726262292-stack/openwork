@@ -108,10 +108,8 @@ export type CapabilityRegistryContext = {
   organizationId: DenTypeId<"organization">
   member: McpMemberIdentity | null
   redirectUriBase: string
-  codemodeEnabled: boolean
   generatedArtifactViewsEnabled: boolean
   externalMcpConnectionsEnabled: boolean
-  mcpAppsEnabled: boolean
   resolvePlatformAdmin: () => Promise<boolean>
   resolveNamespaceContext: () => Promise<CodemodeConnectionNamespaceContext>
 }
@@ -124,11 +122,9 @@ export type CapabilityRegistryContextInput = {
   organizationId: DenTypeId<"organization">
   member: McpMemberIdentity | null
   redirectUriBase: string
-  codemodeEnabled: boolean
   generatedArtifactViewsEnabled: boolean
   organizationMetadata: Parameters<typeof memberFacingMcpConnectionsEnabled>[0]
   mcpConnectionsGatingEnabled: boolean
-  mcpAppsEnabled?: boolean
 }
 
 export function createCapabilityRegistryContext(input: CapabilityRegistryContextInput): CapabilityRegistryContext {
@@ -157,10 +153,8 @@ export function createCapabilityRegistryContext(input: CapabilityRegistryContext
     organizationId: input.organizationId,
     member: input.member,
     redirectUriBase: input.redirectUriBase,
-    codemodeEnabled: input.codemodeEnabled,
     generatedArtifactViewsEnabled: input.generatedArtifactViewsEnabled,
     externalMcpConnectionsEnabled,
-    mcpAppsEnabled: input.mcpAppsEnabled === true,
     resolvePlatformAdmin,
     resolveNamespaceContext,
   }
@@ -420,7 +414,6 @@ async function executeMarketplaceSource(
     pluginId: parsed.pluginId,
     configObjectId: parsed.configObjectId,
     body: input.body,
-    codemodeEnabled: ctx.codemodeEnabled,
     validateScriptOutput: true,
     enabled: ctx.externalMcpConnectionsEnabled,
     redirectUriBase: ctx.redirectUriBase,
@@ -443,9 +436,7 @@ const catalogSource: CapabilitySource = {
       )),
       query,
       limit,
-    ).map((match) => ctx.codemodeEnabled
-      ? { ...match, scriptPath: codemodeScriptPath("den", match.name) }
-      : match)
+    ).map((match) => ({ ...match, scriptPath: codemodeScriptPath("den", match.name) }))
   },
   enumerate: (ctx) => Promise.resolve(leavesFromBuilt(buildDenCatalogToolTree({
     ...ctx,
@@ -490,8 +481,7 @@ const nativeSource: CapabilitySource = {
       query,
       catalog: ctx.catalog,
       limit,
-      includeScriptPaths: ctx.codemodeEnabled,
-      namespaceContext: ctx.codemodeEnabled ? await ctx.resolveNamespaceContext() : undefined,
+      namespaceContext: await ctx.resolveNamespaceContext(),
     })
   },
   enumerate: async (ctx) => leavesFromBuilt(await buildNativeProviderToolTree({
@@ -530,9 +520,7 @@ const externalMcpSource: CapabilitySource = {
       query,
       redirectUriBase: ctx.redirectUriBase,
       limit,
-      includeScriptPaths: ctx.codemodeEnabled,
-      namespaceContext: ctx.codemodeEnabled ? await ctx.resolveNamespaceContext() : undefined,
-      mcpAppsEnabled: ctx.mcpAppsEnabled,
+      namespaceContext: await ctx.resolveNamespaceContext(),
       reportCoverage: (coverage) => ctx.reportExternalCoverage(externalMcpSearchCoverageHint(coverage)),
     })
   },
@@ -585,7 +573,6 @@ const externalMcpSource: CapabilitySource = {
       args: normalizeToolBody(input.body),
       schemaDigest: input.schemaDigest,
       redirectUriBase: ctx.redirectUriBase,
-      mcpAppsEnabled: ctx.mcpAppsEnabled,
     })
     return result.ok
       ? externalCapabilitySuccessToolResult(result)
@@ -602,7 +589,6 @@ const marketplaceSource: CapabilitySource = {
   search: async (ctx, query, limit) => {
     if (!ctx.sourceFilter.marketplace || !ctx.externalMcpConnectionsEnabled) return []
     const matches = await searchMarketplaceCapabilities({
-      codemodeEnabled: ctx.codemodeEnabled,
       organizationId: ctx.organizationId,
       member: ctx.member,
       objectTypes: ctx.marketplaceObjectTypes,
@@ -610,7 +596,7 @@ const marketplaceSource: CapabilitySource = {
       limit,
       enabled: ctx.externalMcpConnectionsEnabled,
     })
-    return matches.map((match) => ctx.codemodeEnabled && match.kind !== "workflow"
+    return matches.map((match) => match.kind !== "workflow"
       ? { ...match, scriptPath: codemodeScriptPath("marketplace", match.name) }
       : match)
   },
@@ -670,9 +656,7 @@ const builtinSkillSource: CapabilitySource = {
     : null,
   search: async (ctx, query, limit) => {
     if (!ctx.sourceFilter.skills) return []
-    return searchBuiltinSkillCapabilities(query, limit).map((match) => ctx.codemodeEnabled
-      ? { ...match, scriptPath: codemodeScriptPath("skills", match.name) }
-      : match)
+    return searchBuiltinSkillCapabilities(query, limit).map((match) => ({ ...match, scriptPath: codemodeScriptPath("skills", match.name) }))
   },
   enumerate: (ctx) => Promise.resolve(listBuiltinSkillDescriptors().map((skill) => contentLeaf({
     namespace: "skills",
@@ -701,9 +685,7 @@ const adminSource: CapabilitySource = {
   search: async (ctx, query, limit) => {
     if (!ctx.sourceFilter.admin) return []
     const matches = await searchAvailableAdminCapabilities(await ctx.resolvePlatformAdmin(), query, limit)
-    return matches.map((match) => ctx.codemodeEnabled
-      ? { ...match, scriptPath: codemodeScriptPath("admin", parseAdminCapabilityName(match.name) ?? match.name) }
-      : match)
+    return matches.map((match) => ({ ...match, scriptPath: codemodeScriptPath("admin", parseAdminCapabilityName(match.name) ?? match.name) }))
   },
   enumerate: async (ctx) => {
     const matches = await listAvailableAdminCapabilities(await ctx.resolvePlatformAdmin())

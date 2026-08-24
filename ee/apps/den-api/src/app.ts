@@ -36,7 +36,6 @@ import { buildCapabilityToolTree, createCapabilityRegistryContext } from "./mcp/
 import { executeMarketplaceCapability } from "./mcp/marketplace-capabilities.js"
 import { resolveMcpMemberIdentity } from "./mcp/external-capabilities.js"
 import { DEN_MCP_REQUESTED_SCOPES } from "./mcp/scopes.js"
-import { workflowsEnabled } from "./capability-sources/workflow-rollout.js"
 import { registerMeRoutes } from "./routes/me/index.js"
 import { registerOrgRoutes } from "./routes/org/index.js"
 import { registerTelemetryRoutes } from "./routes/telemetry/index.js"
@@ -242,10 +241,6 @@ configureCloudWorkflowExecutor(async ({ organizationId, ownerMemberId, automatio
     eq(OrganizationTable.id, normalizedOrganizationId),
   ).limit(1)
   const organizationMetadata = organizations[0]?.metadata
-  const codemodeEnabled = workflowsEnabled(organizationMetadata)
-  if (!codemodeEnabled) {
-    return { ok: false, message: "Workflows are disabled for this organization.", retryable: false }
-  }
   const member = await resolveMcpMemberIdentity({ userId, organizationId })
   if (!member) return { ok: false, message: "The Automation owner is no longer active.", retryable: false }
   const catalog = await getCatalog(app as unknown as Hono, undefined)
@@ -258,7 +253,6 @@ configureCloudWorkflowExecutor(async ({ organizationId, ownerMemberId, automatio
     organizationId: normalizedOrganizationId,
     member,
     redirectUriBase: env.apiPublicUrl ?? "http://127.0.0.1",
-    codemodeEnabled,
     generatedArtifactViewsEnabled: env.generatedArtifactViewsEnabled,
     organizationMetadata,
     mcpConnectionsGatingEnabled: env.mcpConnectionsGatingEnabled,
@@ -271,7 +265,6 @@ configureCloudWorkflowExecutor(async ({ organizationId, ownerMemberId, automatio
     configObjectVersionId: action.script.configObjectVersionId,
     automationRunId: normalizeDenTypeId("automationRun", automationRunId),
     body: action.input,
-    codemodeEnabled: true,
     validateScriptOutput: true,
     buildTools: () => buildCapabilityToolTree(capabilityContext),
   })

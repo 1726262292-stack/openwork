@@ -29,7 +29,6 @@ import {
   listAccessibleWorkflows,
 } from "../../mcp/marketplace-capabilities.js"
 import { DEN_MCP_REQUESTED_SCOPES } from "../../mcp/scopes.js"
-import { workflowsEnabled } from "../../capability-sources/workflow-rollout.js"
 import { PluginArchAuthorizationError } from "./plugin-system/access.js"
 import type { OrgRouteVariables } from "./shared.js"
 import { codemodeCodeDigest } from "../../workflow-runs.js"
@@ -167,7 +166,6 @@ export function registerOrgWorkflowRoutes<T extends { Variables: OrgRouteVariabl
       scopes: new Set(DEN_MCP_REQUESTED_SCOPES),
       payload: {},
     }
-    const workflowEnabled = workflowsEnabled(context.organization.metadata)
     const capabilityContext = createCapabilityRegistryContext({
       app: app as unknown as Hono,
       env: c.env,
@@ -176,14 +174,13 @@ export function registerOrgWorkflowRoutes<T extends { Variables: OrgRouteVariabl
       organizationId: context.organization.id,
       member,
       redirectUriBase: env.apiPublicUrl ?? "http://127.0.0.1",
-      codemodeEnabled: workflowEnabled,
       generatedArtifactViewsEnabled: env.generatedArtifactViewsEnabled,
       organizationMetadata: context.organization.metadata,
       mcpConnectionsGatingEnabled: env.mcpConnectionsGatingEnabled,
     })
     const buildTools = () => buildCapabilityToolTree(capabilityContext)
     const actorContext = { organizationContext: context, memberTeams: teams, session: c.get("session") }
-    return { context, member, actorContext, buildTools, workflowEnabled }
+    return { context, member, actorContext, buildTools }
   }
 
   app.get(
@@ -194,8 +191,7 @@ export function registerOrgWorkflowRoutes<T extends { Variables: OrgRouteVariabl
     }),
     orgMemberRoute(),
     async (c) => {
-      const { context, member, workflowEnabled } = await contextFor(c)
-      if (!workflowEnabled) return c.json({ items: [] })
+      const { context, member } = await contextFor(c)
       return c.json({ items: await listAccessibleWorkflows({ organizationId: context.organization.id, member }) })
     },
   )
@@ -215,8 +211,7 @@ export function registerOrgWorkflowRoutes<T extends { Variables: OrgRouteVariabl
     orgMemberRoute(), jsonValidator(saveSchema),
     async (c) => {
       try {
-        const { context, actorContext, buildTools, workflowEnabled } = await contextFor(c)
-        if (!workflowEnabled) throw new Error("workflows_disabled")
+        const { context, actorContext, buildTools } = await contextFor(c)
         const saved = await saveWorkflow({
           organizationId: context.organization.id,
           ownerMemberId: context.currentMember.id,
@@ -243,8 +238,7 @@ export function registerOrgWorkflowRoutes<T extends { Variables: OrgRouteVariabl
       const params = detailParamsSchema.safeParse(c.req.param())
       if (!params.success) return c.json({ error: "invalid_request", message: "Invalid Workflow id." }, 400)
       try {
-        const { actorContext, workflowEnabled } = await contextFor(c)
-        if (!workflowEnabled) return c.json({ error: "workflow_not_found" }, 404)
+        const { actorContext } = await contextFor(c)
         const detail = await getWorkflowLibraryDetail({ context: actorContext, configObjectId: params.data.configObjectId, maxAgeMs: c.req.valid("query").maxAgeMs })
         return c.json(env.generatedArtifactViewsEnabled
           ? detail
@@ -271,8 +265,8 @@ export function registerOrgWorkflowRoutes<T extends { Variables: OrgRouteVariabl
       const params = detailParamsSchema.safeParse(c.req.param())
       if (!params.success) return c.json({ error: "invalid_request", message: "Invalid Workflow id." }, 400)
       try {
-        const { actorContext, workflowEnabled } = await contextFor(c)
-        if (!workflowEnabled || !env.generatedArtifactViewsEnabled) return c.json({ items: [] })
+        const { actorContext } = await contextFor(c)
+        if (!env.generatedArtifactViewsEnabled) return c.json({ items: [] })
         return c.json({ items: await listArtifactViewsForScript({ context: actorContext, configObjectId: params.data.configObjectId }) })
       } catch (error) {
         const failure = routeFailure(error)
@@ -293,8 +287,7 @@ export function registerOrgWorkflowRoutes<T extends { Variables: OrgRouteVariabl
       const params = artifactViewParamsSchema.safeParse(c.req.param())
       if (!params.success || !params.data.revisionId) return c.json({ error: "invalid_request", message: "Invalid view revision." }, 400)
       try {
-        const { actorContext, workflowEnabled } = await contextFor(c)
-        if (!workflowEnabled) throw new Error("workflows_disabled")
+        const { actorContext } = await contextFor(c)
         return c.json(await activateArtifactViewRevision({ context: actorContext, artifactViewId: params.data.artifactViewId, revisionId: params.data.revisionId }))
       } catch (error) {
         const failure = routeFailure(error)
@@ -315,8 +308,7 @@ export function registerOrgWorkflowRoutes<T extends { Variables: OrgRouteVariabl
       const params = artifactViewParamsSchema.safeParse(c.req.param())
       if (!params.success) return c.json({ error: "invalid_request", message: "Invalid view." }, 400)
       try {
-        const { actorContext, workflowEnabled } = await contextFor(c)
-        if (!workflowEnabled) throw new Error("workflows_disabled")
+        const { actorContext } = await contextFor(c)
         return c.json(await retireArtifactView({ context: actorContext, artifactViewId: params.data.artifactViewId }))
       } catch (error) {
         const failure = routeFailure(error)
@@ -336,8 +328,7 @@ export function registerOrgWorkflowRoutes<T extends { Variables: OrgRouteVariabl
       const params = detailParamsSchema.safeParse(c.req.param())
       if (!params.success) return c.json({ error: "invalid_request", message: "Invalid Workflow id." }, 400)
       try {
-        const { actorContext, workflowEnabled } = await contextFor(c)
-        if (!workflowEnabled) return c.json({ items: [] })
+        const { actorContext } = await contextFor(c)
         return c.json({ items: await listWorkflowVersions({ context: actorContext, configObjectId: params.data.configObjectId }) })
       } catch (error) {
         const failure = routeFailure(error)
@@ -357,8 +348,7 @@ export function registerOrgWorkflowRoutes<T extends { Variables: OrgRouteVariabl
       const params = detailParamsSchema.safeParse(c.req.param())
       if (!params.success) return c.json({ error: "invalid_request", message: "Invalid Workflow id." }, 400)
       try {
-        const { actorContext, workflowEnabled } = await contextFor(c)
-        if (!workflowEnabled) return c.json({ items: [] })
+        const { actorContext } = await contextFor(c)
         return c.json({ items: await listWorkflowSnapshots({
           context: actorContext,
           configObjectId: params.data.configObjectId,
@@ -385,8 +375,7 @@ export function registerOrgWorkflowRoutes<T extends { Variables: OrgRouteVariabl
       const params = detailParamsSchema.safeParse(c.req.param())
       if (!params.success || !params.data.receiptId) return c.json({ error: "invalid_request", message: "Invalid snapshot id." }, 400)
       try {
-        const { actorContext, workflowEnabled } = await contextFor(c)
-        if (!workflowEnabled) return c.json({ error: "workflow_snapshot_not_found" }, 404)
+        const { actorContext } = await contextFor(c)
         const snapshot = await getWorkflowSnapshot({
           context: actorContext,
           configObjectId: params.data.configObjectId,
@@ -409,8 +398,7 @@ export function registerOrgWorkflowRoutes<T extends { Variables: OrgRouteVariabl
     orgMemberRoute(), jsonValidator(testSchema),
     async (c) => {
       try {
-        const { actorContext, buildTools, workflowEnabled } = await contextFor(c)
-        if (!workflowEnabled) throw new Error("workflows_disabled")
+        const { actorContext, buildTools } = await contextFor(c)
         const body = c.req.valid("json")
         const { configObjectId, ...draft } = body
         const result = await testWorkflowDraft({ context: actorContext, configObjectId, draft, buildTools })
@@ -445,8 +433,7 @@ export function registerOrgWorkflowRoutes<T extends { Variables: OrgRouteVariabl
       const params = detailParamsSchema.safeParse(c.req.param())
       if (!params.success) return c.json({ error: "invalid_request", message: "Invalid Workflow id." }, 400)
       try {
-        const { actorContext, buildTools, workflowEnabled } = await contextFor(c)
-        if (!workflowEnabled) throw new Error("workflows_disabled")
+        const { actorContext, buildTools } = await contextFor(c)
         const body = c.req.valid("json")
         const { receiptId, ...draft } = body
         return c.json(await createWorkflowVersion({
@@ -476,7 +463,7 @@ export function registerOrgWorkflowRoutes<T extends { Variables: OrgRouteVariabl
     async (c) => {
       const params = runParamsSchema.safeParse(c.req.param())
       if (!params.success) return c.json({ error: "invalid_request", message: "Invalid Workflow id." }, 400)
-      const { context, member, buildTools, workflowEnabled } = await contextFor(c)
+      const { context, member, buildTools } = await contextFor(c)
       const body = c.req.valid("json")
       const result = await executeMarketplaceCapability({
         organizationId: context.organization.id,
@@ -485,8 +472,7 @@ export function registerOrgWorkflowRoutes<T extends { Variables: OrgRouteVariabl
         configObjectId: params.data.configObjectId,
         configObjectVersionId: body.configObjectVersionId,
         body: body.input,
-        codemodeEnabled: workflowEnabled,
-        validateScriptOutput: true,
+          validateScriptOutput: true,
         buildTools,
       })
       if (!result.ok) return c.json({ error: result.error, message: result.message }, 400)
@@ -518,8 +504,7 @@ export function registerOrgWorkflowRoutes<T extends { Variables: OrgRouteVariabl
       const params = detailParamsSchema.safeParse(c.req.param())
       if (!params.success || !params.data.receiptId) return c.json({ error: "invalid_request", message: "Invalid snapshot id." }, 400)
       try {
-        const { actorContext, workflowEnabled } = await contextFor(c)
-        if (!workflowEnabled) throw new Error("workflows_disabled")
+        const { actorContext } = await contextFor(c)
         const snapshot = await deleteWorkflowSnapshotContent({
           context: actorContext,
           configObjectId: params.data.configObjectId,

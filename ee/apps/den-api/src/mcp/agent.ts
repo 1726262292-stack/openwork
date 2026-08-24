@@ -8,8 +8,6 @@ import { openworkCloudMcpConnectionActionSchema } from "@openwork/types/den/mcp-
 import type { Hono } from "hono"
 import type { RequestIdVariables } from "hono/request-id"
 import { z } from "zod"
-import { workflowsEnabled } from "../capability-sources/workflow-rollout.js"
-import { remoteMcpAppsEnabled } from "../capability-sources/remote-mcp-apps-rollout.js"
 import { publicRoute, tokenRoute } from "../middleware/index.js"
 import { db } from "../db.js"
 import { getMcpResourceContext, verifyMcpRequest } from "./auth.js"
@@ -410,10 +408,6 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
       .where(eq(OrganizationTable.id, organizationId))
       .limit(1)
     const organizationMetadata = organizationRows[0]?.metadata
-    const codemodeEnabled = workflowsEnabled(organizationMetadata)
-    const remoteAppsEnabled = remoteMcpAppsEnabled(organizationMetadata, {
-      deploymentEnabled: env.remoteMcpAppsEnabled,
-    })
     const connectMcpAppHostSupported = supportsConnectMcpAppHost(
       c.req.header(CONNECT_MCP_APP_HOST_CAPABILITY_HEADER),
     ) && principal.scopes.has(DEN_MCP_APP_HOST_SCOPE)
@@ -428,14 +422,9 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
       organizationId,
       member: memberIdentity,
       redirectUriBase,
-      codemodeEnabled,
       generatedArtifactViewsEnabled: env.generatedArtifactViewsEnabled,
       organizationMetadata,
       mcpConnectionsGatingEnabled: env.mcpConnectionsGatingEnabled,
-      // This metadata is an opaque binding on an already authorized bounded
-      // search/execute result. Resolving the provider tool or resource still
-      // requires the separately scoped App-host credential below.
-      mcpAppsEnabled: remoteAppsEnabled,
     })
     const { externalMcpConnectionsEnabled } = capabilityContext
     let remoteSkills: RemoteSkillDescriptor[] = []
@@ -461,7 +450,7 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
         }
       }
     }
-    const artifactContext = codemodeEnabled ? libraryContext : null
+    const artifactContext = libraryContext
     if (method === "initialize" || method === "resources/list" || method === "resources/read") {
       remoteSkills = [
         ...listBuiltinSkillDescriptors(),
@@ -478,8 +467,8 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
       if (memberIdentity) {
         registerConnectMcpServerIndex({
           server,
-          enabled: remoteAppsEnabled && connectMcpAppHostSupported,
-          connections: remoteAppsEnabled && connectMcpAppHostSupported
+          enabled: connectMcpAppHostSupported,
+          connections: connectMcpAppHostSupported
             ? await listReadyExternalMcpConnections({
                 organizationId,
                 orgMembershipId: memberIdentity.orgMembershipId,
@@ -519,12 +508,10 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
       {
         title: "Search capabilities",
         description: [
-          codemodeEnabled
-            ? "Search for a capability by keyword. This connection also exposes execute_capability, create_skill, update_skill, and execute_capability_script —"
-            : "Search for a capability by keyword. This connection also exposes execute_capability, create_skill, and update_skill —",
+          "Search for a capability by keyword. This connection also exposes execute_capability, create_skill, update_skill, and execute_capability_script —",
           "there is no list of individually-named tools to browse. Always search first.",
           "Search covers native Google Workspace capabilities (Gmail, Calendar, Drive, Gmail drafts), org-connected external MCPs, and namespaced OpenWork Admin tools for allowlisted platform admins.",
-          "When Workflows are enabled, accessible Workflows appear as marketplace matches with kind workflow and execute through execute_capability like every other exact search result.",
+          "Accessible Workflows appear as marketplace matches with kind workflow and execute through execute_capability like every other exact search result.",
           "Try 2-4 keyword variants before deciding a capability is unavailable.",
           "Native API matches include a connector-namespaced name, pathParams, queryParams, hasBody, and bodySchema. External MCP matches include argumentsSchema, schemaDigest, and invocation.argumentsField. A match with kind mcp_app is a standard MCP App launch capability from a connected MCP server; execute it normally and the OpenWork host will render its advertised ui:// resource.",
           "Built-in and marketplace skill matches return SKILL.md content when executed.",
@@ -735,204 +722,202 @@ export function registerAgentMcpRoutes<T extends { Variables: RequestIdVariables
 
     registerAgentPluginFlowApp(server)
 
-    if (codemodeEnabled) {
-      const loadWorkflowArtifact = async ({
-        configObjectId,
-        receiptId,
-        maxAgeMs,
-        expectedOutputSchemaDigest,
-      }: {
-        configObjectId: string
-        receiptId?: string
-        maxAgeMs?: number
-        expectedOutputSchemaDigest?: string
-      }) => {
-        if (!artifactContext) {
+    const loadWorkflowArtifact = async ({
+      configObjectId,
+      receiptId,
+      maxAgeMs,
+      expectedOutputSchemaDigest,
+    }: {
+      configObjectId: string
+      receiptId?: string
+      maxAgeMs?: number
+      expectedOutputSchemaDigest?: string
+    }) => {
+      if (!artifactContext) {
+        return {
+          ok: false as const,
+          error: "workflow_not_found",
+          message: "The Workflow is unavailable to this member.",
+        }
+      }
+      try {
+        const detail = await getWorkflowDetail({
+          context: artifactContext,
+          configObjectId,
+          maxAgeMs,
+        })
+        const snapshot = receiptId
+          ? await getWorkflowSnapshot({ context: artifactContext, configObjectId, receiptId })
+          : detail.latestSuccessfulSnapshot
+        if (!snapshot) {
+          return {
+            ok: false as const,
+            error: "workflow_snapshot_not_found",
+            message: receiptId
+              ? "That immutable artifact snapshot was not found."
+              : "This Workflow does not have a successful artifact snapshot yet. Run it explicitly or through its Automation first.",
+          }
+        }
+        if (snapshot.status !== "succeeded" || snapshot.contentDeletedAt !== null
+          || snapshot.markdown === null
+          || snapshot.resultDigest === null || snapshot.rendererVersion !== "codemode-markdown-v1") {
+          return {
+            ok: false as const,
+            error: "workflow_snapshot_unavailable",
+            message: "This artifact snapshot has no readable successful content.",
+          }
+        }
+        if (expectedOutputSchemaDigest && snapshot.outputSchemaDigest !== expectedOutputSchemaDigest) {
+          return {
+            ok: false as const,
+            error: "artifact_view_schema_incompatible",
+            message: "This Artifact result does not match the immutable view revision's output schema.",
+          }
+        }
+        const freshness = receiptId
+          ? artifactFreshness({
+              latestFinishedAt: new Date(snapshot.finishedAt),
+              latestStatus: "succeeded",
+              latestSuccessfulFinishedAt: new Date(snapshot.finishedAt),
+              latestSuccessfulReceiptId: snapshot.receiptId,
+              maxAgeMs: Math.min(30 * 24 * 60 * 60_000, Math.max(60_000, maxAgeMs ?? 24 * 60 * 60_000)),
+            })
+          : detail.freshness
+        return {
+          ok: true as const,
+          markdown: snapshot.markdown,
+          payload: {
+            schemaVersion: WORKFLOW_ARTIFACT_APP_SCHEMA_VERSION,
+            artifact: {
+              title: detail.title,
+              description: detail.description,
+              pluginId: snapshot.pluginId,
+              configObjectId: snapshot.configObjectId,
+              configObjectVersionId: snapshot.configObjectVersionId,
+              receiptId: snapshot.receiptId,
+              automationRunId: snapshot.automationRunId,
+              source: snapshot.source,
+              generatedAt: snapshot.finishedAt,
+              resultDigest: snapshot.resultDigest,
+              rendererVersion: snapshot.rendererVersion,
+              freshness,
+            },
+            data: snapshot.value,
+          },
+        }
+      } catch (error) {
+        if (error instanceof PluginArchAuthorizationError) {
           return {
             ok: false as const,
             error: "workflow_not_found",
             message: "The Workflow is unavailable to this member.",
           }
         }
-        try {
-          const detail = await getWorkflowDetail({
-            context: artifactContext,
-            configObjectId,
-            maxAgeMs,
-          })
-          const snapshot = receiptId
-            ? await getWorkflowSnapshot({ context: artifactContext, configObjectId, receiptId })
-            : detail.latestSuccessfulSnapshot
-          if (!snapshot) {
-            return {
-              ok: false as const,
-              error: "workflow_snapshot_not_found",
-              message: receiptId
-                ? "That immutable artifact snapshot was not found."
-                : "This Workflow does not have a successful artifact snapshot yet. Run it explicitly or through its Automation first.",
-            }
-          }
-          if (snapshot.status !== "succeeded" || snapshot.contentDeletedAt !== null
-            || snapshot.markdown === null
-            || snapshot.resultDigest === null || snapshot.rendererVersion !== "codemode-markdown-v1") {
-            return {
-              ok: false as const,
-              error: "workflow_snapshot_unavailable",
-              message: "This artifact snapshot has no readable successful content.",
-            }
-          }
-          if (expectedOutputSchemaDigest && snapshot.outputSchemaDigest !== expectedOutputSchemaDigest) {
-            return {
-              ok: false as const,
-              error: "artifact_view_schema_incompatible",
-              message: "This Artifact result does not match the immutable view revision's output schema.",
-            }
-          }
-          const freshness = receiptId
-            ? artifactFreshness({
-                latestFinishedAt: new Date(snapshot.finishedAt),
-                latestStatus: "succeeded",
-                latestSuccessfulFinishedAt: new Date(snapshot.finishedAt),
-                latestSuccessfulReceiptId: snapshot.receiptId,
-                maxAgeMs: Math.min(30 * 24 * 60 * 60_000, Math.max(60_000, maxAgeMs ?? 24 * 60 * 60_000)),
-              })
-            : detail.freshness
-          return {
-            ok: true as const,
-            markdown: snapshot.markdown,
-            payload: {
-              schemaVersion: WORKFLOW_ARTIFACT_APP_SCHEMA_VERSION,
-              artifact: {
-                title: detail.title,
-                description: detail.description,
-                pluginId: snapshot.pluginId,
-                configObjectId: snapshot.configObjectId,
-                configObjectVersionId: snapshot.configObjectVersionId,
-                receiptId: snapshot.receiptId,
-                automationRunId: snapshot.automationRunId,
-                source: snapshot.source,
-                generatedAt: snapshot.finishedAt,
-                resultDigest: snapshot.resultDigest,
-                rendererVersion: snapshot.rendererVersion,
-                freshness,
-              },
-              data: snapshot.value,
-            },
-          }
-        } catch (error) {
-          if (error instanceof PluginArchAuthorizationError) {
-            return {
-              ok: false as const,
-              error: "workflow_not_found",
-              message: "The Workflow is unavailable to this member.",
-            }
-          }
-          const message = error instanceof Error ? error.message : "workflow_not_found"
-          return {
-            ok: false as const,
-            error: message.includes("not_found") ? "workflow_not_found" : "workflow_unavailable",
-            message: "The Workflow's retained Artifact could not be loaded.",
-          }
+        const message = error instanceof Error ? error.message : "workflow_not_found"
+        return {
+          ok: false as const,
+          error: message.includes("not_found") ? "workflow_not_found" : "workflow_unavailable",
+          message: "The Workflow's retained Artifact could not be loaded.",
         }
       }
-
-      // Keep the generic MCP App tool as the interoperable baseline.
-      registerAgentWorkflowArtifactApp({ server, load: loadWorkflowArtifact })
-
-      // This server deploys independently from Desktop. Do not advertise or
-      // serve bridge-dependent generated views until the compatible Desktop
-      // MCP Apps host has been released and the operator enables the rollout.
-      if (artifactContext && env.generatedArtifactViewsEnabled) {
-        const loadGeneratedResource = async ({ artifactViewId, revisionId }: { artifactViewId: string; revisionId: string }) => {
-          const { revision } = await loadArtifactViewRevision({ context: artifactContext, artifactViewId, revisionId })
-          if (revision.build_status !== "ready" || !revision.compiled_html || !revision.resource_digest) {
-            throw new Error("artifact_view_revision_not_ready")
-          }
-          return { html: revision.compiled_html, resourceDigest: revision.resource_digest, csp: revision.csp }
-        }
-        const generatedViews = await listArtifactViews({ context: artifactContext })
-        registerAgentGeneratedArtifactViews({
-          server,
-          views: generatedViews,
-          loadResource: loadGeneratedResource,
-          loadData: loadWorkflowArtifact,
-          save: (request) => saveArtifactViewRevision({ context: artifactContext, ...request }),
-          activate: (request) => activateArtifactViewRevision({ context: artifactContext, ...request }),
-          retire: (request) => retireArtifactView({ context: artifactContext, ...request }),
-        })
-
-        const exactResource = requestInfo.resourceUri ? parseArtifactViewResourceUri(requestInfo.resourceUri) : null
-        if (exactResource && !generatedViews.some((view) => view.revisions.some((revision) => revision.resourceUri === requestInfo.resourceUri))) {
-          const exact = await getGeneratedArtifactViewRevision({ context: artifactContext, ...exactResource })
-          registerGeneratedArtifactResource({
-            server,
-            view: exact.view,
-            revision: exact.revision,
-            loadResource: loadGeneratedResource,
-          })
-        }
-      }
-
-      server.registerTool(
-        EXECUTE_CAPABILITY_SCRIPT_TOOL_NAME,
-        {
-          title: "Execute capability script",
-          description: [
-            "Run confined JavaScript orchestration over this organization's capabilities.",
-            "Den REST operations are available at tools.den.<operation>; connected MCP tools are available at tools.<connection>.<tool>.",
-            "search_capabilities results include scriptPath for exact paths, and tools.$codemode.search({ query }) works in-program.",
-            "The code is a plain function body in a restricted JavaScript subset: data literals, control flow, arrow functions, template strings, try/catch, common Array/String/Object/Math/JSON methods, await, and Promise.all.",
-            "Not available: import/require, classes, generators, .then/.catch chaining, timers, fetch, process, and other host globals — call tools for all external work.",
-            "Send plain source only (no markdown fences). End with `return <json-safe value>`; use console.log for progress logs.",
-            "Run independent tool calls in parallel with Promise.all and return only the fields needed.",
-          ].join(" "),
-          annotations: EXECUTE_CAPABILITY_ANNOTATIONS,
-          inputSchema: z.object({
-            code: z.string().min(1),
-            input: z.unknown().optional(),
-          }),
-        },
-        async ({ code, input }) => executeCapabilityWithBudget({
-          capability: EXECUTE_CAPABILITY_SCRIPT_TOOL_NAME,
-          invoke: async (): Promise<ExecuteCapabilityToolResult> => {
-            const { tools } = await buildCapabilityToolTree(capabilityContext)
-            const startedAt = new Date()
-            const result = await runCodemodeScript({
-              code,
-              scriptInput: input,
-              tools,
-              timeoutMs: 170_000,
-            })
-            const finishedAt = new Date()
-            await recordWorkflowResult(db, {
-              organizationId,
-              orgMembershipId: memberIdentity?.orgMembershipId,
-              source: "adhoc",
-              code,
-              startedAt,
-              finishedAt,
-            }, result)
-            if (!result.ok) {
-              return {
-                isError: true,
-                content: textContent(JSON.stringify({
-                  error: "script_failed",
-                  kind: result.error.kind,
-                  message: result.error.message,
-                  ...(result.error.suggestions ? { suggestions: result.error.suggestions } : {}),
-                  toolCalls: result.toolCalls,
-                })),
-              }
-            }
-            const value = typeof result.value === "string"
-              ? result.value
-              : JSON.stringify(result.value, null, 2)
-            const logs = result.logs.length > 0 ? `\n\nLogs:\n${result.logs.join("\n")}` : ""
-            return { content: textContent(`${value}${logs}`) }
-          },
-        }),
-      )
     }
+
+    // Keep the generic MCP App tool as the interoperable baseline.
+    registerAgentWorkflowArtifactApp({ server, load: loadWorkflowArtifact })
+
+    // This server deploys independently from Desktop. Do not advertise or
+    // serve bridge-dependent generated views until the compatible Desktop
+    // MCP Apps host has been released and the operator enables the rollout.
+    if (artifactContext && env.generatedArtifactViewsEnabled) {
+      const loadGeneratedResource = async ({ artifactViewId, revisionId }: { artifactViewId: string; revisionId: string }) => {
+        const { revision } = await loadArtifactViewRevision({ context: artifactContext, artifactViewId, revisionId })
+        if (revision.build_status !== "ready" || !revision.compiled_html || !revision.resource_digest) {
+          throw new Error("artifact_view_revision_not_ready")
+        }
+        return { html: revision.compiled_html, resourceDigest: revision.resource_digest, csp: revision.csp }
+      }
+      const generatedViews = await listArtifactViews({ context: artifactContext })
+      registerAgentGeneratedArtifactViews({
+        server,
+        views: generatedViews,
+        loadResource: loadGeneratedResource,
+        loadData: loadWorkflowArtifact,
+        save: (request) => saveArtifactViewRevision({ context: artifactContext, ...request }),
+        activate: (request) => activateArtifactViewRevision({ context: artifactContext, ...request }),
+        retire: (request) => retireArtifactView({ context: artifactContext, ...request }),
+      })
+
+      const exactResource = requestInfo.resourceUri ? parseArtifactViewResourceUri(requestInfo.resourceUri) : null
+      if (exactResource && !generatedViews.some((view) => view.revisions.some((revision) => revision.resourceUri === requestInfo.resourceUri))) {
+        const exact = await getGeneratedArtifactViewRevision({ context: artifactContext, ...exactResource })
+        registerGeneratedArtifactResource({
+          server,
+          view: exact.view,
+          revision: exact.revision,
+          loadResource: loadGeneratedResource,
+        })
+      }
+    }
+
+    server.registerTool(
+      EXECUTE_CAPABILITY_SCRIPT_TOOL_NAME,
+      {
+        title: "Execute capability script",
+        description: [
+          "Run confined JavaScript orchestration over this organization's capabilities.",
+          "Den REST operations are available at tools.den.<operation>; connected MCP tools are available at tools.<connection>.<tool>.",
+          "search_capabilities results include scriptPath for exact paths, and tools.$codemode.search({ query }) works in-program.",
+          "The code is a plain function body in a restricted JavaScript subset: data literals, control flow, arrow functions, template strings, try/catch, common Array/String/Object/Math/JSON methods, await, and Promise.all.",
+          "Not available: import/require, classes, generators, .then/.catch chaining, timers, fetch, process, and other host globals — call tools for all external work.",
+          "Send plain source only (no markdown fences). End with `return <json-safe value>`; use console.log for progress logs.",
+          "Run independent tool calls in parallel with Promise.all and return only the fields needed.",
+        ].join(" "),
+        annotations: EXECUTE_CAPABILITY_ANNOTATIONS,
+        inputSchema: z.object({
+          code: z.string().min(1),
+          input: z.unknown().optional(),
+        }),
+      },
+      async ({ code, input }) => executeCapabilityWithBudget({
+        capability: EXECUTE_CAPABILITY_SCRIPT_TOOL_NAME,
+        invoke: async (): Promise<ExecuteCapabilityToolResult> => {
+          const { tools } = await buildCapabilityToolTree(capabilityContext)
+          const startedAt = new Date()
+          const result = await runCodemodeScript({
+            code,
+            scriptInput: input,
+            tools,
+            timeoutMs: 170_000,
+          })
+          const finishedAt = new Date()
+          await recordWorkflowResult(db, {
+            organizationId,
+            orgMembershipId: memberIdentity?.orgMembershipId,
+            source: "adhoc",
+            code,
+            startedAt,
+            finishedAt,
+          }, result)
+          if (!result.ok) {
+            return {
+              isError: true,
+              content: textContent(JSON.stringify({
+                error: "script_failed",
+                kind: result.error.kind,
+                message: result.error.message,
+                ...(result.error.suggestions ? { suggestions: result.error.suggestions } : {}),
+                toolCalls: result.toolCalls,
+              })),
+            }
+          }
+          const value = typeof result.value === "string"
+            ? result.value
+            : JSON.stringify(result.value, null, 2)
+          const logs = result.logs.length > 0 ? `\n\nLogs:\n${result.logs.join("\n")}` : ""
+          return { content: textContent(`${value}${logs}`) }
+        },
+      }),
+    )
 
     const transport = new StreamableHTTPTransport()
     await server.connect(transport)

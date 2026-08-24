@@ -9,7 +9,6 @@ import { auth } from "../../auth.js"
 import { verifyBotProtection } from "../../bot-protection.js"
 import { validateBrandIconUrl } from "../../brand-icon-validation.js"
 import { organizationCloudEnabled } from "../../capability-sources/cloud-rollout.js"
-import { workflowsEnabled } from "../../capability-sources/workflow-rollout.js"
 import { memberFacingMcpConnectionsEnabled } from "../../capability-sources/external-mcp-rollout.js"
 import { organizationInstallLinksEnabled } from "../../capability-sources/install-links-rollout.js"
 import { db } from "../../db.js"
@@ -713,7 +712,9 @@ export function registerOrgCoreRoutes<T extends { Variables: OrgRouteVariables }
           mcpConnections: memberFacingMcpConnectionsEnabled(payload.organization.metadata, {
             gatingEnabled: env.mcpConnectionsGatingEnabled,
           }),
-          workflows: workflowsEnabled(payload.organization.metadata),
+          // Workflows/Code Mode are enabled for every organization; the field
+          // remains for published clients that still read it.
+          workflows: true,
           installLinks: organizationInstallLinksEnabled(payload.organization.metadata, {
             gatingEnabled: env.installLinksGatingEnabled,
           }),

@@ -76,13 +76,6 @@ test("a Code Mode result becomes a cloud Automation and a durable artifact resul
   const organizationId = String(orgRows[0]?.id ?? "")
   expect(organizationId).not.toBe("")
 
-  const enabled = await denFetch(den.admin, `/v1/admin/organizations/${organizationId}/capabilities`, {
-    method: "PUT",
-    headers: { authorization: `Bearer ${den.admin.token}` },
-    body: JSON.stringify({ capabilities: { workflows: true } }),
-  })
-  expect(enabled.response.ok, enabled.text).toBe(true)
-
   const connection = await createOrgConnection(den.admin, {
     name: "Report source",
     url: den.mocks.reports.mcpUrl,

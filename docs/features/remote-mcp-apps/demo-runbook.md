@@ -42,30 +42,23 @@ The tape performs this demo sequence:
 
 1. Starts an isolated Den organization, synthetic member, local Project Atlas
    MCP server, and Desktop profile.
-2. Enables the deployment gate only for the local Den process and enables the
-   organization capability through the local admin API.
-3. Adds Project Atlas as an organization Connect MCP server and waits for it to
+2. Adds Project Atlas as an organization Connect MCP server and waits for it to
    become ready.
-4. Confirms the model-visible surface contains only the central
+3. Confirms the model-visible surface contains only the central
    `search_capabilities` and `execute_capability` tools.
-5. Confirms stale per-connection compatibility exposes only that same bounded
+4. Confirms stale per-connection compatibility exposes only that same bounded
    pair, no resources/templates/App metadata, and no direct provider tools.
-6. Confirms the private App host receives only the originating server's
+5. Confirms the private App host receives only the originating server's
    app-visible tools and exact `ui://project-atlas/view.html` resource.
-7. Searches and executes `search_projects` through the originating server's
+6. Searches and executes `search_projects` through the originating server's
    App-host capability pair and observes the synthetic Atlas migration result.
-8. Prompts the synthetic model to return the bound tool result, renders the App
+7. Prompts the synthetic model to return the bound tool result, renders the App
    in Desktop, reloads it, and confirms it renders again.
-9. Disables the organization gate, refreshes the private catalog, and confirms
-   the App closes while the normal text result and ordinary Connect execution
-   remain available.
-10. Restores the gate and confirms the App renders again.
-11. Restarts Desktop with the same isolated profile, revisits the session, and
-    confirms the App recovers.
+8. Restarts Desktop with the same isolated profile, revisits the session, and
+   confirms the App recovers.
 
-The deployment gate is `DEN_REMOTE_MCP_APPS_ENABLED=true`; the organization
-gate is the `remoteMcpApps` capability. Both default off. Never change a
-production flag for this demo.
+Native MCP Apps are enabled for every deployment and organization; no
+deployment or organization gate needs to be flipped for this demo.
 
 ## Focused security and compatibility checks
 
@@ -108,8 +101,9 @@ ordinary Connect when Apps are disabled.
   trusted-origin match.
 - A tool denial indicates wrong-server routing, app visibility, workspace
   policy, provider authorization, or required mutation confirmation.
-- With either gate off, an empty App index and a preserved normal tool result
-  are expected, not a resource-loading failure.
+- A client that does not advertise the private App-host capability keeps the
+  bounded search/execute surface; that is expected, not a resource-loading
+  failure.
 
 The hosted SOL gallery may be checked separately as an external observation,
 but its reachability is not OpenWork compatibility proof and it is not part of

@@ -71,19 +71,15 @@ the proxy boundary. The App-host credential authorizes only this bounded proxy
 surface; it is not a provider credential and grants no direct cross-server
 access.
 
-## Rollout isolation
+## Rollout
 
-Native MCP Apps fail closed behind two existing gates:
-
-1. the deployment gate `DEN_REMOTE_MCP_APPS_ENABLED=true`; and
-2. the organization capability **Native MCP Apps (preview)**.
-
-Both default off. No additional user-facing flag controls standalone URL Apps.
-When either native-App gate is off, ordinary connected MCP tools remain
-available through `search_capabilities` and `execute_capability`, but OpenWork
-removes MCP App classification and launch metadata, publishes no provider App
-endpoint in the member index, clears the private App-host catalog, and renders
-no App UI. Reconciliation also removes and disconnects stale
+Native MCP Apps are enabled for every deployment and organization. The former
+deployment gate (`DEN_REMOTE_MCP_APPS_ENABLED`) and the per-organization
+**Native MCP Apps (preview)** capability were removed once the feature
+stabilized; stale stored organization overrides are ignored. Native App
+metadata is still published only to clients that explicitly advertise support
+for the private App host, so older Desktop clients keep their bounded
+search/execute surface. Reconciliation also removes and disconnects stale
 `openwork-connect-*` OpenCode entries while preserving user-authored MCPs and
 all durable Connect records.
 

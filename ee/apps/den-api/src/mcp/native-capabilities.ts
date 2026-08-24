@@ -122,16 +122,13 @@ export async function searchNativeCapabilities(input: {
   query: string
   catalog: readonly McpToolOperation[]
   limit: number
-  includeScriptPaths?: boolean
   namespaceContext?: CodemodeConnectionNamespaceContext
 }): Promise<NativeCapabilityMatch[]> {
   if (!input.member) return []
-  const namespaceContext = input.includeScriptPaths
-    ? input.namespaceContext ?? await resolveCodemodeConnectionNamespaceContext({
-      organizationId: input.organizationId,
-      member: input.member,
-    })
-    : input.namespaceContext
+  const namespaceContext = input.namespaceContext ?? await resolveCodemodeConnectionNamespaceContext({
+    organizationId: input.organizationId,
+    member: input.member,
+  })
   const connections = namespaceContext?.nativeProviderEntries ?? await listNativeProviderUsableEntries({
     organizationId: input.organizationId,
     orgMembershipId: input.member.orgMembershipId,
@@ -152,7 +149,7 @@ export async function searchNativeCapabilities(input: {
         connection,
         operation,
         score,
-        input.includeScriptPaths ? namespaceContext?.namespaces.native.get(connection.id) : undefined,
+        namespaceContext?.namespaces.native.get(connection.id),
       ))
     }
   }
