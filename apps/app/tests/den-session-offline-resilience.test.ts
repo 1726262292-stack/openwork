@@ -146,7 +146,7 @@ describe("mergePassiveDenSettings", () => {
 
     expect(result).toEqual({
       baseUrl: "https://next.example.com",
-      apiBaseUrl: "https://next.example.com/api/den",
+      apiBaseUrl: "https://api.next.example.com",
       authToken: "tok_stored",
       activeOrgId: "org_stored",
       activeOrgSlug: "stored-org",

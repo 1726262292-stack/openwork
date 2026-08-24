@@ -100,12 +100,12 @@ OpenWork cloud-style self-hosting is composed of three main pieces:
 - Node.js backend (Hono) with MySQL DB
 - Electron/React desktop app
 
-The desktop app should be pointed at the Den web URL when you use the single-origin topology. It derives API and MCP traffic through the Den web proxy:
+The desktop app should be pointed at the Den web URL. On startup it reads `${DEN_BASE_URL}/api/runtime-config` from Den Web and uses the returned `denApiUrl` as the source of truth for Den API and MCP traffic. Den Web returns `DEN_API_BASE` when you set it; otherwise it deterministically derives the API origin as `api.${DEN_BASE_URL}`.
 
-- API: `<baseUrl>/api/den/v1/...`
-- MCP: `<baseUrl>/api/den/mcp/...`
+- API default: `https://api.<den-web-host>/v1/...`
+- MCP default: `https://api.<den-web-host>/mcp/...`
 
-For self-hosted deployments, configure `baseUrl` to the public Den web origin and make sure that web app's `/api/den` route can reach your Den API backend. After sign-in, normal desktop API and MCP traffic does not use a separate API origin in that topology.
+For self-hosted deployments, configure the desktop `baseUrl` to the public Den web origin and make sure `${DEN_BASE_URL}/api/runtime-config` is reachable from member desktops. If the API is not available at `api.${DEN_BASE_URL}`, set `DEN_API_BASE` on Den Web to the externally reachable API origin or proxy path you want desktops to use.
 
 These three pieces cover most features, but do not include:
 

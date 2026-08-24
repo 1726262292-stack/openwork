@@ -11,7 +11,7 @@ describe("Den telemetry endpoint", () => {
       activeOrgId: null,
       activeOrgSlug: null,
       activeOrgName: null,
-    })).toBe("https://app.den.test/api/den/v1/telemetry/ingest");
+    })).toBe("https://api.den.test/v1/telemetry/ingest");
   });
 
   test("uses the nested hosted API default for hosted desktop telemetry", () => {

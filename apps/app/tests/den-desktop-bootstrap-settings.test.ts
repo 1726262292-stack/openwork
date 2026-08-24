@@ -101,7 +101,7 @@ describe("desktop Den bootstrap settings", () => {
 
     const settings = readDenSettings();
     expect(settings.baseUrl).toBe("https://bootstrap.example.com");
-    expect(settings.apiBaseUrl).toBe("https://bootstrap.example.com/api/den");
+    expect(settings.apiBaseUrl).toBe("https://api.bootstrap.example.com");
   });
 
   test("keeps the prepared workspace and claim action in the shared bootstrap snapshot", async () => {
@@ -164,6 +164,50 @@ describe("desktop Den bootstrap settings", () => {
     expect(readDenBootstrapConfig().baseUrl).toBe("https://preload.example.com");
     expect(readDenBootstrapConfig().source).toBe("file");
     expect(ipcReads).toBe(0);
+  });
+
+  test("uses Den Web runtime-config API URL as the desktop source of truth", async () => {
+    const fetches: string[] = [];
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: {
+        localStorage: memoryStorage(),
+        dispatchEvent: () => true,
+        __OPENWORK_ELECTRON__: {
+          invokeDesktop: async (command: string, url?: string) => {
+            if (command === "getDesktopBootstrapConfig") {
+              return {
+                baseUrl: "https://app.runtime.example.com",
+                requireSignin: false,
+              };
+            }
+            if (command === "__fetch" && typeof url === "string") {
+              fetches.push(url);
+              return {
+                status: 200,
+                statusText: "OK",
+                headers: [["content-type", "application/json"]],
+                body: JSON.stringify({ denApiUrl: "https://api.override.example.com" }),
+              };
+            }
+            throw new Error(`Unexpected desktop command: ${command}`);
+          },
+        },
+      },
+    });
+
+    await initializeDenBootstrapConfig();
+
+    expect(fetches).toEqual(["https://app.runtime.example.com/api/runtime-config"]);
+    expect(readDenBootstrapConfig().baseUrl).toBe("https://app.runtime.example.com");
+    expect(readDenBootstrapConfig().apiBaseUrl).toBe("https://api.override.example.com");
+  });
+
+  test("falls back to deterministic API subdomain when runtime-config is unavailable", async () => {
+    await initializeDenBootstrapConfig();
+
+    expect(readDenBootstrapConfig().baseUrl).toBe("https://bootstrap.example.com");
+    expect(readDenBootstrapConfig().apiBaseUrl).toBe("https://api.bootstrap.example.com");
   });
 
   test("saves base URL changes to bootstrap and clears legacy endpoint storage", async () => {

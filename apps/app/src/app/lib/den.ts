@@ -723,6 +723,25 @@ function ensureDenApiBasePath(input: string | null | undefined): string | null {
   }
 }
 
+function denApiOriginForDenBaseUrl(input: string | null | undefined): string | null {
+  const normalized = normalizeDenBaseUrl(input);
+  if (!normalized) return null;
+
+  try {
+    const url = new URL(normalized);
+    const hostname = url.hostname.toLowerCase();
+    if (hostname !== "api" && !hostname.startsWith("api.")) {
+      url.hostname = `api.${hostname}`;
+    }
+    url.pathname = "";
+    url.search = "";
+    url.hash = "";
+    return url.toString().replace(/\/+$/, "");
+  } catch {
+    return null;
+  }
+}
+
 export function resolveDenBaseUrls(input: { baseUrl?: string | null; apiBaseUrl?: string | null } | string | null | undefined): DenBaseUrls {
   const rawBaseUrl = typeof input === "string" ? input : input?.baseUrl;
   const normalizedBaseUrl = normalizeDenBaseUrl(rawBaseUrl);
@@ -749,9 +768,7 @@ export function resolveDenBaseUrls(input: { baseUrl?: string | null; apiBaseUrl?
   // Build-time API pin (headless/dev web): route API calls through the
   // configured proxy regardless of which web base the caller resolved.
   const buildDenApiBaseUrl = normalizedApiBaseUrl ? null : normalizeDenBaseUrl(readBuildDenApiBaseUrl());
-  const hostedDefaultApiBaseUrl = denOriginComparisonKey(baseUrl) === denOriginComparisonKey(HOSTED_DEFAULT_DEN_BASE_URL)
-    ? HOSTED_DEFAULT_DEN_API_BASE_URL
-    : null;
+  const deterministicApiBaseUrl = denApiOriginForDenBaseUrl(baseUrl);
 
   return {
     baseUrl,
@@ -759,9 +776,7 @@ export function resolveDenBaseUrls(input: { baseUrl?: string | null; apiBaseUrl?
       ? normalizedApiBaseUrl
       : buildDenApiBaseUrl
         ? ensureDenApiBasePath(buildDenApiBaseUrl) ?? buildDenApiBaseUrl
-        : hostedDefaultApiBaseUrl
-          ? hostedDefaultApiBaseUrl
-          : ensureDenApiBasePath(baseUrl) ?? baseUrl,
+        : deterministicApiBaseUrl ?? ensureDenApiBasePath(baseUrl) ?? baseUrl,
   };
 }
 
@@ -863,6 +878,72 @@ function resolveDenBootstrapConfig(
   };
 }
 
+function denRuntimeConfigUrl(baseUrl: string): string | null {
+  const normalized = normalizeDenBaseUrl(baseUrl);
+  if (!normalized) return null;
+
+  try {
+    const url = new URL(normalized);
+    url.pathname = "/api/runtime-config";
+    url.search = "";
+    url.hash = "";
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
+function readRuntimeConfigDenApiUrl(payload: unknown): string | null {
+  if (!isRecord(payload)) return null;
+  const denApiUrl = typeof payload.denApiUrl === "string" ? payload.denApiUrl.trim() : "";
+  return normalizeDenBaseUrl(denApiUrl);
+}
+
+async function fetchRuntimeConfigDenApiUrl(baseUrl: string): Promise<string | null> {
+  const url = denRuntimeConfigUrl(baseUrl);
+  if (!url) return null;
+
+  try {
+    const response = await fetchWithTimeout(
+      resolveFetch(url),
+      url,
+      {
+        method: "GET",
+        headers: { Accept: "application/json" },
+        credentials: "omit",
+        cache: "no-store",
+      },
+      2_000,
+    );
+    if (!response.ok) return null;
+    return readRuntimeConfigDenApiUrl(await response.json());
+  } catch {
+    return null;
+  }
+}
+
+async function resolveDenBootstrapConfigWithRuntimeApi(
+  input: Parameters<typeof resolveDenBootstrapConfig>[0],
+): Promise<DenBootstrapConfig> {
+  const resolved = resolveDenBootstrapConfig(input);
+  if (!isDesktopRuntime()) {
+    return resolved;
+  }
+
+  const runtimeApiBaseUrl = await fetchRuntimeConfigDenApiUrl(resolved.baseUrl);
+  if (!runtimeApiBaseUrl) {
+    return resolved;
+  }
+
+  return {
+    ...resolved,
+    apiBaseUrl: resolveDenBaseUrls({
+      baseUrl: resolved.baseUrl,
+      apiBaseUrl: runtimeApiBaseUrl,
+    }).apiBaseUrl,
+  };
+}
+
 function getPendingBootstrapConfig(next: DenSettings): DenBootstrapConfig | null {
   if (next.baseUrl === undefined && next.apiBaseUrl === undefined) {
     return null;
@@ -937,7 +1018,7 @@ export async function initializeDenBootstrapConfig(): Promise<DenBootstrapConfig
 
   const initialBootstrap = readInitialDesktopBootstrapConfig();
   if (initialBootstrap) {
-    applyDesktopBootstrapConfig(resolveDenBootstrapConfig(initialBootstrap));
+    applyDesktopBootstrapConfig(await resolveDenBootstrapConfigWithRuntimeApi(initialBootstrap));
     return desktopBootstrapConfig;
   }
 
@@ -949,7 +1030,7 @@ export async function initializeDenBootstrapConfig(): Promise<DenBootstrapConfig
   for (let attempt = 1; attempt <= SHELL_BOOTSTRAP_ATTEMPTS; attempt += 1) {
     try {
       const bootstrap = await getDesktopBootstrapConfigFromShell();
-      applyDesktopBootstrapConfig(resolveDenBootstrapConfig(bootstrap));
+      applyDesktopBootstrapConfig(await resolveDenBootstrapConfigWithRuntimeApi(bootstrap));
       return desktopBootstrapConfig;
     } catch (error) {
       console.error("[den-bootstrap] shell read failed", attempt, error);
@@ -976,7 +1057,7 @@ export async function initializeDenBootstrapConfig(): Promise<DenBootstrapConfig
       await new Promise((resolve) => setTimeout(resolve, 2_000));
       try {
         const bootstrap = await getDesktopBootstrapConfigFromShell();
-        applyDesktopBootstrapConfig(resolveDenBootstrapConfig(bootstrap));
+        applyDesktopBootstrapConfig(await resolveDenBootstrapConfigWithRuntimeApi(bootstrap));
         dispatchDenSettingsChanged({ settings: readDenSettings() });
         return;
       } catch {
@@ -998,7 +1079,7 @@ export async function refreshDenBootstrapConfigFromShell(): Promise<DenBootstrap
   if (isDesktopRuntime()) {
     try {
       const bootstrap = await getDesktopBootstrapConfigFromShell();
-      applyDesktopBootstrapConfig(resolveDenBootstrapConfig(bootstrap));
+      applyDesktopBootstrapConfig(await resolveDenBootstrapConfigWithRuntimeApi(bootstrap));
       dispatchDenSettingsChanged({ settings: readDenSettings() });
     } catch {
       // Bridge hiccup — keep the current cached snapshot.
@@ -1012,7 +1093,7 @@ export async function setDenBootstrapConfig(
   options?: { dispatchSettingsChanged?: boolean },
 ): Promise<DenBootstrapConfig> {
   const previous = readDenBootstrapConfig();
-  const normalized = resolveDenBootstrapConfig({
+  const normalized = await resolveDenBootstrapConfigWithRuntimeApi({
     ...next,
     enterpriseActivation: next.enterpriseActivation ?? previous.enterpriseActivation,
   });
@@ -1033,7 +1114,7 @@ export async function setDenBootstrapConfig(
       ...(normalized.enterpriseActivation ? { enterpriseActivation: normalized.enterpriseActivation } : {}),
     });
     
-    applyDesktopBootstrapConfig(resolveDenBootstrapConfig({ ...persisted, source: "file" }));
+    applyDesktopBootstrapConfig(await resolveDenBootstrapConfigWithRuntimeApi({ ...persisted, source: "file" }));
   } else {
     applyDesktopBootstrapConfig(normalized);
   }
