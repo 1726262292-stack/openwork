@@ -112,6 +112,7 @@ import { firstLineLocalFileParts, joinWorkspaceRelativePath, toFileUrl } from "@
 import { composerAttachmentsToWorkspaceFileParts } from "@/react-app/domains/session/sync/attachment-file-part";
 import { useSessionInteractions } from "@/react-app/domains/session/sync/use-session-interactions";
 import { useModelBehavior } from "@/react-app/domains/session/surface/use-model-behavior";
+import { computeModelAvailability, type ModelAvailability } from "@/react-app/domains/session/surface/model-availability";
 import { useSessionFindStore } from "@/react-app/domains/session/surface/find-store";
 import { useModelPicker } from "@/react-app/domains/session/modals/use-model-picker";
 import { getSessionModelSelection, useSessionModelStore } from "@/react-app/domains/session/surface/session-model-store";
@@ -227,7 +228,6 @@ import { writeStoredDefaultModel } from "@/react-app/kernel/model-config";
 import {
   ensureProviderListQuery,
   getConnectedProviderItems,
-  isModelAvailableInConnectedProviders,
   refreshProviderListQueries,
   useProviderListQuery,
 } from "@/react-app/infra/provider-list-query";
@@ -1042,9 +1042,6 @@ export function SessionRoute() {
   const selectedModelUsesCloudProvider = Boolean(
     local.prefs.defaultModel && isCloudManagedProviderKey(local.prefs.defaultModel.providerID),
   );
-  const selectedModelProviderList = selectedModelUsesCloudProvider
-    ? cloudProviderList
-    : providerListQuery.data;
   const entitledOrgDefaultModel = useMemo(() => {
     const runtimeOptions = providerListModelEntitlementOptions(
       cloudProviderList ?? providerListQuery.data,
@@ -1074,38 +1071,60 @@ export function SessionRoute() {
     cloudProviderSyncReady,
     openWorkModelsSyncing,
   });
-  const selectedModelUnavailable = Boolean(
-    selectedWorkspaceId &&
-      opencodeClient &&
-      !loading &&
-      !selectedModelAvailabilityPending &&
-      local.prefs.defaultModel &&
-      (!selectedModelUsesCloudProvider || cloudProviderSyncReady) &&
-      (
-        isDesktopProviderBlocked({
-          providerId: local.prefs.defaultModel.providerID,
-          checkRestriction: checkDesktopRestriction,
-        }) ||
-        (
-          selectedModelProviderList &&
-          restrictToCloudProviders &&
-          !selectedModelProviderList.connected.some(
-            (providerId) => providerId.trim() === local.prefs.defaultModel?.providerID.trim(),
-          )
-        ) ||
-        (
-          selectedModelProviderList &&
-          !isModelAvailableInConnectedProviders(selectedModelProviderList, local.prefs.defaultModel)
-        )
-      ),
+  // Availability is resolved per effective model identity: the New Task
+  // composer validates the global default while each conversation validates
+  // its OWN remembered provider/model against the current workspace's
+  // catalogs. The provider-list query is keyed by server + workspace
+  // directory, so a workspace switch supersedes the old catalog (the new key
+  // reads as unsettled → pending) instead of judging the new workspace with
+  // stale data.
+  const resolveModelAvailability = useCallback((model: ModelRef | null): ModelAvailability =>
+    computeModelAvailability(model, {
+      workspaceReady: Boolean(selectedWorkspaceId && opencodeClient),
+      loading,
+      signedIn: denAuth.isSignedIn,
+      cloudProviderSyncReady,
+      openWorkModelsSyncing,
+      restrictToCloud: restrictToCloudProviders,
+      checkRestriction: checkDesktopRestriction,
+      cloudProviderList,
+      providerList: providerListQuery.data,
+    }), [
+    checkDesktopRestriction,
+    cloudProviderList,
+    cloudProviderSyncReady,
+    denAuth.isSignedIn,
+    loading,
+    opencodeClient,
+    openWorkModelsSyncing,
+    providerListQuery.data,
+    restrictToCloudProviders,
+    selectedWorkspaceId,
+  ]);
+  const selectedModelUnavailable =
+    resolveModelAvailability(local.prefs.defaultModel ?? null).status === "unavailable";
+  // The composer the user is looking at: the selected conversation's
+  // remembered model when it has one, otherwise the global default.
+  const selectedSessionModelSelection = useSessionModelStore((state) =>
+    (selectedSessionId ? state.bySessionId[selectedSessionId] ?? null : null),
   );
-  const selectedModelUnavailableKey = selectedModelUnavailable && local.prefs.defaultModel
-    ? `${local.prefs.defaultModel.providerID}:${local.prefs.defaultModel.modelID}`
+  const activeComposerModel = selectedSessionModelSelection?.model ?? local.prefs.defaultModel ?? null;
+  const activeComposerAvailability = resolveModelAvailability(activeComposerModel);
+  const activeComposerTargetsSession = Boolean(selectedSessionModelSelection && selectedSessionId);
+  const selectedModelUnavailableKey = activeComposerAvailability.status === "unavailable" && activeComposerModel
+    ? `${activeComposerTargetsSession ? selectedSessionId : "default"}:${activeComposerModel.providerID}:${activeComposerModel.modelID}`
     : null;
   const autoOpenedUnavailableModelRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!selectedModelUnavailableKey) {
+      // The active composer's model is fine (or pending). If the picker was
+      // auto-opened for a previously broken composer — e.g. the New Task
+      // default — do not let that recovery modal follow the user into a
+      // conversation whose own model is valid.
+      if (autoOpenedUnavailableModelRef.current) {
+        modelPicker.setOpen(false);
+      }
       autoOpenedUnavailableModelRef.current = null;
       return;
     }
@@ -1113,21 +1132,25 @@ export function SessionRoute() {
       selectedModelUnavailableKey,
       signedIn: denAuth.isSignedIn,
       cloudProviderSyncReady,
-      entitledOrgDefaultModel: Boolean(entitledOrgDefaultModel),
+      // Silent default repair only applies when the broken selection IS the
+      // default; a conversation's own unavailable model must surface the
+      // picker for that conversation instead.
+      entitledOrgDefaultModel: activeComposerTargetsSession ? false : Boolean(entitledOrgDefaultModel),
       organizationModelsEmpty,
       autoOpenedUnavailableModelKey: autoOpenedUnavailableModelRef.current,
     })) return;
-    if (entitledOrgDefaultModel) {
+    if (!activeComposerTargetsSession && entitledOrgDefaultModel) {
       writeStoredDefaultModel(entitledOrgDefaultModel);
       return;
     }
 
     autoOpenedUnavailableModelRef.current = selectedModelUnavailableKey;
+    setModelPickerSessionId(activeComposerTargetsSession ? selectedSessionId : null);
     modelPicker.setQuery("");
     modelPicker.setRecentProviderIds(new Set());
     modelPicker.setCompactOpen(false);
     modelPicker.setOpen(true);
-  }, [cloudProviderSyncReady, denAuth.isSignedIn, entitledOrgDefaultModel, modelPicker.setCompactOpen, modelPicker.setOpen, modelPicker.setQuery, modelPicker.setRecentProviderIds, organizationModelsEmpty, selectedModelUnavailableKey]);
+  }, [activeComposerTargetsSession, cloudProviderSyncReady, denAuth.isSignedIn, entitledOrgDefaultModel, modelPicker.setCompactOpen, modelPicker.setOpen, modelPicker.setQuery, modelPicker.setRecentProviderIds, organizationModelsEmpty, selectedModelUnavailableKey, selectedSessionId]);
 
   const hasUsableModel = Boolean(
     local.prefs.defaultModel &&
@@ -1325,8 +1348,11 @@ export function SessionRoute() {
       },
       providerCatalog,
       modelPickerOpen: modelPicker.compactOpen,
+      // Legacy fallback only; each surface resolves availability for its own
+      // effective session model through `resolveModelAvailability`.
       modelUnavailable: selectedModelUnavailable,
       modelUnavailableMessage,
+      resolveModelAvailability,
       organizationModelsEmpty,
       selectedModel: local.prefs.defaultModel ?? { providerID: "", modelID: "" },
       openWorkModelsEntitled,
@@ -1369,7 +1395,11 @@ export function SessionRoute() {
         const sessionModelSelection = getSessionModelSelection(targetSessionId);
         const sendModel = sessionModelSelection?.model ?? local.prefs.defaultModel;
         const sendVariant = sessionModelSelection ? sessionModelSelection.variant : modelVariantValue;
-        if (!sessionModelSelection && selectedModelUnavailable) throw new Error("Selected model is unavailable. Choose another model before sending.");
+        // Send-time validation targets the exact provider/model identity this
+        // conversation displays and will submit — not the global default.
+        if (resolveModelAvailability(sendModel ?? null).status === "unavailable") {
+          throw new Error("Selected model is unavailable. Choose another model before sending.");
+        }
 
         return submitWithCloudMcpReadiness({
           // Temporarily bypass the pre-send Cloud MCP gate: it blocks every
@@ -1599,6 +1629,7 @@ export function SessionRoute() {
     openWorkModelsSyncing,
     refreshCloudProviderSync,
     refreshOrganizationModelAccess,
+    resolveModelAvailability,
     opencodeBaseUrl,
     opencodeClient,
     providerConnectedIds,
@@ -2007,8 +2038,11 @@ export function SessionRoute() {
   }, [navigateToWorkspaceSession, selectedWorkspaceId]);
 
   const openModelPickerForControl = useCallback(() => {
+    // Opened while a conversation is visible: target that conversation so the
+    // picker's checkmark and the selection it writes match the composer.
+    setModelPickerSessionId(selectedSessionId || null);
     modelPicker.setOpen(true);
-  }, []);
+  }, [selectedSessionId]);
 
   useSessionControlActions({
     workspaces,
@@ -2031,11 +2065,15 @@ export function SessionRoute() {
     return {
       id: "eval.model_not_available.seed",
       label: "Seed an unavailable selected model",
-      description: "Dev-only eval hook that selects a missing model and returns an available model to recover with.",
+      description: "Dev-only eval hook that selects a missing model and returns an available model to recover with. scope=default leaves the open conversation's remembered model untouched.",
       sideEffect: "mutation",
       disabled: !opencodeClient,
-      execute: async () => {
+      args: [{ name: "scope", type: "string", description: "default | both (default: both)" }],
+      execute: async (args) => {
         if (!opencodeClient) return { ok: false, error: "OpenCode client is not connected." };
+        const scope = (args && typeof args === "object" && Reflect.get(args, "scope") === "default")
+          ? "default"
+          : "both";
 
         const providerList = await ensureProviderListQuery(getReactQueryClient(), {
           client: opencodeClient,
@@ -2067,8 +2105,15 @@ export function SessionRoute() {
           defaultModel: unavailableModel,
           modelVariant: null,
         }));
+        // Per-conversation memory is session-scoped: seeding "both" makes the
+        // open conversation's own model unavailable; "default" reproduces the
+        // workspace-switch state where only the global default is missing.
+        if (scope === "both" && selectedSessionId) {
+          useSessionModelStore.getState().setModel(selectedSessionId, unavailableModel, null);
+        }
 
         return {
+          scope,
           unavailableModel,
           availableModel: {
             providerID: availableProvider.id,
@@ -2661,7 +2706,11 @@ export function SessionRoute() {
       environmentClient={client}
       openworkServerToken={selectedWorkspaceServerToken}
       developerMode={developerMode}
-      headerStatus={canCreateTask ? t("status.connected") : (modelUnavailableMessage ?? t("session.loading_detail"))}
+      headerStatus={
+        canCreateTask || (activeComposerTargetsSession && !selectedWorkspaceError && activeComposerAvailability.status === "available")
+          ? t("status.connected")
+          : (modelUnavailableMessage ?? t("session.loading_detail"))
+      }
       busyHint={organizationModelsEmpty ? t("models.organization_models_empty") : effectiveLoading ? t("session.loading_detail") : null}
       startupPhase={effectiveLoading ? "nativeInit" : "ready"}
       providerConnectedIds={providerConnectedIds}
@@ -3013,6 +3062,7 @@ export function SessionRoute() {
       onOpenSettings={(route) => handleOpenSettings(route ?? "/settings/general")}
       onOpenExtensions={() => handleOpenExtensions()}
       onOpenModelPicker={() => {
+        setModelPickerSessionId(selectedSessionId || null);
         modelPicker.setQuery("");
         modelPicker.setRecentProviderIds(new Set());
         window.requestAnimationFrame(() => modelPicker.setOpen(true));
@@ -3058,7 +3108,15 @@ export function SessionRoute() {
 
       query={modelPicker.query}
       setQuery={modelPicker.setQuery}
-      subtitle={selectedModelUnavailable ? MODEL_PICKER_UNAVAILABLE_SUBTITLE : undefined}
+      subtitle={
+        resolveModelAvailability(
+          (modelPickerSessionId ? getSessionModelSelection(modelPickerSessionId)?.model : null)
+            ?? local.prefs.defaultModel
+            ?? null,
+        ).status === "unavailable"
+          ? MODEL_PICKER_UNAVAILABLE_SUBTITLE
+          : undefined
+      }
       target="default"
       current={
         (modelPickerSessionId ? getSessionModelSelection(modelPickerSessionId)?.model : null)
@@ -3122,7 +3180,7 @@ export function SessionRoute() {
         modelPicker.setOpen(false);
         handleOpenSettings("/settings/general");
       }}
-      onClose={() => { modelPicker.setOpen(false); modelPicker.setRecentProviderIds(new Set()); }}
+      onClose={() => { modelPicker.setOpen(false); modelPicker.setRecentProviderIds(new Set()); setModelPickerSessionId(null); }}
       openWorkModelsEntitled={openWorkModelsEntitled}
       openWorkModelsSyncing={openWorkModelsSyncing}
       onRefreshOrganizationModels={refreshOrganizationModelAccess}
