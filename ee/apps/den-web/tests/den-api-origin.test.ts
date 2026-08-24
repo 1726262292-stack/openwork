@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { NextRequest } from "next/server";
 
+import { redirectToDenApi } from "../app/api/_lib/den-api-redirect";
 import { denApiCredentialsForEndpoint, denApiEndpointForWebOrigin, denApiOriginForWebOrigin } from "../app/(den)/_lib/den-api-origin";
 
 describe("Den API browser origin", () => {
@@ -17,6 +19,17 @@ describe("Den API browser origin", () => {
 
   test("builds direct API URLs instead of same-origin Den proxy URLs", () => {
     expect(denApiEndpointForWebOrigin("/v1/me", "https://app.openworklabs.com")).toBe("https://api.app.openworklabs.com/v1/me");
+  });
+
+  test("redirects legacy app/proxy MCP callbacks to the direct API callback path", () => {
+    const request = new NextRequest(
+      "https://app.openworklabs.com/api/den/v1/mcp-connections/oauth/callback?code=abc&state=opaque",
+    );
+    const response = redirectToDenApi(request, "/api/den");
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe(
+      "https://api.app.openworklabs.com/v1/mcp-connections/oauth/callback?code=abc&state=opaque",
+    );
   });
 
   test("keeps Better Auth traffic on the same-origin auth proxy", () => {

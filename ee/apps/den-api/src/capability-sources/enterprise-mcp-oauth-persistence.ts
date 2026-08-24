@@ -32,7 +32,7 @@ import {
   externalMcpIdentityBinding,
   type ExternalMcpConnectionRow,
 } from "./external-mcp-connections.js"
-import { externalMcpCallbackUrl } from "./external-mcp-oauth-contract.js"
+import { externalMcpCallbackUrl, externalMcpCompatibleCallbackUrl } from "./external-mcp-oauth-contract.js"
 import { normalizeConnectedAccountScopes, normalizeOAuthClientExtra } from "./oauth-credentials.js"
 
 const MAX_PENDING_AUTHORIZATIONS = 8
@@ -232,12 +232,15 @@ export class DenEnterpriseMcpOAuthPersistence implements EnterpriseMcpOAuthPersi
       const registeredRedirectUri = typeof extra?.registeredRedirectUri === "string"
         ? extra.registeredRedirectUri
         : undefined
-      const currentRedirectUri = externalMcpCallbackUrl({
+      const currentRedirectUri = externalMcpCompatibleCallbackUrl({
         connectionId: this.connection.id,
         callbackMode: this.connection.oauthConfiguration?.callbackMode ?? "legacy-v1",
+        createdAt: this.connection.createdAt,
+        registeredRedirectUri,
       })
       if (
         extra?.enterpriseMcpRegistrationSource === "pre-registered"
+        && registeredRedirectUri !== undefined
         && registeredRedirectUri !== currentRedirectUri
       ) {
         throw new EnterpriseMcpOAuthContractError(
