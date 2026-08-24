@@ -222,6 +222,7 @@ declare global {
 }
 
 export const LAST_WORKER_STORAGE_KEY = "openwork:web:last-worker";
+export const PENDING_SOCIAL_AUTH_STORAGE_KEY = "openwork:web:pending-social-auth";
 export const PENDING_SOCIAL_SIGNUP_STORAGE_KEY = "openwork:web:pending-social-signup";
 export const AUTH_TOKEN_STORAGE_KEY = "openwork:web:auth-token";
 export const ONBOARDING_INTENT_STORAGE_KEY = "openwork:web:onboarding-intent";
@@ -346,6 +347,28 @@ export function getSocialCallbackUrl(authCallbackBaseUrl = ""): string {
       }
     }
     return typeof window !== "undefined" ? `${window.location.origin}/` : "/";
+  }
+}
+
+export function shouldDelaySessionHydrationForAuthRedirect(input: {
+  pathname: string;
+  search: string;
+  pendingSocialAuth: string | null;
+}): boolean {
+  return input.pathname === "/" && input.search === "" && (input.pendingSocialAuth === "github" || input.pendingSocialAuth === "google");
+}
+
+export function waitForAuthRedirectCookieSettlement(): Promise<void> {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, 350);
+  });
+}
+
+export async function clearStaleAuthCookiesBeforeSignIn(): Promise<void> {
+  try {
+    await requestJson("/api/auth/clear-stale-cookies", { method: "POST", credentials: "include" }, 3000);
+  } catch {
+    // Cookie cleanup is best-effort. The sign-in attempt should still proceed.
   }
 }
 

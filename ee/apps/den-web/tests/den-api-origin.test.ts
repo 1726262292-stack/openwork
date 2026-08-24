@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { denApiCredentialsForEndpoint, denApiEndpointForWebOrigin, denApiOriginForWebOrigin } from "../app/(den)/_lib/den-api-origin";
+import { shouldDelaySessionHydrationForAuthRedirect } from "../app/(den)/_lib/den-flow";
 
 describe("Den API browser origin", () => {
   test("prefixes the hosted app origin with the api subdomain", () => {
@@ -38,5 +39,28 @@ describe("Den API browser origin", () => {
       "https://app.openworklabs.com",
       "/v1/orgs/sso/resolve?email=omar%40openworklabs.com",
     )).toBe("omit");
+  });
+
+  test("delays the root session check only while returning from social auth", () => {
+    expect(shouldDelaySessionHydrationForAuthRedirect({
+      pathname: "/",
+      search: "",
+      pendingSocialAuth: "google",
+    })).toBe(true);
+    expect(shouldDelaySessionHydrationForAuthRedirect({
+      pathname: "/dashboard",
+      search: "",
+      pendingSocialAuth: "google",
+    })).toBe(false);
+    expect(shouldDelaySessionHydrationForAuthRedirect({
+      pathname: "/",
+      search: "?desktopAuth=1",
+      pendingSocialAuth: "google",
+    })).toBe(false);
+    expect(shouldDelaySessionHydrationForAuthRedirect({
+      pathname: "/",
+      search: "",
+      pendingSocialAuth: null,
+    })).toBe(false);
   });
 });

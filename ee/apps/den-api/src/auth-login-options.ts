@@ -9,6 +9,61 @@ export function normalizeLoginEmail(email: string) {
   return email.trim().toLowerCase()
 }
 
+export const BETTER_AUTH_SESSION_COOKIE_NAMES = [
+  "__Secure-better-auth.session_token",
+  "better-auth.session_token",
+  "better-auth-session_token",
+] as const
+
+const EXPIRED_COOKIE_DATE = "Thu, 01 Jan 1970 00:00:00 GMT"
+
+function normalizeCookieDomain(domain: string | null | undefined) {
+  const normalized = domain?.trim().toLowerCase().replace(/^\.+/, "") ?? ""
+  return normalized || null
+}
+
+function expiredCookieHeader(name: string, domain: string | null) {
+  const attributes = [
+    `${name}=`,
+    "Path=/",
+    `Expires=${EXPIRED_COOKIE_DATE}`,
+    "Max-Age=0",
+    "HttpOnly",
+    "Secure",
+    "SameSite=Lax",
+  ]
+
+  if (domain) {
+    attributes.push(`Domain=${domain}`)
+  }
+
+  return attributes.join("; ")
+}
+
+export function buildStaleBetterAuthSessionCookieClearHeaders(input: {
+  cookieDomain?: string | null
+  requestHost?: string | null
+}) {
+  const domains = new Set<string | null>([null])
+  const cookieDomain = normalizeCookieDomain(input.cookieDomain)
+  if (cookieDomain) {
+    domains.add(cookieDomain)
+  }
+
+  const requestHost = normalizeCookieDomain(input.requestHost?.split(":", 1)[0])
+  if (requestHost && requestHost !== cookieDomain) {
+    domains.add(requestHost)
+  }
+
+  const headers: string[] = []
+  for (const name of BETTER_AUTH_SESSION_COOKIE_NAMES) {
+    for (const domain of domains) {
+      headers.push(expiredCookieHeader(name, domain))
+    }
+  }
+  return headers
+}
+
 function normalizeProviderId(providerId: string) {
   return providerId.trim().toLowerCase()
 }
