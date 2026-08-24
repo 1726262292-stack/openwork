@@ -88,6 +88,14 @@ export type DesktopIntegrationResult = {
 export type OpenworkServerInfo = {
   running: boolean;
   engineRollover: boolean;
+  /**
+   * Monotonic per-start identity of the embedded server within this desktop
+   * process. Sticky ports and persisted tokens keep the connection details
+   * identical across restarts, so clients that must re-deliver state to a new
+   * server lifetime (e.g. the Connect policy) key on this value. Null when
+   * the bridge predates the field or no start completed yet.
+   */
+  generation: number | null;
   remoteAccessEnabled: boolean;
   host: string | null;
   port: number | null;

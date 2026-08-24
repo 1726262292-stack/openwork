@@ -385,6 +385,10 @@ function createOpenworkServerState() {
     childExited: true,
     inProcess: false,
     engineRollover: false,
+    // Monotonic per-start identity assigned by startOpenworkServerInner.
+    // Sticky ports and persisted tokens make the connection details identical
+    // across restarts, so clients need this to observe a new server lifetime.
+    generation: null,
     remoteAccessEnabled: false,
     host: null,
     port: null,
@@ -409,6 +413,7 @@ export function snapshotOpenworkServerState(state) {
   return {
     running,
     engineRollover: state.engineRollover === true,
+    generation: typeof state.generation === "number" ? state.generation : null,
     remoteAccessEnabled: state.remoteAccessEnabled,
     host: state.host,
     port: state.port,
@@ -1342,6 +1347,10 @@ export function createRuntimeManager({
   let injectedUserEnvKeys = new Set();
   const engineState = createEngineState();
   const openworkServerState = createOpenworkServerState();
+  // Monotonic across this Electron process. Never reset with the server
+  // state: each successful server start must be observable as a new
+  // generation even when ports and tokens are reused.
+  let openworkServerGenerationCounter = 0;
 
   // Serialize engine lifecycle operations. Without this, concurrent renderer
   // invocations of engineStart/engineStop/engineRestart race: each call's
@@ -1954,6 +1963,8 @@ export function createRuntimeManager({
 
     openworkServerState.inProcess = true;
     openworkServerState.engineRollover = options.engineRollover === true;
+    openworkServerGenerationCounter += 1;
+    openworkServerState.generation = openworkServerGenerationCounter;
     openworkServerState.remoteAccessEnabled = options.remoteAccessEnabled;
     openworkServerState.host = host;
     openworkServerState.port = boundPort;
