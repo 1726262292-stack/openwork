@@ -46,6 +46,9 @@ export function DashboardPage() {
     writeDashboardEntries(scopeKey, next);
   };
   const removeEntry = (id: string) => updateEntries(entries.filter((entry) => entry.id !== id));
+  const markLaunchApproved = (id: string) => updateEntries(entries.map((entry) => (
+    entry.kind === "mcp" && entry.id === id ? { ...entry, launchApproved: true } : entry
+  )));
 
   return (
     <div className="mx-auto w-full max-w-6xl px-6 py-6" data-dashboard-page>
@@ -78,7 +81,12 @@ export function DashboardPage() {
             entry.kind === "builtin-hello" ? (
               <HelloWorldTile key={entry.id} onRemove={() => removeEntry(entry.id)} />
             ) : (
-              <McpAppTile key={entry.id} entry={entry} onRemove={() => removeEntry(entry.id)} />
+              <McpAppTile
+                key={entry.id}
+                entry={entry}
+                onRemove={() => removeEntry(entry.id)}
+                onApprovedLaunch={() => markLaunchApproved(entry.id)}
+              />
             )
           ))}
         </div>

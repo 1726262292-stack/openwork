@@ -1,5 +1,5 @@
 /** @jsxImportSource react */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import {
   OpenworkServerError,
@@ -30,11 +30,22 @@ function firstTextContent(content: Array<Record<string, unknown>>): string | nul
   return null;
 }
 
-export function McpAppTile({ entry, onRemove }: { entry: DashboardMcpAppEntry; onRemove: () => void }) {
+export function McpAppTile({ entry, onRemove, onApprovedLaunch }: {
+  entry: DashboardMcpAppEntry;
+  onRemove: () => void;
+  /** Persists the user's one-time launch approval on the stored entry. */
+  onApprovedLaunch?: () => void;
+}) {
   const { openworkServerClient, workspaceId } = useWorkspace();
   const [nonce, setNonce] = useState(0);
   const [state, setState] = useState<TileState>({ phase: "loading" });
   const launchArguments = entry.launchArguments ?? EMPTY_ARGUMENTS;
+  // Read consent through refs so persisting it after the first approval does
+  // not re-run the launch effect and duplicate a write-tool call.
+  const launchApprovedRef = useRef(entry.launchApproved === true);
+  launchApprovedRef.current = entry.launchApproved === true;
+  const onApprovedLaunchRef = useRef(onApprovedLaunch);
+  onApprovedLaunchRef.current = onApprovedLaunch;
 
   useEffect(() => {
     let cancelled = false;
@@ -62,15 +73,21 @@ export function McpAppTile({ entry, onRemove }: { entry: DashboardMcpAppEntry; o
         name: app.toolName,
         resourceUri: app.resourceUri,
         arguments: launchArguments,
+        ...(launchApprovedRef.current ? { approved: true } : {}),
       };
       let result;
       try {
         result = await client.callMcpAppTool(workspaceId, request);
       } catch (cause) {
         if (!(cause instanceof OpenworkServerError) || cause.code !== "tool_requires_approval") throw cause;
-        const approved = window.confirm(`Allow this MCP App to call ${app.toolName} on ${app.serverName}?`);
+        const approved = window.confirm(
+          `Allow this MCP App to call ${app.toolName} on ${app.serverName}? `
+          + "OpenWork remembers your choice for this tile until you remove it.",
+        );
         if (!approved) return { phase: "error", message: "The app launch was declined." };
         result = await client.callMcpAppTool(workspaceId, { ...request, approved: true });
+        launchApprovedRef.current = true;
+        onApprovedLaunchRef.current?.();
       }
       if (result.isError) {
         return {
