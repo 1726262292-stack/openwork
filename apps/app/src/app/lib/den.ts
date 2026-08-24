@@ -63,6 +63,13 @@ declare global {
 export const STORAGE_BASE_URL = "openwork.den.baseUrl";
 const LEGACY_STORAGE_API_BASE_URL = "openwork.den.apiBaseUrl";
 const STORAGE_AUTH_TOKEN = "openwork.den.authToken";
+/**
+ * Origin comparison key (see denOriginComparisonKey) of the Den control plane
+ * that issued the retained auth token. Written together with the token so a
+ * later boot can prove the retained session belongs to the resolved bootstrap
+ * origin before any credential-bearing request is made.
+ */
+export const STORAGE_SESSION_ORIGIN = "openwork.den.sessionOrigin";
 const STORAGE_ACTIVE_ORG_ID = "openwork.den.activeOrgId";
 const STORAGE_ACTIVE_ORG_SLUG = "openwork.den.activeOrgSlug";
 const STORAGE_ACTIVE_ORG_NAME = "openwork.den.activeOrgName";
@@ -439,6 +446,28 @@ let desktopBootstrapConfig: DenBootstrapConfig = {
 let gatewayBootstrapConfig: DenBootstrapConfig | null = null;
 let gatewayBootstrapConfigOrigin: string | null = null;
 let gatewayBootstrapConfigSource: DenBootstrapConfig | null = null;
+
+/**
+ * Whether the in-memory bootstrap snapshot came from an authoritative source
+ * (preload snapshot, shell IPC read, or an explicit persist) or is only the
+ * in-memory fallback used while the shell bridge is unavailable. An
+ * `unresolved` bootstrap must never be treated as a real hosted selection:
+ * retained credentials stay quarantined until the origin that owns them is
+ * proven.
+ */
+export type DenBootstrapResolution = "unresolved" | "resolved";
+let desktopBootstrapResolution: DenBootstrapResolution = "unresolved";
+/**
+ * Monotonic startup/refresh generation. Every asynchronous bootstrap
+ * resolution belongs to the generation that started it; a late result from an
+ * obsolete generation must never replace the current snapshot.
+ */
+let desktopBootstrapGeneration = 0;
+let lastCredentialGateLog: string | null = null;
+
+export function getDenBootstrapResolution(): DenBootstrapResolution {
+  return desktopBootstrapResolution;
+}
 
 export type DenAppVersionMetadata = {
   minAppVersion: string;
@@ -968,6 +997,70 @@ function getPendingBootstrapConfig(next: DenSettings): DenBootstrapConfig | null
 
 function applyDesktopBootstrapConfig(config: DenBootstrapConfig) {
   desktopBootstrapConfig = config;
+  desktopBootstrapResolution = "resolved";
+}
+
+function readStoredDenSessionOrigin(): string | null {
+  if (typeof window === "undefined" || typeof window.localStorage === "undefined") return null;
+  return (window.localStorage.getItem(STORAGE_SESSION_ORIGIN) ?? "").trim() || null;
+}
+
+function readStoredDenAuthToken(): string | null {
+  if (typeof window === "undefined" || typeof window.localStorage === "undefined") return null;
+  return (window.localStorage.getItem(STORAGE_AUTH_TOKEN) ?? "").trim() || null;
+}
+
+/**
+ * Adopts a retained session written by builds that predate the session-origin
+ * tag. Runs only at authoritative boot-time resolution: an untagged token is
+ * bound to the origin the bootstrap actually resolved to, which matches the
+ * origin those builds would have used it against.
+ */
+function adoptUntaggedDenSessionOrigin() {
+  if (!isDesktopRuntime() || desktopBootstrapResolution !== "resolved") return;
+  if (!readStoredDenAuthToken() || readStoredDenSessionOrigin()) return;
+  const origin = denOriginComparisonKey(desktopBootstrapConfig.baseUrl);
+  if (!origin) return;
+  try {
+    window.localStorage.setItem(STORAGE_SESSION_ORIGIN, origin);
+  } catch {
+    // Storage unavailable: the session stays quarantined instead of adopted.
+  }
+}
+
+/**
+ * The single origin-coherence gate. True when the retained token must be
+ * withheld because the enrollment that owns it has not been proven to match
+ * the effective Den origin: either the bootstrap is still unresolved (the
+ * in-memory fallback is not a real selection) or the resolved origin differs
+ * from the origin recorded next to the token.
+ */
+function shouldWithholdDenCredentials(bootstrapBaseUrl: string): boolean {
+  if (!isDesktopRuntime()) return false;
+  if (!readStoredDenAuthToken()) return false;
+
+  const sessionOrigin = readStoredDenSessionOrigin();
+  const configOrigin = denOriginComparisonKey(bootstrapBaseUrl);
+  const withheld = sessionOrigin
+    ? sessionOrigin !== configOrigin
+    : desktopBootstrapResolution !== "resolved";
+
+  const logKey = withheld
+    ? (sessionOrigin ? "origin-mismatch" : "bootstrap-unresolved")
+    : null;
+  if (logKey !== lastCredentialGateLog) {
+    lastCredentialGateLog = logKey;
+    if (logKey === "bootstrap-unresolved") {
+      console.warn(
+        "[den-session] Desktop bootstrap is unresolved; retained Den credentials are quarantined until the control plane origin is proven.",
+      );
+    } else if (logKey === "origin-mismatch") {
+      console.warn(
+        "[den-session] Retained Den session belongs to a different control plane origin than the resolved bootstrap; credentials are quarantined.",
+      );
+    }
+  }
+  return withheld;
 }
 
 export function readDenBootstrapConfig(): DenBootstrapConfig {
@@ -997,6 +1090,8 @@ export function readDenBootstrapConfig(): DenBootstrapConfig {
 }
 
 export async function initializeDenBootstrapConfig(): Promise<DenBootstrapConfig> {
+  const generation = ++desktopBootstrapGeneration;
+
   if (!isDesktopRuntime()) {
     const gatewayOrigin = getOpenworkGatewayOrigin();
     // Forced env settings (headless/dev runs): stale stored base URLs from
@@ -1013,12 +1108,16 @@ export async function initializeDenBootstrapConfig(): Promise<DenBootstrapConfig
       ...(gatewayOrigin ? { apiBaseUrl: gatewayOrigin } : {}),
       requireSignin: BUILD_DEN_REQUIRE_SIGNIN,
     });
+    desktopBootstrapResolution = "resolved";
     return desktopBootstrapConfig;
   }
 
   const initialBootstrap = readInitialDesktopBootstrapConfig();
   if (initialBootstrap) {
-    applyDesktopBootstrapConfig(await resolveDenBootstrapConfigWithRuntimeApi(initialBootstrap));
+    const resolved = await resolveDenBootstrapConfigWithRuntimeApi(initialBootstrap);
+    if (generation !== desktopBootstrapGeneration) return readDenBootstrapConfig();
+    applyDesktopBootstrapConfig(resolved);
+    adoptUntaggedDenSessionOrigin();
     return desktopBootstrapConfig;
   }
 
@@ -1030,34 +1129,51 @@ export async function initializeDenBootstrapConfig(): Promise<DenBootstrapConfig
   for (let attempt = 1; attempt <= SHELL_BOOTSTRAP_ATTEMPTS; attempt += 1) {
     try {
       const bootstrap = await getDesktopBootstrapConfigFromShell();
-      applyDesktopBootstrapConfig(await resolveDenBootstrapConfigWithRuntimeApi(bootstrap));
+      const resolved = await resolveDenBootstrapConfigWithRuntimeApi(bootstrap);
+      if (generation !== desktopBootstrapGeneration) return readDenBootstrapConfig();
+      applyDesktopBootstrapConfig(resolved);
+      adoptUntaggedDenSessionOrigin();
       return desktopBootstrapConfig;
     } catch (error) {
       console.error("[den-bootstrap] shell read failed", attempt, error);
+      if (generation !== desktopBootstrapGeneration) return readDenBootstrapConfig();
       if (attempt < SHELL_BOOTSTRAP_ATTEMPTS) {
         await new Promise((resolve) => setTimeout(resolve, SHELL_BOOTSTRAP_RETRY_DELAY_MS));
       }
     }
   }
 
+  if (generation !== desktopBootstrapGeneration) return readDenBootstrapConfig();
+
   // All quick attempts failed. Keep build defaults in memory only — do NOT
   // sync them to localStorage: previously synced values from a successful
   // boot are more trustworthy than build defaults, and clobbering them
   // silently reverted custom/self-hosted control planes to the production
-  // URL until a manual reload.
+  // URL until a manual reload. The snapshot stays `unresolved`: it is a
+  // recovery placeholder, not a real hosted selection, so retained
+  // credentials remain quarantined until an authoritative read succeeds.
   desktopBootstrapConfig = resolveDenBootstrapConfig({
     baseUrl: HOSTED_DEFAULT_DEN_BASE_URL,
     requireSignin: BUILD_DEN_REQUIRE_SIGNIN,
   });
+  desktopBootstrapResolution = "unresolved";
+  console.warn(
+    "[den-bootstrap] Shell bootstrap is unavailable; using an in-memory placeholder and withholding Den credentials until the real config is read.",
+  );
 
   // Heal in the background without blocking boot: once the bridge comes up,
-  // apply the real shell config and notify listeners.
+  // apply the real shell config and notify listeners. Results from an
+  // obsolete startup generation are discarded.
   void (async () => {
     for (let attempt = 0; attempt < 15; attempt += 1) {
       await new Promise((resolve) => setTimeout(resolve, 2_000));
+      if (generation !== desktopBootstrapGeneration) return;
       try {
         const bootstrap = await getDesktopBootstrapConfigFromShell();
-        applyDesktopBootstrapConfig(await resolveDenBootstrapConfigWithRuntimeApi(bootstrap));
+        const resolved = await resolveDenBootstrapConfigWithRuntimeApi(bootstrap);
+        if (generation !== desktopBootstrapGeneration) return;
+        applyDesktopBootstrapConfig(resolved);
+        adoptUntaggedDenSessionOrigin();
         dispatchDenSettingsChanged({ settings: readDenSettings() });
         return;
       } catch {
@@ -1077,10 +1193,15 @@ export async function initializeDenBootstrapConfig(): Promise<DenBootstrapConfig
  */
 export async function refreshDenBootstrapConfigFromShell(): Promise<DenBootstrapConfig> {
   if (isDesktopRuntime()) {
+    const generation = ++desktopBootstrapGeneration;
     try {
       const bootstrap = await getDesktopBootstrapConfigFromShell();
-      applyDesktopBootstrapConfig(await resolveDenBootstrapConfigWithRuntimeApi(bootstrap));
-      dispatchDenSettingsChanged({ settings: readDenSettings() });
+      const resolved = await resolveDenBootstrapConfigWithRuntimeApi(bootstrap);
+      if (generation === desktopBootstrapGeneration) {
+        applyDesktopBootstrapConfig(resolved);
+        adoptUntaggedDenSessionOrigin();
+        dispatchDenSettingsChanged({ settings: readDenSettings() });
+      }
     } catch {
       // Bridge hiccup — keep the current cached snapshot.
     }
@@ -1099,6 +1220,9 @@ export async function setDenBootstrapConfig(
   });
 
   if (isDesktopRuntime()) {
+    // An explicit persist is a new authoritative bootstrap: retire any
+    // in-flight startup resolution so a late read cannot replace it.
+    desktopBootstrapGeneration += 1;
     const persisted = await setDesktopBootstrapConfigInShell({
       baseUrl: normalized.baseUrl,
       apiBaseUrl: normalized.apiBaseUrl,
@@ -1198,6 +1322,21 @@ export function readDenSettings(): DenSettings {
       ? bootstrapConfig
       : { baseUrl: window.localStorage.getItem(STORAGE_BASE_URL) ?? bootstrapConfig.baseUrl },
   );
+
+  // Origin coherence: the retained token and organization are only usable
+  // together with the origin that issued them. While the bootstrap is
+  // unresolved, or when it resolved to a different control plane, the
+  // retained session stays quarantined in storage — visible to no caller, so
+  // no credential-bearing request can mix origins.
+  if (shouldWithholdDenCredentials(bootstrapConfig.baseUrl)) {
+    return {
+      ...baseUrls,
+      authToken: null,
+      activeOrgId: null,
+      activeOrgSlug: null,
+      activeOrgName: null,
+    };
+  }
 
   return {
     ...baseUrls,
@@ -1343,6 +1482,15 @@ export function writeDenSettings(
     intentionalActiveOrgClear: options?.intentionalActiveOrgClear,
   });
 
+  // Quarantined credentials are invisible to callers, so a caller writing an
+  // empty session cannot have meant to delete them. Preserve the stored
+  // session untouched; explicit sign-out and server changes go through
+  // clearDenSession(), which deletes storage directly.
+  const preserveQuarantinedSession =
+    !authToken
+    && readStoredDenAuthToken() !== null
+    && shouldWithholdDenCredentials(readDenBootstrapConfig().baseUrl);
+
   if (isDesktopRuntime()) {
     window.localStorage.removeItem(STORAGE_BASE_URL);
   } else {
@@ -1352,28 +1500,39 @@ export function writeDenSettings(
   if (previous.baseUrl !== baseUrl || (previous.authToken ?? "") !== authToken) {
     window.localStorage.removeItem(CLOUD_MCP_SYNC_MARKER_STORAGE_KEY);
   }
-  if (authToken) {
-    window.localStorage.setItem(STORAGE_AUTH_TOKEN, authToken);
-  } else {
-    window.localStorage.removeItem(STORAGE_AUTH_TOKEN);
-  }
+  if (!preserveQuarantinedSession) {
+    if (authToken) {
+      window.localStorage.setItem(STORAGE_AUTH_TOKEN, authToken);
+      // Record which control plane issued this token so later boots can prove
+      // origin coherence before using it.
+      const sessionOrigin = denOriginComparisonKey(baseUrl);
+      if (sessionOrigin) {
+        window.localStorage.setItem(STORAGE_SESSION_ORIGIN, sessionOrigin);
+      } else {
+        window.localStorage.removeItem(STORAGE_SESSION_ORIGIN);
+      }
+    } else {
+      window.localStorage.removeItem(STORAGE_AUTH_TOKEN);
+      window.localStorage.removeItem(STORAGE_SESSION_ORIGIN);
+    }
 
-  if (activeOrgId) {
-    window.localStorage.setItem(STORAGE_ACTIVE_ORG_ID, activeOrgId);
-  } else {
-    window.localStorage.removeItem(STORAGE_ACTIVE_ORG_ID);
-  }
+    if (activeOrgId) {
+      window.localStorage.setItem(STORAGE_ACTIVE_ORG_ID, activeOrgId);
+    } else {
+      window.localStorage.removeItem(STORAGE_ACTIVE_ORG_ID);
+    }
 
-  if (activeOrgSlug) {
-    window.localStorage.setItem(STORAGE_ACTIVE_ORG_SLUG, activeOrgSlug);
-  } else {
-    window.localStorage.removeItem(STORAGE_ACTIVE_ORG_SLUG);
-  }
+    if (activeOrgSlug) {
+      window.localStorage.setItem(STORAGE_ACTIVE_ORG_SLUG, activeOrgSlug);
+    } else {
+      window.localStorage.removeItem(STORAGE_ACTIVE_ORG_SLUG);
+    }
 
-  if (activeOrgName) {
-    window.localStorage.setItem(STORAGE_ACTIVE_ORG_NAME, activeOrgName);
-  } else {
-    window.localStorage.removeItem(STORAGE_ACTIVE_ORG_NAME);
+    if (activeOrgName) {
+      window.localStorage.setItem(STORAGE_ACTIVE_ORG_NAME, activeOrgName);
+    } else {
+      window.localStorage.removeItem(STORAGE_ACTIVE_ORG_NAME);
+    }
   }
 
   if (options?.persistBootstrap !== false && pendingBootstrap) {
@@ -1417,6 +1576,7 @@ export function clearDenSession(options?: { includeBaseUrls?: boolean }) {
   }
 
   window.localStorage.removeItem(STORAGE_AUTH_TOKEN);
+  window.localStorage.removeItem(STORAGE_SESSION_ORIGIN);
   window.localStorage.removeItem(STORAGE_ACTIVE_ORG_ID);
   window.localStorage.removeItem(STORAGE_ACTIVE_ORG_SLUG);
   window.localStorage.removeItem(STORAGE_ACTIVE_ORG_NAME);
