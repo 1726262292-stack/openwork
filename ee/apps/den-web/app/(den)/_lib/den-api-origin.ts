@@ -1,3 +1,24 @@
+let denApiOriginOverride: string | null = null;
+
+function normalizeOrigin(input: string | null | undefined): string | null {
+  const trimmed = input?.trim() ?? "";
+  if (!trimmed) return null;
+  try {
+    const url = new URL(trimmed);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+    url.pathname = "";
+    url.search = "";
+    url.hash = "";
+    return url.toString().replace(/\/+$/, "");
+  } catch {
+    return null;
+  }
+}
+
+export function setDenApiOriginOverride(input: string | null | undefined) {
+  denApiOriginOverride = normalizeOrigin(input);
+}
+
 export function denApiOriginForWebOrigin(webOrigin: string): string | null {
   let url: URL;
   try {
@@ -18,11 +39,15 @@ export function denApiOriginForWebOrigin(webOrigin: string): string | null {
   return url.toString().replace(/\/$/, "");
 }
 
+function currentDenApiOriginForWebOrigin(webOrigin: string): string | null {
+  return denApiOriginOverride ?? denApiOriginForWebOrigin(webOrigin);
+}
+
 export function currentDenApiOrigin(): string | null {
   if (typeof window === "undefined") {
     return null;
   }
-  return denApiOriginForWebOrigin(window.location.origin);
+  return currentDenApiOriginForWebOrigin(window.location.origin);
 }
 
 export function denApiEndpointForWebOrigin(path: string, webOrigin: string): string {
@@ -38,7 +63,7 @@ export function denApiEndpointForWebOrigin(path: string, webOrigin: string): str
     return path;
   }
 
-  const origin = denApiOriginForWebOrigin(webOrigin);
+  const origin = currentDenApiOriginForWebOrigin(webOrigin);
   if (!origin) {
     return path;
   }
@@ -58,7 +83,7 @@ export function denApiCredentialsForEndpoint(endpoint: string, webOrigin: string
   try {
     const endpointOrigin = new URL(endpoint).origin;
     const currentOrigin = new URL(webOrigin).origin;
-    const apiOrigin = denApiOriginForWebOrigin(webOrigin);
+    const apiOrigin = currentDenApiOriginForWebOrigin(webOrigin);
     if (endpointOrigin === apiOrigin && isPublicDenApiPath(path)) {
       return "omit";
     }

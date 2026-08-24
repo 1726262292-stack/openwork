@@ -35,10 +35,10 @@ describe("resolveDenBaseUrls", () => {
     expect(resolved.apiBaseUrl).toBe("http://127.0.0.1:8787");
   });
 
-  test("derives the /api/den proxy from a web-app baseUrl when no apiBaseUrl is set", () => {
+  test("derives the api subdomain from a web-app baseUrl when no apiBaseUrl is set", () => {
     const resolved = resolveDenBaseUrls({ baseUrl: "https://den.self-hosted.example.com" });
     expect(resolved.baseUrl).toBe("https://den.self-hosted.example.com");
-    expect(resolved.apiBaseUrl).toBe("https://den.self-hosted.example.com/api/den");
+    expect(resolved.apiBaseUrl).toBe("https://api.den.self-hosted.example.com");
   });
 
   test("uses the nested hosted API origin for the hosted web default", () => {
