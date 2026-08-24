@@ -221,7 +221,7 @@ async function logTail(path: string): Promise<string> {
     .catch((error: unknown) => `log unavailable: ${messageText(error)}`);
 }
 
-async function waitForHttp(url: string, service: SpawnedService, accept: (response: Response) => boolean): Promise<Response> {
+async function waitForHttp(url: string, service: SpawnedService, accept: (response: Response) => boolean, init?: RequestInit): Promise<Response> {
   const deadline = Date.now() + START_TIMEOUT_MS;
   let last = "not attempted";
   while (Date.now() < deadline) {
@@ -229,7 +229,7 @@ async function waitForHttp(url: string, service: SpawnedService, accept: (respon
       throw new Error(`${service.label} exited with ${service.child.exitCode}. Last log lines:\n${await logTail(service.logPath)}`);
     }
     try {
-      const response = await fetch(url, { signal: AbortSignal.timeout(5_000) });
+      const response = await fetch(url, { ...init, signal: AbortSignal.timeout(5_000) });
       if (accept(response)) return response;
       last = `HTTP ${response.status}`;
     } catch (error) {
@@ -799,10 +799,15 @@ export async function server(options: ServerOptions): Promise<Den> {
     await waitForHttp(`${ref.apiUrl}/health`, api, (response) => response.ok);
     if (web) {
       await waitForHttp(`${ref.webUrl}/api/ready`, web, (response) => response.ok);
-      // /api/ready does not compile the dynamic /api/den proxy route. Warm and
-      // verify that route so a stale graph fails during startup rather than a
-      // desktop handoff.
-      await waitForHttp(`${ref.webUrl}/api/den/health`, web, (response) => response.ok);
+      // /api/ready does not compile the dynamic /api/den proxy route. Locally,
+      // accept its 307 to /health because api.<host> derivation requires
+      // production DNS (see den-web app/api/_lib/den-api-redirect.ts).
+      await waitForHttp(`${ref.webUrl}/api/den/health`, web, (response) => {
+        if (response.ok) return true;
+        if (response.status !== 307 && response.status !== 308) return false;
+        const location = response.headers.get("location");
+        return location !== null && new URL(location, response.url).pathname === "/health";
+      }, { redirect: "manual" });
     }
     await waitForAuthProbe(ref, api);
     const organization = options.seedProfile === "demo-org"
