@@ -192,8 +192,20 @@ World v1 has deliberate limits:
 - Apps may sign in only to the first (primary) organization; an app without
   `signedInTo` remains fresh and signed out.
 - Witnesses are MCP mocks only.
-- `den.substrate: "kind"` exposes only the seeded Den: no apps, witnesses,
-  world seed, or fixed ports.
+- `onKind()` runs a real Helm Den on the shared `openwork-kube-lab` kind cluster.
+  Kind worlds can boot local Electron apps signed in as the seeded Acme admin;
+  they do not yet accept witnesses, extra organizations, seed overrides, custom
+  port-forwards, or non-local placement.
+
+Run the opt-in proof on a machine with local Docker, kind, kubectl, and Helm:
+
+```bash
+OPENWORK_EVAL_E2E_TESTS=1 OPENWORK_EVAL_KIND_E2E=1 pnpm --dir evals exec vitest run --config vitest.config.ts --project e2e specs/world-kind-den.e2e.test.ts
+```
+
+Daytona cannot host this substrate: its sandbox has no Docker binary or daemon,
+reports `CapEff: 0000000000000000`, and blocks `unshare -Urm`, so no container
+runtime can start kind there.
 
 ### Reproducing a failure
 

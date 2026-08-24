@@ -49,7 +49,7 @@ export interface ServerOptions {
   provision?: boolean;
   web?: boolean;
   env?: Record<string, string | undefined>;
-  reuse?: DenRef;
+  reuse?: { apiUrl: string; webUrl?: string };
   reuseMembers?: Record<string, PersonShape>;
   ports?: { api: number; web: number };
   seedProfile?: "demo-org";
@@ -551,7 +551,11 @@ async function deleteCreatedOrganization(admin: DenSession, organizationId: stri
 }
 
 function reusedRef(options: ServerOptions): DenRef | null {
-  if (options.reuse) return { apiUrl: cleanUrl(options.reuse.apiUrl), webUrl: cleanUrl(options.reuse.webUrl) };
+  if (options.reuse) {
+    const apiUrl = cleanUrl(options.reuse.apiUrl);
+    const webUrl = options.reuse.webUrl?.trim() || apiUrl.replace("127.0.0.1", "localhost");
+    return { apiUrl, webUrl: cleanUrl(webUrl) };
+  }
   const apiUrl = process.env.OPENWORK_EVAL_DEN_API_URL?.trim();
   if (!apiUrl) return null;
   const cleanApi = cleanUrl(apiUrl);

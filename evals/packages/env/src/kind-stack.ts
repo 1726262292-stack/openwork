@@ -322,20 +322,48 @@ async function httpOk(url: string, timeoutMs = 2_500): Promise<boolean> {
   }
 }
 
-async function signInDemoOwner(): Promise<{ token: string; email: string } | null> {
+async function demoOwnerTokenIsValid(token: string): Promise<boolean> {
+  try {
+    const response = await fetch(`${DEN_API_URL}/v1/me`, {
+      headers: { authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(2_500),
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+async function signInDemoOwner(runtime: KubeRuntime): Promise<{ token: string; email: string }> {
+  const existingToken = await mysqlQuery(
+    runtime,
+    `SELECT s.token FROM \`session\` s JOIN \`user\` u ON u.id=s.user_id WHERE u.email='${DEMO_EMAIL.toLowerCase()}' AND s.expires_at > UTC_TIMESTAMP(3) ORDER BY s.expires_at DESC LIMIT 1;`,
+  );
+  if (existingToken && await demoOwnerTokenIsValid(existingToken)) {
+    runtime.log(`Reusing a valid demo-owner session (${DEMO_EMAIL})`);
+    return { token: existingToken, email: DEMO_EMAIL };
+  }
+
   try {
     const response = await fetch(`${DEN_API_URL}/api/auth/sign-in/email`, {
       method: "POST",
-      headers: { "content-type": "application/json", origin: DEN_BASE_URL },
+      headers: {
+        "content-type": "application/json",
+        origin: DEN_BASE_URL,
+        "x-forwarded-for": "127.0.0.1",
+      },
       body: JSON.stringify({ email: DEMO_EMAIL, password: DEMO_PASSWORD }),
     });
-    if (!response.ok) return null;
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${(await response.text()).slice(0, 500)}`);
+    }
     const payload: unknown = await response.json();
-    return isRecord(payload) && typeof payload.token === "string" && payload.token
-      ? { token: payload.token, email: DEMO_EMAIL }
-      : null;
-  } catch {
-    return null;
+    if (!isRecord(payload) || typeof payload.token !== "string" || !payload.token) {
+      throw new Error("the response did not contain a session token");
+    }
+    return { token: payload.token, email: DEMO_EMAIL };
+  } catch (error) {
+    throw new Error(`Could not obtain a demo-owner session from the kube Den API: ${errorText(error)}`);
   }
 }
 
@@ -822,6 +850,8 @@ export async function ensureSeed(options: KubeLayerOptions = {}): Promise<void> 
 export async function ensureKindDenReady(options: KubeLayerOptions = {}): Promise<void> {
   const runtime = createRuntime(options);
   await phase(runtime, "existing-stack", () => requireKindStack(runtime));
+  await phase(runtime, "den-api-rollout", () => ensureRollout(runtime, `${KUBE_RELEASE_NAME}-den-api`, "60s"));
+  await phase(runtime, "den-web-rollout", () => ensureRollout(runtime, `${KUBE_RELEASE_NAME}-den-web`, "60s"));
   await phase(runtime, "schema", () => ensureSchema(options));
   await phase(runtime, "seed", () => ensureSeed(options));
 }
@@ -879,16 +909,31 @@ async function ensurePortForward(runtime: KubeRuntime, kind: "api" | "web", serv
     }
     await runtime.sleep(1_000);
   }
+  await stopProcess(runtime, pid, `${kind} port-forward`);
+  await rm(pidStatePath(runtime, stateName), { force: true });
   throw new Error(`${kind} port-forward did not become healthy on :${localPort} within 60s.`);
+}
+
+async function stopEndpointForward(runtime: KubeRuntime, kind: "api" | "web", pid: number): Promise<void> {
+  await stopProcess(runtime, pid, `${kind} port-forward`);
+  await rm(pidStatePath(runtime, `${kind}-port-forward.pid`), { force: true });
 }
 
 export async function exposeEndpointHandles(profile: KubeProfileConfig, options: KubeLayerOptions = {}): Promise<KindEndpoints> {
   const runtime = createRuntime(options);
   await mkdir(runtime.stateDir, { recursive: true });
-  const apiPid = await ensurePortForward(runtime, "api", DEN_API_SERVICE, DEN_API_PORT, 8788);
-  const webPid = await ensurePortForward(runtime, "web", DEN_WEB_SERVICE, DEN_WEB_PORT, 3005);
-  const owner = await signInDemoOwner();
-  if (!owner) throw new Error("Could not obtain a demo-owner session token from the kube Den API.");
+  let apiPid: number | undefined;
+  let webPid: number | undefined;
+  let owner: { token: string; email: string };
+  try {
+    apiPid = await ensurePortForward(runtime, "api", DEN_API_SERVICE, DEN_API_PORT, 8788);
+    webPid = await ensurePortForward(runtime, "web", DEN_WEB_SERVICE, DEN_WEB_PORT, 3005);
+    owner = await signInDemoOwner(runtime);
+  } catch (error) {
+    if (webPid !== undefined) await stopEndpointForward(runtime, "web", webPid);
+    if (apiPid !== undefined) await stopEndpointForward(runtime, "api", apiPid);
+    throw error;
+  }
   let stopped = false;
   return {
     apiUrl: DEN_API_URL,
@@ -898,10 +943,8 @@ export async function exposeEndpointHandles(profile: KubeProfileConfig, options:
     async stop(): Promise<void> {
       if (stopped) return;
       stopped = true;
-      await stopProcess(runtime, apiPid, "api port-forward");
-      await rm(pidStatePath(runtime, "api-port-forward.pid"), { force: true });
-      await stopProcess(runtime, webPid, "web port-forward");
-      await rm(pidStatePath(runtime, "web-port-forward.pid"), { force: true });
+      await stopEndpointForward(runtime, "api", apiPid);
+      await stopEndpointForward(runtime, "web", webPid);
     },
   };
 }

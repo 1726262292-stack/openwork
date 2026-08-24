@@ -111,7 +111,7 @@ test("main lists valid snapshots from an injected directory", async () => {
     place: "daytona",
     topology: supportOrg.topology,
     resolved: {
-      den: { apiUrl: "http://api.test", webUrl: "http://web.test" },
+      den: { apiUrl: "http://api.test", webUrl: "http://web.test", origin: "launched" },
       apps: {},
     },
   });
@@ -124,6 +124,41 @@ test("main lists valid snapshots from an injected directory", async () => {
   assert.equal(exitCode, 0);
   assert.deepEqual(lines, [
     "support-demo  2026-08-22T12:00:00.000Z  daytona  orgs acme,globex  apps alice,bob",
+  ]);
+});
+
+test("main lists attached snapshots without consuming their attach behavior", async () => {
+  const lines: string[] = [];
+  const snapshot = buildSnapshot({
+    name: "attached-demo",
+    createdAt: "2026-08-23T12:00:00.000Z",
+    place: "local",
+    topology: {
+      den: {
+        attach: { apiUrl: "https://den.example.test", tier: "staging" },
+        orgs: {
+          acme: { admin: { secretRef: "OPENWORK_EVAL_SECRET_LIST_ADMIN" } },
+        },
+      },
+    },
+    resolved: {
+      den: {
+        apiUrl: "https://den.example.test",
+        webUrl: "https://den.example.test",
+        origin: "attached",
+      },
+      apps: {},
+    },
+  });
+  const exitCode = await main(["list"], {
+    print: (line) => lines.push(line),
+    readDir: async () => ["attached-demo.json"],
+    readFile: async () => JSON.stringify(snapshot),
+  });
+
+  assert.equal(exitCode, 0);
+  assert.deepEqual(lines, [
+    "attached-demo  2026-08-23T12:00:00.000Z  local  orgs acme  apps (none)",
   ]);
 });
 
