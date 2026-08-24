@@ -8,8 +8,10 @@ import {
   connectMcpAppHostName,
   findOpenWorkConnectMcpAppHostServer,
   readOpenWorkConnectMcpAppHostAuthorization,
+  readOpenWorkConnectMcpAppHostCatalog,
   refreshOpenWorkConnectMcpAppHostCatalog,
 } from "./connect-mcp-server-catalog.js";
+import { OPENWORK_CLOUD_MCP_NAME } from "./cloud-mcp-health.js";
 import type { ServerConfig } from "./types.js";
 import {
   assertLocalManagedMcpUrl,
@@ -319,6 +321,8 @@ function findHtmlResource(
 
 export type McpAppCatalogApp = {
   serverName: string;
+  /** Present for Connect app-host apps: launch them through this connection reference. */
+  connectionId?: string;
   toolName: string;
   projectedToolName: string;
   resourceUri: string;
@@ -330,6 +334,9 @@ export type McpAppCatalogApp = {
 
 export type McpAppCatalogServer = {
   serverName: string;
+  /** Human-readable provider name for Connect app-host servers. */
+  displayName?: string;
+  connectionId?: string;
   reachable: boolean;
   error?: string;
   apps: McpAppCatalogApp[];
@@ -362,11 +369,17 @@ export async function listMcpAppCatalog(input: {
   const configured = await listMcp(input.serverConfig, input.workspaceId, input.workspaceRoot);
   const servers: McpAppCatalogServer[] = [];
   for (const item of configured) {
+    // The Cloud capability gateway is not a direct app source: its providers
+    // surface below through the private Connect app-host catalog instead.
+    if (item.name === OPENWORK_CLOUD_MCP_NAME) continue;
     if (item.config.enabled === false || !remoteUrl(item.config)) continue;
     try {
       const apps = await withRemoteClient(item.config, async (client) => {
         const catalog: McpAppCatalogApp[] = [];
         for (const tool of await listTools(client)) {
+          // Cold dashboard launches resolve by projected tool name (model
+          // audience) and execute through the app-mediated call path, so a
+          // listed app must stay visible to both.
           if (!toolVisibility(tool, "model") || !toolVisibility(tool, "app")) continue;
           let resourceUri: string | null;
           try {
@@ -395,6 +408,85 @@ export async function listMcpAppCatalog(input: {
         serverName: item.name,
         reachable: false,
         error: error instanceof Error ? error.message : "The MCP server could not be reached.",
+        apps: [],
+      });
+    }
+  }
+
+  // Connect app-host providers: org connections surfaced through the Cloud
+  // capability gateway. Their catalog and authorization live in the private
+  // app-host store, not the workspace MCP config, and their launches resolve
+  // through a connection reference (app audience only).
+  let connectCatalog = await readOpenWorkConnectMcpAppHostCatalog(input.serverConfig, input.workspaceId);
+  if (connectCatalog.servers.length === 0) {
+    const refreshed = await refreshOpenWorkConnectMcpAppHostCatalog(input.serverConfig, input.workspaceId);
+    if (refreshed.status === "synced") {
+      connectCatalog = await readOpenWorkConnectMcpAppHostCatalog(input.serverConfig, input.workspaceId);
+    }
+  }
+  for (const descriptor of connectCatalog.servers) {
+    const hostName = connectMcpAppHostName(descriptor.connectionId);
+    const base = {
+      serverName: hostName,
+      displayName: descriptor.name,
+      connectionId: descriptor.connectionId,
+    };
+    const authorization = await readOpenWorkConnectMcpAppHostAuthorization(
+      input.serverConfig,
+      input.workspaceId,
+      descriptor.url,
+    );
+    if (!authorization) {
+      servers.push({
+        ...base,
+        reachable: false,
+        error: "The Connect MCP provider is not authorized for this workspace.",
+        apps: [],
+      });
+      continue;
+    }
+    const config: Record<string, unknown> = {
+      type: "remote",
+      url: descriptor.url,
+      enabled: true,
+      headers: {
+        Authorization: authorization,
+        [CONNECT_MCP_APP_HOST_CAPABILITY_HEADER]: CONNECT_MCP_APP_HOST_CAPABILITY,
+      },
+    };
+    try {
+      const apps = await withRemoteClient(config, async (client) => {
+        const catalog: McpAppCatalogApp[] = [];
+        for (const tool of await listTools(client)) {
+          if (!toolVisibility(tool, "app")) continue;
+          let resourceUri: string | null;
+          try {
+            resourceUri = toolUiResourceUri(tool);
+          } catch {
+            continue;
+          }
+          if (!resourceUri) continue;
+          const projectedToolName = projectedMcpToolName(hostName, tool.name);
+          if ((await diagnoseMcpToolDenies(input.workspaceRoot, hostName, [projectedToolName])).length > 0) continue;
+          catalog.push({
+            serverName: hostName,
+            connectionId: descriptor.connectionId,
+            toolName: tool.name,
+            projectedToolName,
+            resourceUri,
+            title: toolDisplayTitle(tool),
+            description: typeof tool.description === "string" ? tool.description : null,
+            requiresInput: toolRequiresInput(tool),
+          });
+        }
+        return catalog;
+      });
+      servers.push({ ...base, reachable: true, apps });
+    } catch (error) {
+      servers.push({
+        ...base,
+        reachable: false,
+        error: error instanceof Error ? error.message : "The Connect MCP provider could not be reached.",
         apps: [],
       });
     }

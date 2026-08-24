@@ -352,6 +352,39 @@ describe("MCP Apps host transport", () => {
     expect(renderReport?.requiresInput).toBe(true);
   });
 
+  test("lists Connect app-host apps with their connection references", async () => {
+    const connectionId = "emc_01mcpappcatalogfixture";
+    const serverName = connectMcpAppHostName(connectionId);
+    const { config, root } = await configuredFixture(
+      "openwork-mcp-app-catalog-connect-",
+      undefined,
+      serverName,
+      connectionId,
+    );
+
+    const servers = await listMcpAppCatalog({
+      serverConfig: config,
+      workspaceId: WORKSPACE_ID,
+      workspaceRoot: root,
+    });
+    // The Cloud capability gateway itself is not an app source.
+    expect(servers.some((server) => server.serverName === "openwork-cloud")).toBe(false);
+    const connect = servers.find((server) => server.connectionId === connectionId);
+    expect(connect?.serverName).toBe(serverName);
+    expect(connect?.displayName).toBe("Fixture provider");
+    expect(connect?.reachable).toBe(true);
+    const names = connect?.apps.map((app) => app.toolName) ?? [];
+    expect(names).toContain("render_fixture");
+    // Connect launches resolve by connection reference, so app-only tools qualify.
+    expect(names).toContain("read_bound_detail");
+    expect(names).not.toContain("save_artifact_view");
+    const renderFixture = connect?.apps.find((app) => app.toolName === "render_fixture");
+    expect(renderFixture?.connectionId).toBe(connectionId);
+    expect(renderFixture?.requiresInput).toBe(false);
+    const renderReport = connect?.apps.find((app) => app.toolName === "render_report");
+    expect(renderReport?.requiresInput).toBe(true);
+  });
+
   test("reports an unreachable server in the MCP App catalog instead of failing it", async () => {
     const { config, root } = await configuredFixture("openwork-mcp-app-catalog-ghost-");
     await addMcp(config, WORKSPACE_ID, "ghost", { type: "remote", url: "http://127.0.0.1:9/", enabled: true });
