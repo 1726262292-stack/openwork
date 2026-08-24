@@ -10,6 +10,8 @@ export type DashboardMcpAppEntry = {
   projectedToolName: string;
   resourceUri: string;
   title: string;
+  /** Optional launch arguments captured when the app was added; every (re)launch reuses them. */
+  launchArguments?: Record<string, unknown>;
 };
 
 export type DashboardBuiltinEntry = {
@@ -60,6 +62,7 @@ function parseEntry(value: unknown): DashboardEntry | null {
     projectedToolName: value.projectedToolName,
     resourceUri: value.resourceUri,
     title: value.title,
+    ...(isRecord(value.launchArguments) ? { launchArguments: value.launchArguments } : {}),
   };
 }
 

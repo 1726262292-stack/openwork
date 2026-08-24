@@ -1,4 +1,5 @@
 /** @jsxImportSource react */
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle, Check, Plus, RefreshCw } from "lucide-react";
 
@@ -13,8 +14,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Textarea } from "@/components/ui/textarea";
 import { useWorkspace } from "@/react-app/shell/workspace-provider";
 import { builtinHelloEntry, type DashboardEntry, type DashboardMcpAppEntry } from "./dashboard-store";
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
 
 export function mcpEntryFromCatalogApp(app: OpenworkMcpAppCatalogApp): DashboardMcpAppEntry {
   return {
@@ -80,32 +86,102 @@ function ServerSection({ server, existingIds, onAdd }: {
       ) : server.apps.length === 0 ? (
         <p className="text-xs text-muted-foreground">This MCP server does not advertise any apps.</p>
       ) : (
-        server.apps.map((app) => {
-          const entry = mcpEntryFromCatalogApp(app);
-          return (
-            <div key={entry.id} className="flex items-center gap-2 rounded-lg border border-border px-3 py-2">
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium">{entry.title}</p>
-                {app.description ? (
-                  <p className="truncate text-xs text-muted-foreground">{app.description}</p>
-                ) : null}
-              </div>
-              {app.requiresInput ? (
-                <Badge variant="outline" title="This app needs launch input, which dashboard tiles do not provide.">
-                  <AlertTriangle className="size-3" /> Requires input
-                </Badge>
-              ) : null}
-              <AddButton
-                added={existingIds.has(entry.id)}
-                disabled={app.requiresInput}
-                label={entry.title}
-                onAdd={() => onAdd(entry)}
-              />
-            </div>
-          );
-        })
+        server.apps.map((app) => (
+          <CatalogAppRow
+            key={`${app.serverName}:${app.toolName}`}
+            app={app}
+            added={existingIds.has(mcpEntryFromCatalogApp(app).id)}
+            onAdd={onAdd}
+          />
+        ))
       )}
     </section>
+  );
+}
+
+function CatalogAppRow({ app, added, onAdd }: {
+  app: OpenworkMcpAppCatalogApp;
+  added: boolean;
+  onAdd: (entry: DashboardEntry) => void;
+}) {
+  const [inputOpen, setInputOpen] = useState(false);
+  const [argsText, setArgsText] = useState("");
+  const [argsError, setArgsError] = useState<string | null>(null);
+  const entry = mcpEntryFromCatalogApp(app);
+  const addWithInput = () => {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(argsText);
+    } catch {
+      setArgsError("This is not valid JSON.");
+      return;
+    }
+    if (!isRecord(parsed)) {
+      setArgsError("Launch input must be a JSON object, for example {\"query\": \"…\"}.");
+      return;
+    }
+    setArgsError(null);
+    setInputOpen(false);
+    onAdd({ ...entry, launchArguments: parsed });
+  };
+  return (
+    <div className="min-w-0 space-y-2 rounded-lg border border-border px-3 py-2">
+      <div className="flex min-w-0 items-center gap-2">
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-medium">{entry.title}</p>
+          {app.description ? (
+            <p className="line-clamp-2 text-xs break-words text-muted-foreground">{app.description}</p>
+          ) : null}
+        </div>
+        {app.requiresInput ? (
+          <Badge variant="outline" title="This app needs launch input; you provide it once when adding.">
+            <AlertTriangle className="size-3" /> Requires input
+          </Badge>
+        ) : null}
+        {added ? (
+          <Button variant="ghost" size="sm" disabled>
+            <Check className="size-4" /> Added
+          </Button>
+        ) : app.requiresInput ? (
+          <Button
+            variant="outline"
+            size="sm"
+            aria-label={`Add ${entry.title} with input`}
+            aria-expanded={inputOpen}
+            onClick={() => setInputOpen((value) => !value)}
+          >
+            <Plus className="size-4" /> Add…
+          </Button>
+        ) : (
+          <Button variant="outline" size="sm" aria-label={`Add ${entry.title}`} onClick={() => onAdd(entry)}>
+            <Plus className="size-4" /> Add
+          </Button>
+        )}
+      </div>
+      {inputOpen && !added ? (
+        <div className="space-y-1">
+          <Textarea
+            value={argsText}
+            onChange={(event) => setArgsText(event.target.value)}
+            placeholder='{"key": "value"}'
+            rows={3}
+            className="font-mono text-xs"
+            aria-label={`Launch input for ${entry.title}`}
+          />
+          <p className="text-xs text-muted-foreground">
+            Paste the launch arguments as a JSON object. The tile reuses them on
+            every launch and refresh.
+          </p>
+          {argsError ? <p className="text-xs text-destructive" role="alert">{argsError}</p> : null}
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" size="sm" onClick={() => setInputOpen(false)}>Cancel</Button>
+            <Button variant="outline" size="sm" onClick={addWithInput}>
+              <Plus className="size-4" /> Add with input
+            </Button>
+          </div>
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -130,10 +206,11 @@ export function AddAppDialog({ open, onOpenChange, existingIds, onAdd }: AddAppD
           <DialogTitle>Add app</DialogTitle>
           <DialogDescription>
             MCP apps available via OpenWork Connect and this workspace&apos;s MCP
-            servers. Only apps that can start without input can be added.
+            servers. Apps that need input ask for JSON launch arguments when you
+            add them.
           </DialogDescription>
         </DialogHeader>
-        <div className="space-y-4">
+        <div className="min-w-0 space-y-4">
           <div className="flex items-center gap-2">
             <span className="flex-1 text-xs font-medium text-muted-foreground">
               {!workspaceReady
@@ -157,10 +234,10 @@ export function AddAppDialog({ open, onOpenChange, existingIds, onAdd }: AddAppD
           </div>
           <section className="space-y-1">
             <span className="text-xs font-medium text-muted-foreground">Built-in</span>
-            <div className="flex items-center gap-2 rounded-lg border border-border px-3 py-2">
+            <div className="flex min-w-0 items-center gap-2 rounded-lg border border-border px-3 py-2">
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium">{hello.title}</p>
-                <p className="truncate text-xs text-muted-foreground">A static local tile that ships with OpenWork.</p>
+                <p className="line-clamp-2 text-xs text-muted-foreground">A static local tile that ships with OpenWork.</p>
               </div>
               <AddButton
                 added={existingIds.has(hello.id)}

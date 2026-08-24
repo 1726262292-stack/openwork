@@ -12,8 +12,8 @@ import { DashboardTileShell } from "./dashboard-tile-shell";
 import type { DashboardMcpAppEntry } from "./dashboard-store";
 
 /**
- * Dashboard tiles only host zero-config launches: the stored reference has no
- * argument payload and every (re)launch calls the tool with empty arguments.
+ * Tiles launch with the arguments captured when the app was added (empty for
+ * zero-config apps). Every launch and refresh reuses that exact stored input.
  */
 const EMPTY_ARGUMENTS: Record<string, unknown> = {};
 
@@ -34,6 +34,7 @@ export function McpAppTile({ entry, onRemove }: { entry: DashboardMcpAppEntry; o
   const { openworkServerClient, workspaceId } = useWorkspace();
   const [nonce, setNonce] = useState(0);
   const [state, setState] = useState<TileState>({ phase: "loading" });
+  const launchArguments = entry.launchArguments ?? EMPTY_ARGUMENTS;
 
   useEffect(() => {
     let cancelled = false;
@@ -51,7 +52,7 @@ export function McpAppTile({ entry, onRemove }: { entry: DashboardMcpAppEntry; o
             connectionId: entry.connectionId,
             toolName: entry.toolName,
             resourceUri: entry.resourceUri,
-            arguments: EMPTY_ARGUMENTS,
+            arguments: launchArguments,
           }
         : undefined;
       const { app } = await client.resolveMcpApp(workspaceId, entry.projectedToolName, launch);
@@ -60,7 +61,7 @@ export function McpAppTile({ entry, onRemove }: { entry: DashboardMcpAppEntry; o
         serverName: app.serverName,
         name: app.toolName,
         resourceUri: app.resourceUri,
-        arguments: EMPTY_ARGUMENTS,
+        arguments: launchArguments,
       };
       let result;
       try {
@@ -75,7 +76,9 @@ export function McpAppTile({ entry, onRemove }: { entry: DashboardMcpAppEntry; o
         return {
           phase: "error",
           message: firstTextContent(result.content)
-            ?? "This app could not start without input, which the dashboard does not provide.",
+            ?? (entry.launchArguments
+              ? "This app could not start with the saved launch input. Remove the tile and add it again with corrected input."
+              : "This app could not start without input, which this tile does not provide."),
         };
       }
       return {
@@ -101,7 +104,7 @@ export function McpAppTile({ entry, onRemove }: { entry: DashboardMcpAppEntry; o
     return () => {
       cancelled = true;
     };
-  }, [entry.connectionId, entry.projectedToolName, entry.resourceUri, entry.toolName, nonce, openworkServerClient, workspaceId]);
+  }, [entry.connectionId, entry.launchArguments, entry.projectedToolName, entry.resourceUri, entry.toolName, launchArguments, nonce, openworkServerClient, workspaceId]);
 
   return (
     <DashboardTileShell
@@ -129,7 +132,7 @@ export function McpAppTile({ entry, onRemove }: { entry: DashboardMcpAppEntry; o
           key={nonce}
           app={state.app}
           toolName={entry.projectedToolName}
-          inputArguments={EMPTY_ARGUMENTS}
+          inputArguments={launchArguments}
           result={state.result}
           unavailableNotice="This app view is unavailable."
           onRequestTeardown={() => setState({ phase: "closed" })}
