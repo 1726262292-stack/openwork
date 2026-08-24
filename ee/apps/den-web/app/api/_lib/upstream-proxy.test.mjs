@@ -244,6 +244,35 @@ describe("Den upstream proxy", () => {
     ]);
   });
 
+  test("preserves auth Set-Cookie parent domains shared by sibling web and API hosts", async () => {
+    const { proxyUpstream } = await import("./upstream-proxy.ts");
+    const originalFetch = globalThis.fetch;
+    process.env.DEN_API_BASE = "https://api.openworklabs.com";
+    globalThis.fetch = async () => {
+      const headers = new Headers({ "content-type": "text/plain" });
+      headers.append(
+        "set-cookie",
+        "__Secure-better-auth.session_token=abc; Path=/; Domain=openworklabs.com; Secure; HttpOnly; SameSite=Lax",
+      );
+      return new Response("signed in", { headers });
+    };
+    const request = new NextRequest("https://app.openworklabs.com/api/auth/callback/google", {
+      method: "GET",
+    });
+
+    let response;
+    try {
+      response = await proxyUpstream(request, ["callback", "google"], { routePrefix: "/api/auth", upstreamPathPrefix: "api/auth" });
+    } finally {
+      globalThis.fetch = originalFetch;
+      process.env.DEN_API_BASE = `http://127.0.0.1:${server.port}`;
+    }
+
+    expect(response.headers.getSetCookie()).toEqual([
+      "__Secure-better-auth.session_token=abc; Path=/; Domain=openworklabs.com; Secure; HttpOnly; SameSite=Lax",
+    ]);
+  });
+
   test("copies auth Set-Cookie from runtimes that only expose the combined header", async () => {
     const { proxyUpstream } = await import("./upstream-proxy.ts");
     const originalFetch = globalThis.fetch;

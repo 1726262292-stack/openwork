@@ -256,6 +256,16 @@ function isDomainCookieHostEligible(origin: URL): boolean {
   return origin.protocol === "https:" && hostname.includes(".") && hostname !== "localhost";
 }
 
+function normalizeCookieDomainAttribute(value: string): string | null {
+  const domain = value.trim().replace(/^\.+/u, "").toLowerCase();
+  if (!domain || domain.includes(":")) return null;
+  return domain;
+}
+
+function cookieDomainAppliesToHost(domain: string, hostname: string): boolean {
+  return hostname === domain || hostname.endsWith(`.${domain}`);
+}
+
 function rewriteAuthSetCookieHeader(cookie: string, request: NextRequest, apiBase: string, options: ProxyOptions): string {
   if (options.routePrefix !== "/api/auth") return cookie;
 
@@ -279,7 +289,10 @@ function rewriteAuthSetCookieHeader(cookie: string, request: NextRequest, apiBas
       const trimmed = part.trim();
       if (!/^domain=/iu.test(trimmed)) return index === 0 ? trimmed : ` ${trimmed}`;
       hasDomain = true;
-      return ` Domain=${publicHostname}`;
+      const upstreamDomain = normalizeCookieDomainAttribute(trimmed.slice("domain=".length));
+      return upstreamDomain && cookieDomainAppliesToHost(upstreamDomain, publicHostname)
+        ? ` Domain=${upstreamDomain}`
+        : ` Domain=${publicHostname}`;
     })
     .join(";");
 
