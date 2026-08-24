@@ -29,6 +29,7 @@ Demo-driven features start from a preset or world plus a spec in `evals/specs`.
 | fault | Declared misbehavior used to reproduce a failure condition. |
 | surface | A drivable UI: Electron, or Chrome on Den Web. |
 | origin | Whether a resource is launched or attached. See below. |
+| live | A spec attached to a live shared substrate; red is an incident signal about the service, not a verdict on the diff. |
 
 ### Origin: launch vs attach
 
@@ -90,10 +91,31 @@ placement environment.
 
 See `run-tests` for environment requirements and the cold-boot verdict check.
 
+### Live lane
+
+Surface and substrate are independent axes:
+
+| Surface | Launched substrate (world-owned, hermetic) | Attached live substrate |
+| --- | --- | --- |
+| App-less | `<slug>.test.ts` | `<slug>.live.test.ts` |
+| App-driving | `<slug>.e2e.test.ts` | Not yet paved |
+
+Run a live spec only by exact name and with explicit consent and endpoint values:
+
+```bash
+OPENWORK_EVAL_LIVE=1 OPENWORK_EVAL_LIVE_DEN_API_URL=https://api.openworklabs.com OPENWORK_EVAL_SECRET_LIVE_MAILBOX_EMAIL=<mailbox> pnpm evals:pr specs/prod-den-signup-invites.live.test.ts
+```
+
+The live Den is attached and never deleted. Timestamped plus-addressed identities,
+organizations, and invitations launched onto it are owned by the spec; cleanup is
+asserted even on failure, and any residue (including an account without a
+self-service deletion endpoint) must be documented with exact identities.
+
 ## Authoring contract
 
 - Import `test` from `@openwork/testkit`.
 - Name app-driving files `<slug>.e2e.test.ts`; app-less tests use `<slug>.test.ts`.
+- Live specs use `<slug>.live.test.ts`, never run in PR/E2E suites, and require a consent environment variable.
 - Acquire resources in dependency order with `needs()` → `server()` → `app()`.
 - Drive user-visible behavior and assert observable outcomes. Backend, file,
   and process checks may witness side effects but do not replace the journey.
