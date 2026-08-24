@@ -177,7 +177,7 @@ Workflow to reproduce from a worktree (MySQL docker on :3306):
 
 ```bash
 pnpm dev:den:db-push
-DEN_ORG_MODE=multi_org pnpm dev:den:api        # :8790; demo:den also uses multi_org.
+DEN_ORG_MODE=multi_org pnpm dev:den:api        # :8790; `pnpm world up acme-demo` also uses multi_org.
                                                # The spec self-diagnoses disabled signup;
                                                # DEN_SINGLE_ORG_ALLOW_PUBLIC_SIGNUP=true also works.
 DEN_DEMO_SEED_FETCH_GITHUB=0 pnpm --filter @openwork-ee/den-api run seed:demo-org -- --reset
