@@ -1010,6 +1010,35 @@ async function resolveDenBootstrapConfigWithRuntimeApi(
   };
 }
 
+/**
+ * Resolve a handoff destination's base URLs. On desktop, when the caller does
+ * not already know the destination's API base, prefer the API base the
+ * destination publishes in its runtime config — the same source the durable
+ * bootstrap commit uses — so the exchange and the persisted bootstrap can
+ * never disagree about where the destination's API lives.
+ */
+export async function resolveDenBaseUrlsForDestination(
+  input: { baseUrl: string; apiBaseUrl?: string | null },
+): Promise<DenBaseUrls> {
+  const resolved = resolveDenBaseUrls(input);
+  if (input.apiBaseUrl || !isDesktopRuntime()) {
+    return resolved;
+  }
+
+  const runtimeApiBaseUrl = await fetchRuntimeConfigDenApiUrl(resolved.baseUrl);
+  if (!runtimeApiBaseUrl) {
+    return resolved;
+  }
+
+  return {
+    ...resolved,
+    apiBaseUrl: resolveDenBaseUrls({
+      baseUrl: resolved.baseUrl,
+      apiBaseUrl: runtimeApiBaseUrl,
+    }).apiBaseUrl,
+  };
+}
+
 function getPendingBootstrapConfig(next: DenSettings): DenBootstrapConfig | null {
   if (next.baseUrl === undefined && next.apiBaseUrl === undefined) {
     return null;
