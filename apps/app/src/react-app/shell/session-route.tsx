@@ -93,6 +93,7 @@ import { useLocal } from "@/react-app/kernel/local-provider";
 import { usePlatform } from "@/react-app/kernel/platform";
 import { SessionPage, type OpenSessionTab } from "@/react-app/domains/session/chat/session-page";
 import { AutomationsPage } from "@/react-app/domains/automations/automations-page";
+import { DashboardPage } from "@/react-app/domains/dashboard/dashboard-page";
 import { useAutomationDeploymentEnabled } from "@/react-app/domains/automations/automation-availability";
 import { automationsStateChangedEvent } from "@/react-app/domains/automations/automation-events";
 import type { NewTaskComposerContext } from "@/react-app/domains/session/chat/new-task-composer";
@@ -213,6 +214,7 @@ import {
   globalExtensionsRoute,
   legacySessionRoute,
   automationsRoute,
+  dashboardRoute,
   workspaceExtensionsRoute,
   workspaceSessionRoute,
   workspaceSettingsRoute,
@@ -486,6 +488,7 @@ export function SessionRoute() {
   const navigate = useNavigate();
   const location = useLocation();
   const automationsRouteRequested = /^\/automations(?:\/|$)/.test(location.pathname);
+  const dashboardRouteActive = /^\/dashboard(?:\/|$)/.test(location.pathname);
   const platform = usePlatform();
   const denAuth = useDenAuth();
   const { config: shellConfig } = useShellConfig();
@@ -599,7 +602,7 @@ export function SessionRoute() {
     runRemoteWorkspaceConnectionCheck,
   } = useWorkspaceRouteState({
     developerMode,
-    workspaceRoute: automationsRouteActive ? "automations" : "session",
+    workspaceRoute: automationsRouteActive ? "automations" : dashboardRouteActive ? "dashboard" : "session",
     onServerSettingsChanged: () => setOpenworkServerSettingsVersion((value) => value + 1),
     onHostInfo: setOpenworkServerHostInfoState,
   });
@@ -2689,9 +2692,11 @@ export function SessionRoute() {
           }}
         />
       }
-      primaryTitle={automationsRouteActive ? "Automations" : undefined}
+      primaryTitle={automationsRouteActive ? "Automations" : dashboardRouteActive ? "Dashboard" : undefined}
       primarySlot={automationsRouteActive ? (
         <AutomationsPage providerCatalog={providerCatalog} />
+      ) : dashboardRouteActive ? (
+        <DashboardPage />
       ) : undefined}
       terminalOpen={terminalOpen}
       onTerminalOpenChange={setTerminalOpen}
@@ -2716,6 +2721,10 @@ export function SessionRoute() {
               navigate(automationsRoute());
             }
           : undefined,
+        dashboardActive: dashboardRouteActive,
+        onOpenDashboard: () => {
+          navigate(dashboardRoute());
+        },
         onSelectWorkspace: async (workspaceId) => {
           if (workspaceId === selectedWorkspaceId) return true;
           setLegacySelectedWorkspaceId(workspaceId);

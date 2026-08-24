@@ -19,6 +19,10 @@ export function automationsRoute() {
   return "/automations";
 }
 
+export function dashboardRoute() {
+  return "/dashboard";
+}
+
 export function globalSettingsRoute(tab: SettingsTab) {
   return `/settings/${tab}`;
 }

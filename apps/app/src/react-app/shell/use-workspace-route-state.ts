@@ -75,13 +75,14 @@ import {
   removeWorkspaceRouteSession,
   sessionIdForLegacyWorkspaceInference,
   automationsRoute,
+  dashboardRoute,
   workspaceExtensionsRoute,
   workspaceSessionRoute,
 } from "./workspace-routes";
 
 export type UseWorkspaceRouteStateInput = {
   developerMode: boolean;
-  workspaceRoute?: "session" | "automations";
+  workspaceRoute?: "session" | "automations" | "dashboard";
   /** Invoked when the openwork-server settings-changed event fires (the route bumps its settings version). */
   onServerSettingsChanged: () => void;
   /** Receives the local openwork-server host info discovered during refresh. */
@@ -155,6 +156,11 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
     if (workspaceRoute === "automations") {
       if (/^\/automations(?:\/|$)/.test(location.pathname)) return;
       navigate(automationsRoute(), options);
+      return;
+    }
+    if (workspaceRoute === "dashboard") {
+      if (/^\/dashboard(?:\/|$)/.test(location.pathname)) return;
+      navigate(dashboardRoute(), options);
       return;
     }
     navigateToWorkspaceSession(workspaceId, sessionId, options);

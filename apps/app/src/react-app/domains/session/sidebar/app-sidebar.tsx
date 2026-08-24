@@ -11,6 +11,7 @@ import {
   ChevronRight,
   Columns2,
   FolderPlus,
+  LayoutDashboard,
   LayoutGrid,
   MoreHorizontal,
   Pencil,
@@ -871,6 +872,8 @@ export type AppSidebarProps = {
   automationsActive?: boolean;
   automationsNeedAttention?: boolean;
   onOpenAutomations?: () => void;
+  dashboardActive?: boolean;
+  onOpenDashboard?: () => void;
   /** Opens the cross-session message search dialog (Cmd/Ctrl+Shift+F). */
   onOpenSessionSearch?: () => void;
   /** Back/forward across recently viewed conversations, rendered at the top of the sidebar. */
@@ -1190,6 +1193,14 @@ export function AppSidebar(props: AppSidebarProps) {
               label={t("settings.tab_extensions")}
               onSelect={props.onOpenExtensions}
             />
+            {props.onOpenDashboard ? (
+              <SidebarDestination
+                active={props.dashboardActive === true}
+                icon={LayoutDashboard}
+                label="Dashboard"
+                onSelect={props.onOpenDashboard}
+              />
+            ) : null}
             <SidebarMenuItem>
               <NotificationBell variant="sidebar-row" />
             </SidebarMenuItem>
