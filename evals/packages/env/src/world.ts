@@ -38,7 +38,7 @@ const SNAPSHOT_ENV_KEY = /^(DEN_|OPENWORK_)[A-Z0-9_]+$/;
 const SNAPSHOT_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const SNAPSHOT_MODEL = /^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,255}$/;
 const SNAPSHOT_FAULT = /^[a-z0-9][a-z0-9-]{0,127}$/;
-const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost"]);
+const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1", "[::1]"]);
 const ALLOWED_WORKSPACE_ROOTS = [
   resolve(tmpdir()),
   RESULTS_DIR,
@@ -229,7 +229,7 @@ function validateSnapshotLoopbackUrlPort(field: string, value: string): void {
   }
 }
 
-function validateSnapshotAttachedUrl(field: string, value: string): void {
+function validateSnapshotAttachedUrl(field: string, value: string, allowedHosts: ReadonlySet<string>): void {
   let url: URL;
   try {
     url = new URL(value);
@@ -245,6 +245,23 @@ function validateSnapshotAttachedUrl(field: string, value: string): void {
   if (url.hash) {
     rejectSnapshotField(field, value, "attached Den URLs must not contain a hash");
   }
+  const hostname = url.hostname.toLowerCase();
+  if (!LOOPBACK_HOSTS.has(hostname) && !allowedHosts.has(hostname)) {
+    rejectSnapshotField(
+      field,
+      value,
+      "attached Den URLs must use loopback or an exact hostname listed in OPENWORK_EVAL_ATTACH_HOSTS",
+    );
+  }
+}
+
+function snapshotAttachHosts(env: NodeJS.ProcessEnv): ReadonlySet<string> {
+  return new Set(
+    (env.OPENWORK_EVAL_ATTACH_HOSTS ?? "")
+      .split(",")
+      .map((hostname) => hostname.trim().toLowerCase())
+      .filter((hostname) => hostname.length > 0),
+  );
 }
 
 function validateUntrustedSnapshot(snapshot: WorldSnapshot): void {
@@ -309,12 +326,13 @@ function validateUntrustedSnapshot(snapshot: WorldSnapshot): void {
     );
   }
   if (snapshot.topology.den.attach) {
-    validateSnapshotAttachedUrl("topology.den.attach.apiUrl", snapshot.topology.den.attach.apiUrl);
+    const allowedAttachHosts = snapshotAttachHosts(process.env);
+    validateSnapshotAttachedUrl("topology.den.attach.apiUrl", snapshot.topology.den.attach.apiUrl, allowedAttachHosts);
     if (snapshot.topology.den.attach.webUrl !== undefined) {
-      validateSnapshotAttachedUrl("topology.den.attach.webUrl", snapshot.topology.den.attach.webUrl);
+      validateSnapshotAttachedUrl("topology.den.attach.webUrl", snapshot.topology.den.attach.webUrl, allowedAttachHosts);
     }
-    validateSnapshotAttachedUrl("resolved.den.apiUrl", snapshot.resolved.den.apiUrl);
-    validateSnapshotAttachedUrl("resolved.den.webUrl", snapshot.resolved.den.webUrl);
+    validateSnapshotAttachedUrl("resolved.den.apiUrl", snapshot.resolved.den.apiUrl, allowedAttachHosts);
+    validateSnapshotAttachedUrl("resolved.den.webUrl", snapshot.resolved.den.webUrl, allowedAttachHosts);
   }
   validateSnapshotLoopbackUrlPort("resolved.den.apiUrl", snapshot.resolved.den.apiUrl);
   validateSnapshotLoopbackUrlPort("resolved.den.webUrl", snapshot.resolved.den.webUrl);

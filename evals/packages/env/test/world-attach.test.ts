@@ -71,11 +71,11 @@ test("fromSnapshot accepts only clean http(s) attached Den URLs", () => {
     );
   }
 
-  assert.doesNotThrow(() => fromSnapshot(JSON.stringify(attachedSnapshot("https://host"))));
+  assert.doesNotThrow(() => fromSnapshot(JSON.stringify(attachedSnapshot("http://127.0.0.1:8790"))));
 });
 
 test("secretRef people resolve both credential variables and report missing variables", () => {
-  const secretRef = "OPENWORK_WORLD_ATTACH_UNIT_PERSON";
+  const secretRef = "OPENWORK_EVAL_SECRET_WORLD_ATTACH_UNIT_PERSON";
   assert.deepEqual(
     resolveWorldPerson(
       { secretRef, name: "Jordan" },
@@ -105,5 +105,16 @@ test("secretRef people resolve both credential variables and report missing vari
       },
     }),
     /secretRef and password are mutually exclusive/,
+  );
+});
+
+test("secretRef rejects names outside the eval secret namespace", () => {
+  assert.throws(
+    () => defineWorld({
+      den: {
+        orgs: { acme: { members: { jordan: { secretRef: "AWS_PRODUCTION" } } } },
+      },
+    }),
+    /secretRef must match \^OPENWORK_EVAL_SECRET_/,
   );
 });

@@ -5,7 +5,7 @@ export interface WorldPerson {
   email?: string;
   name?: string;
   password?: string;
-  /** Resolves credentials from `${secretRef}_EMAIL` and `${secretRef}_PASSWORD` when the world starts. */
+  /** Must match `^OPENWORK_EVAL_SECRET_[A-Z][A-Z0-9_]*$`; resolves `${secretRef}_EMAIL` and `${secretRef}_PASSWORD` at world start. */
   secretRef?: string;
 }
 
@@ -74,7 +74,12 @@ const worldPersonSchema = z.strictObject({
   email: z.string().optional(),
   name: z.string().optional(),
   password: z.string().optional(),
-  secretRef: z.string().optional(),
+  secretRef: z.string()
+    .regex(
+      /^OPENWORK_EVAL_SECRET_[A-Z][A-Z0-9_]*$/,
+      "secretRef must match ^OPENWORK_EVAL_SECRET_[A-Z][A-Z0-9_]*$",
+    )
+    .optional(),
 }).superRefine((person, context) => {
   if (person.secretRef !== undefined && person.password !== undefined) {
     context.addIssue({
@@ -377,7 +382,9 @@ export function resolveWorldPerson(
       ...(email === undefined ? [emailVariable] : []),
       ...(password === undefined ? [passwordVariable] : []),
     ];
-    throw new Error(`World person secretRef ${JSON.stringify(person.secretRef)} is missing environment variable(s): ${missing.join(", ")}`);
+    throw new Error(
+      `World person namespaced secretRef ${JSON.stringify(person.secretRef)} is missing environment variable(s): ${missing.join(", ")}; secretRef names must match ^OPENWORK_EVAL_SECRET_[A-Z][A-Z0-9_]*$.`,
+    );
   }
   return {
     email,

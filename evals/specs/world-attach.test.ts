@@ -56,7 +56,7 @@ test("a world attaches to an existing Den without owning it or snapshotting reso
   const nonce = `${Date.now().toString(36)}-${process.pid.toString(36)}`;
   const preexistingOrgName = `Attach Outer ${nonce}`;
   const attachedOrgName = `Attach World ${nonce}`;
-  const secretRef = `OPENWORK_WORLD_ATTACH_${Date.now()}_${process.pid}`;
+  const secretRef = `OPENWORK_EVAL_SECRET_WORLD_ATTACH_${Date.now()}_${process.pid}`;
   const emailVariable = `${secretRef}_EMAIL`;
   const passwordVariable = `${secretRef}_PASSWORD`;
   const resolvedEmail = `attach-member+${nonce}@openwork.test`;
