@@ -287,8 +287,42 @@ function rewriteAuthSetCookieHeader(cookie: string, request: NextRequest, apiBas
   return `${rewritten}; Domain=${publicHostname}`;
 }
 
+function splitCombinedSetCookieHeader(value: string): string[] {
+  const cookies: string[] = [];
+  let start = 0;
+  let inExpires = false;
+  for (let index = 0; index < value.length; index += 1) {
+    const char = value[index];
+    if (char === ";") {
+      inExpires = false;
+      continue;
+    }
+    if (!inExpires && value.slice(index, index + 8).toLowerCase() === "expires=") {
+      inExpires = true;
+      index += 7;
+      continue;
+    }
+    if (char === "," && !inExpires) {
+      const candidate = value.slice(start, index).trim();
+      if (candidate) cookies.push(candidate);
+      start = index + 1;
+    }
+  }
+
+  const finalCookie = value.slice(start).trim();
+  if (finalCookie) cookies.push(finalCookie);
+  return cookies;
+}
+
+function readSetCookieHeaders(upstreamHeaders: Headers): string[] {
+  const cookies = upstreamHeaders.getSetCookie();
+  if (cookies.length > 0) return cookies;
+  const combined = upstreamHeaders.get("set-cookie");
+  return combined ? splitCombinedSetCookieHeader(combined) : [];
+}
+
 function copySetCookieHeaders(upstreamHeaders: Headers, responseHeaders: Headers, request: NextRequest, apiBase: string, options: ProxyOptions): void {
-  for (const cookie of upstreamHeaders.getSetCookie()) {
+  for (const cookie of readSetCookieHeaders(upstreamHeaders)) {
     if (cookie) responseHeaders.append("set-cookie", rewriteAuthSetCookieHeader(cookie, request, apiBase, options));
   }
 }

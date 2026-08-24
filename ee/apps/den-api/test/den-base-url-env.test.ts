@@ -109,22 +109,40 @@ describe("DEN_BASE_URL environment defaults", () => {
       BETTER_AUTH_URL: "https://user:secret@legacy.example.com/auth/path?token=hidden#fragment",
     })).toEqual({
       betterAuthUrl: "https://user:secret@legacy.example.com/auth/path?token=hidden#fragment",
-      betterAuthCookieDomain: null,
+      betterAuthCookieDomain: "legacy.example.com",
       webUrl: "https://legacy.example.com",
+      apiPublicUrl: "https://api.legacy.example.com",
       corsOrigins: ["https://legacy.example.com"],
       betterAuthTrustedOrigins: ["https://legacy.example.com"],
       webAppHosts: ["legacy.example.com"],
     })
   })
 
-  test("preserves legacy unset defaults without DEN_BASE_URL", () => {
+  test("derives the public API URL from BETTER_AUTH_URL without DEN_BASE_URL", () => {
     expect(probeDenUrls({ BETTER_AUTH_URL: "https://legacy.example.com" })).toEqual({
       betterAuthUrl: "https://legacy.example.com",
-      betterAuthCookieDomain: null,
+      betterAuthCookieDomain: "legacy.example.com",
       webUrl: "https://legacy.example.com",
+      apiPublicUrl: "https://api.legacy.example.com",
       corsOrigins: ["https://legacy.example.com"],
       betterAuthTrustedOrigins: ["https://legacy.example.com"],
       webAppHosts: ["legacy.example.com"],
+    })
+  })
+
+  test("derives local API URL from BETTER_AUTH_URL and PORT without DEN_BASE_URL", () => {
+    expect(probeDenUrls({
+      BETTER_AUTH_URL: "http://localhost:3005",
+      OPENWORK_DEV_MODE: "1",
+      PORT: "8790",
+    })).toMatchObject({
+      betterAuthUrl: "http://localhost:3005",
+      betterAuthCookieDomain: null,
+      webUrl: "http://localhost:3005",
+      apiPublicUrl: "http://127.0.0.1:8790",
+      corsOrigins: ["http://localhost:3005"],
+      betterAuthTrustedOrigins: ["http://localhost:3005"],
+      webAppHosts: ["localhost"],
     })
   })
 })
