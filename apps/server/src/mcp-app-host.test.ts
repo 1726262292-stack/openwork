@@ -21,6 +21,7 @@ import {
 import { readRuntimeOpencodeConfig, runtimeMcpMap, writeRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
 import {
   callMcpAppTool,
+  listMcpAppCatalog,
   projectedMcpToolName,
   resolveConnectMcpAppResource,
   resolveMcpAppResource,
@@ -99,6 +100,13 @@ async function startFixtureMcp(
         description: "Save fixture state without rendering it",
         inputSchema: { type: "object", properties: {} },
         annotations: { readOnlyHint: false, destructiveHint: false },
+      },
+      {
+        name: "render_report",
+        description: "Render a report for one fixture id",
+        inputSchema: { type: "object", properties: { id: { type: "string" } }, required: ["id"] },
+        annotations: { readOnlyHint: true, destructiveHint: false },
+        _meta: { ui: { resourceUri: activeResourceUri, visibility: ["model", "app"] } },
       },
       {
         name: "read_detail",
@@ -315,6 +323,50 @@ describe("MCP Apps host transport", () => {
       prefersBorder: true,
     });
 
+  });
+
+  test("lists cold-launchable MCP Apps with their input requirements", async () => {
+    const { config, root } = await configuredFixture("openwork-mcp-app-catalog-");
+
+    const servers = await listMcpAppCatalog({
+      serverConfig: config,
+      workspaceId: WORKSPACE_ID,
+      workspaceRoot: root,
+    });
+    expect(servers).toHaveLength(1);
+    const fixture = servers[0];
+    expect(fixture?.serverName).toBe("fixture");
+    expect(fixture?.reachable).toBe(true);
+    const names = fixture?.apps.map((app) => app.toolName) ?? [];
+    expect(names).toContain("render_fixture");
+    expect(names).toContain("render_report");
+    // App-only tools cannot resolve cold and unbound tools are not Apps.
+    expect(names).not.toContain("read_bound_detail");
+    expect(names).not.toContain("save_artifact_view");
+    expect(names).not.toContain("model_only_fixture");
+    const renderFixture = fixture?.apps.find((app) => app.toolName === "render_fixture");
+    expect(renderFixture?.projectedToolName).toBe("fixture_render_fixture");
+    expect(renderFixture?.resourceUri).toBe(RESOURCE_URI);
+    expect(renderFixture?.requiresInput).toBe(false);
+    const renderReport = fixture?.apps.find((app) => app.toolName === "render_report");
+    expect(renderReport?.requiresInput).toBe(true);
+  });
+
+  test("reports an unreachable server in the MCP App catalog instead of failing it", async () => {
+    const { config, root } = await configuredFixture("openwork-mcp-app-catalog-ghost-");
+    await addMcp(config, WORKSPACE_ID, "ghost", { type: "remote", url: "http://127.0.0.1:9/", enabled: true });
+
+    const servers = await listMcpAppCatalog({
+      serverConfig: config,
+      workspaceId: WORKSPACE_ID,
+      workspaceRoot: root,
+    });
+    const ghost = servers.find((server) => server.serverName === "ghost");
+    expect(ghost?.reachable).toBe(false);
+    expect(ghost?.apps).toHaveLength(0);
+    const fixture = servers.find((server) => server.serverName === "fixture");
+    expect(fixture?.reachable).toBe(true);
+    expect(fixture?.apps.map((app) => app.toolName)).toContain("render_fixture");
   });
 
   test("resolves a capability gateway launch through its exact native Connect tool", async () => {

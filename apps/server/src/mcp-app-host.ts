@@ -317,6 +317,91 @@ function findHtmlResource(
   return { html: decoded.html, meta: content._meta };
 }
 
+export type McpAppCatalogApp = {
+  serverName: string;
+  toolName: string;
+  projectedToolName: string;
+  resourceUri: string;
+  title: string | null;
+  description: string | null;
+  /** True when the launch tool declares required input, so a host cannot start it with empty arguments. */
+  requiresInput: boolean;
+};
+
+export type McpAppCatalogServer = {
+  serverName: string;
+  reachable: boolean;
+  error?: string;
+  apps: McpAppCatalogApp[];
+};
+
+function toolRequiresInput(tool: Tool): boolean {
+  const schema: unknown = tool.inputSchema;
+  if (!isRecord(schema)) return false;
+  return Array.isArray(schema.required) && schema.required.length > 0;
+}
+
+function toolDisplayTitle(tool: Tool): string | null {
+  if (typeof tool.title === "string" && tool.title.trim()) return tool.title;
+  const annotationTitle = tool.annotations?.title;
+  return typeof annotationTitle === "string" && annotationTitle.trim() ? annotationTitle : null;
+}
+
+/**
+ * Enumerates every MCP App a host surface can launch cold: tools on configured
+ * remote MCP servers that advertise a standard UI resource binding, stay
+ * visible to both the model (resolution) and apps (tool calls), and are not
+ * denied by the workspace tool policy. Unreachable servers are reported, not
+ * fatal, so the catalog doubles as a live connection probe.
+ */
+export async function listMcpAppCatalog(input: {
+  serverConfig: ServerConfig;
+  workspaceId: string;
+  workspaceRoot: string;
+}): Promise<McpAppCatalogServer[]> {
+  const configured = await listMcp(input.serverConfig, input.workspaceId, input.workspaceRoot);
+  const servers: McpAppCatalogServer[] = [];
+  for (const item of configured) {
+    if (item.config.enabled === false || !remoteUrl(item.config)) continue;
+    try {
+      const apps = await withRemoteClient(item.config, async (client) => {
+        const catalog: McpAppCatalogApp[] = [];
+        for (const tool of await listTools(client)) {
+          if (!toolVisibility(tool, "model") || !toolVisibility(tool, "app")) continue;
+          let resourceUri: string | null;
+          try {
+            resourceUri = toolUiResourceUri(tool);
+          } catch {
+            continue;
+          }
+          if (!resourceUri) continue;
+          const projectedToolName = projectedMcpToolName(item.name, tool.name);
+          if ((await diagnoseMcpToolDenies(input.workspaceRoot, item.name, [projectedToolName])).length > 0) continue;
+          catalog.push({
+            serverName: item.name,
+            toolName: tool.name,
+            projectedToolName,
+            resourceUri,
+            title: toolDisplayTitle(tool),
+            description: typeof tool.description === "string" ? tool.description : null,
+            requiresInput: toolRequiresInput(tool),
+          });
+        }
+        return catalog;
+      });
+      servers.push({ serverName: item.name, reachable: true, apps });
+    } catch (error) {
+      servers.push({
+        serverName: item.name,
+        reachable: false,
+        error: error instanceof Error ? error.message : "The MCP server could not be reached.",
+        apps: [],
+      });
+    }
+  }
+  return servers;
+}
+
 export async function resolveMcpAppResource(input: {
   serverConfig: ServerConfig;
   workspaceId: string;
