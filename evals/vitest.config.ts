@@ -10,6 +10,7 @@ const prepareSuite = shouldPrepareSuite(process.argv);
 const attachedDen = Boolean(process.env.OPENWORK_EVAL_DEN_API_URL?.trim());
 const managedStack = prepareSuite && !attachedDen;
 const e2eWorkers = managedStack ? suiteWorkerCount(process.argv, process.env) : 1;
+const namedLiveSpec = process.argv.some((argument) => argument.endsWith(".live.test.ts"));
 
 export default defineConfig({
   test: {
@@ -21,9 +22,9 @@ export default defineConfig({
         test: {
           ...common,
           name: "pr",
-          // Naming convention: *.e2e.test.ts drives the app/Den; every other test must be app-less.
+          // Live specs are attached-system incident signals: exclude them unless explicitly named.
           include: ["specs/**/*.test.ts"],
-          exclude: ["**/*.e2e.test.ts"],
+          exclude: ["**/*.e2e.test.ts", ...(namedLiveSpec ? [] : ["**/*.live.test.ts"])],
         },
       },
       {
