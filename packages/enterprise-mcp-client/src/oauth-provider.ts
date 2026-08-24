@@ -226,6 +226,7 @@ export class EnterpriseMcpOAuthProvider implements OAuthClientProvider {
     const saved = await this.persistence.clientRegistrations.save({
       context: this.context(),
       clientInformation: validated,
+      redirectUri: this.redirectUri,
       expiresAt: clientExpiration(validated),
       source,
     })

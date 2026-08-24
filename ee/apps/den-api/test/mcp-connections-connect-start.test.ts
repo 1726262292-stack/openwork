@@ -505,6 +505,7 @@ test("connect start keeps the shared callback for a pre-registered confidential 
     expect(isRecord(pendingAuthorizations) && Array.isArray(pendingAuthorizations.transactions)
       ? pendingAuthorizations.transactions
       : []).toHaveLength(1)
+    expect((await getOrgOAuthClient(organizationId, connection.id))?.extra?.registeredRedirectUri).toBe(sharedCallback)
 
     // The provider redirects to the legacy app/proxy callback. Den Web forwards
     // that browser request to this direct API route, but token exchange must

@@ -32,7 +32,7 @@ import {
   externalMcpIdentityBinding,
   type ExternalMcpConnectionRow,
 } from "./external-mcp-connections.js"
-import { externalMcpCallbackUrl, externalMcpCompatibleCallbackUrl } from "./external-mcp-oauth-contract.js"
+import { externalMcpCompatibleCallbackUrl } from "./external-mcp-oauth-contract.js"
 import { normalizeConnectedAccountScopes, normalizeOAuthClientExtra } from "./oauth-credentials.js"
 
 const MAX_PENDING_AUTHORIZATIONS = 8
@@ -264,6 +264,7 @@ export class DenEnterpriseMcpOAuthPersistence implements EnterpriseMcpOAuthPersi
     save: async (input: {
       context: EnterpriseMcpPersistenceContext
       clientInformation: OAuthClientInformationMixed
+      redirectUri: string
       expiresAt?: number
       source: "client-metadata" | "dynamic"
     }): Promise<EnterpriseMcpOAuthClientRegistration> => {
@@ -300,10 +301,7 @@ export class DenEnterpriseMcpOAuthPersistence implements EnterpriseMcpOAuthPersi
             clientInformation: safeClientInformation(input.clientInformation),
             enterpriseMcpRegistrationSource: input.source,
             registrationContractVersion: 2,
-            registeredRedirectUri: externalMcpCallbackUrl({
-              connectionId: this.connection.id,
-              callbackMode: this.connection.oauthConfiguration?.callbackMode ?? "legacy-v1",
-            }),
+            registeredRedirectUri: input.redirectUri,
             authorizationServerIssuer: this.connection.oauthConfiguration?.authorizationServerIssuer ?? undefined,
           },
           createdByOrgMembershipId: this.connection.createdByOrgMembershipId,
