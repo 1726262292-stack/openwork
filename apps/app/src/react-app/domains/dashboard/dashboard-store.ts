@@ -4,6 +4,8 @@ export type DashboardMcpAppEntry = {
   kind: "mcp";
   id: string;
   serverName: string;
+  /** Present for Connect app-host apps: launch them through this connection reference. */
+  connectionId?: string;
   toolName: string;
   projectedToolName: string;
   resourceUri: string;
@@ -53,6 +55,7 @@ function parseEntry(value: unknown): DashboardEntry | null {
     kind: "mcp",
     id: value.id,
     serverName: value.serverName,
+    ...(typeof value.connectionId === "string" ? { connectionId: value.connectionId } : {}),
     toolName: value.toolName,
     projectedToolName: value.projectedToolName,
     resourceUri: value.resourceUri,

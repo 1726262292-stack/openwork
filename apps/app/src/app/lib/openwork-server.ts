@@ -423,6 +423,8 @@ export type OpenworkMcpAppLaunchReference = {
 
 export type OpenworkMcpAppCatalogApp = {
   serverName: string;
+  /** Present for Connect app-host apps: launch them through this connection reference. */
+  connectionId?: string;
   toolName: string;
   projectedToolName: string;
   resourceUri: string;
@@ -434,6 +436,9 @@ export type OpenworkMcpAppCatalogApp = {
 
 export type OpenworkMcpAppCatalogServer = {
   serverName: string;
+  /** Human-readable provider name for Connect app-host servers. */
+  displayName?: string;
+  connectionId?: string;
   reachable: boolean;
   error?: string;
   apps: OpenworkMcpAppCatalogApp[];

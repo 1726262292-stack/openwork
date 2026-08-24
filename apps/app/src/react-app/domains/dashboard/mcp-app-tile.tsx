@@ -44,7 +44,17 @@ export function McpAppTile({ entry, onRemove }: { entry: DashboardMcpAppEntry; o
     }
     const client = openworkServerClient;
     void (async (): Promise<TileState> => {
-      const { app } = await client.resolveMcpApp(workspaceId, entry.projectedToolName);
+      // Connect app-host apps resolve through their connection reference; the
+      // host revalidates the live UI binding before returning the resource.
+      const launch = entry.connectionId
+        ? {
+            connectionId: entry.connectionId,
+            toolName: entry.toolName,
+            resourceUri: entry.resourceUri,
+            arguments: EMPTY_ARGUMENTS,
+          }
+        : undefined;
+      const { app } = await client.resolveMcpApp(workspaceId, entry.projectedToolName, launch);
       if (!app) return { phase: "error", message: "This tool no longer advertises an interactive app." };
       const request = {
         serverName: app.serverName,
@@ -91,7 +101,7 @@ export function McpAppTile({ entry, onRemove }: { entry: DashboardMcpAppEntry; o
     return () => {
       cancelled = true;
     };
-  }, [entry.projectedToolName, nonce, openworkServerClient, workspaceId]);
+  }, [entry.connectionId, entry.projectedToolName, entry.resourceUri, entry.toolName, nonce, openworkServerClient, workspaceId]);
 
   return (
     <DashboardTileShell

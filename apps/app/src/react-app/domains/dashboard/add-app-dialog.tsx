@@ -1,6 +1,6 @@
 /** @jsxImportSource react */
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, Check, Plus } from "lucide-react";
+import { AlertTriangle, Check, Plus, RefreshCw } from "lucide-react";
 
 import type { OpenworkMcpAppCatalogApp, OpenworkMcpAppCatalogServer } from "@/app/lib/openwork-server";
 import { Badge } from "@/components/ui/badge";
@@ -21,6 +21,7 @@ export function mcpEntryFromCatalogApp(app: OpenworkMcpAppCatalogApp): Dashboard
     kind: "mcp",
     id: `mcp:${app.serverName}:${app.toolName}`,
     serverName: app.serverName,
+    ...(app.connectionId ? { connectionId: app.connectionId } : {}),
     toolName: app.toolName,
     projectedToolName: app.projectedToolName,
     resourceUri: app.resourceUri,
@@ -63,7 +64,9 @@ function ServerSection({ server, existingIds, onAdd }: {
   return (
     <section className="space-y-1">
       <div className="flex items-center gap-2">
-        <span className="truncate text-xs font-medium text-muted-foreground">{server.serverName}</span>
+        <span className="truncate text-xs font-medium text-muted-foreground">
+          {server.displayName ?? server.serverName}
+        </span>
         {server.reachable ? (
           <Badge variant="secondary">Connected</Badge>
         ) : (
@@ -108,13 +111,14 @@ function ServerSection({ server, existingIds, onAdd }: {
 
 export function AddAppDialog({ open, onOpenChange, existingIds, onAdd }: AddAppDialogProps) {
   const { openworkServerClient, workspaceId } = useWorkspace();
+  const workspaceReady = Boolean(openworkServerClient) && Boolean(workspaceId);
   const catalog = useQuery({
     queryKey: ["mcp-app-catalog", workspaceId],
     queryFn: () => {
       if (!openworkServerClient || !workspaceId) throw new Error("No connected workspace is available.");
       return openworkServerClient.listMcpApps(workspaceId);
     },
-    enabled: open && Boolean(openworkServerClient) && Boolean(workspaceId),
+    enabled: open && workspaceReady,
     staleTime: 30_000,
   });
   const hello = builtinHelloEntry();
@@ -130,6 +134,27 @@ export function AddAppDialog({ open, onOpenChange, existingIds, onAdd }: AddAppD
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
+          <div className="flex items-center gap-2">
+            <span className="flex-1 text-xs font-medium text-muted-foreground">
+              {!workspaceReady
+                ? "Waiting for a connected workspace…"
+                : catalog.isFetching
+                  ? "Checking your MCP servers…"
+                  : catalog.data
+                    ? `Checked ${catalog.data.servers.length} MCP source${catalog.data.servers.length === 1 ? "" : "s"}.`
+                    : null}
+            </span>
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={!workspaceReady || catalog.isFetching}
+              onClick={() => {
+                void catalog.refetch();
+              }}
+            >
+              <RefreshCw className="size-4" /> Refresh
+            </Button>
+          </div>
           <section className="space-y-1">
             <span className="text-xs font-medium text-muted-foreground">Built-in</span>
             <div className="flex items-center gap-2 rounded-lg border border-border px-3 py-2">
@@ -144,22 +169,28 @@ export function AddAppDialog({ open, onOpenChange, existingIds, onAdd }: AddAppD
               />
             </div>
           </section>
-          {catalog.isPending && catalog.isFetching ? (
+          {!workspaceReady ? (
+            <p className="text-xs text-muted-foreground" role="status">
+              MCP apps cannot be listed until a workspace connection is ready.
+              Open a session in this workspace first, then try again.
+            </p>
+          ) : null}
+          {workspaceReady && catalog.isFetching ? (
             <div className="space-y-2" role="status" aria-label="Loading MCP apps">
               <Skeleton className="h-10 w-full" />
               <Skeleton className="h-10 w-full" />
             </div>
           ) : null}
-          {catalog.isError ? (
+          {catalog.isError && !catalog.isFetching ? (
             <p className="text-xs text-muted-foreground" role="status">
               MCP apps could not be listed: {catalog.error instanceof Error ? catalog.error.message : "unknown error"}
             </p>
           ) : null}
-          {catalog.data ? (
+          {catalog.data && !catalog.isFetching ? (
             catalog.data.servers.length === 0 ? (
               <p className="text-xs text-muted-foreground">
-                No MCP servers are configured for this workspace yet. Connect one
-                in Settings to see its apps here.
+                No MCP app sources were found. Connect an MCP server in Settings,
+                or sign in to OpenWork Connect, then refresh.
               </p>
             ) : (
               catalog.data.servers.map((server) => (
