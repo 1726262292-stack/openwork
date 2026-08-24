@@ -51,16 +51,24 @@ describe("createLatestWorkspaceCommitter", () => {
 });
 
 describe("planRouteWorkspaceLoads", () => {
-  test("loads only the selected workspace instead of every unseen workspace", () => {
+  test("loads every unloaded workspace with the selected workspace first", () => {
     expect(planRouteWorkspaceLoads(
       ["ws_1", "ws_2", "ws_3", "ws_4"],
       "ws_3",
       new Set(["ws_1"]),
-    )).toEqual(["ws_3"]);
+    )).toEqual(["ws_3", "ws_2", "ws_4"]);
   });
 
-  test("skips a selected workspace whose session index is already loaded", () => {
-    expect(planRouteWorkspaceLoads(["ws_1", "ws_2"], "ws_2", new Set(["ws_2"]))).toEqual([]);
+  test("still loads other unloaded workspaces when the selected one is loaded", () => {
+    expect(planRouteWorkspaceLoads(["ws_1", "ws_2"], "ws_2", new Set(["ws_2"]))).toEqual(["ws_1"]);
+  });
+
+  test("returns nothing when every workspace session index is loaded", () => {
+    expect(planRouteWorkspaceLoads(["ws_1", "ws_2"], "ws_1", new Set(["ws_1", "ws_2"]))).toEqual([]);
+  });
+
+  test("ignores a selected workspace that is not in the list", () => {
+    expect(planRouteWorkspaceLoads(["ws_1"], "ws_missing", new Set())).toEqual(["ws_1"]);
   });
 });
 
