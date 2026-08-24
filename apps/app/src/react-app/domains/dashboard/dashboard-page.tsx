@@ -22,14 +22,17 @@ import {
   type DashboardEntry,
 } from "./dashboard-store";
 import { HelloWorldTile } from "./hello-world-tile";
-import { McpAppTile } from "./mcp-app-tile";
+import { McpAppTile, type DashboardLaunchEndpoint } from "./mcp-app-tile";
 
 /**
  * The per-user MCP Apps dashboard: a session-independent grid of app tiles.
  * Entries persist locally per signed-in user and organization, so switching
  * sessions or workspaces never changes the board.
  */
-export function DashboardPage() {
+export function DashboardPage({ fallbackEndpoints }: {
+  /** Other workspace MCP runtimes tiles may launch through when the primary one lacks their server. */
+  fallbackEndpoints?: DashboardLaunchEndpoint[];
+} = {}) {
   const denAuth = useDenAuth();
   // The active org lives in den settings, which change outside React; track it
   // through the settings-changed event so an org switch swaps the board scope.
@@ -95,6 +98,7 @@ export function DashboardPage() {
                 entry={entry}
                 onRemove={() => removeEntry(entry.id)}
                 onApprovedLaunch={() => markLaunchApproved(entry.id)}
+                fallbackEndpoints={fallbackEndpoints}
               />
             )
           ))}

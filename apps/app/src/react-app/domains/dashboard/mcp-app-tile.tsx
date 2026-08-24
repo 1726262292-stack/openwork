@@ -5,13 +5,20 @@ import { Play } from "lucide-react";
 import {
   OpenworkServerError,
   type OpenworkMcpAppResource,
+  type OpenworkServerClient,
 } from "@/app/lib/openwork-server";
 import { McpAppSandboxView, type PreservedMcpAppResult } from "@/components/chat/mcp-app-frame";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useWorkspace } from "@/react-app/shell/workspace-provider";
+import { useWorkspace, WorkspaceProvider } from "@/react-app/shell/workspace-provider";
 import { DashboardTileShell } from "./dashboard-tile-shell";
 import type { DashboardMcpAppEntry } from "./dashboard-store";
+
+/** A workspace MCP runtime a tile may launch through. */
+export type DashboardLaunchEndpoint = {
+  client: OpenworkServerClient;
+  workspaceId: string;
+};
 
 /**
  * Tiles launch with the arguments captured when the app was added (empty for
@@ -22,7 +29,7 @@ const EMPTY_ARGUMENTS: Record<string, unknown> = {};
 type TileState =
   | { phase: "idle" }
   | { phase: "loading" }
-  | { phase: "ready"; app: OpenworkMcpAppResource; result: PreservedMcpAppResult }
+  | { phase: "ready"; app: OpenworkMcpAppResource; result: PreservedMcpAppResult; endpoint: DashboardLaunchEndpoint }
   | { phase: "closed" }
   | { phase: "error"; message: string };
 
@@ -50,16 +57,21 @@ function launchFailureMessage(content: Array<Record<string, unknown>>): string |
   return text;
 }
 
-export function McpAppTile({ entry, onRemove, onApprovedLaunch }: {
+export function McpAppTile({ entry, onRemove, onApprovedLaunch, fallbackEndpoints }: {
   entry: DashboardMcpAppEntry;
   onRemove: () => void;
   /** Persists the user's one-time launch approval on the stored entry. */
   onApprovedLaunch?: () => void;
+  /** Other workspace runtimes to try when the primary one cannot resolve the app. */
+  fallbackEndpoints?: DashboardLaunchEndpoint[];
 }) {
-  const { openworkServerClient, workspaceId } = useWorkspace();
+  const workspace = useWorkspace();
+  const { openworkServerClient, workspaceId } = workspace;
   // Write-tools only run on request: mount shows an idle card with a Run
   // button, so a dashboard visit can never repeat a data-modifying call.
-  const manualLaunch = entry.requiresApproval === true;
+  // Entries without the picker's add-time auto-launch consent (tampered or
+  // imported storage) are also run-on-request.
+  const manualLaunch = entry.requiresApproval === true || entry.autoLaunch !== true;
   const [started, setStarted] = useState(!manualLaunch);
   const [nonce, setNonce] = useState(0);
   const [state, setState] = useState<TileState>({ phase: manualLaunch ? "idle" : "loading" });
@@ -84,11 +96,17 @@ export function McpAppTile({ entry, onRemove, onApprovedLaunch }: {
     if (manualLaunch && executedRunRef.current === nonce) return;
     executedRunRef.current = nonce;
     setState({ phase: "loading" });
-    if (!openworkServerClient || !workspaceId) {
+    // Tiles are user-scoped while MCP servers are workspace-scoped: prefer the
+    // selected workspace's runtime, then any other available one that can
+    // still resolve this app.
+    const candidates: DashboardLaunchEndpoint[] = [
+      ...(openworkServerClient && workspaceId ? [{ client: openworkServerClient, workspaceId }] : []),
+      ...(fallbackEndpoints ?? []),
+    ].filter((endpoint, index, all) => all.findIndex((other) => other.workspaceId === endpoint.workspaceId) === index);
+    if (candidates.length === 0) {
       setState({ phase: "error", message: "No connected workspace is available to launch this app." });
       return;
     }
-    const client = openworkServerClient;
     const userInitiated = nonce > 0;
     void (async (): Promise<TileState> => {
       // Connect app-host apps resolve through their connection reference; the
@@ -101,8 +119,24 @@ export function McpAppTile({ entry, onRemove, onApprovedLaunch }: {
             arguments: launchArguments,
           }
         : undefined;
-      const { app } = await client.resolveMcpApp(workspaceId, entry.projectedToolName, launch);
-      if (!app) return { phase: "error", message: "This tool no longer advertises an interactive app." };
+      let resolved: { endpoint: DashboardLaunchEndpoint; app: OpenworkMcpAppResource } | null = null;
+      let resolveFailure: unknown = null;
+      for (const endpoint of candidates) {
+        try {
+          const { app } = await endpoint.client.resolveMcpApp(endpoint.workspaceId, entry.projectedToolName, launch);
+          if (app) {
+            resolved = { endpoint, app };
+            break;
+          }
+        } catch (cause) {
+          resolveFailure ??= cause;
+        }
+      }
+      if (!resolved) {
+        if (resolveFailure) throw resolveFailure;
+        return { phase: "error", message: "This tool no longer advertises an interactive app." };
+      }
+      const { endpoint, app } = resolved;
       const request = {
         serverName: app.serverName,
         name: app.toolName,
@@ -112,7 +146,7 @@ export function McpAppTile({ entry, onRemove, onApprovedLaunch }: {
       };
       let result;
       try {
-        result = await client.callMcpAppTool(workspaceId, request);
+        result = await endpoint.client.callMcpAppTool(endpoint.workspaceId, request);
       } catch (cause) {
         if (!(cause instanceof OpenworkServerError) || cause.code !== "tool_requires_approval") throw cause;
         // A stored entry can go stale: a tool that was read-only at add time
@@ -124,7 +158,7 @@ export function McpAppTile({ entry, onRemove, onApprovedLaunch }: {
           + "OpenWork remembers your choice for this tile until you remove it.",
         );
         if (!approved) return { phase: "error", message: "The app launch was declined." };
-        result = await client.callMcpAppTool(workspaceId, { ...request, approved: true });
+        result = await endpoint.client.callMcpAppTool(endpoint.workspaceId, { ...request, approved: true });
         launchApprovedRef.current = true;
         onApprovedLaunchRef.current?.();
       }
@@ -140,6 +174,7 @@ export function McpAppTile({ entry, onRemove, onApprovedLaunch }: {
       return {
         phase: "ready",
         app,
+        endpoint,
         result: {
           content: result.content,
           ...(result.structuredContent ? { structuredContent: result.structuredContent } : {}),
@@ -160,7 +195,7 @@ export function McpAppTile({ entry, onRemove, onApprovedLaunch }: {
     return () => {
       cancelled = true;
     };
-  }, [entry.connectionId, entry.projectedToolName, entry.resourceUri, entry.toolName, launchArguments, manualLaunch, nonce, openworkServerClient, started, workspaceId]);
+  }, [entry.connectionId, entry.projectedToolName, entry.resourceUri, entry.toolName, fallbackEndpoints, launchArguments, manualLaunch, nonce, openworkServerClient, started, workspaceId]);
 
   const run = () => {
     setStarted(true);
@@ -178,7 +213,9 @@ export function McpAppTile({ entry, onRemove, onApprovedLaunch }: {
         <div className="flex flex-1 flex-col items-center justify-center gap-2 py-6 text-center">
           <Play className="size-6 text-muted-foreground" aria-hidden />
           <p className="max-w-xs text-xs text-muted-foreground">
-            This app modifies data when it runs, so it only runs when you ask.
+            {entry.requiresApproval === true
+              ? "This app modifies data when it runs, so it only runs when you ask."
+              : "This app only runs when you ask."}
           </p>
           <Button variant="outline" size="sm" onClick={run} aria-label={`Run ${entry.title}`}>
             <Play className="size-4" /> Run
@@ -200,15 +237,25 @@ export function McpAppTile({ entry, onRemove, onApprovedLaunch }: {
         </p>
       ) : null}
       {state.phase === "ready" ? (
-        <McpAppSandboxView
-          key={nonce}
-          app={state.app}
-          toolName={entry.projectedToolName}
-          inputArguments={launchArguments}
-          result={state.result}
-          unavailableNotice="This app view is unavailable."
-          onRequestTeardown={() => setState({ phase: "closed" })}
-        />
+        // The sandbox bridge calls tools through the workspace context, so the
+        // view must run under the endpoint that actually resolved the app.
+        <WorkspaceProvider
+          client={workspace.client}
+          opencodeBaseUrl={workspace.opencodeBaseUrl}
+          openworkServerClient={state.endpoint.client}
+          workspaceId={state.endpoint.workspaceId}
+          selectedWorkspaceRoot={workspace.selectedWorkspaceRoot}
+        >
+          <McpAppSandboxView
+            key={nonce}
+            app={state.app}
+            toolName={entry.projectedToolName}
+            inputArguments={launchArguments}
+            result={state.result}
+            unavailableNotice="This app view is unavailable."
+            onRequestTeardown={() => setState({ phase: "closed" })}
+          />
+        </WorkspaceProvider>
       ) : null}
     </DashboardTileShell>
   );

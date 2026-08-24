@@ -32,6 +32,9 @@ export function mcpEntryFromCatalogApp(app: OpenworkMcpAppCatalogApp): Dashboard
     projectedToolName: app.projectedToolName,
     resourceUri: app.resourceUri,
     title: app.title ?? app.toolName,
+    // Adding through the picker is the user's consent to automatic launches;
+    // write-tools stay run-on-request regardless.
+    ...(app.requiresApproval ? {} : { autoLaunch: true }),
   };
 }
 
@@ -233,8 +236,9 @@ export function AddAppDialog({ open, onOpenChange, existingIds, onAdd }: AddAppD
           <DialogTitle>Add app</DialogTitle>
           <DialogDescription>
             MCP apps available via OpenWork Connect and this workspace&apos;s MCP
-            servers. Apps that need input ask for JSON launch arguments when you
-            add them.
+            servers. Added apps launch automatically when the dashboard opens;
+            apps that modify data only run on request. Apps that need input ask
+            for JSON launch arguments when you add them.
           </DialogDescription>
         </DialogHeader>
         <div className="min-w-0 space-y-4">

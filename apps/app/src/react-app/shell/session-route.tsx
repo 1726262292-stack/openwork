@@ -613,17 +613,30 @@ export function SessionRoute() {
     onServerSettingsChanged: () => setOpenworkServerSettingsVersion((value) => value + 1),
     onHostInfo: setOpenworkServerHostInfoState,
   });
-  // The dashboard is user-scoped: it borrows any available workspace MCP
-  // runtime for app launches instead of requiring the selected workspace.
-  const dashboardEndpoint = useMemo(() => {
-    if (!dashboardRouteActive) return null;
-    if (selectedWorkspaceEndpoint) return selectedWorkspaceEndpoint;
+  // The dashboard is user-scoped while MCP servers are workspace-scoped: the
+  // selected workspace's runtime is primary, and every other available one is
+  // a per-tile fallback so tiles keep working when the selected workspace does
+  // not configure their server.
+  const dashboardEndpoints = useMemo(() => {
+    if (!dashboardRouteActive) return [];
+    const endpoints: ResolvedWorkspaceEndpoint[] = [];
+    if (selectedWorkspaceEndpoint) endpoints.push(selectedWorkspaceEndpoint);
     for (const workspace of workspaces) {
       const endpoint = endpointForWorkspace(workspace);
-      if (endpoint) return endpoint;
+      if (endpoint && !endpoints.some((existing) => existing.workspaceId === endpoint.workspaceId)) {
+        endpoints.push(endpoint);
+      }
     }
-    return null;
+    return endpoints;
   }, [dashboardRouteActive, endpointForWorkspace, selectedWorkspaceEndpoint, workspaces]);
+  const dashboardEndpoint = dashboardEndpoints[0] ?? null;
+  const dashboardFallbackEndpoints = useMemo(
+    () => dashboardEndpoints.slice(1).map((endpoint) => ({
+      client: endpoint.client,
+      workspaceId: endpoint.workspaceId,
+    })),
+    [dashboardEndpoints],
+  );
   const cloudWorkspace = useCloudWorkspaceStatus();
   const bootOverlayVisible = useBootOverlayVisible();
   const previousCloudWorkspaceStatusRef = useRef<typeof cloudWorkspace.viewModel.variant | null>(null);
@@ -2721,7 +2734,7 @@ export function SessionRoute() {
           workspaceId={dashboardEndpoint?.workspaceId ?? ""}
           selectedWorkspaceRoot={selectedWorkspaceRoot}
         >
-          <DashboardPage />
+          <DashboardPage fallbackEndpoints={dashboardFallbackEndpoints} />
         </WorkspaceProvider>
       ) : undefined}
       terminalOpen={terminalOpen}
