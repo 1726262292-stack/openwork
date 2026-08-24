@@ -12,7 +12,7 @@ import { expect } from "vitest";
 // infisical run -- pnpm evals:pr specs/prod-den-signup-invites.live.test.ts
 
 const AGENTMAIL_API_URL = "https://api.agentmail.to/v0";
-const MAX_AGENTMAIL_INBOXES = 3;
+const MAX_AGENTMAIL_INBOXES = 2;
 const requirements: TestNeeds = {
   optIn: ["OPENWORK_EVAL_LIVE"],
   env: ["OPENWORK_EVAL_LIVE_DEN_API_URL", "AGENTMAIL_API_KEY"],
@@ -194,12 +194,15 @@ async function waitForAgentMailMessage(
   inbox: AgentMailInbox,
   after: string,
   label: string,
-  subjectMatches: (subject: string) => boolean,
+  messageMatches: (message: AgentMailMessage) => boolean,
 ): Promise<AgentMailMessage> {
   const message = await eventually(async () => {
     const messages = await listAgentMailMessages(apiKey, inbox, after);
-    const summary = messages.find((candidate) => subjectMatches(candidate.subject));
-    return summary ? getAgentMailMessage(apiKey, inbox, summary) : null;
+    for (const summary of messages) {
+      const candidate = await getAgentMailMessage(apiKey, inbox, summary);
+      if (messageMatches(candidate)) return candidate;
+    }
+    return null;
   }, {
     within: 60_000,
     intervalMs: 2_000,
@@ -215,6 +218,12 @@ function verificationCode(message: AgentMailMessage): string {
   const code = match?.[1];
   if (!code) throw new Error(`Verification email ${message.messageId} contained no six-digit code.`);
   return code;
+}
+
+function plusAddress(email: string, tag: string): string {
+  const at = email.lastIndexOf("@");
+  if (at < 1 || at === email.length - 1) throw new Error(`Cannot plus-address invalid email ${email}.`);
+  return `${email.slice(0, at)}+${tag}@${email.slice(at + 1)}`;
 }
 
 function auth(session: DenSession): Record<string, string> {
@@ -353,14 +362,13 @@ test(title, { timeout: 240_000 }, async ({ evidence }) => {
   try {
     const ownerInbox = await provisionAgentMailInbox("owner");
     const inviteeM1Inbox = await provisionAgentMailInbox("m1");
-    const inviteeM2Inbox = await provisionAgentMailInbox("m2");
     const at = ownerInbox.email.lastIndexOf("@");
     if (at < 1 || at === ownerInbox.email.length - 1) {
       throw new Error(`AgentMail created an invalid owner address: ${ownerInbox.email}`);
     }
     const createdIdentity: LiveIdentity = {
       owner: ownerInbox.email,
-      invitees: [inviteeM1Inbox.email, inviteeM2Inbox.email],
+      invitees: [inviteeM1Inbox.email, plusAddress(inviteeM1Inbox.email, "m2")],
       neverInvited: `${runPrefix}-never-invited@${ownerInbox.email.slice(at + 1)}`,
     };
     identity = createdIdentity;
@@ -377,7 +385,7 @@ test(title, { timeout: 240_000 }, async ({ evidence }) => {
       ownerInbox,
       runStartedAt,
       `OpenWork verification email in ${ownerInbox.email}`,
-      (subject) => subject.toLowerCase().includes("openwork verification code"),
+      (message) => message.subject.toLowerCase().includes("openwork verification code"),
     );
     const verified = await denFetch(den, "/api/auth/email-otp/verify-email", {
       method: "POST",
@@ -410,7 +418,9 @@ test(title, { timeout: 240_000 }, async ({ evidence }) => {
       inviteeM1Inbox,
       runStartedAt,
       `OpenWork organization invitation in ${inviteeM1Inbox.email}`,
-      (subject) => subject.includes(organizationName) && subject.toLowerCase().includes("invited"),
+      (message) => message.subject.includes(organizationName)
+        && message.subject.toLowerCase().includes("invited")
+        && message.to.some((recipient) => recipient.toLowerCase().includes(createdIdentity.invitees[0].toLowerCase())),
     );
     expect(invitationMessage.subject).toContain(organizationName);
     expect(
