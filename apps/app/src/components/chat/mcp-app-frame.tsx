@@ -48,7 +48,7 @@ const ACTIONABLE_MCP_APP_RESOLUTION_CODES = new Set([
   "unsupported_resource_permissions",
 ])
 
-type PreservedMcpAppResult = {
+export type PreservedMcpAppResult = {
   content: Array<Record<string, unknown>>
   structuredContent?: Record<string, unknown>
   _meta?: Record<string, unknown>
@@ -196,62 +196,64 @@ export function isActionableMcpAppResolutionError(cause: unknown): boolean {
   return cause instanceof OpenworkServerError && ACTIONABLE_MCP_APP_RESOLUTION_CODES.has(cause.code)
 }
 
-export function McpAppFrame({ part }: { part: DynamicToolUIPart }) {
+const CHAT_MCP_APP_UNAVAILABLE_NOTICE = "Interactive view unavailable. The normal tool result is still available."
+
+export function McpAppDiagnosticNotice({ error, notice }: { error: McpAppDiagnostic; notice: string }) {
+  const [detailsCopied, setDetailsCopied] = useState(false)
+  const details = formatMcpAppDiagnostic(error)
+  return (
+    <div className="mt-2 text-xs text-muted-foreground" role="status">
+      <p>{notice} {error.message}</p>
+      <details className="mt-1">
+        <summary className="cursor-pointer select-none">Technical details ({error.code})</summary>
+        <p className="mt-1">Copy these details when reporting the rendering problem.</p>
+        <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap rounded-md bg-muted p-2 font-mono text-[11px] text-foreground">{details}</pre>
+        <button
+          type="button"
+          className="mt-1 underline underline-offset-2"
+          onClick={() => {
+            if (!navigator.clipboard) return
+            void navigator.clipboard.writeText(details)
+              .then(() => setDetailsCopied(true))
+              .catch(() => setDetailsCopied(false))
+          }}
+        >
+          {detailsCopied ? "Copied" : "Copy details"}
+        </button>
+      </details>
+    </div>
+  )
+}
+
+export type McpAppSandboxViewProps = {
+  app: OpenworkMcpAppResource
+  /** Tool name used for host diagnostics and the iframe title. */
+  toolName: string
+  /** Arguments the host reports to the app as its launch input. */
+  inputArguments: Record<string, unknown>
+  /** Tool result delivered to the app once it initializes. */
+  result: PreservedMcpAppResult
+  /** Notice prefix shown when the sandboxed view cannot render. */
+  unavailableNotice: string
+  onRequestTeardown?: () => void
+}
+
+/**
+ * Chat-independent MCP App renderer: sandboxes one resolved app resource and
+ * bridges it to the workspace MCP App host. Chat messages and dashboard tiles
+ * share this exact pipeline so rendering and diagnostics stay identical.
+ */
+export function McpAppSandboxView({ app, toolName, inputArguments, result, unavailableNotice, onRequestTeardown }: McpAppSandboxViewProps) {
   const { openworkServerClient, workspaceId } = useWorkspace()
-  const nextResult = preservedResult(part)
-  const nextResultSignature = JSON.stringify(nextResult)
-  const resultCache = useRef<{ signature: string; value: PreservedMcpAppResult | null }>({
-    signature: nextResultSignature,
-    value: nextResult,
-  })
-  if (resultCache.current.signature !== nextResultSignature) {
-    resultCache.current = { signature: nextResultSignature, value: nextResult }
-  }
-  const result = resultCache.current.value
-  const launch = useMemo(() => gatewayMcpAppLaunch(result?._meta), [result])
   const iframeRef = useRef<HTMLIFrameElement>(null)
-  const [app, setApp] = useState<OpenworkMcpAppResource | null>(null)
   const [height, setHeight] = useState(DEFAULT_HEIGHT)
   const [error, setError] = useState<McpAppDiagnostic | null>(null)
-  const [detailsCopied, setDetailsCopied] = useState(false)
-
-  useEffect(() => {
-    let cancelled = false
-    setApp(null)
-    setError(null)
-    setDetailsCopied(false)
-    if (!result || !openworkServerClient || !workspaceId) return () => { cancelled = true }
-    const startedAt = performance.now()
-    void openworkServerClient.resolveMcpApp(workspaceId, part.toolName, launch ?? undefined)
-      .then(({ app: resolved }) => {
-        if (cancelled) return
-        // A preserved MCP result is neutral transport data. A null resolution
-        // means the current tool definition does not advertise an MCP App, so
-        // ordinary tools such as save_artifact_view render only their normal
-        // result without claiming an unavailable interactive view.
-        setApp(resolved)
-      })
-      .catch((cause) => {
-        if (!cancelled && isActionableMcpAppResolutionError(cause)) {
-          const diagnostic: McpAppDiagnostic = {
-            code: "MCP_APP_RESOURCE_RESOLUTION_FAILED",
-            ...(cause instanceof OpenworkServerError ? { causeCode: cause.code } : {}),
-            stage: "resource-resolution",
-            message: safeMcpAppDiagnosticMessage(cause, "The interactive view resource could not be resolved."),
-            toolName: part.toolName,
-            elapsedMs: Math.round(performance.now() - startedAt),
-            checkpoints: ["resolve-started"],
-          }
-          console.error(`[OpenWork MCP App] ${diagnostic.code}`, diagnostic)
-          setError(diagnostic)
-        }
-      })
-    return () => { cancelled = true }
-  }, [launch, openworkServerClient, part.toolName, result, workspaceId])
+  const teardownRef = useRef(onRequestTeardown)
+  teardownRef.current = onRequestTeardown
 
   useEffect(() => {
     const iframe = iframeRef.current
-    if (!app || !result || !iframe || !iframe.contentWindow || !openworkServerClient || !workspaceId) return
+    if (!iframe || !iframe.contentWindow || !openworkServerClient || !workspaceId) return
     let disposed = false
     let lastSizeEventAt = 0
     const startedAt = performance.now()
@@ -272,7 +274,7 @@ export function McpAppFrame({ part }: { part: DynamicToolUIPart }) {
         code,
         stage,
         message: safeMcpAppDiagnosticMessage(cause, fallback),
-        toolName: part.toolName,
+        toolName,
         resourceUri: app.resourceUri,
         ...(sandboxOrigin ? { sandboxOrigin } : {}),
         elapsedMs: Math.round(performance.now() - startedAt),
@@ -312,7 +314,7 @@ export function McpAppFrame({ part }: { part: DynamicToolUIPart }) {
         return {}
       } catch (cause) {
         console.error("[OpenWork MCP App] MCP_APP_OPEN_LINK_BLOCKED", {
-          toolName: part.toolName,
+          toolName,
           message: safeMcpAppDiagnosticMessage(cause, "The link could not be opened."),
         })
         return { isError: true }
@@ -355,7 +357,7 @@ export function McpAppFrame({ part }: { part: DynamicToolUIPart }) {
       }, SIZE_EVENT_INTERVAL_MS)
     }
     bridge.onrequestteardown = () => {
-      setApp(null)
+      teardownRef.current?.()
     }
     bridge.oncalltool = async ({ name, arguments: args }) => {
       const request = { serverName: app.serverName, name, resourceUri: app.resourceUri, arguments: args }
@@ -374,7 +376,7 @@ export function McpAppFrame({ part }: { part: DynamicToolUIPart }) {
       if (resourceDeliveryTimer !== undefined) window.clearTimeout(resourceDeliveryTimer)
       if (initializeTimer !== undefined) window.clearTimeout(initializeTimer)
       void bridge.sendToolInput({
-        arguments: launch?.arguments ?? (isRecord(part.input) ? part.input : {}),
+        arguments: inputArguments,
       }).then(() => bridge.sendToolResult({
         content: result.content as CallToolResult["content"],
         ...(result.structuredContent ? { structuredContent: result.structuredContent } : {}),
@@ -518,51 +520,93 @@ export function McpAppFrame({ part }: { part: DynamicToolUIPart }) {
         new Promise<void>((resolve) => window.setTimeout(resolve, 500)),
       ]).catch(() => undefined).finally(() => bridge.close().catch(() => undefined))
     }
-  }, [app, launch, openworkServerClient, part.input, result, workspaceId])
+  }, [app, inputArguments, openworkServerClient, result, toolName, workspaceId])
 
-  if (!result || (!app && !error)) return null
-  if (error) {
-    const details = formatMcpAppDiagnostic(error)
-    return (
-      <div className="mt-2 text-xs text-muted-foreground" role="status">
-        <p>Interactive view unavailable. The normal tool result is still available. {error.message}</p>
-        <details className="mt-1">
-          <summary className="cursor-pointer select-none">Technical details ({error.code})</summary>
-          <p className="mt-1">Copy these details when reporting the rendering problem.</p>
-          <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap rounded-md bg-muted p-2 font-mono text-[11px] text-foreground">{details}</pre>
-          <button
-            type="button"
-            className="mt-1 underline underline-offset-2"
-            onClick={() => {
-              if (!navigator.clipboard) return
-              void navigator.clipboard.writeText(details)
-                .then(() => setDetailsCopied(true))
-                .catch(() => setDetailsCopied(false))
-            }}
-          >
-            {detailsCopied ? "Copied" : "Copy details"}
-          </button>
-        </details>
-      </div>
-    )
-  }
-
+  if (error) return <McpAppDiagnosticNotice error={error} notice={unavailableNotice} />
   return (
     <div
       className={cn(
         "mt-3 overflow-hidden rounded-xl bg-background",
-        app?.prefersBorder && "border border-border",
+        app.prefersBorder && "border border-border",
       )}
-      data-mcp-app-resource={app?.resourceUri}
+      data-mcp-app-resource={app.resourceUri}
     >
       <iframe
         ref={iframeRef}
-        title={`${part.toolName} interactive view`}
+        title={`${toolName} interactive view`}
         sandbox="allow-scripts allow-same-origin"
         referrerPolicy="no-referrer"
         className="block w-full border-0 bg-transparent"
         style={{ height }}
       />
     </div>
+  )
+}
+
+export function McpAppFrame({ part }: { part: DynamicToolUIPart }) {
+  const { openworkServerClient, workspaceId } = useWorkspace()
+  const nextResult = preservedResult(part)
+  const nextResultSignature = JSON.stringify(nextResult)
+  const resultCache = useRef<{ signature: string; value: PreservedMcpAppResult | null }>({
+    signature: nextResultSignature,
+    value: nextResult,
+  })
+  if (resultCache.current.signature !== nextResultSignature) {
+    resultCache.current = { signature: nextResultSignature, value: nextResult }
+  }
+  const result = resultCache.current.value
+  const launch = useMemo(() => gatewayMcpAppLaunch(result?._meta), [result])
+  const [app, setApp] = useState<OpenworkMcpAppResource | null>(null)
+  const [error, setError] = useState<McpAppDiagnostic | null>(null)
+  const inputArguments = useMemo(
+    () => launch?.arguments ?? (isRecord(part.input) ? part.input : {}),
+    [launch, part.input],
+  )
+
+  useEffect(() => {
+    let cancelled = false
+    setApp(null)
+    setError(null)
+    if (!result || !openworkServerClient || !workspaceId) return () => { cancelled = true }
+    const startedAt = performance.now()
+    void openworkServerClient.resolveMcpApp(workspaceId, part.toolName, launch ?? undefined)
+      .then(({ app: resolved }) => {
+        if (cancelled) return
+        // A preserved MCP result is neutral transport data. A null resolution
+        // means the current tool definition does not advertise an MCP App, so
+        // ordinary tools such as save_artifact_view render only their normal
+        // result without claiming an unavailable interactive view.
+        setApp(resolved)
+      })
+      .catch((cause) => {
+        if (!cancelled && isActionableMcpAppResolutionError(cause)) {
+          const diagnostic: McpAppDiagnostic = {
+            code: "MCP_APP_RESOURCE_RESOLUTION_FAILED",
+            ...(cause instanceof OpenworkServerError ? { causeCode: cause.code } : {}),
+            stage: "resource-resolution",
+            message: safeMcpAppDiagnosticMessage(cause, "The interactive view resource could not be resolved."),
+            toolName: part.toolName,
+            elapsedMs: Math.round(performance.now() - startedAt),
+            checkpoints: ["resolve-started"],
+          }
+          console.error(`[OpenWork MCP App] ${diagnostic.code}`, diagnostic)
+          setError(diagnostic)
+        }
+      })
+    return () => { cancelled = true }
+  }, [launch, openworkServerClient, part.toolName, result, workspaceId])
+
+  if (!result || (!app && !error)) return null
+  if (error) return <McpAppDiagnosticNotice error={error} notice={CHAT_MCP_APP_UNAVAILABLE_NOTICE} />
+  if (!app) return null
+  return (
+    <McpAppSandboxView
+      app={app}
+      toolName={part.toolName}
+      inputArguments={inputArguments}
+      result={result}
+      unavailableNotice={CHAT_MCP_APP_UNAVAILABLE_NOTICE}
+      onRequestTeardown={() => setApp(null)}
+    />
   )
 }
