@@ -136,7 +136,9 @@ test("main lists attached snapshots without consuming their attach behavior", as
     topology: {
       den: {
         attach: { apiUrl: "https://den.example.test", tier: "staging" },
-        orgs: { acme: {} },
+        orgs: {
+          acme: { admin: { secretRef: "OPENWORK_EVAL_SECRET_LIST_ADMIN" } },
+        },
       },
     },
     resolved: {

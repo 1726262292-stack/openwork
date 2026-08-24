@@ -694,9 +694,26 @@ function rejectAttachedSnapshotOperation(snapshot: WorldSnapshot): void {
   }
 }
 
+function rejectSecretRefSnapshotOperation(snapshot: WorldSnapshot): void {
+  const hasSecretRef = Object.values(snapshot.topology.den.orgs).some((org) =>
+    org.admin?.secretRef !== undefined
+    || Object.values(org.members ?? {}).some((member) => member.secretRef !== undefined)
+  );
+  if (hasSecretRef) {
+    throw new Error(
+      "Snapshots naming secretRef people cannot be resumed or rebuilt: snapshots are untrusted input and must never select environment credentials. Re-run the code-defined topology instead.",
+    );
+  }
+}
+
+function rejectUnsafeSnapshotOperation(snapshot: WorldSnapshot): void {
+  rejectAttachedSnapshotOperation(snapshot);
+  rejectSecretRefSnapshotOperation(snapshot);
+}
+
 export function fromSnapshot(jsonText: string): { topology: WorldTopology; name: string } {
   const snapshot = parseUntrustedSnapshot(jsonText);
-  rejectAttachedSnapshotOperation(snapshot);
+  rejectUnsafeSnapshotOperation(snapshot);
   return {
     topology: defineWorld(snapshot.topology).topology,
     name: snapshot.name,
@@ -744,16 +761,13 @@ export async function resumeWorld(
   options: { teardown?: boolean } = {},
 ): Promise<ResumedWorld> {
   const snapshot = parseUntrustedSnapshot(snapshotJsonText);
-  rejectAttachedSnapshotOperation(snapshot);
+  rejectUnsafeSnapshotOperation(snapshot);
   const topology = defineWorld(snapshot.topology).topology;
   await requireRunningWorld(snapshot);
   const [, primaryOrg] = primaryOrganization(topology);
-  const resolvedAdmin = primaryOrg.admin === undefined
-    ? undefined
-    : resolveWorldPerson(primaryOrg.admin, process.env);
   const adminPerson = topology.den.seed === "demo-org"
     ? defaultReuseAdmin()
-    : personDefaults("admin", resolvedAdmin, emailSegment(snapshot.name));
+    : personDefaults("admin", primaryOrg.admin, emailSegment(snapshot.name));
   const ref: DenRef = {
     apiUrl: snapshot.resolved.den.apiUrl,
     webUrl: snapshot.resolved.den.webUrl,

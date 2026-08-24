@@ -49,6 +49,29 @@ function attachedSnapshot(apiUrl: string) {
   });
 }
 
+function secretRefSnapshot() {
+  return buildSnapshot({
+    name: "secret-ref-snapshot",
+    createdAt: "2026-08-23T12:00:00.000Z",
+    place: "local",
+    topology: defineWorld({
+      den: {
+        orgs: {
+          acme: { admin: { secretRef: "OPENWORK_EVAL_SECRET_SNAPSHOT_ADMIN" } },
+        },
+      },
+    }).topology,
+    resolved: {
+      den: {
+        apiUrl: "http://127.0.0.1:8790",
+        webUrl: "http://127.0.0.1:3005",
+        origin: "launched",
+      },
+      apps: {},
+    },
+  });
+}
+
 test("buildSnapshot output round-trips through untrusted boot-shape validation", () => {
   const topology = defineWorld({
     den: {
@@ -128,6 +151,19 @@ test("attached snapshots remain parseable for listing but cannot rebuild or resu
   assert.throws(
     () => fromSnapshot(originOnlyJson),
     /Attached worlds cannot be resumed or rebuilt from snapshots/,
+  );
+});
+
+test("secretRef snapshots remain parseable for listing but cannot rebuild or resume", async () => {
+  const json = JSON.stringify(secretRefSnapshot());
+  assert.doesNotThrow(() => parseUntrustedSnapshot(json));
+  assert.throws(
+    () => fromSnapshot(json),
+    /Snapshots naming secretRef people cannot be resumed or rebuilt/,
+  );
+  await assert.rejects(
+    () => resumeWorld(json),
+    /Snapshots naming secretRef people cannot be resumed or rebuilt/,
   );
 });
 
