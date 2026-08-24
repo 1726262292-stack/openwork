@@ -1175,6 +1175,12 @@ export async function requestJson(path: string, init: RequestInit = {}, timeoutM
       credentials: init.credentials ?? denApiCredentials(endpoint, path),
       signal: init.signal ?? timeoutController?.signal
     });
+    if (path === "/v1/me" && response.status === 401 && typeof window !== "undefined") {
+      await fetch("/api/auth/clear-session-cookie", {
+        method: "POST",
+        credentials: "include"
+      }).catch(() => null);
+    }
   } catch (error) {
     // Only the deadline created by this helper becomes a timeout. An abort
     // supplied by a caller becomes a distinct cancellation error.
