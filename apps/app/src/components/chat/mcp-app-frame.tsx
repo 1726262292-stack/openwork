@@ -236,6 +236,10 @@ export type McpAppSandboxViewProps = {
   /** Notice prefix shown when the sandboxed view cannot render. */
   unavailableNotice: string
   onRequestTeardown?: () => void
+  /** Starting iframe height, letting a host restore the last measured size across remounts. */
+  initialHeight?: number
+  /** Reports app-requested size changes so a host can persist them past this view's lifetime. */
+  onHeightChange?: (height: number) => void
 }
 
 /**
@@ -243,13 +247,19 @@ export type McpAppSandboxViewProps = {
  * bridges it to the workspace MCP App host. Chat messages and dashboard tiles
  * share this exact pipeline so rendering and diagnostics stay identical.
  */
-export function McpAppSandboxView({ app, toolName, inputArguments, result, unavailableNotice, onRequestTeardown }: McpAppSandboxViewProps) {
+export function McpAppSandboxView({ app, toolName, inputArguments, result, unavailableNotice, onRequestTeardown, initialHeight, onHeightChange }: McpAppSandboxViewProps) {
   const { openworkServerClient, workspaceId } = useWorkspace()
   const iframeRef = useRef<HTMLIFrameElement>(null)
-  const [height, setHeight] = useState(DEFAULT_HEIGHT)
+  const [height, setHeightState] = useState(initialHeight ?? DEFAULT_HEIGHT)
   const [error, setError] = useState<McpAppDiagnostic | null>(null)
   const teardownRef = useRef(onRequestTeardown)
   teardownRef.current = onRequestTeardown
+  const onHeightChangeRef = useRef(onHeightChange)
+  onHeightChangeRef.current = onHeightChange
+  const setHeight = (next: number) => {
+    setHeightState(next)
+    onHeightChangeRef.current?.(next)
+  }
 
   useEffect(() => {
     const iframe = iframeRef.current
@@ -558,6 +568,9 @@ export function McpAppFrame({ part }: { part: DynamicToolUIPart }) {
   const launch = useMemo(() => gatewayMcpAppLaunch(result?._meta), [result])
   const [app, setApp] = useState<OpenworkMcpAppResource | null>(null)
   const [error, setError] = useState<McpAppDiagnostic | null>(null)
+  // The sandbox view unmounts on every preserved-result change; keep the last
+  // measured height here so the rebuilt iframe does not snap back to default.
+  const heightRef = useRef(DEFAULT_HEIGHT)
   const inputArguments = useMemo(
     () => launch?.arguments ?? (isRecord(part.input) ? part.input : {}),
     [launch, part.input],
@@ -607,6 +620,8 @@ export function McpAppFrame({ part }: { part: DynamicToolUIPart }) {
       result={result}
       unavailableNotice={CHAT_MCP_APP_UNAVAILABLE_NOTICE}
       onRequestTeardown={() => setApp(null)}
+      initialHeight={heightRef.current}
+      onHeightChange={(next) => { heightRef.current = next }}
     />
   )
 }

@@ -70,6 +70,10 @@ export function McpAppTile({ entry, onRemove, onApprovedLaunch }: {
   launchApprovedRef.current = entry.launchApproved === true;
   const onApprovedLaunchRef = useRef(onApprovedLaunch);
   onApprovedLaunchRef.current = onApprovedLaunch;
+  // A write-tool launch must map 1:1 to a Run/refresh press. The effect also
+  // re-runs when the client or workspace identity changes; this ref keeps such
+  // re-runs from repeating an already-executed data-modifying call.
+  const executedRunRef = useRef<number | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -77,12 +81,15 @@ export function McpAppTile({ entry, onRemove, onApprovedLaunch }: {
       setState({ phase: "idle" });
       return;
     }
+    if (manualLaunch && executedRunRef.current === nonce) return;
+    executedRunRef.current = nonce;
     setState({ phase: "loading" });
     if (!openworkServerClient || !workspaceId) {
       setState({ phase: "error", message: "No connected workspace is available to launch this app." });
       return;
     }
     const client = openworkServerClient;
+    const userInitiated = nonce > 0;
     void (async (): Promise<TileState> => {
       // Connect app-host apps resolve through their connection reference; the
       // host revalidates the live UI binding before returning the resource.
@@ -108,6 +115,10 @@ export function McpAppTile({ entry, onRemove, onApprovedLaunch }: {
         result = await client.callMcpAppTool(workspaceId, request);
       } catch (cause) {
         if (!(cause instanceof OpenworkServerError) || cause.code !== "tool_requires_approval") throw cause;
+        // A stored entry can go stale: a tool that was read-only at add time
+        // may need approval now. Never pop a consent prompt from an automatic
+        // mount launch — fall back to the idle Run card and ask on request.
+        if (!userInitiated) return { phase: "idle" };
         const approved = window.confirm(
           `Allow this MCP App to call ${app.toolName} on ${app.serverName}? `
           + "OpenWork remembers your choice for this tile until you remove it.",
@@ -149,7 +160,7 @@ export function McpAppTile({ entry, onRemove, onApprovedLaunch }: {
     return () => {
       cancelled = true;
     };
-  }, [entry.connectionId, entry.launchArguments, entry.projectedToolName, entry.resourceUri, entry.toolName, launchArguments, nonce, openworkServerClient, started, workspaceId]);
+  }, [entry.connectionId, entry.projectedToolName, entry.resourceUri, entry.toolName, launchArguments, manualLaunch, nonce, openworkServerClient, started, workspaceId]);
 
   const run = () => {
     setStarted(true);

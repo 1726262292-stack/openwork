@@ -349,9 +349,65 @@ function toolRequiresInput(tool: Tool): boolean {
   return Array.isArray(schema.required) && schema.required.length > 0;
 }
 
-/** Mirrors the exact approval rule `callMcpAppTool` enforces at call time. */
+/** The single approval rule: `callMcpAppTool` enforces it, the catalog reports it. */
 function toolRequiresApproval(tool: Tool): boolean {
   return tool.annotations?.readOnlyHint !== true || tool.annotations?.destructiveHint === true;
+}
+
+/** Per-server budget for catalog probes so one slow server cannot starve the rest. */
+const CATALOG_PROBE_TIMEOUT_MS = 10_000;
+
+async function withCatalogProbeTimeout<T>(work: Promise<T>): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      work,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error("The MCP server did not respond in time.")),
+          CATALOG_PROBE_TIMEOUT_MS,
+        );
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+    work.catch(() => undefined);
+  }
+}
+
+async function catalogAppsFromClient(client: Client, options: {
+  serverName: string;
+  workspaceRoot: string;
+  connectionId?: string;
+  /** Cold launches resolve by projected tool name, which needs model visibility. */
+  requireModelVisibility: boolean;
+}): Promise<McpAppCatalogApp[]> {
+  const catalog: McpAppCatalogApp[] = [];
+  for (const tool of await listTools(client)) {
+    if (options.requireModelVisibility && !toolVisibility(tool, "model")) continue;
+    if (!toolVisibility(tool, "app")) continue;
+    let resourceUri: string | null;
+    try {
+      resourceUri = toolUiResourceUri(tool);
+    } catch {
+      continue;
+    }
+    if (!resourceUri) continue;
+    const projectedToolName = projectedMcpToolName(options.serverName, tool.name);
+    if ((await diagnoseMcpToolDenies(options.workspaceRoot, options.serverName, [projectedToolName])).length > 0) continue;
+    catalog.push({
+      serverName: options.serverName,
+      ...(options.connectionId ? { connectionId: options.connectionId } : {}),
+      toolName: tool.name,
+      projectedToolName,
+      resourceUri,
+      title: toolDisplayTitle(tool),
+      description: typeof tool.description === "string" ? tool.description : null,
+      requiresInput: toolRequiresInput(tool),
+      requiresApproval: toolRequiresApproval(tool),
+    });
+  }
+  return catalog;
 }
 
 function toolDisplayTitle(tool: Tool): string | null {
@@ -373,50 +429,6 @@ export async function listMcpAppCatalog(input: {
   workspaceRoot: string;
 }): Promise<McpAppCatalogServer[]> {
   const configured = await listMcp(input.serverConfig, input.workspaceId, input.workspaceRoot);
-  const servers: McpAppCatalogServer[] = [];
-  for (const item of configured) {
-    if (item.config.enabled === false || !remoteUrl(item.config)) continue;
-    try {
-      const apps = await withRemoteClient(item.config, async (client) => {
-        const catalog: McpAppCatalogApp[] = [];
-        for (const tool of await listTools(client)) {
-          // Cold dashboard launches resolve by projected tool name (model
-          // audience) and execute through the app-mediated call path, so a
-          // listed app must stay visible to both.
-          if (!toolVisibility(tool, "model") || !toolVisibility(tool, "app")) continue;
-          let resourceUri: string | null;
-          try {
-            resourceUri = toolUiResourceUri(tool);
-          } catch {
-            continue;
-          }
-          if (!resourceUri) continue;
-          const projectedToolName = projectedMcpToolName(item.name, tool.name);
-          if ((await diagnoseMcpToolDenies(input.workspaceRoot, item.name, [projectedToolName])).length > 0) continue;
-          catalog.push({
-            serverName: item.name,
-            toolName: tool.name,
-            projectedToolName,
-            resourceUri,
-            title: toolDisplayTitle(tool),
-            description: typeof tool.description === "string" ? tool.description : null,
-            requiresInput: toolRequiresInput(tool),
-            requiresApproval: toolRequiresApproval(tool),
-          });
-        }
-        return catalog;
-      });
-      servers.push({ serverName: item.name, reachable: true, apps });
-    } catch (error) {
-      servers.push({
-        serverName: item.name,
-        reachable: false,
-        error: error instanceof Error ? error.message : "The MCP server could not be reached.",
-        apps: [],
-      });
-    }
-  }
-
   // Connect app-host providers: org connections surfaced through the Cloud
   // capability gateway. Their catalog and authorization live in the private
   // app-host store, not the workspace MCP config, and their launches resolve
@@ -428,7 +440,38 @@ export async function listMcpAppCatalog(input: {
       connectCatalog = await readOpenWorkConnectMcpAppHostCatalog(input.serverConfig, input.workspaceId);
     }
   }
-  for (const descriptor of connectCatalog.servers) {
+  // A Connect host can also appear in the workspace MCP config under the same
+  // name; the provider section owns it (its entries carry the connection
+  // reference launches need), so the workspace copy is skipped.
+  const connectHostNames = new Set(
+    connectCatalog.servers.map((descriptor) => connectMcpAppHostName(descriptor.connectionId)),
+  );
+
+  const configuredEntries = configured
+    .filter((item) => item.config.enabled !== false && remoteUrl(item.config) && !connectHostNames.has(item.name))
+    .map(async (item): Promise<McpAppCatalogServer> => {
+      try {
+        const apps = await withCatalogProbeTimeout(withRemoteClient(item.config, (client) =>
+          // Cold dashboard launches resolve by projected tool name (model
+          // audience) and execute through the app-mediated call path, so a
+          // listed app must stay visible to both.
+          catalogAppsFromClient(client, {
+            serverName: item.name,
+            workspaceRoot: input.workspaceRoot,
+            requireModelVisibility: true,
+          })));
+        return { serverName: item.name, reachable: true, apps };
+      } catch (error) {
+        return {
+          serverName: item.name,
+          reachable: false,
+          error: error instanceof Error ? error.message : "The MCP server could not be reached.",
+          apps: [],
+        };
+      }
+    });
+
+  const connectEntries = connectCatalog.servers.map(async (descriptor): Promise<McpAppCatalogServer> => {
     const hostName = connectMcpAppHostName(descriptor.connectionId);
     const base = {
       serverName: hostName,
@@ -441,13 +484,12 @@ export async function listMcpAppCatalog(input: {
       descriptor.url,
     );
     if (!authorization) {
-      servers.push({
+      return {
         ...base,
         reachable: false,
         error: "The Connect MCP provider is not authorized for this workspace.",
         apps: [],
-      });
-      continue;
+      };
     }
     const config: Record<string, unknown> = {
       type: "remote",
@@ -459,44 +501,27 @@ export async function listMcpAppCatalog(input: {
       },
     };
     try {
-      const apps = await withRemoteClient(config, async (client) => {
-        const catalog: McpAppCatalogApp[] = [];
-        for (const tool of await listTools(client)) {
-          if (!toolVisibility(tool, "app")) continue;
-          let resourceUri: string | null;
-          try {
-            resourceUri = toolUiResourceUri(tool);
-          } catch {
-            continue;
-          }
-          if (!resourceUri) continue;
-          const projectedToolName = projectedMcpToolName(hostName, tool.name);
-          if ((await diagnoseMcpToolDenies(input.workspaceRoot, hostName, [projectedToolName])).length > 0) continue;
-          catalog.push({
-            serverName: hostName,
-            connectionId: descriptor.connectionId,
-            toolName: tool.name,
-            projectedToolName,
-            resourceUri,
-            title: toolDisplayTitle(tool),
-            description: typeof tool.description === "string" ? tool.description : null,
-            requiresInput: toolRequiresInput(tool),
-            requiresApproval: toolRequiresApproval(tool),
-          });
-        }
-        return catalog;
-      });
-      servers.push({ ...base, reachable: true, apps });
+      const apps = await withCatalogProbeTimeout(withRemoteClient(config, (client) =>
+        catalogAppsFromClient(client, {
+          serverName: hostName,
+          workspaceRoot: input.workspaceRoot,
+          connectionId: descriptor.connectionId,
+          requireModelVisibility: false,
+        })));
+      return { ...base, reachable: true, apps };
     } catch (error) {
-      servers.push({
+      return {
         ...base,
         reachable: false,
         error: error instanceof Error ? error.message : "The Connect MCP provider could not be reached.",
         apps: [],
-      });
+      };
     }
-  }
-  return servers;
+  });
+
+  // Servers are independent probes: run them concurrently so catalog latency
+  // is the slowest single server, not the sum of every connection attempt.
+  return Promise.all([...configuredEntries, ...connectEntries]);
 }
 
 export async function resolveMcpAppResource(input: {
@@ -729,7 +754,7 @@ export async function callMcpAppTool(input: {
     if ((await diagnoseMcpToolDenies(input.workspaceRoot, input.serverName, [projectedName])).length > 0) {
       throw new McpAppHostError("tool_denied", "This same-server MCP tool is denied by the workspace tool policy.");
     }
-    if ((tool.annotations?.readOnlyHint !== true || tool.annotations?.destructiveHint === true) && !input.approved) {
+    if (toolRequiresApproval(tool) && !input.approved) {
       throw new McpAppHostError(
         "tool_requires_approval",
         "This MCP App tool requires user approval before OpenWork can call it.",

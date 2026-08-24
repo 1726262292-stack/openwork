@@ -279,18 +279,20 @@ export function AddAppDialog({ open, onOpenChange, existingIds, onAdd }: AddAppD
               available yet. Create or open a workspace, then refresh.
             </p>
           ) : null}
-          {workspaceReady && catalog.isFetching ? (
+          {workspaceReady && catalog.isFetching && !catalog.data ? (
             <div className="space-y-2" role="status" aria-label="Loading MCP apps">
               <Skeleton className="h-10 w-full" />
               <Skeleton className="h-10 w-full" />
             </div>
           ) : null}
-          {catalog.isError && !catalog.isFetching ? (
+          {catalog.isError && !catalog.data && !catalog.isFetching ? (
             <p className="text-xs text-muted-foreground" role="status">
               MCP apps could not be listed: {catalog.error instanceof Error ? catalog.error.message : "unknown error"}
             </p>
           ) : null}
-          {catalog.data && !catalog.isFetching ? (
+          {/* Keep rows mounted through background refetches: unmounting would
+              destroy in-progress launch-input text in an open row. */}
+          {catalog.data ? (
             catalog.data.servers.length === 0 ? (
               <p className="text-xs text-muted-foreground">
                 No MCP app sources were found. Connect an MCP server in Settings,

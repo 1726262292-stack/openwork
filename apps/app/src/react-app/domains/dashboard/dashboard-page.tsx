@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Blocks, Plus } from "lucide-react";
 
 import { readDenSettings } from "@/app/lib/den";
+import { denSettingsChangedEvent } from "@/app/lib/den-session-events";
 import { Button } from "@/components/ui/button";
 import {
   Empty,
@@ -30,10 +31,18 @@ import { McpAppTile } from "./mcp-app-tile";
  */
 export function DashboardPage() {
   const denAuth = useDenAuth();
-  const scopeKey = useMemo(() => {
-    const settings = readDenSettings();
-    return dashboardScopeKey(denAuth.user?.id ?? null, settings.activeOrgId ?? null);
-  }, [denAuth.user?.id]);
+  // The active org lives in den settings, which change outside React; track it
+  // through the settings-changed event so an org switch swaps the board scope.
+  const [activeOrgId, setActiveOrgId] = useState<string | null>(() => readDenSettings().activeOrgId ?? null);
+  useEffect(() => {
+    const sync = () => setActiveOrgId(readDenSettings().activeOrgId ?? null);
+    window.addEventListener(denSettingsChangedEvent, sync);
+    return () => window.removeEventListener(denSettingsChangedEvent, sync);
+  }, []);
+  const scopeKey = useMemo(
+    () => dashboardScopeKey(denAuth.user?.id ?? null, activeOrgId),
+    [activeOrgId, denAuth.user?.id],
+  );
   const [entries, setEntries] = useState<DashboardEntry[]>(() => readDashboardEntries(scopeKey));
   useEffect(() => {
     setEntries(readDashboardEntries(scopeKey));
