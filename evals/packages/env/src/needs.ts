@@ -23,6 +23,12 @@ function present(env: NodeJS.ProcessEnv, name: string): boolean {
   return Boolean(env[name]?.trim());
 }
 
+function commandProbeArgs(command: string): string[] {
+  if (command === "kubectl") return ["version", "--client"];
+  if (command === "helm" || command === "kind" || command === "docker") return ["version"];
+  return ["--version"];
+}
+
 export function unmetNeeds(requirements: TestNeeds, env: NodeJS.ProcessEnv): string[] {
   const missing: string[] = [];
   for (const name of requirements.env ?? []) {
@@ -32,7 +38,7 @@ export function unmetNeeds(requirements: TestNeeds, env: NodeJS.ProcessEnv): str
     if (env[name]?.trim() !== "1") missing.push(`set ${name}=1`);
   }
   for (const command of requirements.commands ?? []) {
-    const result = spawnSync(command, ["--version"], { stdio: "ignore", timeout: 10_000 });
+    const result = spawnSync(command, commandProbeArgs(command), { stdio: "ignore", timeout: 10_000 });
     if (result.error || result.status !== 0) missing.push(`install ${command}`);
   }
   if (requirements.model === "tool-capable") {

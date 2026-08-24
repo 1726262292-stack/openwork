@@ -7,7 +7,7 @@ import type { Context } from "hono"
 import { describeRoute } from "hono-openapi"
 import { z } from "zod"
 import { auth, DEN_MCP_OAUTH_RESOURCE, normalizeMcpOAuthResource } from "../../auth.js"
-import { normalizeLoginEmail, resolveLoginOptionKind } from "../../auth-login-options.js"
+import { buildLoginOptionsSessionCookieClearHeaders, normalizeLoginEmail, resolveLoginOptionKind } from "../../auth-login-options.js"
 import { verifyBotProtection } from "../../bot-protection.js"
 import {
   EMAIL_PASSWORD_SIGN_UP_PATH,
@@ -815,6 +815,9 @@ export function registerAuthRoutes<T extends { Variables: AuthContextVariables }
     queryValidator(loginOptionsQuerySchema),
     async (c) => {
       const { email, invite } = c.req.valid("query")
+      for (const cookie of buildLoginOptionsSessionCookieClearHeaders(env.betterAuthCookieDomain)) {
+        c.header("Set-Cookie", cookie, { append: true })
+      }
       const botProtection = await verifyBotProtection()
       if (!botProtection.ok) {
         return c.json({

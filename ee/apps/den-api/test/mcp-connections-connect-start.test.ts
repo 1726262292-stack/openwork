@@ -356,6 +356,7 @@ test("callback isolation replaces SDK registration state and exposes the scoped 
 test("connect start keeps the shared callback for a pre-registered confidential client without response issuer support", async () => {
   let origin = ""
   let expectedCodeChallenge = ""
+  let expectedRedirectUri = ""
   let initializeRequests = 0
   let toolsListRequests = 0
   const server = Bun.serve({
@@ -387,6 +388,7 @@ test("connect start keeps the shared callback for a pre-registered confidential 
         expect(form.get("client_secret")).toBe("confidential-secret")
         expect(form.get("grant_type")).toBe("authorization_code")
         expect(form.get("code")).toBe("shared-authorization-code")
+        expect(form.get("redirect_uri")).toBe(expectedRedirectUri)
         expect(form.get("resource")).toBe(`${origin}/mcp`)
         const verifier = form.get("code_verifier")
         expect(verifier?.length).toBeGreaterThanOrEqual(43)
@@ -453,10 +455,8 @@ test("connect start keeps the shared callback for a pre-registered confidential 
       createdByOrgMembershipId: memberId,
       access: { orgWide: true, memberIds: [], teamIds: [] },
     })
-    const sharedCallback = new URL(
-      "/v1/mcp-connections/oauth/callback",
-      process.env.DEN_API_PUBLIC_URL ?? "http://127.0.0.1:8790",
-    ).toString()
+    const sharedCallback = "https://app.openworklabs.com/api/den/v1/mcp-connections/oauth/callback"
+    expectedRedirectUri = sharedCallback
     await upsertOrgOAuthClient({
       organizationId,
       providerId: connection.id,
@@ -505,8 +505,15 @@ test("connect start keeps the shared callback for a pre-registered confidential 
     expect(isRecord(pendingAuthorizations) && Array.isArray(pendingAuthorizations.transactions)
       ? pendingAuthorizations.transactions
       : []).toHaveLength(1)
+    expect((await getOrgOAuthClient(organizationId, connection.id))?.extra?.registeredRedirectUri).toBe(sharedCallback)
 
-    const callbackUrl = new URL(sharedCallback)
+    // The provider redirects to the legacy app/proxy callback. Den Web forwards
+    // that browser request to this direct API route, but token exchange must
+    // still send the original registered redirect_uri.
+    const callbackUrl = new URL(
+      "/v1/mcp-connections/oauth/callback",
+      process.env.DEN_API_PUBLIC_URL ?? "http://127.0.0.1:8790",
+    )
     callbackUrl.searchParams.set("code", "shared-authorization-code")
     callbackUrl.searchParams.set("state", signedState)
     const callbackResponse = await app.fetch(new Request(callbackUrl))

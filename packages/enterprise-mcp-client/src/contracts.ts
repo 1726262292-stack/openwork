@@ -46,6 +46,8 @@ export interface EnterpriseMcpOAuthClientRegistrationPort {
   save(input: {
     context: EnterpriseMcpPersistenceContext
     clientInformation: OAuthClientInformationMixed
+    /** The redirect URI used for this client registration attempt. */
+    redirectUri: string
     expiresAt?: EnterpriseMcpEpochMs
     source: "client-metadata" | "dynamic"
   }): Promise<EnterpriseMcpOAuthClientRegistration>

@@ -13,12 +13,12 @@ This page is for IT and platform teams approving those two network paths. For fu
 
 ## What the desktop must reach
 
-Use one desktop-facing Den origin when you can: the Den web origin, with its `/api/den` route proxying to Den API inside your deployment. The signed-in desktop runtime is pointed at that Den web URL and derives API and MCP traffic from it:
+Point the desktop at one Den web origin. The signed-in desktop reads `${DEN_BASE_URL}/api/runtime-config` and uses its `denApiUrl` value as the source of truth for Den API and MCP traffic. Den Web returns `DEN_API_BASE` when it is configured; otherwise it derives the API origin as `api.${DEN_BASE_URL}`:
 
-- API: `<den-web-origin>/api/den/v1/...`
-- MCP: `<den-web-origin>/api/den/mcp/...`
+- API default: `https://api.<den-web-host>/v1/...`
+- MCP default: `https://api.<den-web-host>/mcp/...`
 
-Set `DEN_BASE_URL` to the Den web origin. Den derives Better Auth, CORS/trusted origins, the web-app host allowlist, API defaults, and MCP resource defaults from that single value. If you need a separate externally reachable API origin or a proxied API path for external MCP clients, set `DEN_API_PUBLIC_URL` as a compatibility override, for example `https://openwork.example.internal/api/den`.
+Set `DEN_BASE_URL` to the Den web origin. Den derives Better Auth, CORS/trusted origins, the web-app host allowlist, API defaults, and MCP resource defaults from that single value. If desktops or Den Web must use a separate externally reachable API origin or a proxied API path, set `DEN_API_BASE` on Den Web. If external MCP clients need a different advertised resource, set `DEN_API_PUBLIC_URL` as a compatibility override, for example `https://openwork.example.internal/api/den`.
 
 If you publish a separate Den API origin, the one-time install-link exchange and external MCP clients must be able to reach that origin too.
 

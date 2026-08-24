@@ -5,6 +5,14 @@ export type LoginOptionAccount = {
   hasPassword: boolean
 }
 
+const BETTER_AUTH_SECURE_SESSION_COOKIE = "__Secure-better-auth.session_token"
+
+export function buildLoginOptionsSessionCookieClearHeaders(cookieDomain?: string) {
+  const expiredCookie = `${BETTER_AUTH_SECURE_SESSION_COOKIE}=; Max-Age=0; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Secure; HttpOnly; SameSite=Lax`
+  const normalizedDomain = cookieDomain?.trim().toLowerCase()
+  return normalizedDomain ? [`${expiredCookie}; Domain=${normalizedDomain}`, expiredCookie] : [expiredCookie]
+}
+
 export function normalizeLoginEmail(email: string) {
   return email.trim().toLowerCase()
 }
