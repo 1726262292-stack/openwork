@@ -5,6 +5,7 @@ import { Blocks, Plus } from "lucide-react";
 import { readDenSettings } from "@/app/lib/den";
 import { denSettingsChangedEvent } from "@/app/lib/den-session-events";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Empty,
   EmptyContent,
@@ -46,6 +47,26 @@ export function DashboardPage({ fallbackEndpoints }: {
     () => dashboardScopeKey(denAuth.user?.id ?? null, activeOrgId),
     [activeOrgId, denAuth.user?.id],
   );
+  // While Den auth is restoring, the board would read the shared signed-out
+  // scope and auto-launch its entries against the account about to be
+  // restored. Hold the board (and every launch) until the scope is final.
+  if (denAuth.status === "checking") {
+    return (
+      <div className="mx-auto w-full max-w-6xl px-6 py-6" data-dashboard-page>
+        <div className="space-y-2 pt-3" role="status" aria-label="Loading dashboard">
+          <Skeleton className="h-8 w-1/3" />
+          <Skeleton className="h-40 w-full" />
+        </div>
+      </div>
+    );
+  }
+  return <DashboardBoard key={scopeKey} scopeKey={scopeKey} fallbackEndpoints={fallbackEndpoints} />;
+}
+
+function DashboardBoard({ scopeKey, fallbackEndpoints }: {
+  scopeKey: string;
+  fallbackEndpoints?: DashboardLaunchEndpoint[];
+}) {
   const [entries, setEntries] = useState<DashboardEntry[]>(() => readDashboardEntries(scopeKey));
   useEffect(() => {
     setEntries(readDashboardEntries(scopeKey));

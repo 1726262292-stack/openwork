@@ -111,8 +111,9 @@ function CatalogAppRow({ app, added, onAdd }: {
   const [argsText, setArgsText] = useState("");
   const [argsError, setArgsError] = useState<string | null>(null);
   const entry = mcpEntryFromCatalogApp(app);
-  // Input capture and write-consent both happen once, at add time.
-  const needsDetails = app.requiresInput || app.requiresApproval;
+  // Every add goes through the details panel: it names what adding consents
+  // to (automatic launches, data modification, stored input) so no tool runs
+  // later on a server-controlled hint the user never saw.
   const buildEntry = (launchArguments?: Record<string, unknown>): DashboardMcpAppEntry => ({
     ...entry,
     ...(launchArguments ? { launchArguments } : {}),
@@ -161,7 +162,7 @@ function CatalogAppRow({ app, added, onAdd }: {
           <Button variant="ghost" size="sm" disabled>
             <Check className="size-4" /> Added
           </Button>
-        ) : needsDetails ? (
+        ) : (
           <Button
             variant="outline"
             size="sm"
@@ -170,10 +171,6 @@ function CatalogAppRow({ app, added, onAdd }: {
             onClick={() => setDetailsOpen((value) => !value)}
           >
             <Plus className="size-4" /> Add…
-          </Button>
-        ) : (
-          <Button variant="outline" size="sm" aria-label={`Add ${entry.title}`} onClick={() => onAdd(entry)}>
-            <Plus className="size-4" /> Add
           </Button>
         )}
       </div>
@@ -201,12 +198,18 @@ function CatalogAppRow({ app, added, onAdd }: {
               {entry.serverName}). Adding it allows that call, and the tile only
               runs when you press Run — never automatically.
             </p>
-          ) : null}
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              Adding this app ({entry.toolName} on {entry.serverName}) lets its
+              tile launch automatically whenever you open the dashboard.
+            </p>
+          )}
           {argsError ? <p className="text-xs text-destructive" role="alert">{argsError}</p> : null}
           <div className="flex justify-end gap-2">
             <Button variant="ghost" size="sm" onClick={() => setDetailsOpen(false)}>Cancel</Button>
             <Button variant="outline" size="sm" onClick={addFromDetails}>
-              <Plus className="size-4" /> {app.requiresApproval ? "Add and allow" : "Add with input"}
+              <Plus className="size-4" />
+              {app.requiresApproval ? "Add and allow" : app.requiresInput ? "Add with input" : "Add"}
             </Button>
           </div>
         </div>
