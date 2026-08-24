@@ -455,6 +455,14 @@ export function AppRoot() {
                 }
               />
               <Route
+                path="/dashboard"
+                element={
+                  <DevProfiler id="DashboardRoute">
+                    <SessionRoute />
+                  </DevProfiler>
+                }
+              />
+              <Route
                 path="/workspace/:workspaceId/extensions/*"
                 element={
                   <DevProfiler id="SessionRoute">

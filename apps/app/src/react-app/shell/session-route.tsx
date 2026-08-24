@@ -93,6 +93,8 @@ import { useLocal } from "@/react-app/kernel/local-provider";
 import { usePlatform } from "@/react-app/kernel/platform";
 import { SessionPage, type OpenSessionTab } from "@/react-app/domains/session/chat/session-page";
 import { AutomationsPage } from "@/react-app/domains/automations/automations-page";
+import { DashboardPage } from "@/react-app/domains/dashboard/dashboard-page";
+import { isMcpAppsDashboardEnabled } from "@/react-app/domains/dashboard/dashboard-availability";
 import { useAutomationDeploymentEnabled } from "@/react-app/domains/automations/automation-availability";
 import { automationsStateChangedEvent } from "@/react-app/domains/automations/automation-events";
 import type { NewTaskComposerContext } from "@/react-app/domains/session/chat/new-task-composer";
@@ -213,6 +215,7 @@ import {
   globalExtensionsRoute,
   legacySessionRoute,
   automationsRoute,
+  dashboardRoute,
   workspaceExtensionsRoute,
   workspaceSessionRoute,
   workspaceSettingsRoute,
@@ -486,6 +489,9 @@ export function SessionRoute() {
   const navigate = useNavigate();
   const location = useLocation();
   const automationsRouteRequested = /^\/automations(?:\/|$)/.test(location.pathname);
+  const dashboardRouteRequested = /^\/dashboard(?:\/|$)/.test(location.pathname);
+  const mcpAppsDashboardEnabled = isMcpAppsDashboardEnabled();
+  const dashboardRouteActive = mcpAppsDashboardEnabled && dashboardRouteRequested;
   const platform = usePlatform();
   const denAuth = useDenAuth();
   const { config: shellConfig } = useShellConfig();
@@ -500,6 +506,10 @@ export function SessionRoute() {
     if (!automationsRouteRequested || automationsEnabled) return;
     navigate("/", { replace: true });
   }, [automationsEnabled, automationsRouteRequested, navigate]);
+  useEffect(() => {
+    if (!dashboardRouteRequested || mcpAppsDashboardEnabled) return;
+    navigate("/", { replace: true });
+  }, [dashboardRouteRequested, mcpAppsDashboardEnabled, navigate]);
   useEffect(() => {
     const authToken = denSettings.authToken?.trim();
     const organizationId = denSettings.activeOrgId?.trim();
@@ -599,10 +609,34 @@ export function SessionRoute() {
     runRemoteWorkspaceConnectionCheck,
   } = useWorkspaceRouteState({
     developerMode,
-    workspaceRoute: automationsRouteActive ? "automations" : "session",
+    workspaceRoute: automationsRouteActive ? "automations" : dashboardRouteActive ? "dashboard" : "session",
     onServerSettingsChanged: () => setOpenworkServerSettingsVersion((value) => value + 1),
     onHostInfo: setOpenworkServerHostInfoState,
   });
+  // The dashboard is user-scoped while MCP servers are workspace-scoped: the
+  // selected workspace's runtime is primary, and every other available one is
+  // a per-tile fallback so tiles keep working when the selected workspace does
+  // not configure their server.
+  const dashboardEndpoints = useMemo(() => {
+    if (!dashboardRouteActive) return [];
+    const endpoints: ResolvedWorkspaceEndpoint[] = [];
+    if (selectedWorkspaceEndpoint) endpoints.push(selectedWorkspaceEndpoint);
+    for (const workspace of workspaces) {
+      const endpoint = endpointForWorkspace(workspace);
+      if (endpoint && !endpoints.some((existing) => existing.workspaceId === endpoint.workspaceId)) {
+        endpoints.push(endpoint);
+      }
+    }
+    return endpoints;
+  }, [dashboardRouteActive, endpointForWorkspace, selectedWorkspaceEndpoint, workspaces]);
+  const dashboardEndpoint = dashboardEndpoints[0] ?? null;
+  const dashboardFallbackEndpoints = useMemo(
+    () => dashboardEndpoints.slice(1).map((endpoint) => ({
+      client: endpoint.client,
+      workspaceId: endpoint.workspaceId,
+    })),
+    [dashboardEndpoints],
+  );
   const cloudWorkspace = useCloudWorkspaceStatus();
   const bootOverlayVisible = useBootOverlayVisible();
   const previousCloudWorkspaceStatusRef = useRef<typeof cloudWorkspace.viewModel.variant | null>(null);
@@ -2689,9 +2723,19 @@ export function SessionRoute() {
           }}
         />
       }
-      primaryTitle={automationsRouteActive ? "Automations" : undefined}
+      primaryTitle={automationsRouteActive ? "Automations" : dashboardRouteActive ? "Dashboard" : undefined}
       primarySlot={automationsRouteActive ? (
         <AutomationsPage providerCatalog={providerCatalog} />
+      ) : dashboardRouteActive ? (
+        <WorkspaceProvider
+          client={opencodeClient}
+          opencodeBaseUrl={opencodeBaseUrl}
+          openworkServerClient={dashboardEndpoint?.client ?? null}
+          workspaceId={dashboardEndpoint?.workspaceId ?? ""}
+          selectedWorkspaceRoot={selectedWorkspaceRoot}
+        >
+          <DashboardPage fallbackEndpoints={dashboardFallbackEndpoints} />
+        </WorkspaceProvider>
       ) : undefined}
       terminalOpen={terminalOpen}
       onTerminalOpenChange={setTerminalOpen}
@@ -2714,6 +2758,12 @@ export function SessionRoute() {
         onOpenAutomations: automationsNavigationAvailable
           ? () => {
               navigate(automationsRoute());
+            }
+          : undefined,
+        dashboardActive: dashboardRouteActive,
+        onOpenDashboard: mcpAppsDashboardEnabled
+          ? () => {
+              navigate(dashboardRoute());
             }
           : undefined,
         onSelectWorkspace: async (workspaceId) => {

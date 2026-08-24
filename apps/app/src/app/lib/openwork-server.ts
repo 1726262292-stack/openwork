@@ -421,6 +421,31 @@ export type OpenworkMcpAppLaunchReference = {
   arguments: Record<string, unknown>;
 };
 
+export type OpenworkMcpAppCatalogApp = {
+  serverName: string;
+  /** Present for Connect app-host apps: launch them through this connection reference. */
+  connectionId?: string;
+  toolName: string;
+  projectedToolName: string;
+  resourceUri: string;
+  title: string | null;
+  description: string | null;
+  /** True when the launch tool declares required input, so a host cannot start it with empty arguments. */
+  requiresInput: boolean;
+  /** True when calling the launch tool needs user approval (not explicitly read-only, or destructive). */
+  requiresApproval: boolean;
+};
+
+export type OpenworkMcpAppCatalogServer = {
+  serverName: string;
+  /** Human-readable provider name for Connect app-host servers. */
+  displayName?: string;
+  connectionId?: string;
+  reachable: boolean;
+  error?: string;
+  apps: OpenworkMcpAppCatalogApp[];
+};
+
 export type OpenworkMcpAppToolResult = {
   content: Array<Record<string, unknown>>;
   structuredContent?: Record<string, unknown>;
@@ -1934,6 +1959,12 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
         baseUrl,
         `/workspace/${workspaceId}/mcp`,
         { token, hostToken },
+      ),
+    listMcpApps: (workspaceId: string) =>
+      requestJson<{ servers: OpenworkMcpAppCatalogServer[] }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/mcp-apps/list`,
+        { token, hostToken, timeoutMs: timeouts.binary },
       ),
     resolveMcpApp: (
       workspaceId: string,
