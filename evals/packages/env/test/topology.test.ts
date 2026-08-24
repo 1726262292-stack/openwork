@@ -26,13 +26,15 @@ test("onKind selects the kind Den substrate", () => {
   assert.equal(kind.topology.den.substrate, "kind");
 });
 
-test("kind substrate rejects apps, witnesses, multiple organizations, and local-lane options", () => {
+test("kind substrate accepts seeded-admin apps and rejects unsupported shared-stack options", () => {
+  const withApp = kindSeedWorld().with({
+    den: { substrate: "kind" },
+    apps: { main: { signedInTo: { org: "Acme Robotics", as: "admin" } } },
+  });
+  assert.equal(withApp.topology.apps?.main?.signedInTo?.as, "admin");
   assert.throws(
-    () => kindSeedWorld().with({
-      den: { substrate: "kind" },
-      apps: { main: { signedInTo: { org: "Acme Robotics", as: "admin" } } },
-    }),
-    /den\.substrate "kind" cannot define apps: v1 limitation/,
+    () => kindSeedWorld().with({ den: { substrate: "kind" }, apps: { main: {} } }),
+    /must sign in as "admin": only the seeded admin session has been proved/,
   );
   assert.throws(
     () => kindSeedWorld().with({
