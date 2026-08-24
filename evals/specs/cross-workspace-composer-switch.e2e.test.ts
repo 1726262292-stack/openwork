@@ -196,7 +196,18 @@ test.skipIf(!runnable)(
       place,
       mocks: {
         agent: mcpMock({
-          agentWorkloads: [{ promptMarker: sendMarker, finalReply: completionMarker, steps: [] }],
+          agentWorkloads: [{
+            promptMarker: sendMarker,
+            finalReply: completionMarker,
+            steps: [{
+              tool: "bash",
+              arguments: {
+                command: `printf '%s\\n' 'ACK-${sendMarker}'`,
+                timeout: 30_000,
+                description: "Acknowledge the composer switch prompt",
+              },
+            }],
+          }],
         }),
       },
       org: {
