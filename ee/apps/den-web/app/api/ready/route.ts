@@ -48,18 +48,20 @@ async function checkUpstream(apiBase: string): Promise<CheckStatus> {
   }
 }
 
+function readDenApiBase() {
+  const urls = denUrls(process.env);
+  return readBaseUrlEnv(process.env, "DEN_API_BASE") ?? urls.api;
+}
+
 export async function GET() {
-  const apiBase = readBaseUrlEnv(process.env, "DEN_API_BASE");
+  let apiBase: string | null = null;
   let hasPublicWebOrigin = true;
   try {
-    denUrls(process.env);
+    apiBase = readDenApiBase();
   } catch {
     hasPublicWebOrigin = false;
   }
   const missing: string[] = [];
-  if (!apiBase) {
-    missing.push("DEN_API_BASE");
-  }
   if (!hasPublicWebOrigin) {
     missing.push("DEN_BASE_URL");
   }

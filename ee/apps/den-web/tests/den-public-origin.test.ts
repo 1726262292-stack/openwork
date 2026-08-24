@@ -56,6 +56,6 @@ describe("Den public web origin", () => {
     const configuredBaseResponse = await GET();
     const configuredBasePayload = await configuredBaseResponse.json();
 
-    expect(configuredBasePayload.missing).toEqual(["DEN_API_BASE"]);
+    expect(configuredBasePayload.missing).toBeUndefined();
   });
 });
