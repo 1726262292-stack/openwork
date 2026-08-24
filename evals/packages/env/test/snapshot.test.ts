@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { defineWorld } from "../src/topology.ts";
-import { buildSnapshot, fromSnapshot } from "../src/world.ts";
+import { buildSnapshot, fromSnapshot, parseUntrustedSnapshot, resumeWorld } from "../src/world.ts";
 
 function safeSnapshot() {
   return buildSnapshot({
@@ -101,23 +101,34 @@ test("buildSnapshot output round-trips through untrusted boot-shape validation",
   });
 });
 
-test("fromSnapshot allows snapshot-driven attach only through loopback", () => {
-  const remote = JSON.stringify(attachedSnapshot("https://den.example.test"));
-  assert.throws(
-    () => fromSnapshot(remote),
-    /snapshot-driven attach is loopback-only/,
-  );
-  assert.throws(
-    () => fromSnapshot(JSON.stringify(attachedSnapshot("https://*.example.test"))),
-    /snapshot-driven attach is loopback-only/,
-  );
-  for (const url of [
-    "http://127.0.0.1:8790",
-    "http://localhost:8790",
-    "http://[::1]:8790",
-  ]) {
-    assert.doesNotThrow(() => fromSnapshot(JSON.stringify(attachedSnapshot(url))));
+test("attached snapshots remain parseable for listing but cannot rebuild or resume", async () => {
+  for (const apiUrl of ["https://den.example.test", "http://127.0.0.1:8790"]) {
+    const json = JSON.stringify(attachedSnapshot(apiUrl));
+    assert.doesNotThrow(() => parseUntrustedSnapshot(json));
+    assert.throws(
+      () => fromSnapshot(json),
+      /Attached worlds cannot be resumed or rebuilt from snapshots/,
+    );
+    await assert.rejects(
+      () => resumeWorld(json),
+      /Attached worlds cannot be resumed or rebuilt from snapshots/,
+    );
   }
+
+  const attached = attachedSnapshot("http://127.0.0.1:8790");
+  const originOnly = {
+    ...attached,
+    topology: {
+      ...attached.topology,
+      den: { orgs: attached.topology.den.orgs },
+    },
+  };
+  const originOnlyJson = JSON.stringify(originOnly);
+  assert.doesNotThrow(() => parseUntrustedSnapshot(originOnlyJson));
+  assert.throws(
+    () => fromSnapshot(originOnlyJson),
+    /Attached worlds cannot be resumed or rebuilt from snapshots/,
+  );
 });
 
 test("Warden VLA-BHM: fromSnapshot rejects NODE_OPTIONS import execution", () => {

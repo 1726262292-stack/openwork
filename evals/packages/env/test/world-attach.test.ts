@@ -59,19 +59,18 @@ function attachedSnapshot(apiUrl: string) {
   });
 }
 
-test("fromSnapshot accepts only clean http(s) attached Den URLs", () => {
+test("fromSnapshot refuses every attached-world snapshot", () => {
   for (const apiUrl of [
     "https://user:pw@host",
     "ftp://host",
     "https://host/path#hash",
+    "http://127.0.0.1:8790",
   ]) {
     assert.throws(
       () => fromSnapshot(JSON.stringify(attachedSnapshot(apiUrl))),
-      /attached Den URLs|expected an http\(s\) URL/,
+      /Attached worlds cannot be resumed or rebuilt from snapshots/,
     );
   }
-
-  assert.doesNotThrow(() => fromSnapshot(JSON.stringify(attachedSnapshot("http://127.0.0.1:8790"))));
 });
 
 test("secretRef people resolve both credential variables and report missing variables", () => {

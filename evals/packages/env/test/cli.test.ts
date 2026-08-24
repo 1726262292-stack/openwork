@@ -127,6 +127,39 @@ test("main lists valid snapshots from an injected directory", async () => {
   ]);
 });
 
+test("main lists attached snapshots without consuming their attach behavior", async () => {
+  const lines: string[] = [];
+  const snapshot = buildSnapshot({
+    name: "attached-demo",
+    createdAt: "2026-08-23T12:00:00.000Z",
+    place: "local",
+    topology: {
+      den: {
+        attach: { apiUrl: "https://den.example.test", tier: "staging" },
+        orgs: { acme: {} },
+      },
+    },
+    resolved: {
+      den: {
+        apiUrl: "https://den.example.test",
+        webUrl: "https://den.example.test",
+        origin: "attached",
+      },
+      apps: {},
+    },
+  });
+  const exitCode = await main(["list"], {
+    print: (line) => lines.push(line),
+    readDir: async () => ["attached-demo.json"],
+    readFile: async () => JSON.stringify(snapshot),
+  });
+
+  assert.equal(exitCode, 0);
+  assert.deepEqual(lines, [
+    "attached-demo  2026-08-23T12:00:00.000Z  local  orgs acme  apps (none)",
+  ]);
+});
+
 test("main reports a missing snapshot when forgetting a world", async () => {
   const lines: string[] = [];
   const exitCode = await main(["forget", "missing"], {
