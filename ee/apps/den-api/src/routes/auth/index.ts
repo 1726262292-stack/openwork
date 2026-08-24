@@ -7,7 +7,7 @@ import type { Context } from "hono"
 import { describeRoute } from "hono-openapi"
 import { z } from "zod"
 import { auth, DEN_MCP_OAUTH_RESOURCE, normalizeMcpOAuthResource } from "../../auth.js"
-import { normalizeLoginEmail, resolveLoginOptionKind } from "../../auth-login-options.js"
+import { buildStaleBetterAuthSessionCookieClearHeaders, normalizeLoginEmail, resolveLoginOptionKind } from "../../auth-login-options.js"
 import { verifyBotProtection } from "../../bot-protection.js"
 import {
   EMAIL_PASSWORD_SIGN_UP_PATH,
@@ -855,6 +855,12 @@ export function registerAuthRoutes<T extends { Variables: AuthContextVariables }
       const allowPublicSignup = env.orgMode !== "single_org" || env.singleOrg.allowPublicSignup
       const allowInvitationSignup = !requirement && await hasPendingInvitationForEmail(invite, email)
       const nextStep = resolveLoginOptionKind({ requireSso: Boolean(requirement), accounts, allowNewAccount: allowPublicSignup || allowInvitationSignup })
+      for (const cookie of buildStaleBetterAuthSessionCookieClearHeaders({
+        cookieDomain: env.betterAuthCookieDomain,
+        requestHost: c.req.raw.headers.get("host"),
+      })) {
+        c.header("Set-Cookie", cookie, { append: true })
+      }
 
       if (nextStep === "sso" && requirement) {
         return c.json({

@@ -6,6 +6,7 @@ import {
   DEFAULT_AUTH_NAME,
   DEFAULT_WORKER_NAME,
   LAST_WORKER_STORAGE_KEY,
+  PENDING_SOCIAL_AUTH_STORAGE_KEY,
   ONBOARDING_INTENT_STORAGE_KEY,
   PENDING_SOCIAL_SIGNUP_STORAGE_KEY,
   WORKER_STATUS_POLL_MS,
@@ -25,6 +26,7 @@ import {
   type WorkerStatusBucket,
   buildOpenworkAppConnectUrl,
   buildOpenworkDeepLink,
+  clearStaleAuthCookiesBeforeSignIn,
   deriveOnboardingWorkerName,
   getAuthInfoForMode,
   getBillingSummary,
@@ -53,7 +55,9 @@ import {
   requestJson,
   resetPosthogUser,
   resolveOpenworkWorkspaceUrl,
-  trackPosthogEvent
+  shouldDelaySessionHydrationForAuthRedirect,
+  trackPosthogEvent,
+  waitForAuthRedirectCookieSettlement
 } from "../_lib/den-flow";
 import { EMPTY_RUNTIME_CONFIG, getRuntimeConfig, type DenWebRuntimeConfig } from "../_lib/runtime-config";
 import {
@@ -1196,6 +1200,7 @@ export function DenFlowProvider({ children }: { children: ReactNode }) {
       if (trimmedEmail && await redirectToRequiredSso(trimmedEmail)) {
         return null;
       }
+      await clearStaleAuthCookiesBeforeSignIn();
       const endpoint = submitMode === "sign-up" && pendingInvitationId
         ? `/api/auth/sign-up/email?invite=${encodeURIComponent(pendingInvitationId)}`
         : submitMode === "sign-up"
@@ -1272,6 +1277,7 @@ export function DenFlowProvider({ children }: { children: ReactNode }) {
     }
 
     const shouldTrackSocialSignup = authMode === "sign-up";
+    window.sessionStorage.setItem(PENDING_SOCIAL_AUTH_STORAGE_KEY, provider);
     if (shouldTrackSocialSignup) {
       window.sessionStorage.setItem(PENDING_SOCIAL_SIGNUP_STORAGE_KEY, provider);
     }
@@ -1288,11 +1294,13 @@ export function DenFlowProvider({ children }: { children: ReactNode }) {
     try {
       const trimmedEmail = email.trim();
       if (trimmedEmail && await redirectToRequiredSso(trimmedEmail)) {
+        window.sessionStorage.removeItem(PENDING_SOCIAL_AUTH_STORAGE_KEY);
         if (shouldTrackSocialSignup) {
           window.sessionStorage.removeItem(PENDING_SOCIAL_SIGNUP_STORAGE_KEY);
         }
         return;
       }
+      await clearStaleAuthCookiesBeforeSignIn();
       const latestRuntimeConfig = await getRuntimeConfig();
       setRuntimeConfig(latestRuntimeConfig);
       const callbackURL = getSocialCallbackUrl(latestRuntimeConfig.openworkAuthCallbackUrl);
@@ -1306,6 +1314,7 @@ export function DenFlowProvider({ children }: { children: ReactNode }) {
       });
 
       if (!response.ok) {
+        window.sessionStorage.removeItem(PENDING_SOCIAL_AUTH_STORAGE_KEY);
         if (shouldTrackSocialSignup) {
           window.sessionStorage.removeItem(PENDING_SOCIAL_SIGNUP_STORAGE_KEY);
         }
@@ -1321,6 +1330,7 @@ export function DenFlowProvider({ children }: { children: ReactNode }) {
       const redirectUrl = payloadUrl || headerUrl;
 
       if (!redirectUrl) {
+        window.sessionStorage.removeItem(PENDING_SOCIAL_AUTH_STORAGE_KEY);
         if (shouldTrackSocialSignup) {
           window.sessionStorage.removeItem(PENDING_SOCIAL_SIGNUP_STORAGE_KEY);
         }
@@ -1332,6 +1342,7 @@ export function DenFlowProvider({ children }: { children: ReactNode }) {
 
       window.location.assign(redirectUrl);
     } catch (error) {
+      window.sessionStorage.removeItem(PENDING_SOCIAL_AUTH_STORAGE_KEY);
       if (shouldTrackSocialSignup) {
         window.sessionStorage.removeItem(PENDING_SOCIAL_SIGNUP_STORAGE_KEY);
       }
@@ -1938,8 +1949,21 @@ export function DenFlowProvider({ children }: { children: ReactNode }) {
 
     const hydrateSession = async () => {
       try {
+        const pendingSocialAuth = typeof window === "undefined"
+          ? null
+          : window.sessionStorage.getItem(PENDING_SOCIAL_AUTH_STORAGE_KEY);
+        if (typeof window !== "undefined" && shouldDelaySessionHydrationForAuthRedirect({
+          pathname: window.location.pathname,
+          search: window.location.search,
+          pendingSocialAuth,
+        })) {
+          await waitForAuthRedirectCookieSettlement();
+        }
         await refreshSession(true);
       } finally {
+        if (typeof window !== "undefined") {
+          window.sessionStorage.removeItem(PENDING_SOCIAL_AUTH_STORAGE_KEY);
+        }
         if (!cancelled) {
           setSessionHydrated(true);
         }
