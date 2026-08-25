@@ -37,8 +37,6 @@ import {
   MarketplacePluginTable,
   MarketplaceTable,
   MemberTable,
-  MemoryContextTable,
-  MemoryTable,
   OrgOAuthClientTable,
   OrganizationBrandAssetTable,
   OrganizationDiagnosticCredentialTable,
@@ -438,15 +436,6 @@ export function registerDeleteOrganizationRoutes<T extends { Variables: OrgRoute
           await tx.delete(InferenceUsageLedgerBucketChargeTable).where(inArray(InferenceUsageLedgerBucketChargeTable.ledger_entry_id, ledgerEntryIds))
         }
 
-        const memoryIds = (await tx
-          .select({ id: MemoryTable.id })
-          .from(MemoryTable)
-          .where(eq(MemoryTable.org_id, organizationId)))
-          .map((row) => row.id)
-        if (memoryIds.length > 0) {
-          await tx.delete(MemoryContextTable).where(inArray(MemoryContextTable.memory_id, memoryIds))
-        }
-
         const llmProviderIds = (await tx
           .select({ id: LlmProviderTable.id })
           .from(LlmProviderTable)
@@ -495,7 +484,6 @@ export function registerDeleteOrganizationRoutes<T extends { Variables: OrgRoute
         await tx.delete(DesktopPolicyTable).where(eq(DesktopPolicyTable.organizationId, organizationId))
 
         await tx.delete(OrganizationDiagnosticCredentialTable).where(eq(OrganizationDiagnosticCredentialTable.organizationId, organizationId))
-        await tx.delete(MemoryTable).where(eq(MemoryTable.org_id, organizationId))
 
         await tx.delete(OrgOAuthClientTable).where(eq(OrgOAuthClientTable.organizationId, organizationId))
         await tx.delete(ConnectedAccountTable).where(eq(ConnectedAccountTable.organizationId, organizationId))

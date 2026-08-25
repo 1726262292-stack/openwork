@@ -4,9 +4,9 @@ import { Dithering } from "@paper-design/shaders-react";
 import Link from "next/link";
 import { Building2, ChevronRight, LogOut, Plus } from "lucide-react";
 import { useSyncExternalStore } from "react";
-import { formatRoleLabel, type DenOrgSummary } from "../../_lib/den-org";
-import { useOrgListWindow } from "../../_lib/use-org-list-window";
-import { useWebGlSupported } from "../../_lib/use-webgl-supported";
+import { formatRoleLabel, type DenOrgSummary } from "../../../_lib/den-org";
+import { useOrgListWindow } from "../../../_lib/use-org-list-window";
+import { useWebGlSupported } from "../../../_lib/use-webgl-supported";
 
 const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
 
@@ -39,24 +39,63 @@ function useReducedMotion() {
   );
 }
 
+export type OrgSelectionScreenProps = {
+  orgs: DenOrgSummary[];
+  /** Disables org rows while a switch is already in flight. */
+  pending: boolean;
+  errorMessage: string | null;
+  onPick: (slug: string) => void;
+  onSignOut: () => void;
+};
+
+const pillButtonClass =
+  "inline-flex h-10 items-center justify-center gap-1.5 rounded-full border border-[var(--dls-border)] bg-[var(--dls-surface)] px-4 text-[13px] font-medium transition-colors hover:bg-[var(--dls-hover)] focus:outline-none focus:ring-2 focus:ring-[rgba(var(--dls-accent-rgb),0.2)]";
+
+function OrgRow({ org, pending, onPick }: { org: DenOrgSummary; pending: boolean; onPick: (slug: string) => void }) {
+  const memberSummary = `${formatRoleLabel(org.role)} · ${org.memberCount} ${org.memberCount === 1 ? "member" : "members"}`;
+
+  return (
+    <button
+      type="button"
+      disabled={pending}
+      onClick={() => onPick(org.slug)}
+      className="flex items-center gap-3 rounded-xl border border-[var(--dls-border)] bg-[var(--dls-surface)] px-4 py-3.5 text-left transition-colors hover:border-[var(--dls-text-primary)]/20 hover:bg-[var(--dls-hover)] focus:outline-none focus:ring-2 focus:ring-[rgba(var(--dls-accent-rgb),0.2)] disabled:cursor-not-allowed disabled:opacity-60"
+    >
+      <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-[var(--dls-hover)] text-[var(--dls-text-secondary)]">
+        <Building2 className="h-4 w-4" strokeWidth={1.8} />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-[15px] font-medium text-[var(--dls-text-primary)]">{org.name}</span>
+        <span className="block truncate text-[13px] text-[var(--dls-text-secondary)]">{memberSummary}</span>
+      </span>
+      <ChevronRight className="h-4 w-4 shrink-0 text-[var(--dls-text-secondary)]" strokeWidth={2} />
+    </button>
+  );
+}
+
+function ScreenActions({ onSignOut }: { onSignOut: () => void }) {
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-2" data-testid="org-chooser-actions">
+      <Link href="/organization" className={`${pillButtonClass} text-[var(--dls-text-primary)]`}>
+        <Plus className="h-4 w-4" /> Create or join
+      </Link>
+      <button
+        type="button"
+        onClick={onSignOut}
+        className={`${pillButtonClass} text-[var(--dls-text-secondary)] hover:text-[var(--dls-text-primary)]`}
+      >
+        <LogOut className="h-4 w-4" /> Sign out
+      </button>
+    </div>
+  );
+}
+
 /**
  * Organization picker after Den sign-in.
  * Layout mirrors the desktop OpenWork forced sign-in / welcome card:
  * dither field + centered branded card + left-aligned headline + full-width actions.
  */
-export function OrgSelectionScreen({
-  orgs,
-  onSelect,
-  onSignOut,
-  busy,
-  error,
-}: {
-  orgs: DenOrgSummary[];
-  onSelect: (slug: string) => void;
-  onSignOut: () => void;
-  busy: boolean;
-  error: string | null;
-}) {
+export function OrgSelectionScreen({ orgs, pending, errorMessage, onPick, onSignOut }: OrgSelectionScreenProps) {
   const {
     query,
     setQuery,
@@ -121,9 +160,7 @@ export function OrgSelectionScreen({
               Choose an organization
             </h1>
             <p className="text-[15px] leading-[23px] text-[var(--dls-text-secondary)]">
-              You belong to {orgs.length}{" "}
-              {orgs.length === 1 ? "organization" : "organizations"}. Select one
-              to continue.
+              You belong to {orgs.length} {orgs.length === 1 ? "organization" : "organizations"}. Select one to continue.
             </p>
           </div>
 
@@ -138,35 +175,9 @@ export function OrgSelectionScreen({
               />
             ) : null}
 
-            <div
-              className="flex flex-col gap-2"
-              data-testid="org-chooser-list"
-            >
+            <div className="flex flex-col gap-2" data-testid="org-chooser-list">
               {visible.map((org) => (
-                <button
-                  key={org.id}
-                  type="button"
-                  disabled={busy}
-                  onClick={() => onSelect(org.slug)}
-                  className="flex items-center gap-3 rounded-xl border border-[var(--dls-border)] bg-[var(--dls-surface)] px-4 py-3.5 text-left transition-colors hover:border-[var(--dls-text-primary)]/20 hover:bg-[var(--dls-hover)] focus:outline-none focus:ring-2 focus:ring-[rgba(var(--dls-accent-rgb),0.2)] disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-[var(--dls-hover)] text-[var(--dls-text-secondary)]">
-                    <Building2 className="h-4 w-4" strokeWidth={1.8} />
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-[15px] font-medium text-[var(--dls-text-primary)]">
-                      {org.name}
-                    </span>
-                    <span className="block truncate text-[13px] text-[var(--dls-text-secondary)]">
-                      {formatRoleLabel(org.role)} · {org.memberCount}{" "}
-                      {org.memberCount === 1 ? "member" : "members"}
-                    </span>
-                  </span>
-                  <ChevronRight
-                    className="h-4 w-4 shrink-0 text-[var(--dls-text-secondary)]"
-                    strokeWidth={2}
-                  />
-                </button>
+                <OrgRow key={org.id} org={org} pending={pending} onPick={onPick} />
               ))}
             </div>
 
@@ -191,30 +202,13 @@ export function OrgSelectionScreen({
               </div>
             ) : null}
 
-            {error ? (
+            {errorMessage ? (
               <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-[13px] text-red-700">
-                {error}
+                {errorMessage}
               </div>
             ) : null}
 
-            <div
-              className="mt-2 flex flex-wrap items-center gap-2"
-              data-testid="org-chooser-actions"
-            >
-              <Link
-                href="/organization"
-                className="inline-flex h-10 items-center justify-center gap-1.5 rounded-full border border-[var(--dls-border)] bg-[var(--dls-surface)] px-4 text-[13px] font-medium text-[var(--dls-text-primary)] transition-colors hover:bg-[var(--dls-hover)] focus:outline-none focus:ring-2 focus:ring-[rgba(var(--dls-accent-rgb),0.2)]"
-              >
-                <Plus className="h-4 w-4" /> Create or join
-              </Link>
-              <button
-                type="button"
-                onClick={onSignOut}
-                className="inline-flex h-10 items-center justify-center gap-1.5 rounded-full border border-[var(--dls-border)] bg-[var(--dls-surface)] px-4 text-[13px] font-medium text-[var(--dls-text-secondary)] transition-colors hover:bg-[var(--dls-hover)] hover:text-[var(--dls-text-primary)] focus:outline-none focus:ring-2 focus:ring-[rgba(var(--dls-accent-rgb),0.2)]"
-              >
-                <LogOut className="h-4 w-4" /> Sign out
-              </button>
-            </div>
+            <ScreenActions onSignOut={onSignOut} />
           </div>
         </div>
       </div>

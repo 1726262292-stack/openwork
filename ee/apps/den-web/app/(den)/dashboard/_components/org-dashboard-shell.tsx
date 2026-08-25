@@ -60,7 +60,7 @@ import {
 import { useOrgListWindow } from "../../_lib/use-org-list-window";
 import { useOrgDashboard } from "../_providers/org-dashboard-provider";
 import { buildDenFeedbackUrl } from "../../_lib/feedback";
-import { OrgSelectionScreen } from "./org-selection-screen";
+import { OrgSelectionScreen } from "../_features/org-selection/org-selection-screen";
 import { UserProfileDialog } from "./user-profile-dialog";
 
 const OPENWORK_DOCS_URL = "/docs";
@@ -328,7 +328,7 @@ export function OrgDashboardShell({ children }: { children: React.ReactNode }) {
     activeOrg,
     orgDirectory,
     orgContext,
-    orgSelectionRequired,
+    orgSelectionOpen,
     orgBusy,
     orgError,
     mutationBusy,
@@ -376,14 +376,15 @@ export function OrgDashboardShell({ children }: { children: React.ReactNode }) {
     };
   }, [switcherOpen]);
 
-  if (orgSelectionRequired) {
+  // The picker replaces the whole shell until a workspace is chosen.
+  if (orgSelectionOpen) {
     return (
       <OrgSelectionScreen
         orgs={orgDirectory}
-        onSelect={switchOrganization}
+        pending={mutationBusy === "switch-organization"}
+        errorMessage={orgError}
+        onPick={switchOrganization}
         onSignOut={() => void signOut()}
-        busy={mutationBusy === "switch-organization"}
-        error={orgError}
       />
     );
   }

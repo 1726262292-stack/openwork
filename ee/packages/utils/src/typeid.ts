@@ -95,8 +95,8 @@ export const idTypesMapNameToPrefix = {
   externalMcpConnection: "emc",
   externalMcpConnectionAccessGrant: "emg",
   pluginMcpRequirementBinding: "pmr",
-  memory: "mem",
-  memctx: "mctx",
+
+
   tempFile: "tmpf",
 } as const
 

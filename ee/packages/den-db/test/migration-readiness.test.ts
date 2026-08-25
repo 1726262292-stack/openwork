@@ -115,7 +115,7 @@ describe("Den DB migration readiness wiring", () => {
     assert.match(bootstrap, /drizzle-orm\/mysql2\/migrator/)
     assert.match(bootstrap, /await migrate\(db, \{ migrationsFolder \}\)/)
     assert.match(bootstrap, /current-schema\.sql/)
-    assert.match(bootstrap, /await ensureFulltextIndexes\(indexExecutor\)/)
+    assert.match(bootstrap, /await ensureSchemaRepairs\(repairExecutor\)/)
     assertNoForbiddenDeployTools(bootstrap)
   })
 

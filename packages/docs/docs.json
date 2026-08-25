@@ -22,6 +22,7 @@
         "pages": [
           "start-here/get-started",
           "start-here/downloads",
+          "start-here/pricing-and-licensing",
           "start-here/migrate-from-claude-cowork",
           {
             "group": "Connect your stack",
