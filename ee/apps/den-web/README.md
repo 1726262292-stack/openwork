@@ -79,9 +79,9 @@ Recommended project settings:
 - Framework preset: Next.js
 - Build command: `cd ../../.. && pnpm --filter @openwork-ee/den-web build`
 - Output directory: `.next`
-- Install command: `cd ../../.. && pnpm install --frozen-lockfile`
+- Install command: use the command committed in `vercel.json`
 
-These commands should be configured in the Vercel dashboard rather than committed in `vercel.json`, so the app still builds from the monorepo root and can resolve shared workspace packages like `@openwork-ee/utils`.
+The filtered install includes Den Web's workspace dependency closure, so shared packages like `@openwork-ee/utils` remain available without installing unrelated native desktop and server dependencies.
 
 Then assign custom domain:
 
