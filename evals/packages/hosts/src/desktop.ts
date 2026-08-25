@@ -49,6 +49,10 @@ export interface DesktopOptions {
     requireSignin?: boolean;
   };
   env?: Record<string, string>;
+  /** Root package script used for a source Electron launch. */
+  devCommand?: "dev" | "dev:electron";
+  /** Skip host-side sidecar/helper preparation for an explicitly constrained launch. */
+  prepareSharedResources?: boolean;
   /** Exact caller-owned Electron profile root, for restart scenarios. */
   profileDir?: string;
   timeoutMs?: number;
@@ -129,6 +133,8 @@ export async function desktop(opts: DesktopOptions = {}): Promise<DesktopHandle>
       profileDir: opts.profileDir,
       bootstrap: opts.bootstrap,
       env: opts.env,
+      devCommand: opts.devCommand,
+      prepareSharedResources: opts.prepareSharedResources,
     });
   }
 

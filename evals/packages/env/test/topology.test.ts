@@ -104,6 +104,40 @@ test("defineWorld accepts a fresh app without a sign-in target", () => {
   assert.deepEqual(world.topology.apps, { main: {} });
 });
 
+test("live shared production desktop state is symbolic and desktop-only", () => {
+  const world = defineWorld({
+    den: { orgs: {} },
+    apps: {
+      main: { desktopState: { source: "installed-production", mode: "live-shared" } },
+    },
+  });
+  assert.deepEqual(world.topology.apps?.main?.desktopState, {
+    source: "installed-production",
+    mode: "live-shared",
+  });
+  assert.throws(
+    () => defineWorld({
+      den: { orgs: {} },
+      apps: {
+        main: {
+          desktopState: { source: "installed-production", mode: "live-shared" },
+          sessions: ["must not seed"],
+        },
+      },
+    }),
+    /live shared boot does not seed, sign in, or override production state/,
+  );
+  assert.throws(
+    () => defineWorld({
+      den: { orgs: { acme: {} } },
+      apps: {
+        main: { desktopState: { source: "installed-production", mode: "live-shared" } },
+      },
+    }),
+    /must be desktop-only/,
+  );
+});
+
 test("defineWorld validates fixed Den ports", () => {
   const world = defineWorld({
     den: {

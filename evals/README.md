@@ -173,9 +173,9 @@ deep-patched with `.with()`. The topology has:
   model, sessions, and optional local server delay.
 - `witnesses`: optional named witnesses; v1 accepts MCP mocks only.
 
-The shipped definitions are `soloWorkspace`, `supportOrg`, `acmeDemo`, and
-`acmeDocs`; their CLI names are `solo`, `support-org`, `acme-demo`, and
-`acme-docs`. `startWorld()` boots the Den, organizations, witnesses, and apps in
+The shipped definitions are `soloWorkspace`, `supportOrg`, `acmeDemo`,
+`acmeDocs`, and `desktopProductionLive`; their CLI names are `solo`,
+`support-org`, `acme-demo`, `acme-docs`, and `desktop-prod-live`. `startWorld()` boots the Den, organizations, witnesses, and apps in
 dependency order and disposes them together. `fromSnapshot()` validates
 generated snapshot JSON and returns the name and topology needed to start an
 equivalent fresh world.
@@ -201,6 +201,9 @@ pnpm world resume acme-demo --teardown
 pnpm world rebuild <snapshot>      # rebuild the world a failed run was in
 pnpm world list
 pnpm world forget <name>
+
+# Explicit macOS-only live sharing with the installed production stores.
+pnpm world up desktop-prod-live --allow-shared-state --name prod-live-dev --keep
 ```
 
 `up` also accepts `--name <name>`. Without `--keep`, Ctrl-C tears down the
@@ -208,6 +211,19 @@ resources; with `--keep`, Ctrl-C leaves them detached. `resume` accepts a world
 name or snapshot path and detaches on Ctrl-C unless `--teardown` is present.
 `forget` removes snapshot metadata without stopping detached services. `help`
 prints usage and the available presets.
+
+`desktop-prod-live` is a deliberately dangerous local-only mode. It launches
+source Electron through `pnpm dev` with isolated Electron userData, app
+identifier, Vite/CDP ports, and protocol registration, while resolving the
+installed production `OPENWORK_DATA_DIR` and channel-aware `OPENCODE_DB` only at
+launch time. It never copies or symlinks those stores, does not boot or modify a
+Den, and does not seed a workspace, session, or sign-in. Production may remain
+running, but concurrent writes from production and dev are unsupported and may
+corrupt state. `up` and every `rebuild` require `--allow-shared-state`; `resume`
+only attaches to the already-running isolated dev process. Snapshots retain the
+symbolic `desktopState` source/mode plus CDP/workspace metadata, never resolved
+production paths or tokens. Teardown stops only the dev process and does not
+delete shared stores.
 
 World v1 has deliberate limits:
 

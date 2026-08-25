@@ -34,6 +34,7 @@ export interface WorldOrg {
 
 export interface WorldApp {
   signedInTo?: { org: string; as: string };
+  desktopState?: { source: "installed-production"; mode: "live-shared" };
   workspacePath?: string;
   model?: string;
   localServerDelayMs?: number;
@@ -133,10 +134,32 @@ const worldAppSchema = z.strictObject({
     org: z.string(),
     as: z.string(),
   }).optional(),
+  desktopState: z.strictObject({
+    source: z.literal("installed-production"),
+    mode: z.literal("live-shared"),
+  }).optional(),
   workspacePath: z.string().optional(),
   model: z.string().optional(),
   localServerDelayMs: z.number().optional(),
   sessions: z.array(z.string().trim().min(1)).max(30).readonly().optional(),
+}).superRefine((app, context) => {
+  if (!app.desktopState) return;
+  const conflictingOptions: readonly ("signedInTo" | "workspacePath" | "model" | "localServerDelayMs" | "sessions")[] = [
+    "signedInTo",
+    "workspacePath",
+    "model",
+    "localServerDelayMs",
+    "sessions",
+  ];
+  for (const key of conflictingOptions) {
+    if (app[key] !== undefined) {
+      context.addIssue({
+        code: "custom",
+        path: ["desktopState"],
+        message: `desktopState live-shared conflicts with ${key}: live shared boot does not seed, sign in, or override production state`,
+      });
+    }
+  }
 });
 
 // Keep these values aligned with EnterpriseMcpProfileId in @openwork/labs.
@@ -228,6 +251,29 @@ function deepMerge(base: unknown, patch: unknown): unknown {
 function validateReferences(topology: WorldTopology): void {
   const orgKeys = Object.keys(topology.den.orgs);
   const primaryOrg = orgKeys[0];
+  const apps = Object.values(topology.apps ?? {});
+  const sharedStateApps = apps.filter((app) => app.desktopState?.mode === "live-shared");
+  if (sharedStateApps.length > 0) {
+    if (sharedStateApps.length !== 1) {
+      throw new Error("Live-shared installed-production desktop worlds require exactly one dev desktop.");
+    }
+    if (sharedStateApps.length !== apps.length) {
+      throw new Error("World topology cannot mix live-shared installed-production desktops with provisioned desktop apps.");
+    }
+    if (
+      orgKeys.length > 0
+      || topology.den.attach !== undefined
+      || topology.den.env !== undefined
+      || topology.den.web !== undefined
+      || topology.den.ports !== undefined
+      || topology.den.seed !== undefined
+      || topology.den.substrate !== "local"
+      || Object.keys(topology.witnesses ?? {}).length > 0
+    ) {
+      throw new Error("Live-shared installed-production desktop worlds must be desktop-only: use empty den.orgs and no Den or witness options.");
+    }
+    return;
+  }
   if (!primaryOrg) {
     if (topology.den.attach?.tier === "prod") {
       for (const [appName, app] of Object.entries(topology.apps ?? {})) {
@@ -363,6 +409,12 @@ function validateReferences(topology: WorldTopology): void {
       );
     }
   }
+}
+
+export function usesLiveSharedProductionState(topology: WorldTopology): boolean {
+  return Object.values(topology.apps ?? {}).some(
+    (app) => app.desktopState?.source === "installed-production" && app.desktopState.mode === "live-shared",
+  );
 }
 
 function parseTopology(input: unknown): WorldTopology {

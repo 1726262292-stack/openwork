@@ -86,6 +86,9 @@ importers:
       '@openwork/cdp':
         specifier: workspace:*
         version: link:../cdp
+      '@openwork/paths':
+        specifier: link:../../../packages/paths
+        version: link:../../../packages/paths
       '@openwork/timeline':
         specifier: workspace:*
         version: link:../timeline

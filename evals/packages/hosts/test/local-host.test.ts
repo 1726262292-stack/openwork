@@ -1,13 +1,13 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { access, chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
 import { allocateFreePort } from "@openwork/cdp";
-import { electronProfilePaths, electronSurfaceEnv, freePort, resolveChromeBinary } from "../src/local.ts";
+import { electronProfilePaths, electronSurfaceEnv, freePort, resolveChromeBinary, stopOwnedElectronSurface } from "../src/local.ts";
 
 const ENV_KEYS = [
   "APPDATA",
@@ -95,6 +95,22 @@ test("electronSurfaceEnv matches the isolated Electron demo contract", () => {
   assert.equal(env.XDG_CONFIG_HOME, paths.configHome);
   assert.equal(env.XDG_DATA_HOME, paths.dataHome);
   assert.equal(env.XDG_STATE_HOME, paths.stateHome);
+});
+
+test("stopOwnedElectronSurface verifies profile ownership before removing it", async () => {
+  const profileDir = await mkdtemp(join(tmpdir(), "openwork-owned-electron-"));
+  const userDataDir = join(profileDir, "electron-userdata");
+  await mkdir(userDataDir, { recursive: true });
+  const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
+    detached: true,
+    env: { ...process.env, OPENWORK_ELECTRON_USERDATA: userDataDir },
+    stdio: "ignore",
+  });
+  child.unref();
+  if (!child.pid) throw new Error("Owned Electron fixture did not start.");
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  await stopOwnedElectronSurface(child.pid, profileDir);
+  await assert.rejects(access(profileDir));
 });
 
 test("resolveChromeBinary honors CHROME_BIN before platform defaults", () => {

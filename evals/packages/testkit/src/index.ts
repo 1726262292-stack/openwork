@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { startWorld as startWorldRaw } from "@openwork/env";
-import type { Place, World, WorldDefinition, WorldTopology } from "@openwork/env";
+import type { StartWorldOptions, World, WorldDefinition, WorldTopology } from "@openwork/env";
 import { currentTestEvidence } from "@openwork/test-evidence";
 
 export { createDesktopHandoffGrant, signInDesktopAs } from "@openwork/behaviors";
@@ -15,7 +15,7 @@ export * from "./state.ts";
 
 export async function startWorld(
   definition: WorldDefinition | WorldTopology,
-  options: { place?: Place; name?: string } = {},
+  options: StartWorldOptions = {},
 ): Promise<World> {
   const world = await startWorldRaw(definition, options);
   try {

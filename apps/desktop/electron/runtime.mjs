@@ -1391,10 +1391,14 @@ export function createRuntimeManager({
   }
 
   function openworkServerTokenStorePath() {
+    const override = process.env.OPENWORK_SERVER_TOKEN_STORE_PATH?.trim();
+    if (override) return path.resolve(override);
     return path.join(userDataDir, "openwork-server-tokens.json");
   }
 
   function openworkServerStatePath() {
+    const override = process.env.OPENWORK_SERVER_STATE_PATH?.trim();
+    if (override) return path.resolve(override);
     return path.join(userDataDir, "openwork-server-state.json");
   }
 
@@ -1522,7 +1526,7 @@ export function createRuntimeManager({
     // User env is layered first so process.env + any caller overrides always
     // win. See apps/server/src/env-file.ts — all loaders must agree on path +
     // reserved-keys policy.
-    const devPaths = process.env.OPENWORK_DEV_MODE === "1"
+    const devPaths = process.env.OPENWORK_DEV_MODE === "1" && process.env.OPENWORK_DEV_SHARED_STATE !== "1"
       ? await ensureDevModePaths()
       : null;
     const userEnvPathEnv = devPaths
