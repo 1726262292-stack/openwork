@@ -103,7 +103,9 @@ describe("OpenWork Connect skill catalog", () => {
     expect(instruction).toContain("Use for accounts &amp; renewals &lt;before calls&gt;");
     expect(instruction).toContain("<marketplace>Revenue &amp; Success</marketplace>");
     expect(instruction).toContain("<plugin>Customer &lt;Ops&gt;</plugin>");
-    expect(instruction).toContain("<location>skill://customer-briefing/SKILL.md</location>");
+    // <capability> is the execution identifier; the skill:// URL never
+    // reaches the prompt (it would repeat the capability on every request).
+    expect(instruction).not.toContain("<location>");
     expect(instruction).toContain("<capability>skill:skill_customer_briefing</capability>");
     expect(instruction).toContain("openwork-cloud_execute_capability");
     expect(instruction).toContain("NEVER use the native Load Skill tool");
@@ -143,10 +145,28 @@ describe("OpenWork Connect skill catalog", () => {
       capability: "skill:skill_legacy",
     }]);
 
-    expect(instruction).toContain("<title>legacy-skill</title>");
+    // A title that would merely repeat <name> is omitted instead of doubled.
+    expect(instruction).not.toContain("<title>");
+    expect(instruction).toContain("<name>legacy-skill</name>");
     expect(instruction).toContain("<description>legacy-skill</description>");
     expect(instruction).not.toContain("<marketplace>");
     expect(instruction).not.toContain("<plugin>");
+  });
+
+  test("clamps runaway descriptions to a discovery hint without dropping the skill", () => {
+    const instruction = renderOpenWorkConnectSkillInstruction([{
+      name: "verbose-skill",
+      type: "skill-md",
+      title: "Verbose Skill",
+      description: `Use when asked. ${"Trigger phrase list entry. ".repeat(40)}`,
+      url: "skill://verbose-skill/SKILL.md",
+      capability: "skill:skill_verbose",
+    }]);
+
+    const description = /<description>([^<]*)<\/description>/.exec(instruction)?.[1] ?? "";
+    expect(description.length).toBeLessThanOrEqual(360);
+    expect(description.endsWith("…")).toBe(true);
+    expect(instruction).toContain("<capability>skill:skill_verbose</capability>");
   });
 
   test("omits the prompt block when no authorized skills exist", () => {

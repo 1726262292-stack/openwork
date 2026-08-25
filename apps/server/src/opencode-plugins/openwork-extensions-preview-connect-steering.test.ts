@@ -120,8 +120,13 @@ describe("composeOpenWorkExtensionDiscoveryInstruction", () => {
     expect(OPENWORK_CLOUD_CONNECTION_INSTRUCTION).not.toContain("Skill creation:");
     expect(OPENWORK_CLOUD_CONNECTION_INSTRUCTION).not.toContain("Gmail");
     expect(OPENWORK_CLOUD_CONNECTION_INSTRUCTION).not.toContain("image generation");
-    expect(OPENWORK_CLOUD_CONNECTION_INSTRUCTION).toContain("relay connectionStatus.action exactly");
-    expect(OPENWORK_CLOUD_CONNECTION_INSTRUCTION).toContain("results are live, not cached");
+    // The detailed Connect contract ships as the openwork-cloud server's MCP
+    // initialize instructions, present exactly when this steering is chosen.
+    // Ready steering defers to it instead of restating it on every request.
+    expect(OPENWORK_CLOUD_CONNECTION_INSTRUCTION).toContain("server instructions are authoritative for MCP Apps, connection_status results, schema guidance, and retry rules");
+    expect(OPENWORK_CLOUD_CONNECTION_INSTRUCTION).not.toContain("relay connectionStatus.action exactly");
+    expect(OPENWORK_CLOUD_CONNECTION_INSTRUCTION).not.toContain("results are live, not cached");
+    expect(OPENWORK_CLOUD_CONNECTION_INSTRUCTION.length).toBeLessThan(1_100);
     expect(composeOpenWorkExtensionDiscoveryInstruction(state(health()))).toBe(OPENWORK_CLOUD_CONNECTION_INSTRUCTION);
     expect(composeOpenWorkExtensionDiscoveryInstruction({ ...state(health()), connectCatalogEnabled: false })).toBe(OPENWORK_CLOUD_CONNECTION_INSTRUCTION);
     expect(composeOpenWorkExtensionDiscoveryInstruction({ ...state(health()), googleWorkspace: { legacyConfigured: true } })).toBe(OPENWORK_CLOUD_CONNECTION_INSTRUCTION);
