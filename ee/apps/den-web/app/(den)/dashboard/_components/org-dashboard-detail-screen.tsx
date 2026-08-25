@@ -9,6 +9,7 @@ import { DenButton } from "../../_components/ui/button";
 import { DenInput } from "../../_components/ui/input";
 import { DenNotice } from "../../_components/ui/notice";
 import { DenSelect } from "../../_components/ui/select";
+import { DenSwitch } from "../../_components/ui/switch";
 import { getManagedDashboardsRoute } from "../../_lib/den-org";
 import { useOrgDashboard } from "../_providers/org-dashboard-provider";
 import { useMcpConnections } from "./mcp-connections-data";
@@ -108,7 +109,7 @@ export function OrgDashboardDetailScreen({ dashboardId }: { dashboardId: string 
     <DashboardPageTemplate
       icon={LayoutDashboard}
       title={dashboard.name}
-      description="Members with access see this dashboard's apps on their desktop Dashboard. Each person still runs every tile manually once, and apps that modify data only run on request."
+      description="Members with access see this dashboard's apps on their desktop Dashboard. Apps use member consent unless an admin explicitly enables automatic launch."
       colors={["#E0F2FE", "#0C4A6E", "#0EA5E9", "#BAE6FD"]}
     >
       <Link href={getManagedDashboardsRoute(orgSlug)} className="mb-5 inline-flex items-center gap-1 text-[13px] text-gray-500 hover:text-gray-900">
@@ -151,8 +152,24 @@ export function OrgDashboardDetailScreen({ dashboardId }: { dashboardId: string 
                   <p className="truncate text-[13.5px] font-medium text-gray-900">{element.title}</p>
                   <p className="truncate text-[12px] text-gray-400">
                     {element.toolName}
-                    {element.requiresApproval ? " · runs on request" : ""}
+                    {element.organizationAutoLaunch
+                      ? " · runs automatically by organization policy"
+                      : element.requiresApproval ? " · runs on request" : ""}
                   </p>
+                </div>
+                <div className="flex shrink-0 items-center gap-2 pr-2">
+                  <span className="text-[11.5px] text-gray-500">Auto-run</span>
+                  <DenSwitch
+                    size="sm"
+                    checked={element.organizationAutoLaunch === true}
+                    disabled={busy}
+                    onChange={(checked) => saveElements(elements.map((current, currentIndex) => (
+                      currentIndex === index
+                        ? { ...current, organizationAutoLaunch: checked || undefined }
+                        : current
+                    )))}
+                    aria-label={`Run ${element.title} automatically, even if it modifies data`}
+                  />
                 </div>
                 <div className="flex shrink-0 items-center gap-1">
                   <button
@@ -320,6 +337,7 @@ function ConnectionAppRow({
 }) {
   const [argumentsText, setArgumentsText] = useState("");
   const [argumentsError, setArgumentsError] = useState<string | null>(null);
+  const [organizationAutoLaunch, setOrganizationAutoLaunch] = useState(false);
 
   function add() {
     let launchArguments: Record<string, unknown> | undefined;
@@ -346,6 +364,7 @@ function ConnectionAppRow({
       title: app.title,
       ...(launchArguments && Object.keys(launchArguments).length > 0 ? { launchArguments } : {}),
       ...(app.requiresApproval ? { requiresApproval: true } : {}),
+      ...(organizationAutoLaunch ? { organizationAutoLaunch: true } : {}),
     });
   }
 
@@ -367,6 +386,22 @@ function ConnectionAppRow({
           <DenButton size="sm" variant="secondary" onClick={add}>Add</DenButton>
         )}
       </div>
+      {!added ? (
+        <div className="mt-3 flex items-start justify-between gap-4 rounded-xl bg-amber-50 px-3 py-2.5">
+          <div>
+            <p className="text-[12px] font-medium text-amber-950">Run automatically</p>
+            <p className="mt-0.5 text-[11.5px] leading-4 text-amber-800">
+              Run on dashboard load and refresh, even if this app modifies data.
+            </p>
+          </div>
+          <DenSwitch
+            size="sm"
+            checked={organizationAutoLaunch}
+            onChange={setOrganizationAutoLaunch}
+            aria-label={`Run ${app.title} automatically, even if it modifies data`}
+          />
+        </div>
+      ) : null}
       {!added && app.requiresInput ? (
         <label className="mt-2 block">
           <span className="mb-1 block text-[11.5px] font-medium text-gray-600">Launch input (JSON, required by this app)</span>

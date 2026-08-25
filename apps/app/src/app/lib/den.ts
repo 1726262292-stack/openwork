@@ -1802,6 +1802,7 @@ function getDashboardElement(entry: unknown): DenDashboardElement | null {
     title: entry.title,
     ...(isRecord(entry.launchArguments) ? { launchArguments: entry.launchArguments } : {}),
     ...(entry.requiresApproval === true ? { requiresApproval: true } : {}),
+    ...(entry.organizationAutoLaunch === true ? { organizationAutoLaunch: true } : {}),
   };
 }
 

@@ -14,6 +14,7 @@ import { useWorkspace, WorkspaceProvider } from "@/react-app/shell/workspace-pro
 import { DashboardTileShell } from "./dashboard-tile-shell";
 import {
   DASHBOARD_AUTO_REFRESH_INTERVAL_MS,
+  dashboardTileLaunchIsApproved,
   dashboardTileRunsAutomatically,
   readDashboardTileCache,
   shouldAutoRefreshDashboardTile,
@@ -112,6 +113,7 @@ export function McpAppTile({
     entry.requiresApproval === true,
     entry.autoLaunch === true,
     entry.launchApproved === true,
+    entry.organizationAutoLaunch === true,
   );
   const manualLaunch = !runsAutomatically;
   const launchEndpoints = useMemo(() => [
@@ -211,7 +213,10 @@ export function McpAppTile({
         name: app.toolName,
         resourceUri: app.resourceUri,
         arguments: launchArguments,
-        ...(launchApprovedRef.current ? { approved: true } : {}),
+        ...(dashboardTileLaunchIsApproved(
+          entry.organizationAutoLaunch === true,
+          launchApprovedRef.current,
+        ) ? { approved: true } : {}),
       };
       let result;
       let approvalWasRequired = false;
@@ -344,10 +349,14 @@ export function McpAppTile({
     if (state.phase === "ready" && refreshState === "refreshing") return "Saved locally · refreshing";
     if (state.phase === "ready" && refreshState === "failed") return "Saved locally · refresh failed";
     if (state.phase === "ready" && refreshState === "approval-required") return "Saved locally · run required";
+    if (state.phase === "ready" && entry.organizationAutoLaunch === true) {
+      return `Organization auto-run · ${freshnessLabel(state.cachedAt)}`;
+    }
     if (state.phase === "ready" && entry.requiresApproval === true) return "Saved locally · run on request";
     if (state.phase === "ready") return freshnessLabel(state.cachedAt);
     if (state.phase === "loading") return "Loading";
     if (state.phase === "error") return "Refresh failed";
+    if (entry.organizationAutoLaunch === true) return "Organization auto-run";
     if (entry.requiresApproval === true) return "Run on request";
     if (manualLaunch) return "Run once to enable";
     return null;

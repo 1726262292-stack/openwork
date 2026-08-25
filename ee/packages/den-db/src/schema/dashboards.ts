@@ -9,8 +9,9 @@ import { TeamTable } from "./teams"
  * One MCP App tile on an organization-managed Dashboard. The shape mirrors the
  * desktop dashboard entry reference (`DashboardMcpAppEntry` in
  * `apps/app/src/react-app/domains/dashboard/dashboard-store.ts`) so granted
- * elements render as ordinary tiles. Per-user consent (auto-launch, write-tool
- * approval) is never stored here: it stays local to each desktop user.
+ * elements render as ordinary tiles. Per-user consent stays local to each
+ * desktop user; an organization admin may separately set an explicit launch
+ * policy on the managed element.
  */
 export type DashboardElement = {
   serverName: string
@@ -24,6 +25,8 @@ export type DashboardElement = {
   launchArguments?: Record<string, unknown>
   /** True when the launch tool modifies data: tiles only run on request, never on mount. */
   requiresApproval?: boolean
+  /** Explicit admin policy: run this exact element automatically, even when it modifies data. */
+  organizationAutoLaunch?: boolean
 }
 
 export const DashboardTable = mysqlTable(

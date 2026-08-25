@@ -16,6 +16,7 @@ export type DashboardElement = {
   title: string;
   launchArguments?: Record<string, unknown>;
   requiresApproval?: boolean;
+  organizationAutoLaunch?: boolean;
 };
 
 export type ManagedDashboard = {
@@ -93,6 +94,7 @@ function parseElement(value: unknown): DashboardElement | null {
     title,
     ...(isRecord(value.launchArguments) ? { launchArguments: value.launchArguments } : {}),
     ...(value.requiresApproval === true ? { requiresApproval: true } : {}),
+    ...(value.organizationAutoLaunch === true ? { organizationAutoLaunch: true } : {}),
   };
 }
 
