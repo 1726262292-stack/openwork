@@ -854,6 +854,7 @@ export const auth = betterAuth({
     }),
   },
   advanced: {
+    cookiePrefix: "openwork-den",
     ...(env.betterAuthCookieDomain
       ? {
         crossSubDomainCookies: {
