@@ -130,8 +130,12 @@ echo "==> Installing dependencies if needed..."
 mkdir -p "$PNPM_STORE" .openwork-daytona
 baseline=.openwork-daytona/pnpm-lock.sha256
 current="$(sha256sum pnpm-lock.yaml | cut -d " " -f 1)"
+# The server stack never runs Electron or browser automation; skip their
+# binary downloads on reinstalls too.
+INSTALL_ENV=(CI=1 ELECTRON_SKIP_BINARY_DOWNLOAD=1 PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 PUPPETEER_SKIP_DOWNLOAD=1 CYPRESS_INSTALL_BINARY=0)
 if [ ! -d node_modules ] || [ ! -f "$baseline" ] || [ "$(cat "$baseline")" != "$current" ]; then
-  CI=1 pnpm install --store-dir "$PNPM_STORE" --frozen-lockfile || CI=1 pnpm install --store-dir "$PNPM_STORE"
+  env "${INSTALL_ENV[@]}" pnpm install --store-dir "$PNPM_STORE" --frozen-lockfile \
+    || env "${INSTALL_ENV[@]}" pnpm install --store-dir "$PNPM_STORE"
   printf "%s" "$current" > "$baseline"
 else
   echo "==> Skipping pnpm install (node_modules present and lockfile unchanged)."
