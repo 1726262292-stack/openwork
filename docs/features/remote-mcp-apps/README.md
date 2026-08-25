@@ -76,10 +76,14 @@ access.
 Native MCP Apps are enabled for every deployment and organization. The former
 deployment gate (`DEN_REMOTE_MCP_APPS_ENABLED`) and the per-organization
 **Native MCP Apps (preview)** capability were removed once the feature
-stabilized; stale stored organization overrides are ignored. Native App
-metadata is still published only to clients that explicitly advertise support
-for the private App host, so older Desktop clients keep their bounded
-search/execute surface. Reconciliation also removes and disconnects stale
+stabilized; stale stored organization overrides are ignored. App launch
+metadata (`kind: mcp_app`, `mcpApp.resourceUri`, `openwork/mcpApp` meta) is an
+opaque binding published on every bounded search/execute result; clients that
+do not host Apps ignore it and keep the normal tool result. The private
+App-host index and per-connection provider proxy remain gated on the
+client-advertised App-host capability header, so older Desktop clients keep
+their bounded search/execute surface. Reconciliation also removes and
+disconnects stale
 `openwork-connect-*` OpenCode entries while preserving user-authored MCPs and
 all durable Connect records.
 
