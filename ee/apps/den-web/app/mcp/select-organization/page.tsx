@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { TemporaryAuthNotice } from "../../(den)/_components/temporary-auth-notice";
 import { denApiCredentials, denApiEndpoint } from "../../(den)/_lib/den-api-origin";
 import { useOrgListWindow } from "../../(den)/_lib/use-org-list-window";
 
@@ -286,6 +287,8 @@ export default function McpSelectOrganizationPage() {
               </h2>
               <p className="den-copy">{introCopy}</p>
             </div>
+
+            <TemporaryAuthNotice />
 
             {flowState === "loading" ? (
               <div className="h-2 overflow-hidden rounded-full bg-[var(--dls-hover)]">

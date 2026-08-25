@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { TemporaryAuthNotice } from "../../(den)/_components/temporary-auth-notice";
 import { denApiCredentials, denApiEndpoint } from "../../(den)/_lib/den-api-origin";
 
 function getErrorMessage(payload: unknown, fallback: string) {
@@ -57,6 +58,9 @@ export default function McpConsentPage() {
         <p className="text-sm uppercase tracking-[0.3em] text-cyan-200">OpenWork MCP</p>
         <h1 className="mt-3 text-3xl font-semibold">Authorize MCP access</h1>
         <p className="mt-3 text-sm text-slate-300">`{clientId}` wants to access OpenWork through MCP.</p>
+        <div className="mt-6">
+          <TemporaryAuthNotice />
+        </div>
         <div className="mt-6 rounded-2xl border border-white/10 bg-slate-900/70 p-4">
           <p className="text-sm font-medium text-slate-200">Requested scopes</p>
           <p className="mt-2 break-words font-mono text-xs text-cyan-100">{scope}</p>
