@@ -386,7 +386,7 @@ function ArtifactPanelView({ sessionId, client, workspaceId, workspaceRoot, isRe
       </div>
       <div className="flex min-h-0 flex-1 overflow-hidden">
         {treeOpen ? (
-          <Suspense fallback={<div className="w-52 shrink-0 border-r border-border bg-muted/20" />}>
+          <Suspense fallback={<div className="w-40 shrink-0 border-r border-border bg-muted/20" />}>
             <WorkspaceFileTree
               client={client}
               workspaceId={workspaceId}

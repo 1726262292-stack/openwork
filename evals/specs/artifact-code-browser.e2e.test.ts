@@ -88,14 +88,16 @@ test.skipIf(!enabled)(title, async ({ evidence }) => {
   const clickedTypeScript = await clickTreeFile("openwork-artifact-proof.ts");
   expect(clickedTypeScript).toBe(true);
 
-  try {
-    await waitFor(app, `Boolean(document.querySelector('[data-artifact-code-view="src/openwork-artifact-proof.ts"]'))`, {
-      timeoutMs: 5_000,
-      label: "Pierre code view mounted",
-    });
-  } catch (error) {
-    throw new Error(`Tree click did not open the artifact: ${String(error)}`);
-  }
+  await waitFor(app, `(() => {
+    const root = document.querySelector('[data-artifact-code-view="src/openwork-artifact-proof.ts"]');
+    if (!root) return false;
+    const collect = (node) => {
+      let text = node.textContent || "";
+      for (const element of node.querySelectorAll("*")) if (element.shadowRoot) text += collect(element.shadowRoot);
+      return text;
+    };
+    return collect(root).includes("artifactEditor");
+  })()`, { timeoutMs: 30_000, label: "TypeScript code rendered" });
   expect(await evalIn(app, `Boolean(document.querySelector("[data-workspace-file-tree]"))`)).toBe(true);
   evidence.recordAssertionEvidence(
     "A code artifact opens in the Pierre code viewer beside a workspace file tree",
@@ -105,7 +107,7 @@ test.skipIf(!enabled)(title, async ({ evidence }) => {
   const typeScriptShot = await screenshot(app);
   const typeScriptSeen = await validate(typeScriptShot, [
     "The artifact panel visibly shows a workspace file tree beside a syntax-highlighted TypeScript code viewer",
-    "The visible artifact is openwork-artifact-proof.ts and the file tree search is focused on that file",
+    "The code viewer visibly contains the TypeScript declaration export const artifactEditor = true",
     "No error dialog, blank artifact surface, or crash message is visible",
   ]);
   expect(typeScriptSeen.ok, typeScriptSeen.why).toBe(true);
@@ -116,6 +118,16 @@ test.skipIf(!enabled)(title, async ({ evidence }) => {
     timeoutMs: 30_000,
     label: "tree-selected JSON artifact opened",
   });
+  await waitFor(app, `(() => {
+    const root = document.querySelector('[data-artifact-code-view="config/openwork-artifact-settings.json"]');
+    if (!root) return false;
+    const collect = (node) => {
+      let text = node.textContent || "";
+      for (const element of node.querySelectorAll("*")) if (element.shadowRoot) text += collect(element.shadowRoot);
+      return text;
+    };
+    return collect(root).includes("artifactEditor");
+  })()`, { timeoutMs: 30_000, label: "JSON code rendered" });
   expect(await evalIn(app, `Boolean(document.querySelector('[data-artifact-code-view="src/openwork-artifact-proof.ts"]'))`)).toBe(false);
   evidence.recordAssertionEvidence(
     "Selecting another file in the workspace tree opens it as the active code artifact",
@@ -125,7 +137,7 @@ test.skipIf(!enabled)(title, async ({ evidence }) => {
   const jsonShot = await screenshot(app);
   const jsonSeen = await validate(jsonShot, [
     "The artifact panel visibly shows the workspace file tree beside a syntax-highlighted JSON code viewer",
-    "The visible artifact is openwork-artifact-settings.json and the TypeScript artifact is no longer the active code surface",
+    "The code viewer visibly contains the JSON property artifactEditor set to true, and no TypeScript declaration is visible",
     "No error dialog, blank artifact surface, or crash message is visible",
   ]);
   expect(jsonSeen.ok, jsonSeen.why).toBe(true);
