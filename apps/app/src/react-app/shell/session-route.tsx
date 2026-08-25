@@ -112,10 +112,16 @@ import { firstLineLocalFileParts, joinWorkspaceRelativePath, toFileUrl } from "@
 import { composerAttachmentsToWorkspaceFileParts } from "@/react-app/domains/session/sync/attachment-file-part";
 import { useSessionInteractions } from "@/react-app/domains/session/sync/use-session-interactions";
 import { useModelBehavior } from "@/react-app/domains/session/surface/use-model-behavior";
+import { getModelBehaviorSummary, nextModelBehaviorValue } from "@/app/lib/model-behavior";
 import { computeModelAvailability, type ModelAvailability } from "@/react-app/domains/session/surface/model-availability";
 import { useSessionFindStore } from "@/react-app/domains/session/surface/find-store";
 import { useModelPicker } from "@/react-app/domains/session/modals/use-model-picker";
 import { getSessionModelSelection, useSessionModelStore } from "@/react-app/domains/session/surface/session-model-store";
+import { useWorkbenchStore } from "@/react-app/domains/session/chat/workbench-store";
+import {
+  nextFavoriteModel,
+  useModelCollectionsStore,
+} from "@/react-app/domains/session/models/model-collections-store";
 import { openModelPickerEvent, openProviderAuthEvent } from "@/react-app/shell/new-providers-listener";
 import { appMentionInstruction } from "@/react-app/domains/session/surface/composer/app-mentions";
 import { decodeComposerMentionValue } from "@/react-app/domains/session/surface/composer/mention-encoding";
@@ -2001,6 +2007,81 @@ export function SessionRoute() {
   const goToNextSessionTab = useCallback(() => goToSessionTabByOffset(1), [goToSessionTabByOffset]);
   const goToPrevSessionTab = useCallback(() => goToSessionTabByOffset(-1), [goToSessionTabByOffset]);
 
+  const cycleThinkingMode = useCallback(() => {
+    const workbench = useWorkbenchStore.getState();
+    const activeSessionId = workbench.focusedPane === "secondary" && workbench.splitSessionId
+      ? workbench.splitSessionId
+      : selectedSessionId;
+    const selection = activeSessionId ? getSessionModelSelection(activeSessionId) : null;
+    const summary = selection
+      ? (() => {
+          const model = providerCatalog?.[selection.model.providerID]?.[selection.model.modelID];
+          return model
+            ? getModelBehaviorSummary(selection.model.providerID, model, selection.variant)
+            : null;
+        })()
+      : null;
+    const options = selection ? (summary?.options ?? []) : modelBehaviorOptions;
+    const current = selection ? (summary?.value ?? selection.variant) : modelVariantValue;
+    const next = nextModelBehaviorValue(options, current);
+    if (!next) return null;
+
+    if (activeSessionId && selection) {
+      useSessionModelStore.getState().setVariant(activeSessionId, next);
+    }
+    // Match the composer's existing variant change path: session overrides are
+    // remembered per conversation and the global fallback follows the choice.
+    local.setPrefs((previous) => ({ ...previous, modelVariant: next }));
+    return options.find((option) => option.value === next)?.label ?? next;
+  }, [local, modelBehaviorOptions, modelVariantValue, providerCatalog, selectedSessionId]);
+
+  const cycleThinkingModeControlAction = useMemo<OpenworkControlAction>(() => ({
+    id: "session.model_variant.cycle",
+    label: "Cycle thinking mode",
+    description: "Advance the focused conversation to its next available thinking or reasoning effort.",
+    sideEffect: "mutation",
+    execute: () => {
+      const label = cycleThinkingMode();
+      return label ? { ok: true, label } : { ok: false, error: "The focused model has fewer than two thinking modes." };
+    },
+  }), [cycleThinkingMode]);
+  useControlAction(cycleThinkingModeControlAction);
+
+  const cycleFavoriteModel = useCallback(() => {
+    const workbench = useWorkbenchStore.getState();
+    const activeSessionId = workbench.focusedPane === "secondary" && workbench.splitSessionId
+      ? workbench.splitSessionId
+      : selectedSessionId;
+    const selection = activeSessionId ? getSessionModelSelection(activeSessionId) : null;
+    const currentModel = selection?.model ?? local.prefs.defaultModel ?? null;
+    const next = nextFavoriteModel(useModelCollectionsStore.getState().favorites, currentModel);
+    if (!next) return null;
+
+    const providerModel = providerCatalog?.[next.providerID]?.[next.modelID];
+    const summary = providerModel
+      ? getModelBehaviorSummary(next.providerID, providerModel, selection?.variant ?? modelVariantValue)
+      : null;
+    const variant = summary && summary.options.length > 0 ? summary.value : null;
+    if (activeSessionId) {
+      useSessionModelStore.getState().setModel(activeSessionId, next, variant);
+    }
+    useModelCollectionsStore.getState().recordRecent(next);
+    local.setPrefs((previous) => ({ ...previous, defaultModel: next, modelVariant: variant }));
+    return providerModel?.name ?? next.modelID;
+  }, [local, modelVariantValue, providerCatalog, selectedSessionId]);
+
+  const cycleFavoriteModelControlAction = useMemo<OpenworkControlAction>(() => ({
+    id: "session.favorite_model.cycle",
+    label: "Cycle favorite model",
+    description: "Switch the focused conversation to its next favorite model.",
+    sideEffect: "mutation",
+    execute: () => {
+      const label = cycleFavoriteModel();
+      return label ? { ok: true, label } : { ok: false, error: "Add a favorite model before cycling favorites." };
+    },
+  }), [cycleFavoriteModel]);
+  useControlAction(cycleFavoriteModelControlAction);
+
   const {
     commandPaletteOpen,
     setCommandPaletteOpen,
@@ -2015,6 +2096,8 @@ export function SessionRoute() {
     onCreateTask: (workspaceId: string) => void handleCreateTaskInWorkspace(workspaceId),
     onNextSessionTab: goToNextSessionTab,
     onPrevSessionTab: goToPrevSessionTab,
+    onCycleThinkingMode: cycleThinkingMode,
+    onCycleFavoriteModel: cycleFavoriteModel,
   });
   useReactRenderWatchdog("SessionRoute", {
     selectedSessionId,
@@ -3124,6 +3207,7 @@ export function SessionRoute() {
           ?? ({ providerID: "", modelID: "" } satisfies ModelRef)
       }
       onSelect={(next: ModelRef) => {
+        useModelCollectionsStore.getState().recordRecent(next);
         if (modelPickerSessionId) {
           // Keep the conversation's own model, and also remember it as the
           // last used default so a newly created session starts on it.

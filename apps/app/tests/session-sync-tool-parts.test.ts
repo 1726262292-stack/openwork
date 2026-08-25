@@ -136,6 +136,44 @@ describe("tool part mapper", () => {
     });
   });
 
+  test("forwards the task tool's sub-agent session id for chat navigation", () => {
+    const running = writeToolPart(
+      "running",
+      { description: "Explore", prompt: "look around", subagent_type: "explore" },
+      { id: "part-task", tool: "task", callID: "call-task" },
+    );
+    if (running.state.status !== "running") throw new Error("Expected running fixture");
+    running.state.metadata = { sessionId: "ses_child_1", model: { providerID: "p", modelID: "m" } };
+
+    expect(parseDynamicToolUIPart(running)?.callProviderMetadata).toEqual({
+      opencode: { partId: "part-task" },
+      openwork: { childSessionId: "ses_child_1" },
+    });
+
+    const completed = writeToolPart(
+      "completed",
+      { description: "Explore", prompt: "look around", subagent_type: "explore" },
+      { id: "part-task", tool: "task", callID: "call-task" },
+    );
+    if (completed.state.status !== "completed") throw new Error("Expected completed fixture");
+    completed.state.metadata = { sessionId: "ses_child_1" };
+
+    expect(parseDynamicToolUIPart(completed)?.callProviderMetadata).toEqual({
+      opencode: { partId: "part-task" },
+      openwork: { childSessionId: "ses_child_1" },
+    });
+  });
+
+  test("does not forward session metadata for non-task tools", () => {
+    const part = writeToolPart("completed", { filePath: "src/a.ts" });
+    if (part.state.status !== "completed") throw new Error("Expected completed fixture");
+    part.state.metadata = { sessionId: "ses_child_1" };
+
+    expect(parseDynamicToolUIPart(part)?.callProviderMetadata).toEqual({
+      opencode: { partId: "part-write" },
+    });
+  });
+
   test("recovers a connection-action MCP App from an errored capability result", () => {
     const error = JSON.stringify({
       error: "needs_connection",

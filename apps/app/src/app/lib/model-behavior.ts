@@ -137,6 +137,17 @@ export const formatGenericBehaviorLabel = (value: string | null) => {
   return getVariantLabel(normalized);
 };
 
+/** Return the next explicit thinking/reasoning variant, wrapping at the end. */
+export const nextModelBehaviorValue = (
+  options: readonly Pick<ModelBehaviorOption, "value">[],
+  current: string | null,
+) => {
+  const values = options.flatMap((option) => option.value == null ? [] : [option.value]);
+  if (values.length < 2) return null;
+  const currentIndex = current == null ? -1 : values.indexOf(current);
+  return values[(currentIndex + 1) % values.length] ?? null;
+};
+
 const getVariantDescription = (
   providerID: string,
   key: string,

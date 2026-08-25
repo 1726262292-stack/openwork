@@ -21,6 +21,8 @@ interface MessageListContextValue {
   onRevertToUserMessage: (messageId: string) => void
   onForkAtMessage: (messageId: string) => void
   onEditUserMessage: (messageId: string, text: string) => void
+  /** Open a sub-agent (child) session in the main chat surface. */
+  onOpenSubagentSession?: (sessionId: string) => void
   onMcpReconnect: (
     action: ChatToolReconnectAction,
     onProgress: (progress: ChatToolReconnectProgress) => void,
@@ -41,6 +43,7 @@ interface MessageListProviderProps {
   onRevertToUserMessage: (messageId: string) => void
   onForkAtMessage: (messageId: string) => void
   onEditUserMessage: (messageId: string, text: string) => void
+  onOpenSubagentSession?: (sessionId: string) => void
   onMcpReconnect: (
     action: ChatToolReconnectAction,
     onProgress: (progress: ChatToolReconnectProgress) => void,
@@ -73,6 +76,7 @@ export function MessageListProvider({
   onRevertToUserMessage,
   onForkAtMessage,
   onEditUserMessage,
+  onOpenSubagentSession,
   onMcpReconnect,
   onMcpReopenAuthorization,
   onMcpRetry,
@@ -91,6 +95,7 @@ export function MessageListProvider({
       onRevertToUserMessage,
       onForkAtMessage,
       onEditUserMessage,
+      onOpenSubagentSession,
       onMcpReconnect,
       onMcpReopenAuthorization,
       onMcpRetry,
@@ -108,6 +113,7 @@ export function MessageListProvider({
       onRevertToUserMessage,
       onForkAtMessage,
       onEditUserMessage,
+      onOpenSubagentSession,
       onMcpReconnect,
       onMcpReopenAuthorization,
       onMcpRetry,
