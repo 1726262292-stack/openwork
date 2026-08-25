@@ -196,18 +196,18 @@ describe("Den upstream proxy", () => {
     expect(observed.cookie).toBe("better-auth.session_token=sess_test");
   });
 
-  test("forwards only Better Auth cookies through the auth proxy", async () => {
+  test("forwards only OpenWork Den and legacy Better Auth cookies through the auth proxy", async () => {
     const { proxyUpstream } = await import("./upstream-proxy.ts");
     const request = new NextRequest("https://app.example.com/api/auth/sign-in/social", {
       method: "POST",
       headers: {
-        cookie: "ph_posthog=analytics; better-auth.state=oauth-state; __Secure-better-auth.session_token=session; other=value",
+        cookie: "ph_posthog=analytics; __Secure-openwork-den.state=oauth-state; openwork-den.session_token=session; better-auth.state=legacy-oauth-state; __Secure-better-auth.session_token=legacy-session; other=value",
       },
     });
 
     await proxyUpstream(request, [], { routePrefix: "/api/auth", upstreamPathPrefix: "api/auth" });
 
-    expect(observed.cookie).toBe("better-auth.state=oauth-state; __Secure-better-auth.session_token=session");
+    expect(observed.cookie).toBe("__Secure-openwork-den.state=oauth-state; openwork-den.session_token=session; better-auth.state=legacy-oauth-state; __Secure-better-auth.session_token=legacy-session");
   });
 
   test("rewrites auth Set-Cookie domains to the browser origin", async () => {
