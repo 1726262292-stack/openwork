@@ -148,4 +148,31 @@ describe("ui state store", () => {
     expect(usePanelTabStore.getState().sessions.ses_preserve?.activeTabId).toBe("file:report.md");
     usePanelTabStore.getState().clearSession("ses_preserve");
   });
+
+  test("preserves workspace-tree artifact tabs when transcript artifacts resync", () => {
+    const target = {
+      id: "file:src/example.ts",
+      kind: "file" as const,
+      value: "src/example.ts",
+      name: "example.ts",
+      preview: "code" as const,
+      confidence: 100,
+      reason: "workspace tree",
+      exists: true,
+    };
+    usePanelTabStore.getState().openTab("ses_tree", {
+      id: target.id,
+      type: "artifact",
+      label: target.name,
+      preview: target.preview,
+      target,
+    });
+
+    usePanelTabStore.getState().syncTranscriptArtifacts("ses_tree", []);
+
+    expect(usePanelTabStore.getState().sessions.ses_tree?.tabs).toEqual([
+      expect.objectContaining({ id: target.id, target }),
+    ]);
+    usePanelTabStore.getState().clearSession("ses_tree");
+  });
 });

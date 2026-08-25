@@ -15,6 +15,7 @@ export type ArtifactPanelTab = {
   type: "artifact";
   label: string;
   preview: OpenTargetPreview;
+  target?: OpenTarget;
 }
 
 export type PanelTab = BrowserPanelTab | ArtifactPanelTab;
@@ -91,7 +92,7 @@ function reconcileOpenArtifactTabs(
       const target = targetMap.get(tab.id);
 
       if (!target) {
-        return null;
+        return tab.target ? tab : null;
       }
 
       return {
@@ -138,6 +139,8 @@ function isSameTab(left: PanelTab, right: PanelTab) {
     return (
       left.label === right.label &&
       left.preview === right.preview
+      && left.target?.id === right.target?.id
+      && left.target?.updatedAt === right.target?.updatedAt
     );
   }
 
