@@ -43,10 +43,12 @@ describe("Den API browser origin", () => {
     );
   });
 
-  test("keeps Better Auth traffic on the same-origin auth proxy", () => {
-    expect(denApiEndpointForWebOrigin("/api/auth/sign-in/email", "https://app.openworklabs.com")).toBe("/api/auth/sign-in/email");
+  test("builds direct API URLs for Better Auth traffic", () => {
+    expect(denApiEndpointForWebOrigin("/api/auth/sign-in/email", "https://app.openworklabs.com")).toBe(
+      "https://api.app.openworklabs.com/api/auth/sign-in/email",
+    );
     expect(denApiEndpointForWebOrigin("/api/auth/callback/google?code=provider-token", "https://app.openworklabs.com")).toBe(
-      "/api/auth/callback/google?code=provider-token",
+      "https://api.app.openworklabs.com/api/auth/callback/google?code=provider-token",
     );
   });
 
