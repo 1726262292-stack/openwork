@@ -17,7 +17,7 @@ import {
   test,
 } from "@openwork/testkit";
 
-test("live shared production desktop state is explicit, local, symbolic, and cleanup-safe", async () => {
+test("live shared production desktop state is explicit, local, symbolic, and cleanup-safe", async ({ evidence }) => {
   await assert.rejects(
     () => startWorld(desktopProductionLive, {
       place: resolvePlace({}),
@@ -136,6 +136,27 @@ test("live shared production desktop state is explicit, local, symbolic, and cle
     await assert.rejects(() => access(isolatedProfile));
     await access(dataDir);
     await access(opencodeDb);
+
+    evidence.recordAssertionEvidence(
+      "Live production state requires explicit local opt-in",
+      "Launch was refused without --allow-shared-state and under remote Daytona placement.",
+      true,
+    );
+    evidence.recordAssertionEvidence(
+      "Dev Electron points at installed production stores from an isolated profile",
+      "The launch environment selected production OpenWork, OpenCode, workspace, config, and token paths while retaining an isolated Electron userData directory.",
+      true,
+    );
+    evidence.recordAssertionEvidence(
+      "World snapshots do not persist production paths or credentials",
+      "The snapshot retained only the symbolic installed-production/live-shared selector and omitted resolved production paths and environment names.",
+      true,
+    );
+    evidence.recordAssertionEvidence(
+      "Cleanup owns only the isolated dev profile",
+      "Cleanup removed the eval profile while the production OpenWork directory and OpenCode database remained present.",
+      true,
+    );
   } finally {
     await rm(fixtureRoot, { recursive: true, force: true });
   }
