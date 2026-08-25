@@ -395,7 +395,7 @@ test("desktop bearer session cache misses populate from the database lookup", as
   expect(cached?.session.token).toBe(token)
 })
 
-test("signed Better Auth cookie sessions resolve through the Den cache", async () => {
+test("signed OpenWork Den auth cookie sessions resolve through the Den cache", async () => {
   const now = new Date("2026-07-09T12:00:00.000Z")
   setSystemTime(now)
   stored = makeStoredSession({
@@ -409,14 +409,14 @@ test("signed Better Auth cookie sessions resolve through the Den cache", async (
     return c.json({ id: resolved?.session.id ?? null })
   })
 
-  const cookie = await generateSignedCookie("better-auth.session_token", token, process.env.BETTER_AUTH_SECRET ?? "")
+  const cookie = await generateSignedCookie("openwork-den.session_token", token, process.env.BETTER_AUTH_SECRET ?? "")
   const response = await app.request("/session", { headers: { cookie } })
 
   await expect(response.json()).resolves.toEqual({ id: sessionId })
   expect(selects).toBe(1)
 })
 
-test("unsigned Better Auth cookies are ignored", async () => {
+test("unsigned OpenWork Den auth cookies are ignored", async () => {
   const now = new Date("2026-07-09T12:00:00.000Z")
   setSystemTime(now)
   stored = makeStoredSession({
@@ -430,7 +430,7 @@ test("unsigned Better Auth cookies are ignored", async () => {
     return c.json({ id: resolved?.session.id ?? null })
   })
 
-  const response = await app.request("/session", { headers: { cookie: `better-auth.session_token=${token}` } })
+  const response = await app.request("/session", { headers: { cookie: `openwork-den.session_token=${token}` } })
 
   await expect(response.json()).resolves.toEqual({ id: null })
   expect(selects).toBe(0)
