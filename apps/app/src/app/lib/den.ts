@@ -752,6 +752,28 @@ function ensureDenApiBasePath(input: string | null | undefined): string | null {
   }
 }
 
+const HOSTED_DEN_APEX_HOST = "openworklabs.com";
+
+function isHostedDenHost(hostname: string): boolean {
+  const normalized = hostname.trim().toLowerCase();
+  return normalized === HOSTED_DEN_APEX_HOST || normalized.endsWith(`.${HOSTED_DEN_APEX_HOST}`);
+}
+
+/**
+ * The deterministic API origin for a Den base URL, without runtime config.
+ *
+ * Only two shapes are known ahead of time:
+ * - An explicit API host (`api.*`) is already the API origin.
+ * - Hosted OpenWork Cloud (`*.openworklabs.com`) serves its API at the
+ *   `api.`-prefixed host.
+ *
+ * Every other deployment (self-hosted single host, localhost, tunnel or
+ * sandbox preview hosts with single-label wildcard certificates) keeps the
+ * same-origin `/api/den` proxy. Inventing `api.<host>` there produced
+ * unreachable origins and TLS names the deployment's certificate cannot
+ * cover, which broke desktop sign-in. Runtime config (`denApiUrl`) remains
+ * the source of truth when present.
+ */
 function denApiOriginForDenBaseUrl(input: string | null | undefined): string | null {
   const normalized = normalizeDenBaseUrl(input);
   if (!normalized) return null;
@@ -759,7 +781,11 @@ function denApiOriginForDenBaseUrl(input: string | null | undefined): string | n
   try {
     const url = new URL(normalized);
     const hostname = url.hostname.toLowerCase();
-    if (hostname !== "api" && !hostname.startsWith("api.")) {
+    const isExplicitApiHost = hostname === "api" || hostname.startsWith("api.");
+    if (!isExplicitApiHost && !isHostedDenHost(hostname)) {
+      return null;
+    }
+    if (!isExplicitApiHost) {
       url.hostname = `api.${hostname}`;
     }
     url.pathname = "";

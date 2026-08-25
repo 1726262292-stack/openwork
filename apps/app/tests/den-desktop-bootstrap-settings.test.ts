@@ -101,7 +101,7 @@ describe("desktop Den bootstrap settings", () => {
 
     const settings = readDenSettings();
     expect(settings.baseUrl).toBe("https://bootstrap.example.com");
-    expect(settings.apiBaseUrl).toBe("https://api.bootstrap.example.com");
+    expect(settings.apiBaseUrl).toBe("https://bootstrap.example.com/api/den");
   });
 
   test("keeps the prepared workspace and claim action in the shared bootstrap snapshot", async () => {
@@ -203,11 +203,11 @@ describe("desktop Den bootstrap settings", () => {
     expect(readDenBootstrapConfig().apiBaseUrl).toBe("https://api.override.example.com");
   });
 
-  test("falls back to deterministic API subdomain when runtime-config is unavailable", async () => {
+  test("falls back to the same-origin API path when runtime-config is unavailable", async () => {
     await initializeDenBootstrapConfig();
 
     expect(readDenBootstrapConfig().baseUrl).toBe("https://bootstrap.example.com");
-    expect(readDenBootstrapConfig().apiBaseUrl).toBe("https://api.bootstrap.example.com");
+    expect(readDenBootstrapConfig().apiBaseUrl).toBe("https://bootstrap.example.com/api/den");
   });
 
   test("saves base URL changes to bootstrap and clears legacy endpoint storage", async () => {
