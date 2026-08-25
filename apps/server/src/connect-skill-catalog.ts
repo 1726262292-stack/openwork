@@ -149,6 +149,16 @@ function logInjectedMarketplaceSkills(skills: InjectedMarketplaceSkill[]): void 
   });
 }
 
+// Every request carries the whole catalog, so each rendered character is a
+// recurring prompt cost. Descriptions are discovery hints, not documentation;
+// the full SKILL.md arrives only when the capability is executed.
+const MAX_RENDERED_DESCRIPTION_CHARS = 360;
+
+function clampDescription(value: string): string {
+  if (value.length <= MAX_RENDERED_DESCRIPTION_CHARS) return value;
+  return `${value.slice(0, MAX_RENDERED_DESCRIPTION_CHARS - 1).trimEnd()}…`;
+}
+
 export function renderOpenWorkConnectSkillInstruction(skills: OpenWorkConnectSkill[]): string {
   if (skills.length === 0) {
     logInjectedMarketplaceSkills([]);
@@ -166,15 +176,17 @@ export function renderOpenWorkConnectSkillInstruction(skills: OpenWorkConnectSki
   ];
   for (const skill of skills) {
     const title = (skill.title ?? skill.name).replace(/\s+/g, " ").trim() || skill.name;
-    const description = skill.description.replace(/\s+/g, " ").trim() || title;
+    const description = clampDescription(skill.description.replace(/\s+/g, " ").trim()) || title;
+    // Prompt-size discipline: skip <title> when it repeats <name>, and omit
+    // <location> entirely — execution goes through <capability>, and the
+    // skill:// URL is derivable server-side when anything ever needs it.
     const entry = [
       "  <skill>",
-      `    <title>${escapeXml(title)}</title>`,
+      ...(title !== skill.name ? [`    <title>${escapeXml(title)}</title>`] : []),
       `    <name>${escapeXml(skill.name)}</name>`,
       `    <description>${escapeXml(description)}</description>`,
       ...(skill.marketplaceName ? [`    <marketplace>${escapeXml(skill.marketplaceName.replace(/\s+/g, " ").trim())}</marketplace>`] : []),
       ...(skill.pluginName ? [`    <plugin>${escapeXml(skill.pluginName.replace(/\s+/g, " ").trim())}</plugin>`] : []),
-      `    <location>${escapeXml(skill.url)}</location>`,
       `    <capability>${escapeXml(skill.capability)}</capability>`,
       "  </skill>",
     ];

@@ -5,6 +5,7 @@ import {
   AlertTriangle,
   Check,
   ChevronRight,
+  CirclePause,
   Copy,
   Download,
   FileIcon,
@@ -87,6 +88,10 @@ import { ReasoningBlock } from "@/components/chat/reasoning-block"
 import { SubagentRunLine } from "@/components/chat/subagent-run-line"
 import { ToolAggregateGroup } from "@/components/chat/tool-aggregate-group"
 import {
+  CurrentToolLifecycleProvider,
+  useCurrentToolLifecycleResolver,
+} from "@/components/chat/current-tool-lifecycle-context"
+import {
   isApplyPatchToolPart,
   isBashToolPart,
   isEditToolPart,
@@ -104,9 +109,10 @@ import {
   isWriteToolPart,
 } from "@/lib/build-in-tools"
 import type { ThreadStatus } from "@/lib/messages"
+import type { SessionActivityStatus } from "@/react-app/domains/session/status/session-activity-store"
 import { formatToolCallDuration } from "@/lib/tool-call-duration"
 import { collectLatestAssistantToolParts } from "@/lib/latest-assistant-tool-parts"
-import { getActiveToolLabel } from "@/lib/tool-activity"
+import { getActiveToolLabel, isToolPartInFlight } from "@/lib/tool-activity"
 import { faviconUrlForHref } from "@/lib/favicon"
 import { cn } from "@/lib/utils"
 import { groupMessages, isMessageGroup, getLastTextPart, getAggregateOnlyParts, getAssistantRenderGroups, getFileTitle, getMediaBadge, getMessageCompleted, getMessageCreated, formatMessageTimestamp, splitTurnAtAnswer, type UIMessageWithIndex, getMessagesText, getSafeFileDownloadUrl, getSafeFileRevealPath } from "./utils"
@@ -168,6 +174,40 @@ class ToolMessage extends React.Component<ToolMessageProps, { failed: boolean }>
 
 const ToolMessageInner = ({ part }: ToolMessageProps) => {
   const { onMcpReconnect, onMcpReopenAuthorization, onMcpRetry } = useMessageList()
+  const resolveLifecycle = useCurrentToolLifecycleResolver()
+  const lifecycle = resolveLifecycle(part.toolCallId, isToolPartInFlight(part))
+
+  if (lifecycle === "waiting") {
+    return (
+      <div
+        className="flex items-start gap-2 rounded-md border border-amber-7 bg-amber-2 px-3 py-2 text-sm text-amber-12"
+        data-tool-lifecycle="waiting"
+        role="status"
+      >
+        <CirclePause aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
+        <div>
+          <div className="font-medium">Waiting for your action</div>
+          <div className="text-xs text-amber-11">Choose an option or approve the request to continue.</div>
+        </div>
+      </div>
+    )
+  }
+
+  if (lifecycle === "interrupted") {
+    return (
+      <div
+        className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive"
+        data-tool-lifecycle="interrupted"
+        role="alert"
+      >
+        <AlertTriangle aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
+        <div>
+          <div className="font-medium">Task interrupted</div>
+          <div className="text-xs text-destructive/80">This step stopped before it finished. Retry to continue.</div>
+        </div>
+      </div>
+    )
+  }
 
   if (isBashToolPart(part)) {
     return <BashTool part={part} />
@@ -1160,6 +1200,7 @@ function MessageGroup({
 interface MessageListProps {
   messages: UIMessage[]
   status: ThreadStatus
+  activityStatus: SessionActivityStatus
   retryStatus?: RetryStatus | null
 }
 
@@ -1167,7 +1208,7 @@ export function shouldShowMessageListLoading(status: ThreadStatus, messageCount:
   return status === "streaming" || (status === "submitted" && messageCount > 0)
 }
 
-export function MessageList({ messages, status, retryStatus }: MessageListProps) {
+export function MessageList({ messages, status, activityStatus, retryStatus }: MessageListProps) {
   const isStreaming = status === "streaming" || status === "retrying"
   const showLoading = shouldShowMessageListLoading(status, messages.length)
   const items = React.useMemo(() => groupMessages(messages, status), [messages, status]);
@@ -1176,12 +1217,20 @@ export function MessageList({ messages, status, retryStatus }: MessageListProps)
   const liveActionLabel = isStreaming
     ? getActiveToolLabel(collectLatestAssistantToolParts(messages))
     : null
+  const currentToolCallIds = React.useMemo(
+    () => new Set(collectLatestAssistantToolParts(messages).map((part) => part.toolCallId)),
+    [messages],
+  )
 
   return (
-    <div className={cn("flex flex-col gap-2 @container/message-list")}>
-      {messages.length === 0 && <TaskSuggestions className="mx-auto w-full max-w-3xl shrink-0 px-3 pb-3 md:px-5 md:pb-5 grow" />}
+    <CurrentToolLifecycleProvider
+      activityStatus={activityStatus}
+      currentToolCallIds={currentToolCallIds}
+    >
+      <div className={cn("flex flex-col gap-2 @container/message-list")}>
+        {messages.length === 0 && <TaskSuggestions className="mx-auto w-full max-w-3xl shrink-0 px-3 pb-3 md:px-5 md:pb-5 grow" />}
 
-      {items.map((item) => {
+        {items.map((item) => {
         if (isMessageGroup(item)) {
           return (
             <MessageGroup
@@ -1208,11 +1257,12 @@ export function MessageList({ messages, status, retryStatus }: MessageListProps)
             <ArtifactList messages={[item.message]} includeTargetFallbacks={false} />
           </div>
         )
-      })}
+        })}
 
-      {showLoading && <LoadingMessage label={liveActionLabel ?? undefined} />}
-      {retryStatus ? <RetryMessage status={retryStatus} /> : null}
-      {error && !hasSessionErrorMessage ? <ErrorMessage error={error} /> : null}
-    </div>
+        {showLoading && <LoadingMessage label={liveActionLabel ?? undefined} />}
+        {retryStatus ? <RetryMessage status={retryStatus} /> : null}
+        {error && !hasSessionErrorMessage ? <ErrorMessage error={error} /> : null}
+      </div>
+    </CurrentToolLifecycleProvider>
   )
 }

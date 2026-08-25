@@ -138,7 +138,11 @@ async function stageOnboardingUpdate(
   if (
     channelState.channel === "alpha" &&
     update.latestVersion &&
-    !(await isAlphaUpdateAllowed(update.latestVersion, desktopConfig))
+    !(await isAlphaUpdateAllowed(
+      update.latestVersion,
+      desktopConfig,
+      channelState.currentVersion,
+    ))
   ) {
     return false;
   }
