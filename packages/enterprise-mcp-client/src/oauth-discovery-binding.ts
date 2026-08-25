@@ -9,7 +9,7 @@ type OAuthDiscoveryBindingState = Pick<OAuthDiscoveryState, "authorizationServer
 function isResourceScopedDiscoveryAlias(state: OAuthDiscoveryBindingState, expectedIssuer: string): boolean {
   const advertisedIssuers = state.resourceMetadata?.authorization_servers
   return state.authorizationServerUrl !== expectedIssuer
-    && state.authorizationServerMetadata?.issuer === expectedIssuer
+    && isEquivalentOAuthDiscoveryAlias(state.authorizationServerMetadata?.issuer, expectedIssuer)
     && isEquivalentOAuthDiscoveryAlias(state.resourceMetadata?.resource, state.authorizationServerUrl)
     && advertisedIssuers?.some((issuer) => isEquivalentOAuthDiscoveryAlias(issuer, state.authorizationServerUrl)) === true
 }
@@ -38,5 +38,5 @@ export function isAuthorizationServerDiscoveryBound(
   const discoveryBinding = directBinding || isResourceScopedDiscoveryAlias(state, expectedIssuer)
   return discoveryBinding
     && (state.authorizationServerMetadata?.issuer === undefined
-      || state.authorizationServerMetadata.issuer === expectedIssuer)
+      || isEquivalentOAuthDiscoveryAlias(state.authorizationServerMetadata.issuer, expectedIssuer))
 }

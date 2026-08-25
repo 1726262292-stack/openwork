@@ -8,6 +8,7 @@ import type {
   StoredOAuthClientInformation,
   StoredOAuthTokens,
 } from "@modelcontextprotocol/client"
+import { isEquivalentOAuthDiscoveryAlias } from "./oauth-resource-alias.js"
 import type {
   EnterpriseMcpClock,
   EnterpriseMcpLifecycle,
@@ -180,7 +181,7 @@ export class EnterpriseMcpOAuthProvider implements OAuthClientProvider {
     const boundIssuer = this.authorizationServerIssuer
       ?? this.loadedDiscovery?.authorizationServerMetadata?.issuer
       ?? this.loadedDiscovery?.authorizationServerUrl
-    if (context?.issuer && boundIssuer && context.issuer !== boundIssuer) {
+    if (context?.issuer && boundIssuer && !isEquivalentOAuthDiscoveryAlias(context.issuer, boundIssuer)) {
       throw new EnterpriseMcpOAuthContractError(
         "MCP_OAUTH_ISSUER_MISMATCH",
         "The OAuth credential context does not match the selected authorization server issuer.",
@@ -190,7 +191,7 @@ export class EnterpriseMcpOAuthProvider implements OAuthClientProvider {
   }
 
   private assertStoredIssuer(issuer: string | undefined, expectedIssuer: string | undefined): void {
-    if (issuer === undefined || expectedIssuer === undefined || issuer === expectedIssuer) return
+    if (issuer === undefined || expectedIssuer === undefined || isEquivalentOAuthDiscoveryAlias(issuer, expectedIssuer)) return
     throw new EnterpriseMcpOAuthContractError(
       "MCP_OAUTH_ISSUER_MISMATCH",
       "The stored OAuth credential does not match the selected authorization server issuer.",
@@ -219,7 +220,7 @@ export class EnterpriseMcpOAuthProvider implements OAuthClientProvider {
   private async canonicalAuthorizationServerMetadata(): Promise<AuthorizationServerMetadata | undefined> {
     const selectedIssuer = this.authorizationServerIssuer
     if (!selectedIssuer) return undefined
-    if (this.verifiedAuthorizationServerMetadata?.issuer === selectedIssuer) {
+    if (isEquivalentOAuthDiscoveryAlias(this.verifiedAuthorizationServerMetadata?.issuer, selectedIssuer)) {
       return this.verifiedAuthorizationServerMetadata
     }
 
@@ -243,11 +244,13 @@ export class EnterpriseMcpOAuthProvider implements OAuthClientProvider {
   }
 
   private hasCurrentMetadataVerification(state: OAuthDiscoveryState, selectedIssuer: string): boolean {
-    const verifiedState = state as VerifiedOAuthDiscoveryState
-    return verifiedState.openworkMetadataVerification?.version === 1
-      && verifiedState.openworkMetadataVerification.issuer === selectedIssuer
-      && state.authorizationServerUrl === selectedIssuer
-      && state.authorizationServerMetadata?.issuer === selectedIssuer
+    const verification = (state as VerifiedOAuthDiscoveryState).openworkMetadataVerification
+    // The stamp records the canonical metadata issuer; the selected issuer may
+    // be its equivalent root trailing-slash alias (RFC 8414's one tolerance).
+    return verification?.version === 1
+      && isEquivalentOAuthDiscoveryAlias(verification.issuer, selectedIssuer)
+      && state.authorizationServerUrl === verification.issuer
+      && state.authorizationServerMetadata?.issuer === verification.issuer
   }
 
   private async normalizeDiscoveryState(state: OAuthDiscoveryState | undefined): Promise<VerifiedOAuthDiscoveryState | undefined> {
@@ -265,11 +268,11 @@ export class EnterpriseMcpOAuthProvider implements OAuthClientProvider {
 
     const normalized: VerifiedOAuthDiscoveryState = {
       ...state,
-      authorizationServerUrl: selectedIssuer,
+      authorizationServerUrl: metadata.issuer,
       authorizationServerMetadata: metadata,
       openworkMetadataVerification: {
         version: 1,
-        issuer: selectedIssuer,
+        issuer: metadata.issuer,
       },
     }
     this.assertDiscoveryBinding(normalized)
@@ -281,14 +284,9 @@ export class EnterpriseMcpOAuthProvider implements OAuthClientProvider {
     const state = await this.normalizeDiscoveryState(persistedState)
     if (state) {
       this.assertDiscoveryBinding(state)
-      if (
-        persistedState
-        && (
-          persistedState.authorizationServerUrl !== state.authorizationServerUrl
-          || JSON.stringify(persistedState.authorizationServerMetadata) !== JSON.stringify(state.authorizationServerMetadata)
-          || !(persistedState as VerifiedOAuthDiscoveryState).openworkMetadataVerification
-        )
-      ) {
+      // normalizeDiscoveryState returns the same object when nothing needed
+      // verification or repair; only a rebuilt state warrants a re-save.
+      if (persistedState && state !== persistedState) {
         await this.persistence.discovery?.save({ context: this.context(), state })
       }
       this.loadedDiscovery = state
@@ -303,10 +301,14 @@ export class EnterpriseMcpOAuthProvider implements OAuthClientProvider {
       if (!normalizedState) throw new Error("OAuth discovery state was unavailable.")
       this.assertDiscoveryBinding(normalizedState)
     } catch (error) {
-      await this.persistence.discovery?.invalidate({
-        context: this.context(),
-        reason: "issuer-mismatch",
-      })
+      // Only a proven binding violation invalidates persisted discovery and
+      // flags issuer review; a transient metadata outage must stay retryable.
+      if (error instanceof EnterpriseMcpOAuthContractError) {
+        await this.persistence.discovery?.invalidate({
+          context: this.context(),
+          reason: "issuer-mismatch",
+        })
+      }
       throw error
     }
     await this.persistence.discovery?.save({ context: this.context(), state: normalizedState })

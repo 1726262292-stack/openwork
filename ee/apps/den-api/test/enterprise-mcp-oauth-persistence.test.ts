@@ -402,6 +402,21 @@ describe("Den enterprise MCP OAuth persistence adapter", () => {
       clientRegistrationRevision: registration.revision,
     })).rejects.toThrow("missing, expired, or already consumed")
     expect((await persistence.credentials.load(context()))?.tokens.access_token).toBe("callback-access-token")
+
+    // The root trailing-slash alias of the selected issuer is the same
+    // authorization server (RFC 8414's one tolerance) and must stay accepted.
+    const aliasCredential = await persistence.credentials.load(context())
+    await persistence.credentials.save({
+      context: context(),
+      tokens: {
+        access_token: "alias-issuer-token",
+        token_type: "Bearer",
+        issuer: "https://login.example.test/",
+      },
+      source: "refresh",
+      expectedCredentialRevision: aliasCredential?.revision,
+    })
+    expect((await persistence.credentials.load(context()))?.tokens.access_token).toBe("alias-issuer-token")
   })
 
   test("rejects persistence after its lifecycle deadline without changing credentials", async () => {

@@ -1578,6 +1578,78 @@ describe("enterprise MCP OAuth persistence contract", () => {
     ))
   })
 
+  it("accepts stored credentials whose issuer is the root trailing-slash alias of the selected issuer", async () => {
+    const selectedIssuer = "https://identity.example.test/"
+    const canonicalIssuer = "https://identity.example.test"
+    const persistence = new MemoryOAuthPersistence()
+    persistence.seedRegistration({
+      client_id: "canonical-issuer-client",
+      issuer: canonicalIssuer,
+    })
+    persistence.seedCredential({
+      access_token: "canonical-issuer-token",
+      token_type: "Bearer",
+      issuer: canonicalIssuer,
+    })
+    const provider = new EnterpriseMcpOAuthProvider({
+      redirectUri: "https://den.example.test/v1/mcp-connections/oauth/callback",
+      connectionId: "connection-1",
+      persistence,
+      flow: { kind: "runtime" },
+      clientName: "OpenWork",
+      clock: { now: () => Date.now() },
+      lifecycle: { expiresAt: Date.now() + 30_000, signal: new AbortController().signal },
+      authorizationTransactionTtlMs: 600_000,
+      expirationSkewMs: 0,
+      fetch: oauthMetadataFetch(canonicalIssuer),
+      oauthConfiguration: {
+        applicationType: "web",
+        authorizationServerIssuer: selectedIssuer,
+      },
+    })
+
+    assert.equal((await provider.clientInformation({ issuer: canonicalIssuer }))?.client_id, "canonical-issuer-client")
+    assert.equal((await provider.tokens({ issuer: canonicalIssuer }))?.access_token, "canonical-issuer-token")
+  })
+
+  it("keeps persisted discovery state when canonical metadata is temporarily unavailable", async () => {
+    const selectedIssuer = "https://identity.example.test"
+    const persistence = new MemoryOAuthPersistence()
+    const state: OAuthDiscoveryState = {
+      authorizationServerUrl: selectedIssuer,
+      authorizationServerMetadata: {
+        issuer: selectedIssuer,
+        authorization_endpoint: `${selectedIssuer}/authorize`,
+        token_endpoint: `${selectedIssuer}/token`,
+        response_types_supported: ["code"],
+      },
+    }
+    persistence.discoveryState = state
+    const provider = new EnterpriseMcpOAuthProvider({
+      redirectUri: "https://den.example.test/v1/mcp-connections/oauth/callback",
+      connectionId: "connection-1",
+      persistence,
+      flow: { kind: "runtime" },
+      clientName: "OpenWork",
+      clock: { now: () => Date.now() },
+      lifecycle: { expiresAt: Date.now() + 30_000, signal: new AbortController().signal },
+      authorizationTransactionTtlMs: 600_000,
+      expirationSkewMs: 0,
+      fetch: async () => {
+        throw new TypeError("fetch failed")
+      },
+      oauthConfiguration: {
+        applicationType: "web",
+        authorizationServerIssuer: selectedIssuer,
+      },
+    })
+
+    await assert.rejects(provider.saveDiscoveryState(state), (error: unknown) => (
+      error instanceof TypeError && error.message === "fetch failed"
+    ))
+    assert.deepEqual(persistence.discoveryState, state)
+  })
+
   it("falls back to advertised scopes when the challenge and requested scopes are empty", async () => {
     const server = await startOAuthMcpServer({ scopeLessChallenge: true })
     try {

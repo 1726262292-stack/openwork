@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto"
 import {
   EnterpriseMcpOAuthContractError,
+  isEquivalentOAuthDiscoveryAlias,
   type EnterpriseMcpOAuthAuthorizationHandle,
   type EnterpriseMcpOAuthClientRegistration,
   type EnterpriseMcpOAuthPersistence,
@@ -331,7 +332,7 @@ export class DenEnterpriseMcpOAuthPersistence implements EnterpriseMcpOAuthPersi
         if (
           input.clientInformation.issuer
           && selectedIssuer
-          && input.clientInformation.issuer !== selectedIssuer
+          && !isEquivalentOAuthDiscoveryAlias(input.clientInformation.issuer, selectedIssuer)
         ) {
           throw new EnterpriseMcpOAuthContractError(
             "MCP_OAUTH_CONFIGURATION_CHANGED",
@@ -450,7 +451,9 @@ export class DenEnterpriseMcpOAuthPersistence implements EnterpriseMcpOAuthPersi
           .set({
             oauthConfiguration: {
               ...configuration,
-              authorizationServerIssuer: configuration.authorizationServerIssuer ?? state.authorizationServerUrl,
+              authorizationServerIssuer: configuration.authorizationServerIssuer
+                ?? state.authorizationServerMetadata?.issuer
+                ?? state.authorizationServerUrl,
               discovery: state,
             },
           })
@@ -660,7 +663,11 @@ export class DenEnterpriseMcpOAuthPersistence implements EnterpriseMcpOAuthPersi
         this.assertCurrentIdentity(connection)
         assertCommitActive(input.context)
         const selectedIssuer = oauthIssuer(connection.oauthConfiguration)
-        if (input.tokens.issuer && selectedIssuer && input.tokens.issuer !== selectedIssuer) {
+        if (
+          input.tokens.issuer
+          && selectedIssuer
+          && !isEquivalentOAuthDiscoveryAlias(input.tokens.issuer, selectedIssuer)
+        ) {
           throw new EnterpriseMcpOAuthContractError(
             "MCP_OAUTH_ISSUER_MISMATCH",
             "The OAuth credential does not match the selected authorization server issuer.",
