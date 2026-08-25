@@ -1,4 +1,4 @@
-import { spawn, spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { createServer } from "node:net";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -21,12 +21,21 @@ async function reservePort() {
 }
 
 test("the Den API production package resolves workspace artifacts and starts listening", { timeout: 300_000 }, async ({ evidence }) => {
-  const build = spawnSync(pnpmCommand, ["--filter", "@openwork-ee/den-api", "run", "build"], {
+  const buildOutput: string[] = [];
+  const build = spawn(pnpmCommand, ["--filter", "@openwork-ee/den-api", "run", "build"], {
     cwd: repoRoot,
-    encoding: "utf8",
     env: { ...process.env, DEN_UPLOAD_SENTRY_SOURCEMAPS: "0" },
   });
-  expect(build.status, `Den API build failed\n${build.stdout}\n${build.stderr}`).toBe(0);
+  build.stdout.on("data", (chunk) => buildOutput.push(String(chunk)));
+  build.stderr.on("data", (chunk) => buildOutput.push(String(chunk)));
+  onTestFinished(() => {
+    if (build.exitCode === null) build.kill("SIGTERM");
+  });
+  const buildExitCode = await new Promise<number | null>((resolveBuild, rejectBuild) => {
+    build.once("error", rejectBuild);
+    build.once("close", resolveBuild);
+  });
+  expect(buildExitCode, `Den API build failed\n${buildOutput.join("")}`).toBe(0);
 
   const port = await reservePort();
   const output: string[] = [];
