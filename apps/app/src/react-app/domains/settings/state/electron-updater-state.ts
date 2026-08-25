@@ -73,6 +73,14 @@ export function shouldScheduleElectronUpdateAutoCheck(input: {
     input.autoCheckKey !== input.nextAutoCheckKey;
 }
 
+export function resolveCheckedUpdateState(input: {
+  available: boolean;
+  allowed: boolean;
+}): "idle" | "available" | "blocked" {
+  if (!input.available) return "idle";
+  return input.allowed ? "available" : "blocked";
+}
+
 type ElectronUpdaterEnvAction =
   | { type: "app-version"; appVersion: string | null }
   | { type: "unsupported"; reason: string };
@@ -467,25 +475,32 @@ export function useElectronUpdaterState(options: UseElectronUpdaterStateOptions)
         ? targetVersion
           ? result.latestVersion === targetVersion
           : checkedReleaseChannel === "alpha"
-            ? await isAlphaUpdateAllowed(result.latestVersion, latestDesktopConfig)
+            ? await isAlphaUpdateAllowed(
+                result.latestVersion,
+                latestDesktopConfig,
+                result.currentVersion ?? appVersion,
+              )
             : await isUpdateAllowed(result.latestVersion, latestDesktopConfig)
         : result.available;
       if (!isCurrentRequest()) return;
-      const nextStatus: Exclude<SettingsUpdateStatus, null> = availableAllowed
-        ? {
-            state: "available",
-            lastCheckedAt: Date.now(),
-            version: result.latestVersion ?? undefined,
-            date: result.releaseDate ?? undefined,
-            notes: releaseNotesToText(result.releaseNotes),
-          }
-        : {
-            state: "idle",
-            lastCheckedAt: Date.now(),
-            version: result.latestVersion ?? undefined,
-            date: result.releaseDate ?? undefined,
-            notes: releaseNotesToText(result.releaseNotes),
-          };
+      const checkedUpdateState = resolveCheckedUpdateState({
+        available: result.available,
+        allowed: Boolean(availableAllowed),
+      });
+      const nextStatus: Exclude<SettingsUpdateStatus, null> = {
+        state: checkedUpdateState,
+        lastCheckedAt: Date.now(),
+        version: result.latestVersion ?? undefined,
+        date: result.releaseDate ?? undefined,
+        notes: releaseNotesToText(result.releaseNotes),
+        ...(checkedUpdateState === "blocked"
+          ? {
+              message: t("settings.update_blocked_policy", undefined, {
+                version: result.latestVersion ?? "",
+              }),
+            }
+          : {}),
+      };
       availableReleaseChannelRef.current = availableAllowed
         ? checkedReleaseChannel
         : null;
