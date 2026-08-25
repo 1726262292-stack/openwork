@@ -9,6 +9,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function stripTrailingSlashes(value: string): string {
+  let end = value.length;
+  while (end > 0 && value[end - 1] === "/") end -= 1;
+  return value.slice(0, end);
+}
+
 export type HeadlessRuntimePids = {
   launcher: number;
   web: number | null;
@@ -187,7 +193,7 @@ export function buildHeadlessRuntimeManifest(input: {
     mode: "local-server",
     webUrl: input.webUrl,
     openworkUrl: input.openworkUrl,
-    healthUrl: `${input.openworkUrl.replace(/\/+$/, "")}/health`,
+    healthUrl: `${stripTrailingSlashes(input.openworkUrl)}/health`,
     workspace: path.resolve(input.workspace),
     token: input.token,
     hostToken: input.hostToken,
@@ -196,7 +202,7 @@ export function buildHeadlessRuntimeManifest(input: {
     webLogPath: input.webLogPath,
     headlessLogPath: input.headlessLogPath,
     denTarget,
-    denApiUrl: denTarget ? `${input.webUrl.replace(/\/+$/, "")}/api/den` : null,
+    denApiUrl: denTarget ? `${stripTrailingSlashes(input.webUrl)}/api/den` : null,
     notes: "Local openwork-server session. Workspace auth uses token/hostToken; the server config and state selection are owned by the selected world. Den/Cloud API calls go same-origin through denApiUrl (Vite proxies them to denTarget; the app is pinned there via VITE_DEN_API_BASE_URL).",
     startedAt: input.startedAt ?? new Date().toISOString(),
     pid: launcherPid,
