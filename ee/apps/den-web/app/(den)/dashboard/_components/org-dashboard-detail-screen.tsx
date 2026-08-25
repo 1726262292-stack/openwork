@@ -13,6 +13,7 @@ import { DenSwitch } from "../../_components/ui/switch";
 import { getManagedDashboardsRoute } from "../../_lib/den-org";
 import { useOrgDashboard } from "../_providers/org-dashboard-provider";
 import { useMcpConnections } from "./mcp-connections-data";
+import { connectionCanListMcpApps } from "./dashboard-mcp-app-catalog";
 import { OrgMemberIdentity } from "./org-member-identity";
 import {
   type ConnectionMcpAppCatalogItem,
@@ -255,7 +256,9 @@ function AddDashboardAppDialog({
 }) {
   const connectionsQuery = useMcpConnections("manageable");
   const connections = useMemo(
-    () => (connectionsQuery.data ?? []).filter((connection) => connection.nativeProviderKey == null),
+    () => (connectionsQuery.data ?? []).filter((connection) => (
+      connection.nativeProviderKey == null && connectionCanListMcpApps(connection)
+    )),
     [connectionsQuery.data],
   );
   const appsQuery = useConnectionMcpAppCatalog(connections);

@@ -3,6 +3,7 @@
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { getErrorMessage, getRequestError, requestJson } from "../../_lib/den-flow";
 import { useOrgDashboard } from "../_providers/org-dashboard-provider";
+import { mcpAppCatalogIsLoading } from "./dashboard-mcp-app-catalog";
 
 export type DashboardAccessRole = "viewer" | "editor" | "manager";
 
@@ -387,10 +388,16 @@ export function useConnectionMcpAppCatalog(connections: Array<{ id: string; name
         return apps.map(parseConnectionApp).filter((app): app is ConnectionMcpApp => app !== null);
       },
     })),
-    combine: (results) => ({
-      data: flattenConnectionMcpAppCatalog(connections, results.map((result) => result.data ?? [])),
-      isLoading: results.some((result) => result.isPending),
-      error: results.find((result) => result.error)?.error ?? null,
-    }),
+    combine: (results) => {
+      const data = flattenConnectionMcpAppCatalog(connections, results.map((result) => result.data ?? []));
+      const isLoading = mcpAppCatalogIsLoading(data.length, results.some((result) => result.isPending));
+      return {
+        data,
+        isLoading,
+        error: data.length === 0 && !isLoading
+          ? results.find((result) => result.error)?.error ?? null
+          : null,
+      };
+    },
   });
 }

@@ -4,6 +4,10 @@ import {
   flattenConnectionMcpAppCatalog,
   type ConnectionMcpApp,
 } from "../app/(den)/dashboard/_components/org-dashboards-data";
+import {
+  connectionCanListMcpApps,
+  mcpAppCatalogIsLoading,
+} from "../app/(den)/dashboard/_components/dashboard-mcp-app-catalog";
 
 const app: ConnectionMcpApp = {
   serverName: "reports",
@@ -34,5 +38,18 @@ describe("dashboard MCP App catalog", () => {
       ],
       [app],
     )).toEqual([{ id: "connection_reports", name: "Reports" }]);
+  });
+
+  test("discovers Apps only for connections ready for the current admin", () => {
+    expect(connectionCanListMcpApps({ connectedForMe: true })).toBe(true);
+    expect(connectionCanListMcpApps({ connectedForMe: false })).toBe(false);
+    expect(connectionCanListMcpApps({ connectedForMe: true, needsReconnect: true })).toBe(false);
+    expect(connectionCanListMcpApps({ connectedForMe: true, credentialHealth: "reconnect_required" })).toBe(false);
+    expect(connectionCanListMcpApps({ connectedForMe: true, setupRequired: true })).toBe(false);
+  });
+
+  test("shows discovered Apps while another MCP is still loading", () => {
+    expect(mcpAppCatalogIsLoading(0, true)).toBe(true);
+    expect(mcpAppCatalogIsLoading(1, true)).toBe(false);
   });
 });
