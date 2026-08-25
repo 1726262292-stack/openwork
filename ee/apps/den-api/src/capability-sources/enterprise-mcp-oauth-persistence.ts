@@ -73,21 +73,6 @@ function oauthIssuer(configuration: ExternalMcpOAuthConfiguration | null | undef
     ?? undefined
 }
 
-function oauthConfigurationWithIssuer(
-  configuration: ExternalMcpOAuthConfiguration | null | undefined,
-  issuer: string,
-): ExternalMcpOAuthConfiguration {
-  return {
-    ...(configuration ?? {
-      version: 1,
-      authorizationServerIssuer: null,
-      requestedScopes: [],
-      callbackMode: "legacy-v1",
-    }),
-    authorizationServerIssuer: issuer,
-  }
-}
-
 const oauthDiscoveryStateSchema = z.object({
   authorizationServerUrl: z.string().url(),
   authorizationServerMetadata: OAuthMetadataSchema.or(OpenIdProviderMetadataSchema).optional(),
@@ -673,9 +658,11 @@ export class DenEnterpriseMcpOAuthPersistence implements EnterpriseMcpOAuthPersi
             "The OAuth credential does not match the selected authorization server issuer.",
           )
         }
-        const issuerConfiguration = input.tokens.issuer && !selectedIssuer
-          ? oauthConfigurationWithIssuer(connection.oauthConfiguration, input.tokens.issuer)
-          : undefined
+        // The connection-wide issuer selection is only ever derived from the
+        // administrator's configuration or the connection's own verified
+        // discovery state (see oauthIssuer). A token-response issuer stamp is
+        // caller-supplied evidence: it participates in the mismatch guard
+        // above but must never be persisted as the shared issuer selection.
         const account = this.member
           ? (await tx
               .select()
@@ -741,12 +728,6 @@ export class DenEnterpriseMcpOAuthPersistence implements EnterpriseMcpOAuthPersi
           ? new Date(Math.max(Date.now(), account.connectedAt.getTime() + 1))
           : new Date()
         if (this.isPerMember && this.member) {
-          if (issuerConfiguration) {
-            await tx
-              .update(ExternalMcpConnectionTable)
-              .set({ oauthConfiguration: issuerConfiguration })
-              .where(eq(ExternalMcpConnectionTable.id, connection.id))
-          }
           if (account) {
             await tx
               .update(ConnectedAccountTable)
@@ -790,7 +771,6 @@ export class DenEnterpriseMcpOAuthPersistence implements EnterpriseMcpOAuthPersi
               credentialHealth: credentialHealth("ready", null),
               updatedAt,
               connectedAt: new Date(),
-              ...(issuerConfiguration ? { oauthConfiguration: issuerConfiguration } : {}),
             })
             .where(eq(ExternalMcpConnectionTable.id, connection.id))
         }

@@ -332,6 +332,20 @@ describe("Den enterprise MCP OAuth persistence adapter", () => {
 
   test("isolates concurrent signed PKCE transactions and consumes only the callback winner", async () => {
     const persistence = new DenEnterpriseMcpOAuthPersistence(connection)
+    // OAuth discovery always persists before any token exchange; the stored
+    // discovery state is what binds the connection to its issuer.
+    await persistence.discovery.save({
+      context: context(),
+      state: {
+        authorizationServerUrl: "https://login.example.test",
+        authorizationServerMetadata: {
+          issuer: "https://login.example.test",
+          authorization_endpoint: "https://login.example.test/authorize",
+          token_endpoint: "https://login.example.test/token",
+          response_types_supported: ["code"],
+        },
+      },
+    })
     const registration = await persistence.clientRegistrations.load(context())
     if (!registration) throw new Error("Expected the seeded OAuth client registration.")
     await persistence.authorizations.begin({
@@ -538,6 +552,65 @@ describe("Den enterprise MCP OAuth persistence adapter", () => {
       .limit(1)
     expect(afterRows[0]?.accessToken).toBe("fresh-member-access")
     expect(afterRows[0]?.connectedAt.getTime()).toBeGreaterThan(before.connectedAt.getTime())
+  })
+
+  test("never persists a member token issuer to the shared connection configuration", async () => {
+    const memberIssuerConnection = await createExternalMcpConnection({
+      organizationId,
+      name: "Enterprise MCP member token issuer",
+      url: "https://mcp.example.test/member-token-issuer",
+      authType: "oauth",
+      credentialMode: "per_member",
+      oauthConfiguration: { version: 1, authorizationServerIssuer: null, requestedScopes: [] },
+      createdByOrgMembershipId: memberId,
+      access: { orgWide: true, memberIds: [], teamIds: [] },
+    })
+    const persistence = new DenEnterpriseMcpOAuthPersistence(
+      memberIssuerConnection,
+      { orgMembershipId: memberId },
+    )
+    const memberContext = {
+      connectionId: memberIssuerConnection.id,
+      commitExpiresAt: Date.now() + 30_000,
+      signal: new AbortController().signal,
+    }
+    const registration = await persistence.clientRegistrations.save({
+      context: memberContext,
+      clientInformation: { client_id: "member-issuer-client" },
+      source: "dynamic",
+    })
+    await persistence.authorizations.begin({
+      context: memberContext,
+      id: "signed-state-member-issuer",
+      codeVerifier: "m".repeat(43),
+      expiresAt: Date.now() + 600_000,
+      clientRegistrationRevision: registration.revision,
+    })
+    const pending = await persistence.authorizations.load({
+      context: memberContext,
+      id: "signed-state-member-issuer",
+    })
+    if (!pending) throw new Error("Expected the pending member authorization.")
+
+    await persistence.credentials.save({
+      context: memberContext,
+      tokens: {
+        access_token: "member-scoped-token",
+        token_type: "Bearer",
+        issuer: "https://member-supplied.example.test",
+      },
+      source: "authorization-code",
+      authorization: pending.handle,
+      clientRegistrationRevision: registration.revision,
+    })
+
+    const sharedRow = (await db
+      .select()
+      .from(schema.ExternalMcpConnectionTable)
+      .where(drizzle.eq(schema.ExternalMcpConnectionTable.id, memberIssuerConnection.id))
+      .limit(1))[0]
+    expect(sharedRow?.oauthConfiguration?.authorizationServerIssuer ?? null).toBeNull()
+    expect(sharedRow?.accessToken ?? null).toBeNull()
   })
 
   test("removes a denied per-member authorization and keeps repeated cleanup idempotent", async () => {
