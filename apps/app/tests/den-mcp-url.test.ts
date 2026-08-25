@@ -35,10 +35,22 @@ describe("resolveDenBaseUrls", () => {
     expect(resolved.apiBaseUrl).toBe("http://127.0.0.1:8787");
   });
 
-  test("derives the api subdomain from a web-app baseUrl when no apiBaseUrl is set", () => {
+  test("keeps the same-origin API path for a self-hosted baseUrl when no apiBaseUrl is set", () => {
     const resolved = resolveDenBaseUrls({ baseUrl: "https://den.self-hosted.example.com" });
     expect(resolved.baseUrl).toBe("https://den.self-hosted.example.com");
-    expect(resolved.apiBaseUrl).toBe("https://api.den.self-hosted.example.com");
+    expect(resolved.apiBaseUrl).toBe("https://den.self-hosted.example.com/api/den");
+  });
+
+  test("uses an explicit api host directly when no apiBaseUrl is set", () => {
+    const resolved = resolveDenBaseUrls({ baseUrl: "https://api.den.example" });
+    expect(resolved.baseUrl).toBe("https://api.den.example");
+    expect(resolved.apiBaseUrl).toBe("https://api.den.example");
+  });
+
+  test("derives the api subdomain for hosted openworklabs.com deployments", () => {
+    const resolved = resolveDenBaseUrls({ baseUrl: "https://staging.openworklabs.com" });
+    expect(resolved.baseUrl).toBe("https://staging.openworklabs.com");
+    expect(resolved.apiBaseUrl).toBe("https://api.staging.openworklabs.com");
   });
 
   test("uses the nested hosted API origin for the hosted web default", () => {

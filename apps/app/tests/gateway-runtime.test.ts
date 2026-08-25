@@ -452,7 +452,7 @@ describe("non-gateway connection modes", () => {
     storage.setItem("openwork.den.baseUrl", "https://den.self-hosted.example.com");
 
     expect(readDenSettings().baseUrl).toBe("https://den.self-hosted.example.com");
-    expect(readDenSettings().apiBaseUrl).toBe("https://api.den.self-hosted.example.com");
+    expect(readDenSettings().apiBaseUrl).toBe("https://den.self-hosted.example.com/api/den");
   });
 
   test("VITE_DEN_API_BASE_URL pins Den API calls to the proxy while sign-in stays on the web base", () => {
