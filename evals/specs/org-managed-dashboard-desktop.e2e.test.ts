@@ -10,7 +10,7 @@ const requirements: TestNeeds = {
 const missingRequirements = unmetNeeds(requirements, process.env);
 const title = missingRequirements.length > 0
   ? `organization-managed Desktop dashboard skipped — needs: ${missingRequirements.join(", ")}`
-  : "Desktop enables managed dashboard caching and automatic refresh after member opt-in";
+  : "Desktop keeps modifying managed Apps manual while safe Apps cache and refresh";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -92,7 +92,7 @@ test(title, async ({ evidence, place }) => {
       toolName: "create_ticket",
       projectedToolName: "openwork-app-host-connect-0123456789ab_create_ticket",
       resourceUri: "ui://fixture/ticket/view.html",
-      title: "Automatic ticket summary",
+      title: "Protected ticket action",
       requiresApproval: true,
       organizationAutoLaunch: true,
     },
@@ -173,23 +173,22 @@ test(title, async ({ evidence, place }) => {
   await waitFor(desktop, `(() => {
     const section = document.querySelector(${JSON.stringify(`[data-granted-dashboard="${grantedDashboardId}"]`)});
     if (!(section instanceof HTMLElement)) return false;
-    const automaticTile = [...section.querySelectorAll("[data-dashboard-entry]")]
-      .find((tile) => tile.textContent?.includes("Automatic ticket summary"));
-    const cacheState = automaticTile instanceof HTMLElement
-      ? automaticTile.querySelector("[data-dashboard-cache-state]")?.getAttribute("data-dashboard-cache-state")
-      : null;
-    return automaticTile instanceof HTMLElement
-      && (cacheState === "refreshing" || automaticTile.innerText.includes("Refresh failed"))
-      && !automaticTile.querySelector('button[aria-label="Run Automatic ticket summary"]');
+    const protectedTile = [...section.querySelectorAll("[data-dashboard-entry]")]
+      .find((tile) => tile.textContent?.includes("Protected ticket action"));
+    return protectedTile instanceof HTMLElement
+      && protectedTile.innerText.includes("Run on request")
+      && Boolean(protectedTile.querySelector('button[aria-label="Run Protected ticket action"]'))
+      && !protectedTile.innerText.includes("Loading")
+      && !protectedTile.innerText.includes("Refresh failed");
   })()`, {
     timeoutMs: 90_000,
-    label: "organization-authorized modifying app attempted automatic load",
+    label: "modifying app stayed run-on-request despite an unsafe auto-run assignment",
   });
-  const organizationPolicyState = await evalIn(desktop, `(() => {
+  const writeSafetyState = await evalIn(desktop, `(() => {
     const section = document.querySelector(${JSON.stringify(`[data-granted-dashboard="${grantedDashboardId}"]`)});
     const tile = section instanceof HTMLElement
       ? [...section.querySelectorAll("[data-dashboard-entry]")]
-        .find((entry) => entry.textContent?.includes("Automatic ticket summary"))
+        .find((entry) => entry.textContent?.includes("Protected ticket action"))
       : null;
     const cacheState = tile instanceof HTMLElement
       ? tile.querySelector("[data-dashboard-cache-state]")?.getAttribute("data-dashboard-cache-state")
@@ -198,21 +197,27 @@ test(title, async ({ evidence, place }) => {
       automaticAttemptVisible: tile instanceof HTMLElement
         && (cacheState === "refreshing" || tile.innerText.includes("Refresh failed")),
       cacheState,
-      runVisible: Boolean(tile?.querySelector('button[aria-label="Run Automatic ticket summary"]')),
+      runVisible: Boolean(tile?.querySelector('button[aria-label="Run Protected ticket action"]')),
+      runOnRequestVisible: tile instanceof HTMLElement && tile.innerText.includes("Run on request"),
     };
   })()`);
-  expect(organizationPolicyState).toMatchObject({ automaticAttemptVisible: true, runVisible: false });
+  expect(writeSafetyState).toMatchObject({
+    automaticAttemptVisible: false,
+    runVisible: true,
+    runOnRequestVisible: true,
+  });
   evidence.recordAssertionEvidence(
     "Desktop places Dashboard directly below Search in the left sidebar",
     `state=${JSON.stringify(initialState)}`,
     isRecord(initialState) && initialState.dashboardImmediatelyAfterSearch === true,
   );
   evidence.recordAssertionEvidence(
-    "Organization admins can authorize automatic launch even for an app that modifies data",
-    `tile=Automatic ticket summary; state=${JSON.stringify(organizationPolicyState)}`,
-    isRecord(organizationPolicyState)
-      && organizationPolicyState.automaticAttemptVisible === true
-      && organizationPolicyState.runVisible === false,
+    "Apps that modify data stay run-on-request even when an assignment requests auto-run",
+    `tile=Protected ticket action; state=${JSON.stringify(writeSafetyState)}`,
+    isRecord(writeSafetyState)
+      && writeSafetyState.automaticAttemptVisible === false
+      && writeSafetyState.runVisible === true
+      && writeSafetyState.runOnRequestVisible === true,
   );
   evidence.recordAssertionEvidence(
     "Desktop renders only dashboards granted to the signed-in member",

@@ -14,7 +14,6 @@ import { useWorkspace, WorkspaceProvider } from "@/react-app/shell/workspace-pro
 import { DashboardTileShell } from "./dashboard-tile-shell";
 import {
   DASHBOARD_AUTO_REFRESH_INTERVAL_MS,
-  dashboardTileLaunchIsApproved,
   dashboardTileRunsAutomatically,
   readDashboardTileCache,
   shouldAutoRefreshDashboardTile,
@@ -109,11 +108,12 @@ export function McpAppTile({
   // Provider annotations are not an authorization boundary. A safe-looking
   // tile runs on load only after this user has successfully run this exact
   // element once; approval-gated tools stay run-on-request forever.
+  const organizationAutoRun = entry.organizationAutoLaunch === true && entry.requiresApproval !== true;
   const runsAutomatically = dashboardTileRunsAutomatically(
     entry.requiresApproval === true,
     entry.autoLaunch === true,
     entry.launchApproved === true,
-    entry.organizationAutoLaunch === true,
+    organizationAutoRun,
   );
   const manualLaunch = !runsAutomatically;
   const launchEndpoints = useMemo(() => [
@@ -213,10 +213,9 @@ export function McpAppTile({
         name: app.toolName,
         resourceUri: app.resourceUri,
         arguments: launchArguments,
-        ...(dashboardTileLaunchIsApproved(
-          entry.organizationAutoLaunch === true,
-          launchApprovedRef.current,
-        ) ? { approved: true } : {}),
+        // Organization auto-run starts only read-only tools and never acts as
+        // an approval override if live provider metadata has changed.
+        ...(launchApprovedRef.current ? { approved: true } : {}),
       };
       let result;
       let approvalWasRequired = false;
@@ -349,14 +348,14 @@ export function McpAppTile({
     if (state.phase === "ready" && refreshState === "refreshing") return "Saved locally · refreshing";
     if (state.phase === "ready" && refreshState === "failed") return "Saved locally · refresh failed";
     if (state.phase === "ready" && refreshState === "approval-required") return "Saved locally · run required";
-    if (state.phase === "ready" && entry.organizationAutoLaunch === true) {
+    if (state.phase === "ready" && organizationAutoRun) {
       return `Organization auto-run · ${freshnessLabel(state.cachedAt)}`;
     }
     if (state.phase === "ready" && entry.requiresApproval === true) return "Saved locally · run on request";
     if (state.phase === "ready") return freshnessLabel(state.cachedAt);
     if (state.phase === "loading") return "Loading";
     if (state.phase === "error") return "Refresh failed";
-    if (entry.organizationAutoLaunch === true) return "Organization auto-run";
+    if (organizationAutoRun) return "Organization auto-run";
     if (entry.requiresApproval === true) return "Run on request";
     if (manualLaunch) return "Run once to enable";
     return null;

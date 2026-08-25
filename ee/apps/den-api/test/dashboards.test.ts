@@ -58,6 +58,12 @@ const writeElement = {
 }
 
 const organizationAutoLaunchElement = {
+  ...readOnlyElement,
+  title: "Automatic weekly report",
+  organizationAutoLaunch: true,
+}
+
+const unsafeAutoLaunchElement = {
   ...writeElement,
   organizationAutoLaunch: true,
 }
@@ -237,6 +243,14 @@ test("admins create, list, update, and soft-delete dashboards", async () => {
   expect(deleteResponse.status).toBe(204)
   const getResponse = await request(`/v1/dashboards/${created.id}`)
   expect(getResponse.status).toBe(404)
+})
+
+test("removes organization auto-launch from elements that modify data", async () => {
+  const created = await createDashboard("Safe launch policy", [unsafeAutoLaunchElement])
+  const response = await request(`/v1/dashboards/${created.id}`)
+  expect(response.status).toBe(200)
+  const payload = await response.json() as { item: { elements: unknown[] } }
+  expect(payload.item.elements).toEqual([writeElement])
 })
 
 test("dashboard management requires an admin role", async () => {

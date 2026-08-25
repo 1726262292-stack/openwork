@@ -79,15 +79,7 @@ export function dashboardTileRunsAutomatically(
   launchApproved: boolean,
   organizationAutoLaunch: boolean,
 ): boolean {
-  return organizationAutoLaunch || (!requiresApproval && autoLaunchEnabled && !launchApproved);
-}
-
-/** Admin policy is an independent server-authored approval for this managed element. */
-export function dashboardTileLaunchIsApproved(
-  organizationAutoLaunch: boolean,
-  memberApproved: boolean,
-): boolean {
-  return organizationAutoLaunch || memberApproved;
+  return !requiresApproval && (organizationAutoLaunch || (autoLaunchEnabled && !launchApproved));
 }
 
 export function shouldAutoRefreshDashboardTile(input: {

@@ -30,7 +30,7 @@ import { idParamSchema } from "./shared.js"
  * mechanism connector assignment uses (`dashboard_access_grant` mirrors
  * `connector_instance_access_grant`). Granted dashboards render on the desktop
  * MCP Apps dashboard as read-only tiles. Per-user launch consent stays on the
- * desktop; admins may explicitly authorize automatic launch on an element.
+ * desktop; admins may request automatic launch only for read-only elements.
  */
 
 type DashboardId = typeof DashboardTable.$inferSelect.id
@@ -141,7 +141,9 @@ function toStoredElement(value: DashboardElementInput): DashboardElement {
     title: value.title,
     ...(value.launchArguments ? { launchArguments: value.launchArguments } : {}),
     ...(value.requiresApproval === true ? { requiresApproval: true } : {}),
-    ...(value.organizationAutoLaunch === true ? { organizationAutoLaunch: true } : {}),
+    ...(value.organizationAutoLaunch === true && value.requiresApproval !== true
+      ? { organizationAutoLaunch: true }
+      : {}),
   }
 }
 

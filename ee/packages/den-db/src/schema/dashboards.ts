@@ -10,8 +10,8 @@ import { TeamTable } from "./teams"
  * desktop dashboard entry reference (`DashboardMcpAppEntry` in
  * `apps/app/src/react-app/domains/dashboard/dashboard-store.ts`) so granted
  * elements render as ordinary tiles. Per-user consent stays local to each
- * desktop user; an organization admin may separately set an explicit launch
- * policy on the managed element.
+ * desktop user; an organization admin may separately set an automatic launch
+ * policy only on read-only managed elements.
  */
 export type DashboardElement = {
   serverName: string
@@ -25,7 +25,7 @@ export type DashboardElement = {
   launchArguments?: Record<string, unknown>
   /** True when the launch tool modifies data: tiles only run on request, never on mount. */
   requiresApproval?: boolean
-  /** Explicit admin policy: run this exact element automatically, even when it modifies data. */
+  /** Explicit admin policy for read-only elements. Ignored when requiresApproval is true. */
   organizationAutoLaunch?: boolean
 }
 

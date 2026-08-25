@@ -3,7 +3,6 @@ import { afterEach, describe, expect, test } from "bun:test";
 import {
   DASHBOARD_AUTO_REFRESH_INTERVAL_MS,
   dashboardTileCacheScopeKey,
-  dashboardTileLaunchIsApproved,
   dashboardTileRunsAutomatically,
   readDashboardTileCache,
   shouldAutoRefreshDashboardTile,
@@ -76,14 +75,9 @@ describe("dashboard tile cache", () => {
     expect(dashboardTileRunsAutomatically(false, true, false, false)).toBe(true);
     expect(dashboardTileRunsAutomatically(true, true, false, false)).toBe(false);
     expect(dashboardTileRunsAutomatically(false, true, true, false)).toBe(false);
-    expect(dashboardTileRunsAutomatically(true, false, false, true)).toBe(true);
-    expect(dashboardTileRunsAutomatically(true, false, true, true)).toBe(true);
-  });
-
-  test("treats organization auto-launch as approval for the exact managed call", () => {
-    expect(dashboardTileLaunchIsApproved(false, false)).toBe(false);
-    expect(dashboardTileLaunchIsApproved(false, true)).toBe(true);
-    expect(dashboardTileLaunchIsApproved(true, false)).toBe(true);
+    expect(dashboardTileRunsAutomatically(false, false, false, true)).toBe(true);
+    expect(dashboardTileRunsAutomatically(true, false, false, true)).toBe(false);
+    expect(dashboardTileRunsAutomatically(true, false, true, true)).toBe(false);
   });
 
   test("keeps last-known-good app data isolated by user and organization with its originating workspace", () => {

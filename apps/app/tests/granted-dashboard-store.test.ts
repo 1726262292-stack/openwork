@@ -76,7 +76,7 @@ describe("grantedEntryId", () => {
     ).autoLaunch).toBeUndefined();
   });
 
-  test("applies an organization auto-launch policy independently of local approval metadata", () => {
+  test("preserves server policy metadata so the runtime can enforce its safety boundary", () => {
     const dashboard: DenGrantedDashboard = {
       id: "dsb_1",
       name: "Operations",
