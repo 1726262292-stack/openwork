@@ -165,10 +165,10 @@ function installFetchMock(
         headers: normalizeHeaders(init),
       });
 
-      if (url.origin === "https://api.den.example" && url.pathname === "/v1/llm-providers") {
+      if (url.origin === "https://den.example" && url.pathname === "/api/den/v1/llm-providers") {
         return options.providerResponse ?? jsonResponse({ llmProviders: [cloudProviderPayload()] });
       }
-      if (url.origin === "https://api.den.example" && url.pathname === "/v1/llm-providers/lpr_test/connect") {
+      if (url.origin === "https://den.example" && url.pathname === "/api/den/v1/llm-providers/lpr_test/connect") {
         return jsonResponse({ llmProvider: cloudProviderPayload() });
       }
       if (url.pathname === "/den-session" && method === "PUT") {
@@ -322,7 +322,7 @@ describe("session-route cloud provider sync wiring", () => {
       },
     ]);
     expect(
-      requests.filter((request) => request.url === "https://api.den.example/v1/llm-providers"),
+      requests.filter((request) => request.url === "https://den.example/api/den/v1/llm-providers"),
     ).toHaveLength(1);
     expect(requests.filter((request) => new URL(request.url).pathname === "/cloud-provider-sync/run")).toHaveLength(0);
     store.dispose();
@@ -402,11 +402,11 @@ describe("session-route cloud provider sync wiring", () => {
 
     store.start();
     for (let attempt = 0; attempt < 20; attempt += 1) {
-      if (requests.some((request) => request.url === "https://api.den.example/v1/llm-providers")) break;
+      if (requests.some((request) => request.url === "https://den.example/api/den/v1/llm-providers")) break;
       await new Promise((resolve) => setTimeout(resolve, 0));
     }
     expect(
-      requests.filter((request) => request.url === "https://api.den.example/v1/llm-providers"),
+      requests.filter((request) => request.url === "https://den.example/api/den/v1/llm-providers"),
     ).toHaveLength(1);
     clearDenSession();
     resolveProviderResponse(jsonResponse({ llmProviders: [cloudProviderPayload()] }));
@@ -437,7 +437,7 @@ describe("session-route cloud provider sync wiring", () => {
     expect(new URL(sessionPuts[0]?.url ?? "").origin).toBe(LOCAL_SERVER_ORIGIN);
     expect(sessionPuts[0]?.headers["x-openwork-host-token"]).toBe("host-token-live");
     expect(sessionPuts[0]?.body).toBe(JSON.stringify({
-      baseUrl: "https://api.den.example",
+      baseUrl: "https://den.example/api/den",
       token: "den-token",
       orgId: "org_test",
     }));
@@ -489,6 +489,6 @@ describe("session-route cloud provider sync wiring", () => {
     expect(requests.filter((request) => new URL(request.url).pathname === "/den-session")).toHaveLength(0);
     expect(requests.filter((request) => new URL(request.url).pathname === "/cloud-provider-sync/run")).toHaveLength(0);
     // The legacy renderer-side reconciliation still runs for remote workspaces.
-    expect(requests.some((request) => request.url === "https://api.den.example/v1/llm-providers")).toBe(true);
+    expect(requests.some((request) => request.url === "https://den.example/api/den/v1/llm-providers")).toBe(true);
   });
 });

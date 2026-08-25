@@ -38,7 +38,12 @@ export BETTER_AUTH_URL="${BETTER_AUTH_URL:-$DEN_WEB_PUBLIC_URL}"
 export DEN_BETTER_AUTH_URL="$BETTER_AUTH_URL"
 export DEN_API_PUBLIC_URL
 export DEN_MCP_RESOURCE_URL="${DEN_MCP_RESOURCE_URL:-$DEN_API_PUBLIC_URL/mcp}"
-export DEN_API_BASE="${DEN_API_BASE:-http://127.0.0.1:$DEN_API_PORT}"
+# DEN_API_BASE is the externally reachable Den API origin (see
+# packages/docs/start-here/private-network-deployment.mdx): Den Web publishes
+# it through /api/runtime-config as the desktop's denApiUrl. Desktops run in
+# other sandboxes and can only reach the public preview URL, never this
+# sandbox's loopback.
+export DEN_API_BASE="${DEN_API_BASE:-${DEN_API_PUBLIC_URL:-http://127.0.0.1:$DEN_API_PORT}}"
 export DEN_AUTH_ORIGIN="${DEN_AUTH_ORIGIN:-$DEN_WEB_PUBLIC_URL}"
 export DEN_AUTH_FALLBACK_BASE="${DEN_AUTH_FALLBACK_BASE:-http://127.0.0.1:$DEN_API_PORT}"
 export NEXT_PUBLIC_OPENWORK_AUTH_CALLBACK_URL="${NEXT_PUBLIC_OPENWORK_AUTH_CALLBACK_URL:-$DEN_WEB_PUBLIC_URL}"

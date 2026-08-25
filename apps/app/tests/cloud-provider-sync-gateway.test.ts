@@ -200,10 +200,10 @@ function installProviderSyncFetch(
         body: getRequestBody(init),
       });
 
-      if (url.origin === "https://api.den.example" && url.pathname === "/v1/llm-providers") {
+      if (url.origin === "https://den.example" && url.pathname === "/api/den/v1/llm-providers") {
         return jsonResponse({ llmProviders: [cloudProviderPayload(options)] });
       }
-      if (url.origin === "https://api.den.example" && url.pathname === "/v1/llm-providers/lpr_test/connect") {
+      if (url.origin === "https://den.example" && url.pathname === "/api/den/v1/llm-providers/lpr_test/connect") {
         return jsonResponse({ llmProvider: cloudProviderPayload(options) });
       }
       if (url.origin === "https://server.example" && url.pathname === "/workspace/ws_1/config" && method === "GET") {
@@ -318,8 +318,8 @@ describe("cloud provider sync in gateway mode", () => {
     const patchRequests = requests.filter(
       (request) => request.method === "PATCH" && request.url === "https://server.example/workspace/ws_1/config",
     );
-    expect(requests.some((request) => request.url === "https://api.den.example/v1/llm-providers")).toBe(true);
-    expect(requests.some((request) => request.url === "https://api.den.example/v1/llm-providers/lpr_test/connect")).toBe(true);
+    expect(requests.some((request) => request.url === "https://den.example/api/den/v1/llm-providers")).toBe(true);
+    expect(requests.some((request) => request.url === "https://den.example/api/den/v1/llm-providers/lpr_test/connect")).toBe(true);
     expect(patchRequests).toHaveLength(1);
     expect(patchRequests[0]?.body).toContain("\"opencode\"");
     expect(store.getSnapshot().importedCloudProviders.lpr_test?.providerId).toBe("lpr_test");
@@ -355,14 +355,14 @@ describe("cloud provider sync in gateway mode", () => {
     });
     expect(store.getSnapshot().importedCloudProviders.lpr_test).toBeUndefined();
     const firstConnectCount = requests.filter(
-      (request) => request.url === "https://api.den.example/v1/llm-providers/lpr_test/connect",
+      (request) => request.url === "https://den.example/api/den/v1/llm-providers/lpr_test/connect",
     ).length;
     expect(firstConnectCount).toBe(1);
 
     await store.runCloudProviderSync("app_resume");
 
     const secondConnectCount = requests.filter(
-      (request) => request.url === "https://api.den.example/v1/llm-providers/lpr_test/connect",
+      (request) => request.url === "https://den.example/api/den/v1/llm-providers/lpr_test/connect",
     ).length;
     expect(secondConnectCount).toBe(firstConnectCount);
   });
@@ -496,7 +496,7 @@ describe("cloud provider sync in server-capability mode", () => {
     const sessionRequests = requests.filter((request) => request.method === "PUT" && new URL(request.url).pathname === "/den-session");
     expect(sessionRequests).toHaveLength(1);
     expect(sessionRequests[0]?.body).toBe(JSON.stringify({
-      baseUrl: "https://api.den.example",
+      baseUrl: "https://den.example/api/den",
       token: "den-token",
       orgId: "org_test",
     }));
