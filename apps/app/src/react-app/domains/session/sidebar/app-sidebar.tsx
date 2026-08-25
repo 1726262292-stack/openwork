@@ -1137,6 +1137,14 @@ export function AppSidebar(props: AppSidebarProps) {
                 </SidebarMenuButton>
               </SidebarMenuItem>
             ) : null}
+            {props.onOpenDashboard ? (
+              <SidebarDestination
+                active={props.dashboardActive === true}
+                icon={Blocks}
+                label="Dashboard"
+                onSelect={props.onOpenDashboard}
+              />
+            ) : null}
             {props.onOpenAutomations ? (
               <SidebarDestination
                 active={props.automationsActive === true}
@@ -1163,14 +1171,6 @@ export function AppSidebar(props: AppSidebarProps) {
               label={t("settings.tab_extensions")}
               onSelect={props.onOpenExtensions}
             />
-            {props.onOpenDashboard ? (
-              <SidebarDestination
-                active={props.dashboardActive === true}
-                icon={Blocks}
-                label="Dashboard"
-                onSelect={props.onOpenDashboard}
-              />
-            ) : null}
             <SidebarMenuItem>
               <NotificationBell variant="sidebar-row" />
             </SidebarMenuItem>

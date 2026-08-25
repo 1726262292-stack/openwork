@@ -9,15 +9,17 @@ import { DenButton } from "../../_components/ui/button";
 import { DenInput } from "../../_components/ui/input";
 import { DenNotice } from "../../_components/ui/notice";
 import { DenSelect } from "../../_components/ui/select";
+import { DenSwitch } from "../../_components/ui/switch";
 import { getManagedDashboardsRoute } from "../../_lib/den-org";
 import { useOrgDashboard } from "../_providers/org-dashboard-provider";
 import { useMcpConnections } from "./mcp-connections-data";
 import { OrgMemberIdentity } from "./org-member-identity";
 import {
-  type ConnectionMcpApp,
+  type ConnectionMcpAppCatalogItem,
   type DashboardAccessGrant,
   type DashboardElement,
-  useConnectionMcpApps,
+  filterConnectionsWithMcpApps,
+  useConnectionMcpAppCatalog,
   useDashboardAccess,
   useDeleteDashboard,
   useGrantDashboardAccess,
@@ -108,7 +110,7 @@ export function OrgDashboardDetailScreen({ dashboardId }: { dashboardId: string 
     <DashboardPageTemplate
       icon={LayoutDashboard}
       title={dashboard.name}
-      description="Members with access see this dashboard's apps on their desktop Dashboard. Each person still runs every tile manually once, and apps that modify data only run on request."
+      description="Members with access see this dashboard's apps on their desktop Dashboard. Apps use member consent unless an admin explicitly enables automatic launch."
       colors={["#E0F2FE", "#0C4A6E", "#0EA5E9", "#BAE6FD"]}
     >
       <Link href={getManagedDashboardsRoute(orgSlug)} className="mb-5 inline-flex items-center gap-1 text-[13px] text-gray-500 hover:text-gray-900">
@@ -151,8 +153,24 @@ export function OrgDashboardDetailScreen({ dashboardId }: { dashboardId: string 
                   <p className="truncate text-[13.5px] font-medium text-gray-900">{element.title}</p>
                   <p className="truncate text-[12px] text-gray-400">
                     {element.toolName}
-                    {element.requiresApproval ? " · runs on request" : ""}
+                    {element.organizationAutoLaunch
+                      ? " · runs automatically by organization policy"
+                      : element.requiresApproval ? " · runs on request" : ""}
                   </p>
+                </div>
+                <div className="flex shrink-0 items-center gap-2 pr-2">
+                  <span className="text-[11.5px] text-gray-500">Auto-run</span>
+                  <DenSwitch
+                    size="sm"
+                    checked={element.organizationAutoLaunch === true}
+                    disabled={busy}
+                    onChange={(checked) => saveElements(elements.map((current, currentIndex) => (
+                      currentIndex === index
+                        ? { ...current, organizationAutoLaunch: checked || undefined }
+                        : current
+                    )))}
+                    aria-label={`Run ${element.title} automatically, even if it modifies data`}
+                  />
                 </div>
                 <div className="flex shrink-0 items-center gap-1">
                   <button
@@ -240,9 +258,16 @@ function AddDashboardAppDialog({
     () => (connectionsQuery.data ?? []).filter((connection) => connection.nativeProviderKey == null),
     [connectionsQuery.data],
   );
+  const appsQuery = useConnectionMcpAppCatalog(connections);
+  const appConnections = useMemo(
+    () => filterConnectionsWithMcpApps(connections, appsQuery.data),
+    [appsQuery.data, connections],
+  );
   const [connectionId, setConnectionId] = useState<string | null>(null);
-  const selectedConnectionId = connectionId ?? connections[0]?.id ?? null;
-  const appsQuery = useConnectionMcpApps(selectedConnectionId);
+  const selectedConnectionId = appConnections.some((connection) => connection.id === connectionId)
+    ? connectionId
+    : appConnections[0]?.id ?? null;
+  const visibleApps = appsQuery.data.filter((app) => app.connectionId === selectedConnectionId);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 px-4 py-6" onClick={onClose}>
@@ -257,19 +282,19 @@ function AddDashboardAppDialog({
           Add app
         </h2>
         <p className="mt-1 text-[13px] leading-6 text-gray-500">
-          Pick an MCP app from one of your organization&apos;s connectors.
+          Select an MCP, then choose one of its Apps. MCPs without Apps are hidden.
         </p>
 
         <label className="mt-4 block">
-          <span className="mb-1.5 block text-[12px] font-medium text-gray-700">Connector</span>
+          <span className="mb-1.5 block text-[12px] font-medium text-gray-700">MCP</span>
           <DenSelect
-            aria-label="Connector"
+            aria-label="MCP"
             value={selectedConnectionId ?? ""}
             onChange={(event) => setConnectionId(event.target.value || null)}
-            disabled={connections.length === 0}
+            disabled={appConnections.length === 0}
           >
-            {connections.length === 0 ? <option value="">No connectors available</option> : null}
-            {connections.map((connection) => (
+            {appConnections.length === 0 ? <option value="">No MCPs with Apps available</option> : null}
+            {appConnections.map((connection) => (
               <option key={connection.id} value={connection.id}>{connection.name}</option>
             ))}
           </DenSelect>
@@ -283,13 +308,13 @@ function AddDashboardAppDialog({
               tone="error"
               message={appsQuery.error instanceof Error ? appsQuery.error.message : "Failed to load this connector's apps."}
             />
-          ) : (appsQuery.data ?? []).length === 0 ? (
+          ) : visibleApps.length === 0 ? (
             <p className="py-6 text-center text-[13px] text-gray-400">
-              {selectedConnectionId ? "This connector has no launchable apps." : "Add a connector first."}
+              No MCP Apps are available from your organization&apos;s connections.
             </p>
           ) : (
             <div className="divide-y divide-gray-100 rounded-xl border border-gray-100">
-              {(appsQuery.data ?? []).map((app) => (
+              {visibleApps.map((app) => (
                 <ConnectionAppRow
                   key={elementKey(app)}
                   app={app}
@@ -314,12 +339,13 @@ function ConnectionAppRow({
   added,
   onAdd,
 }: {
-  app: ConnectionMcpApp;
+  app: ConnectionMcpAppCatalogItem;
   added: boolean;
   onAdd: (element: DashboardElement) => void;
 }) {
   const [argumentsText, setArgumentsText] = useState("");
   const [argumentsError, setArgumentsError] = useState<string | null>(null);
+  const [organizationAutoLaunch, setOrganizationAutoLaunch] = useState(false);
 
   function add() {
     let launchArguments: Record<string, unknown> | undefined;
@@ -346,6 +372,7 @@ function ConnectionAppRow({
       title: app.title,
       ...(launchArguments && Object.keys(launchArguments).length > 0 ? { launchArguments } : {}),
       ...(app.requiresApproval ? { requiresApproval: true } : {}),
+      ...(organizationAutoLaunch ? { organizationAutoLaunch: true } : {}),
     });
   }
 
@@ -356,6 +383,7 @@ function ConnectionAppRow({
           <p className="truncate text-[13.5px] font-medium text-gray-900">{app.title}</p>
           <p className="truncate text-[12px] text-gray-400">
             {app.description ?? app.toolName}
+            {` · ${app.connectionName}`}
             {app.requiresApproval ? " · modifies data, runs on request" : ""}
           </p>
         </div>
@@ -367,6 +395,22 @@ function ConnectionAppRow({
           <DenButton size="sm" variant="secondary" onClick={add}>Add</DenButton>
         )}
       </div>
+      {!added ? (
+        <div className="mt-3 flex items-start justify-between gap-4 rounded-xl bg-amber-50 px-3 py-2.5">
+          <div>
+            <p className="text-[12px] font-medium text-amber-950">Run automatically</p>
+            <p className="mt-0.5 text-[11.5px] leading-4 text-amber-800">
+              Run on dashboard load and refresh, even if this app modifies data.
+            </p>
+          </div>
+          <DenSwitch
+            size="sm"
+            checked={organizationAutoLaunch}
+            onChange={setOrganizationAutoLaunch}
+            aria-label={`Run ${app.title} automatically, even if it modifies data`}
+          />
+        </div>
+      ) : null}
       {!added && app.requiresInput ? (
         <label className="mt-2 block">
           <span className="mb-1 block text-[11.5px] font-medium text-gray-600">Launch input (JSON, required by this app)</span>

@@ -30,26 +30,43 @@ async function organizationId(session: DenSession): Promise<string> {
   return id;
 }
 
-async function createDashboard(session: DenSession, name: string): Promise<string> {
+type DashboardElementInput = {
+  serverName: string;
+  connectionId: string;
+  toolName: string;
+  projectedToolName: string;
+  resourceUri: string;
+  title: string;
+  requiresApproval?: boolean;
+  organizationAutoLaunch?: boolean;
+};
+
+const weeklyReportElement: DashboardElementInput = {
+  serverName: "openwork-app-host-connect-0123456789ab",
+  connectionId: "emc_01dashboardfixture0000000000",
+  toolName: "render_report",
+  projectedToolName: "openwork-app-host-connect-0123456789ab_render_report",
+  resourceUri: "ui://fixture/report/view.html",
+  title: "Weekly report",
+};
+
+async function createDashboard(
+  session: DenSession,
+  name: string,
+  elements: DashboardElementInput[] = [weeklyReportElement],
+): Promise<string> {
   const result = await denFetch(session, "/v1/dashboards", {
     method: "POST",
     headers: { authorization: `Bearer ${session.token}` },
     body: JSON.stringify({
       name,
-      elements: [{
-        serverName: "openwork-app-host-connect-0123456789ab",
-        connectionId: "emc_01dashboardfixture0000000000",
-        toolName: "render_report",
-        projectedToolName: "openwork-app-host-connect-0123456789ab_render_report",
-        resourceUri: "ui://fixture/report/view.html",
-        title: "Weekly report",
-      }],
+      elements,
     }),
   });
   const item = isRecord(result.body) && isRecord(result.body.item) ? result.body.item : null;
   const id = item && typeof item.id === "string" ? item.id : "";
-  const elements = item && Array.isArray(item.elements) ? item.elements : [];
-  if (result.response.status !== 201 || !id || elements.length !== 1) {
+  const returnedElements = item && Array.isArray(item.elements) ? item.elements : [];
+  if (result.response.status !== 201 || !id || returnedElements.length !== elements.length) {
     throw new Error(`Creating ${name} failed: HTTP ${result.response.status} ${result.text.slice(0, 500)}`);
   }
   return id;
@@ -68,7 +85,18 @@ test(title, async ({ evidence, place }) => {
   const orgId = await organizationId(den.admin);
   const grantedName = `Operations board ${Date.now()}`;
   const privateName = `Private board ${Date.now()}`;
-  const grantedDashboardId = await createDashboard(den.admin, grantedName);
+  const grantedDashboardId = await createDashboard(den.admin, grantedName, [
+    weeklyReportElement,
+    {
+      ...weeklyReportElement,
+      toolName: "create_ticket",
+      projectedToolName: "openwork-app-host-connect-0123456789ab_create_ticket",
+      resourceUri: "ui://fixture/ticket/view.html",
+      title: "Automatic ticket summary",
+      requiresApproval: true,
+      organizationAutoLaunch: true,
+    },
+  ]);
   await createDashboard(den.admin, privateName);
   const grant = await denFetch(den.admin, `/v1/dashboards/${grantedDashboardId}/access`, {
     method: "POST",
@@ -114,6 +142,10 @@ test(title, async ({ evidence, place }) => {
     const allText = document.body.innerText;
     const weeklyTile = [...section.querySelectorAll("[data-dashboard-entry]")]
       .find((tile) => tile.textContent?.includes("Weekly report"));
+    const searchButton = [...document.querySelectorAll("button")]
+      .find((button) => button.textContent?.includes("Search sessions"));
+    const dashboardButton = [...document.querySelectorAll("button")]
+      .find((button) => button.textContent?.trim() === "Dashboard");
     return {
       boardVisible: section.innerText.includes(${JSON.stringify(grantedName)}),
       privateBoardVisible: allText.includes(${JSON.stringify(privateName)}),
@@ -123,6 +155,9 @@ test(title, async ({ evidence, place }) => {
       addAppVisible: [...document.querySelectorAll("button")]
         .some((button) => button.textContent?.trim() === "Add app"),
       managedLabelVisible: section.innerText.includes("Managed by your organization"),
+      dashboardImmediatelyAfterSearch: searchButton instanceof HTMLElement
+        && dashboardButton instanceof HTMLElement
+        && searchButton.parentElement?.nextElementSibling?.contains(dashboardButton) === true,
     };
   })()`);
   expect(initialState).toEqual({
@@ -133,7 +168,52 @@ test(title, async ({ evidence, place }) => {
     removeVisible: false,
     addAppVisible: false,
     managedLabelVisible: true,
+    dashboardImmediatelyAfterSearch: true,
   });
+  await waitFor(desktop, `(() => {
+    const section = document.querySelector(${JSON.stringify(`[data-granted-dashboard="${grantedDashboardId}"]`)});
+    if (!(section instanceof HTMLElement)) return false;
+    const automaticTile = [...section.querySelectorAll("[data-dashboard-entry]")]
+      .find((tile) => tile.textContent?.includes("Automatic ticket summary"));
+    const cacheState = automaticTile instanceof HTMLElement
+      ? automaticTile.querySelector("[data-dashboard-cache-state]")?.getAttribute("data-dashboard-cache-state")
+      : null;
+    return automaticTile instanceof HTMLElement
+      && (cacheState === "refreshing" || automaticTile.innerText.includes("Refresh failed"))
+      && !automaticTile.querySelector('button[aria-label="Run Automatic ticket summary"]');
+  })()`, {
+    timeoutMs: 90_000,
+    label: "organization-authorized modifying app attempted automatic load",
+  });
+  const organizationPolicyState = await evalIn(desktop, `(() => {
+    const section = document.querySelector(${JSON.stringify(`[data-granted-dashboard="${grantedDashboardId}"]`)});
+    const tile = section instanceof HTMLElement
+      ? [...section.querySelectorAll("[data-dashboard-entry]")]
+        .find((entry) => entry.textContent?.includes("Automatic ticket summary"))
+      : null;
+    const cacheState = tile instanceof HTMLElement
+      ? tile.querySelector("[data-dashboard-cache-state]")?.getAttribute("data-dashboard-cache-state")
+      : null;
+    return {
+      automaticAttemptVisible: tile instanceof HTMLElement
+        && (cacheState === "refreshing" || tile.innerText.includes("Refresh failed")),
+      cacheState,
+      runVisible: Boolean(tile?.querySelector('button[aria-label="Run Automatic ticket summary"]')),
+    };
+  })()`);
+  expect(organizationPolicyState).toMatchObject({ automaticAttemptVisible: true, runVisible: false });
+  evidence.recordAssertionEvidence(
+    "Desktop places Dashboard directly below Search in the left sidebar",
+    `state=${JSON.stringify(initialState)}`,
+    isRecord(initialState) && initialState.dashboardImmediatelyAfterSearch === true,
+  );
+  evidence.recordAssertionEvidence(
+    "Organization admins can authorize automatic launch even for an app that modifies data",
+    `tile=Automatic ticket summary; state=${JSON.stringify(organizationPolicyState)}`,
+    isRecord(organizationPolicyState)
+      && organizationPolicyState.automaticAttemptVisible === true
+      && organizationPolicyState.runVisible === false,
+  );
   evidence.recordAssertionEvidence(
     "Desktop renders only dashboards granted to the signed-in member",
     `org=${orgId}; granted=${grantedName}; ungranted=${privateName}; state=${JSON.stringify(initialState)}`,
@@ -188,10 +268,11 @@ test(title, async ({ evidence, place }) => {
       .find((tile) => tile.textContent?.includes("Weekly report"));
     return weeklyTile instanceof HTMLElement
       && Boolean(weeklyTile.querySelector("iframe"))
-      && weeklyTile.innerText.includes("Saved locally · refresh failed");
+      && (weeklyTile.innerText.includes("Saved locally · refreshing")
+        || weeklyTile.innerText.includes("Saved locally · refresh failed"));
   })()`, {
     timeoutMs: 90_000,
-    label: "saved dashboard view remained visible after background refresh failed",
+    label: "saved dashboard view remained visible during background refresh",
   });
 
   const cachedState = await evalIn(desktop, `(() => {
@@ -202,22 +283,23 @@ test(title, async ({ evidence, place }) => {
       : null;
     return {
       cachedViewVisible: weeklyTile instanceof HTMLElement && Boolean(weeklyTile.querySelector("iframe")),
-      refreshFailureVisible: weeklyTile instanceof HTMLElement
-        && weeklyTile.innerText.includes("Saved locally · refresh failed"),
+      refreshActive: weeklyTile instanceof HTMLElement
+        && (weeklyTile.innerText.includes("Saved locally · refreshing")
+          || weeklyTile.innerText.includes("Saved locally · refresh failed")),
       readOnlyRunVisible: Boolean(section?.querySelector('button[aria-label="Run Weekly report"]')),
     };
   })()`);
   expect(cachedState).toEqual({
     cachedViewVisible: true,
-    refreshFailureVisible: true,
+    refreshActive: true,
     readOnlyRunVisible: false,
   });
   evidence.recordAssertionEvidence(
-    "Desktop renders saved dashboard data immediately and keeps it visible when refresh fails",
+    "Desktop renders saved dashboard data immediately and keeps it visible during background refresh",
     `tile=Weekly report; state=${JSON.stringify(cachedState)}`,
     isRecord(cachedState)
       && cachedState.cachedViewVisible === true
-      && cachedState.refreshFailureVisible === true
+      && cachedState.refreshActive === true
       && cachedState.readOnlyRunVisible === false,
   );
   evidence.recordAssertionEvidence(

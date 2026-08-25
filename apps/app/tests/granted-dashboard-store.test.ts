@@ -33,6 +33,7 @@ describe("grantedEntryId", () => {
       { ...element, projectedToolName: "connect_abc_other" },
       { ...element, launchArguments: { region: "us", team: "ops" } },
       { ...element, requiresApproval: true },
+      { ...element, organizationAutoLaunch: true },
       (() => {
         const { launchArguments: _omitted, ...rest } = element;
         return rest;
@@ -73,5 +74,24 @@ describe("grantedEntryId", () => {
       { ...element, requiresApproval: true },
       { autoLaunch: true },
     ).autoLaunch).toBeUndefined();
+  });
+
+  test("applies an organization auto-launch policy independently of local approval metadata", () => {
+    const dashboard: DenGrantedDashboard = {
+      id: "dsb_1",
+      name: "Operations",
+      elements: [element],
+      updatedAt: null,
+    };
+    const managedElement: DenDashboardElement = {
+      ...element,
+      requiresApproval: true,
+      organizationAutoLaunch: true,
+    };
+
+    expect(grantedDashboardEntry(dashboard, managedElement, undefined)).toMatchObject({
+      requiresApproval: true,
+      organizationAutoLaunch: true,
+    });
   });
 });
