@@ -22,12 +22,33 @@ RUN apt-get update \
 
 WORKDIR /workspace
 
+ENV PATH="/usr/local/share/nvm/current/bin:$PATH"
+
 RUN git clone --depth 1 --branch dev https://github.com/different-ai/openwork.git . \
   && mkdir -p /workspace/.openwork-daytona \
   && sha256sum /workspace/pnpm-lock.yaml | cut -d ' ' -f 1 > /workspace/.openwork-daytona/pnpm-lock.sha256 \
-  && git gc --prune=now \
-  && rm -rf /home/daytona/.cache /home/daytona/.npm /home/daytona/.local/share/pnpm/store \
-    /workspace/node_modules
+  && git rev-parse HEAD > /workspace/.openwork-daytona/base-commit \
+  && git gc --prune=now
+
+# Bake dependencies and the sandbox-invariant Den builds so a boot from this
+# snapshot only pays checkout + delta install + service start. The Den Web
+# production build bakes no per-sandbox values: NEXT_PUBLIC_* inputs are fixed
+# and every DEN_* value is runtime env consumed by `next start`.
+# .devcontainer/start-daytona-server.sh skips these rebuilds when the git tree
+# hashes recorded here still match the checked-out ref.
+RUN CI=1 pnpm install --store-dir /workspace/.openwork-daytona/pnpm-store --frozen-lockfile \
+  && NEXT_PUBLIC_POSTHOG_KEY= NEXT_PUBLIC_POSTHOG_API_KEY= \
+    pnpm --filter @openwork/ui build \
+  && NEXT_PUBLIC_POSTHOG_KEY= NEXT_PUBLIC_POSTHOG_API_KEY= \
+    pnpm --filter @openwork-ee/utils build \
+  && NEXT_PUBLIC_POSTHOG_KEY= NEXT_PUBLIC_POSTHOG_API_KEY= \
+    pnpm --filter @openwork-ee/den-web build \
+  && pnpm --filter @openwork-ee/den-api run build:mcp-apps \
+  && { git rev-parse HEAD:packages/ui HEAD:ee/packages/utils HEAD:ee/apps/den-web; cat /workspace/.openwork-daytona/pnpm-lock.sha256; } \
+    | sha256sum | cut -d ' ' -f 1 > /workspace/.openwork-daytona/den-web-build.tree \
+  && { git rev-parse HEAD:packages/mcp-apps; cat /workspace/.openwork-daytona/pnpm-lock.sha256; } \
+    | sha256sum | cut -d ' ' -f 1 > /workspace/.openwork-daytona/den-api-assets.tree \
+  && rm -rf /home/daytona/.cache /home/daytona/.npm /home/daytona/.local/share/pnpm/store
 
 RUN chown -R daytona:daytona /workspace \
   && printf 'daytona ALL=(ALL) NOPASSWD:ALL\n' >/etc/sudoers.d/daytona-openwork \

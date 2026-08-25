@@ -137,11 +137,36 @@ else
   echo "==> Skipping pnpm install (node_modules present and lockfile unchanged)."
 fi
 
+# Content keys for the sandbox-invariant builds baked into the snapshot.
+# A build is skipped only when the git trees that feed it and the lockfile
+# both match what the snapshot (or a previous boot) built. Snapshots without
+# markers, refs that changed those trees, or refs where a tree is missing
+# rebuild exactly as before. An empty key never matches and is never stored.
+build_key() {
+  local trees
+  trees="$(git rev-parse "$@" 2>/dev/null)" || return 0
+  # Byte-identical to the snapshot bake: one tree hash per line, then the
+  # lockfile sha, all newline-terminated.
+  printf '%s\n%s\n' "$trees" "$current" | sha256sum | cut -d ' ' -f 1
+}
+
 echo "==> Pushing Den DB schema..."
 pnpm --filter @openwork-ee/den-db db:push > /tmp/den-db-push.log 2>&1
 
-echo "==> Building Den API runtime assets..."
-pnpm --filter @openwork-ee/den-api run build:mcp-apps
+den_api_assets_marker=.openwork-daytona/den-api-assets.tree
+den_api_assets_key="$(build_key HEAD:packages/mcp-apps)"
+if [ -n "$den_api_assets_key" ] && [ -d packages/mcp-apps/dist ] && [ -f "$den_api_assets_marker" ] \
+  && [ "$(cat "$den_api_assets_marker")" = "$den_api_assets_key" ]; then
+  echo "==> Skipping Den API runtime asset build (baked assets match this ref)."
+else
+  echo "==> Building Den API runtime assets..."
+  pnpm --filter @openwork-ee/den-api run build:mcp-apps
+  if [ -n "$den_api_assets_key" ]; then
+    printf "%s" "$den_api_assets_key" > "$den_api_assets_marker"
+  else
+    rm -f "$den_api_assets_marker"
+  fi
+fi
 
 echo "==> Starting Den API on :$DEN_API_PORT..."
 # The den-api process cmdline is "tsx watch src/main.ts" (cwd-relative), so a
@@ -241,22 +266,38 @@ wait_for_http_status() {
 
 wait_for_http_status "http://127.0.0.1:$DEN_WORKER_PROXY_PORT/unknown" "worker proxy" 120
 
-echo "==> Building Den Web (dev-mode HMR websockets 502 through the preview proxy and block hydration)..."
-if ! env \
-  DEN_WEB_PORT="$DEN_WEB_PORT" \
-  DEN_API_BASE="$DEN_API_BASE" \
-  DEN_AUTH_ORIGIN="$DEN_AUTH_ORIGIN" \
-  DEN_AUTH_FALLBACK_BASE="$DEN_AUTH_FALLBACK_BASE" \
-  NEXT_PUBLIC_OPENWORK_AUTH_CALLBACK_URL="$NEXT_PUBLIC_OPENWORK_AUTH_CALLBACK_URL" \
-  NEXT_PUBLIC_POSTHOG_KEY= \
-  NEXT_PUBLIC_POSTHOG_API_KEY= \
-  DEN_ORG_MODE="$DEN_ORG_MODE" \
-  OPENWORK_DEV_MODE="$OPENWORK_DEV_MODE" \
-  DEN_WEB_ALLOWED_DEV_ORIGINS="$DEN_WEB_ALLOWED_DEV_ORIGINS" \
-  bash -c 'pnpm --filter @openwork/ui build && pnpm --filter @openwork-ee/utils build && pnpm --filter @openwork-ee/den-web build' > /tmp/den-web-build.log 2>&1; then
-  echo "ERROR: Den Web build failed. Last 80 lines:" >&2
-  tail -n 80 /tmp/den-web-build.log >&2
-  exit 1
+den_web_marker=.openwork-daytona/den-web-build.tree
+den_web_key="$(build_key HEAD:packages/ui HEAD:ee/packages/utils HEAD:ee/apps/den-web)"
+if [ -n "$den_web_key" ] && [ -d ee/apps/den-web/.next ] && [ -f "$den_web_marker" ] \
+  && [ "$(cat "$den_web_marker")" = "$den_web_key" ]; then
+  echo "==> Skipping Den Web build (baked build matches this ref)."
+else
+  # Production build instead of next dev: dev-mode HMR websockets 502 through
+  # the preview proxy and block hydration. The build bakes no per-sandbox
+  # values (all DEN_* env is consumed at runtime by next start), so a build
+  # from the snapshot's base commit is reusable across sandboxes.
+  echo "==> Building Den Web..."
+  if ! env \
+    DEN_WEB_PORT="$DEN_WEB_PORT" \
+    DEN_API_BASE="$DEN_API_BASE" \
+    DEN_AUTH_ORIGIN="$DEN_AUTH_ORIGIN" \
+    DEN_AUTH_FALLBACK_BASE="$DEN_AUTH_FALLBACK_BASE" \
+    NEXT_PUBLIC_OPENWORK_AUTH_CALLBACK_URL="$NEXT_PUBLIC_OPENWORK_AUTH_CALLBACK_URL" \
+    NEXT_PUBLIC_POSTHOG_KEY= \
+    NEXT_PUBLIC_POSTHOG_API_KEY= \
+    DEN_ORG_MODE="$DEN_ORG_MODE" \
+    OPENWORK_DEV_MODE="$OPENWORK_DEV_MODE" \
+    DEN_WEB_ALLOWED_DEV_ORIGINS="$DEN_WEB_ALLOWED_DEV_ORIGINS" \
+    bash -c 'pnpm --filter @openwork/ui build && pnpm --filter @openwork-ee/utils build && pnpm --filter @openwork-ee/den-web build' > /tmp/den-web-build.log 2>&1; then
+    echo "ERROR: Den Web build failed. Last 80 lines:" >&2
+    tail -n 80 /tmp/den-web-build.log >&2
+    exit 1
+  fi
+  if [ -n "$den_web_key" ]; then
+    printf "%s" "$den_web_key" > "$den_web_marker"
+  else
+    rm -f "$den_web_marker"
+  fi
 fi
 
 echo "==> Starting Den Web on :$DEN_WEB_PORT..."

@@ -24,11 +24,13 @@ if [ -n "$existing_snapshot_id" ]; then
 fi
 
 echo "==> Creating Daytona server snapshot: $SNAPSHOT_NAME"
+# Disk holds the baked node_modules, pnpm store, and Den build outputs that
+# make sandbox boots delta-only.
 daytona snapshot create "$SNAPSHOT_NAME" \
   --dockerfile "$ROOT_DIR/.devcontainer/Dockerfile.daytona-server" \
   --cpu 4 \
   --memory 8 \
-  --disk 10 \
+  --disk 20 \
   --region "$REGION"
 
 echo "Snapshot ready: $SNAPSHOT_NAME"
