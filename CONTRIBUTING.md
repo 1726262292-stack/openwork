@@ -19,18 +19,28 @@ commits cannot be merged.
 
 ## 2. How your contribution is licensed
 
-This repository is open core:
+This repository is open core, and the paperwork depends on where you
+contribute (the same structure GitLab uses for its `ee/` directory):
 
 - Contributions to code **outside `ee/`** are accepted under the
-  [MIT license](./LICENSE) (inbound = outbound).
-- Contributions to code **under `ee/`** are accepted under the
-  [OpenWork EE License](./ee/LICENSE). Per that license, Different AI, Inc.
-  retains all right, title, and interest in and to modifications and patches
-  to the EE-licensed software, and every EE release converts to MIT one year
-  after publication.
+  [MIT license](./LICENSE) (inbound = outbound), certified by your DCO
+  sign-off.
+- Contributions to code **under `ee/`** additionally require a Contributor
+  License Agreement, because the EE-licensed software is sold under
+  subscriptions and each release later converts to MIT — we need a license
+  from you broad enough to do both:
+  - as an individual, the
+    [Individual Contributor License Agreement](./legal/individual-contributor-license-agreement.md);
+  - on behalf of a company, the
+    [Corporate Contributor License Agreement](./legal/corporate-contributor-license-agreement.md).
+
+  You keep ownership of your contribution; the CLA grants Different AI, Inc.
+  a perpetual, irrevocable license (including sublicensing) that covers
+  subscription distribution and the EE License's scheduled MIT conversion.
 
 By submitting a pull request you agree your contribution is provided under
-the license governing the directory it modifies.
+the terms above for the directories it modifies. Maintainers will not merge
+`ee/` contributions until the applicable CLA is in place.
 
 If you are contributing as part of paid work, a work trial, or on behalf of
 an employer, make sure a signed agreement covering intellectual property
