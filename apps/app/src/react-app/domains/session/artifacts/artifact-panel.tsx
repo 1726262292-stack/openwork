@@ -1,7 +1,7 @@
 /** @jsxImportSource react */
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Download, ExternalLink, FolderOpen, X } from "lucide-react";
+import { Download, ExternalLink, FolderOpen, PanelLeftClose, PanelLeftOpen, X } from "lucide-react";
 
 import type { OpenworkServerClient } from "@/app/lib/openwork-server";
 import { getDesktopFileIcon, openDesktopPath, revealDesktopItemInDir } from "@/app/lib/desktop";
@@ -11,7 +11,7 @@ import { toast } from "@/components/ui/sonner";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { usePlatform } from "@/react-app/kernel/platform";
 import { type ArtifactPanelTab, usePanelTabStore } from "../panel/panel-tab-store";
-import { isCollectibleArtifactTarget, type BinaryData, type Data, type OpenTarget, type TextData } from "./open-target";
+import { isCollectibleArtifactTarget, openTargetFromWorkspaceFile, type BinaryData, type Data, type OpenTarget, type TextData } from "./open-target";
 import { HTMLPreview, ImagePreview, MarkdownPreview, PdfPreview, PlainText, PreviewError, PreviewLoading, PreviewUnavailable } from "./preview";
 
 const ArtifactTextEditor = lazy(() =>
@@ -19,6 +19,12 @@ const ArtifactTextEditor = lazy(() =>
 );
 const ArtifactSpreadsheetEditor = lazy(() =>
   import("./artifact-spreadsheet-editor").then((module) => ({ default: module.ArtifactSpreadsheetEditor })),
+);
+const ArtifactCodeView = lazy(() =>
+  import("./artifact-code-view").then((module) => ({ default: module.ArtifactCodeView })),
+);
+const WorkspaceFileTree = lazy(() =>
+  import("./workspace-file-tree").then((module) => ({ default: module.WorkspaceFileTree })),
 );
 
 const EMPTY_TRANSCRIPT_TARGETS: OpenTarget[] = [];
@@ -44,6 +50,7 @@ type ArtifactPanelProps = {
 };
 
 type ArtifactPanelViewProps = {
+  sessionId: string;
   client: OpenworkServerClient;
   workspaceId: string;
   workspaceRoot: string;
@@ -66,13 +73,13 @@ function absoluteWorkspacePath(root: string, path: string) {
 }
 
 function isTextContent(target: OpenTarget): boolean {
-  return ["markdown", "text", "sheet", "html"].includes(target.preview) && !/\.(xlsx|xls|ods)$/i.test(target.value);
+  return ["markdown", "code", "text", "sheet", "html"].includes(target.preview) && !/\.(xlsx|xls|ods)$/i.test(target.value);
 }
 
 export function ArtifactPanel({ sessionId, tab, client, workspaceId, workspaceRoot, isRemoteWorkspace = false, onClose }: ArtifactPanelProps) {
   const transcriptTargets = usePanelTabStore((state) => state.transcriptArtifactTargets[sessionId] ?? EMPTY_TRANSCRIPT_TARGETS);
   const artifactTargets = useMemo(() => transcriptTargets.filter(isCollectibleArtifactTarget), [transcriptTargets]);
-  const target = artifactTargets.find((item) => item.id === tab.id) ?? null;
+  const target = tab.target ?? artifactTargets.find((item) => item.id === tab.id) ?? null;
 
   if (!target || !client || !workspaceId) {
     return null;
@@ -80,6 +87,7 @@ export function ArtifactPanel({ sessionId, tab, client, workspaceId, workspaceRo
 
   return (
     <ArtifactPanelView
+      sessionId={sessionId}
       client={client}
       workspaceId={workspaceId}
       workspaceRoot={workspaceRoot}
@@ -90,16 +98,30 @@ export function ArtifactPanel({ sessionId, tab, client, workspaceId, workspaceRo
   );
 }
 
-function ArtifactPanelView({ client, workspaceId, workspaceRoot, isRemoteWorkspace = false, target, onClose }: ArtifactPanelViewProps) {
+function ArtifactPanelView({ sessionId, client, workspaceId, workspaceRoot, isRemoteWorkspace = false, target, onClose }: ArtifactPanelViewProps) {
   const platform = usePlatform();
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState(false);
+  const [treeOpen, setTreeOpen] = useState(true);
   const [draft, setDraft] = useState("");
   const lastSyncedRef = useRef<string | null>(null);
   const failedDraftRef = useRef<string | null>(null);
   const isDirectTextEdit = isTextContent(target) && target.preview === "markdown" && !isMarkdownPrimitiveEvalArtifact(target);
   const externalPath = useMemo(() => target.kind === "file" ? absoluteWorkspacePath(workspaceRoot, target.value) : target.value, [target.kind, target.value, workspaceRoot]);
   const canUseDesktopFileActions = target.kind === "file" && !isRemoteWorkspace && platform.capabilities.revealInFileManager;
+  const workspaceName = workspaceRoot.split(/[/\\]/).filter(Boolean).pop() ?? "Workspace";
+
+  const openWorkspaceFile = (entry: { path: string; size: number; mtimeMs: number }) => {
+    const nextTarget = openTargetFromWorkspaceFile(entry.path, { size: entry.size, updatedAt: entry.mtimeMs });
+    if (!nextTarget) return;
+    usePanelTabStore.getState().openTab(sessionId, {
+      id: nextTarget.id,
+      type: "artifact",
+      label: nextTarget.name,
+      preview: nextTarget.preview,
+      target: nextTarget,
+    });
+  };
 
   const { data: fileIcon } = useQuery<string | null>({
     queryKey: ["desktop-file-icon", externalPath] as const,
@@ -293,16 +315,26 @@ function ArtifactPanelView({ client, workspaceId, workspaceRoot, isRemoteWorkspa
             </span>
           </div>
           <div className="flex shrink-0 items-center gap-2">
-          {isTextContent(target) && data?.kind === "text" && !isDirectTextEdit ? (
             <Tooltip>
               <TooltipTrigger
                 render={(
-                  <Button variant="ghost" size="sm" onClick={() => setEditing((value) => !value)}>{editing ? "Done" : "Edit"}</Button>
+                  <Button variant="ghost" size="icon-sm" onClick={() => setTreeOpen((value) => !value)} aria-label={treeOpen ? "Hide workspace files" : "Show workspace files"}>
+                    {treeOpen ? <PanelLeftClose /> : <PanelLeftOpen />}
+                  </Button>
                 )}
               />
-              <TooltipContent>{editing ? "Stop editing" : "Edit artifact"}</TooltipContent>
+              <TooltipContent>{treeOpen ? "Hide workspace files" : "Show workspace files"}</TooltipContent>
             </Tooltip>
-          ) : null}
+            {isTextContent(target) && data?.kind === "text" && !isDirectTextEdit ? (
+              <Tooltip>
+                <TooltipTrigger
+                  render={(
+                    <Button variant="ghost" size="sm" onClick={() => setEditing((value) => !value)}>{editing ? "Done" : "Edit"}</Button>
+                  )}
+                />
+                <TooltipContent>{editing ? "Stop editing" : "Edit artifact"}</TooltipContent>
+              </Tooltip>
+            ) : null}
           {target.kind === "file" ? (
             <Tooltip>
               <TooltipTrigger
@@ -352,8 +384,20 @@ function ArtifactPanelView({ client, workspaceId, workspaceRoot, isRemoteWorkspa
           </div>
         </div>
       </div>
-      <div className="min-h-0 flex-1 overflow-hidden">
-        {isLoading || (data?.kind === "binary" && !binaryObjectUrl) ? (
+      <div className="flex min-h-0 flex-1 overflow-hidden">
+        {treeOpen ? (
+          <Suspense fallback={<div className="w-52 shrink-0 border-r border-border bg-muted/20" />}>
+            <WorkspaceFileTree
+              client={client}
+              workspaceId={workspaceId}
+              workspaceName={workspaceName}
+              selectedPath={target.value}
+              onOpenFile={openWorkspaceFile}
+            />
+          </Suspense>
+        ) : null}
+        <div className="min-w-0 flex-1 overflow-hidden">
+          {isLoading || (data?.kind === "binary" && !binaryObjectUrl) ? (
           <PreviewLoading />
         ) : isError ? (
           <PreviewError message={error instanceof Error ? error.message : "Failed to load artifact" } />
@@ -361,6 +405,10 @@ function ArtifactPanelView({ client, workspaceId, workspaceRoot, isRemoteWorkspa
           <TextEditor value={draft} language={target.preview === "markdown" ? "markdown" : "text"} onChange={setDraft} />
         ) : target.preview === "markdown" && data?.kind === "text" ? (
           <MarkdownPreview content={data.data} />
+        ) : target.preview === "code" && data?.kind === "text" ? (
+          <Suspense fallback={<PreviewLoading />}>
+            <ArtifactCodeView name={target.name} path={target.value} content={data.data} />
+          </Suspense>
         ) : target.preview === "sheet" ? (
           <SheetEditor
             name={target.name}
@@ -380,7 +428,8 @@ function ArtifactPanelView({ client, workspaceId, workspaceRoot, isRemoteWorkspa
           <PlainText content={data.data} />
         ) : (
           <PreviewUnavailable />
-        )}
+          )}
+        </div>
       </div>
     </div>
   );

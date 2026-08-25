@@ -260,6 +260,20 @@ export type OpenworkWorkspaceFileDeleteResult = {
   code?: string;
 };
 
+export type OpenworkWorkspaceCatalogEntry = {
+  path: string;
+  kind: "file" | "dir";
+  size: number;
+  mtimeMs: number;
+  revision: string;
+};
+
+export type OpenworkWorkspaceCatalog = {
+  items: OpenworkWorkspaceCatalogEntry[];
+  total: number;
+  truncated: boolean;
+};
+
 export type OpenworkAuthorizedFoldersResponse = {
   folders: string[];
   hiddenCount: number;
@@ -859,7 +873,7 @@ export type OpenworkResolvedArtifactTarget = {
   kind: "file" | "url";
   value: string;
   name: string;
-  preview: "browser" | "markdown" | "sheet" | "slides" | "image" | "pdf" | "html" | "text" | "external";
+  preview: "browser" | "markdown" | "code" | "sheet" | "slides" | "image" | "pdf" | "html" | "text" | "external";
   confidence: number;
   reason: string;
   exists?: boolean;
@@ -2251,6 +2265,28 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
         `/workspace/${encodeURIComponent(workspaceId)}/files/stat?path=${encodeURIComponent(path)}`,
         { token, hostToken },
       ),
+
+    listWorkspaceFiles: async (workspaceId: string) => {
+      const created = await requestJson<{ session: { id: string } }>(
+        baseUrl,
+        `/workspace/${encodeURIComponent(workspaceId)}/files/sessions`,
+        { token, hostToken, method: "POST", body: { write: false } },
+      );
+      const sessionId = created.session.id;
+      try {
+        return await requestJson<OpenworkWorkspaceCatalog>(
+          baseUrl,
+          `/files/sessions/${encodeURIComponent(sessionId)}/catalog/snapshot?includeDirs=true&limit=10000&excludeHeavyDirectories=true`,
+          { token, hostToken },
+        );
+      } finally {
+        await requestJson<{ ok: boolean }>(baseUrl, `/files/sessions/${encodeURIComponent(sessionId)}`, {
+          token,
+          hostToken,
+          method: "DELETE",
+        }).catch(() => undefined);
+      }
+    },
 
     writeWorkspaceFile: (
       workspaceId: string,
