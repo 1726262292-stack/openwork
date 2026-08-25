@@ -2,7 +2,7 @@
 import type { CSSProperties } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePanelRef } from "react-resizable-panels";
-import { Cloud, FileText, Globe, Mic2, MoreHorizontal, PanelRight, TextSearch, Zap } from "lucide-react";
+import { ArrowLeft, Cloud, FileText, Globe, Mic2, MoreHorizontal, PanelRight, TextSearch, Zap } from "lucide-react";
 
 import { resolveExtensionIconSrc } from "@/react-app/design-system/extension-icon-src";
 import { t } from "../../../../i18n";
@@ -894,6 +894,35 @@ export function SessionPage(props: SessionPageProps) {
     props.sidebar.onOpenSession(workspaceId, sessionId);
   }, [focusWorkbenchPane, openWorkbenchTab, props.sidebar]);
 
+  // Sub-agent sessions open in the main chat surface from their task card in
+  // the parent transcript (they no longer live in the sidebar).
+  const openSubagentSession = useCallback((sessionId: string) => {
+    const workspaceId = props.runtimeWorkspaceId ?? props.selectedWorkspaceId;
+    if (!workspaceId || !sessionId.trim()) return;
+    openSessionTab(workspaceId, sessionId.trim());
+  }, [openSessionTab, props.runtimeWorkspaceId, props.selectedWorkspaceId]);
+
+  // When viewing a sub-agent (child) session, the header shows a control back
+  // to its parent chat.
+  const parentSessionLink = useMemo(() => {
+    const sessionId = props.selectedSessionId;
+    if (!sessionId) return null;
+    for (const group of props.sidebar.workspaceSessionGroups) {
+      const session = group.sessions.find((entry) => entry.id === sessionId);
+      if (!session) continue;
+      const parentID = session.parentID?.trim();
+      if (!parentID) return null;
+      const parent = group.sessions.find((entry) => entry.id === parentID);
+      if (!parent) return null;
+      return {
+        workspaceId: group.workspace.id,
+        sessionId: parent.id,
+        title: getDisplaySessionTitle(parent.title),
+      };
+    }
+    return null;
+  }, [props.selectedSessionId, props.sidebar.workspaceSessionGroups]);
+
   const focusWorkbenchSessionControlAction = useMemo<OpenworkControlAction>(() => ({
     id: "workbench.session.focus",
     label: "Focus an open session",
@@ -1106,6 +1135,28 @@ export function SessionPage(props: SessionPageProps) {
           <header className="z-10 flex h-9 shrink-0 items-center justify-between border-b border-border px-3 max-lg:h-12 lg:px-6 mac:titlebar-drag  mac:backdrop-blur-2xl mac:backdrop-saturate-150 @container/titlebar">
             <div className="flex min-w-0 items-center gap-3">
               {shellConfig.sidebar ? <SidebarTrigger className="mac:hidden" /> : null}
+              {parentSessionLink && !props.primarySlot && !hasMainContentTakeover ? (
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 shrink-0 cursor-pointer gap-1 rounded-lg px-1.5 text-[12px] text-gray-10 transition-colors hover:bg-muted hover:text-foreground mac:titlebar-no-drag"
+                        data-parent-session-back={parentSessionLink.sessionId}
+                        aria-label={`Back to ${parentSessionLink.title || "parent chat"}`}
+                        onClick={() => openSessionTab(parentSessionLink.workspaceId, parentSessionLink.sessionId)}
+                      >
+                        <ArrowLeft size={14} />
+                        <span className="max-w-40 truncate max-lg:hidden">
+                          {parentSessionLink.title || t("session.default_title")}
+                        </span>
+                      </Button>
+                    }
+                  />
+                  <TooltipContent>Back to parent chat</TooltipContent>
+                </Tooltip>
+              ) : null}
               <h1 className="truncate text-[13px] font-medium text-dls-text">
                 {props.primaryTitle
                   ? props.primaryTitle
@@ -1346,6 +1397,7 @@ export function SessionPage(props: SessionPageProps) {
                         respondQuestion={props.respondQuestion}
                         safeStringify={props.safeStringify}
                         onOpenTarget={openTarget}
+                        onOpenSubagentSession={openSubagentSession}
                       />
                     </ResizablePanel>
                     {canRenderSplitSurface ? (
@@ -1370,6 +1422,7 @@ export function SessionPage(props: SessionPageProps) {
                             openworkToken={reactSessionToken}
                             todos={[]}
                             onOpenTarget={openTarget}
+                            onOpenSubagentSession={openSubagentSession}
                           />
                         </ResizablePanel>
                       </>

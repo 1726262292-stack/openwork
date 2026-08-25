@@ -29,9 +29,7 @@ export type SidebarContextValue = {
   onForgetWorkspace: (workspaceId: string) => void;
   expandWorkspace: (workspaceId: string) => void;
   toggleWorkspaceExpanded: (workspaceId: string) => void;
-  toggleSessionExpanded: (sessionId: string) => void;
   expandedWorkspaceIds: Set<string>;
-  expandedSessionIds: Set<string>;
   sessionNumberShortcutOs: SessionNumberShortcutOs;
   sessionNumberShortcutByTarget: ReadonlyMap<string, number>;
 };

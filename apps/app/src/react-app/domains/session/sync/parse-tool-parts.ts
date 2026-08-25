@@ -74,9 +74,18 @@ function toolCallProviderMetadata(part: ToolPart): ProviderMetadata {
       : null;
   const mcpResult = persistedMcpResult
     ?? (part.state.status === "error" ? connectionActionMcpResultFromError(part.state.error) : null);
+  // The engine's task tool reports the sub-agent's session id in state
+  // metadata. Forward it so the transcript card can open that child session.
+  const childSessionId = part.tool === "task" && typeof stateMetadata.sessionId === "string" && stateMetadata.sessionId.trim()
+    ? stateMetadata.sessionId.trim()
+    : null;
+  const openwork = {
+    ...(mcpResult ? { mcpResult } : {}),
+    ...(childSessionId ? { childSessionId } : {}),
+  };
   return {
     opencode: { partId: part.id },
-    ...(mcpResult ? { openwork: { mcpResult } } : {}),
+    ...(Object.keys(openwork).length > 0 ? { openwork } : {}),
   };
 }
 

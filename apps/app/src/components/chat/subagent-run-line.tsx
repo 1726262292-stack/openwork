@@ -1,14 +1,15 @@
 "use client"
 
 import { useState } from "react"
+import { ArrowUpRight, LoaderCircle } from "lucide-react"
 
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible"
-import { DotMatrixLoader } from "@/components/ui/dot-matrix-loader"
-import type { TaskToolPart } from "@/lib/build-in-tools"
+import { useMessageList } from "@/components/chat/message-list-provider"
+import { taskChildSessionId, type TaskToolPart } from "@/lib/build-in-tools"
 import { isToolPartInFlight } from "@/lib/tool-activity"
 import { trackToolCallDuration } from "@/lib/tool-call-duration"
 import { cn } from "@/lib/utils"
@@ -27,12 +28,17 @@ function agentName(slug: string): string {
 }
 
 /**
- * Paper "Sub-agents" rule: dot-matrix while running, gray dot when done.
+ * Sub-agent task cards use the standard tool-call spinner while running.
  * Line 1 = task title + agent name; line 2 = live status verb or
- * "Completed". Prompt and result live under the collapsed panel.
+ * "Completed". The card is the doorway into the sub-agent's own session:
+ * when the engine reports the child session id, clicking it opens that
+ * session in the main chat surface. Otherwise the prompt and result live
+ * under the collapsed panel.
  */
 export function SubagentRunLine({ part, className }: SubagentRunLineProps) {
   const [open, setOpen] = useState(false)
+  const { onOpenSubagentSession } = useMessageList()
+  const childSessionId = taskChildSessionId(part)
   const inFlight = isToolPartInFlight(part)
   const isFailed = part.state === "output-error"
   const duration = trackToolCallDuration(part)
@@ -44,27 +50,54 @@ export function SubagentRunLine({ part, className }: SubagentRunLineProps) {
       ? part.errorText?.split("\n")[0]?.trim() || "Failed"
       : "Completed"
 
+  const lines = (
+    <>
+      <span className="flex min-w-0 items-center gap-2">
+        {inFlight ? (
+          <span className="flex size-3.5 shrink-0 items-center justify-center">
+            <LoaderCircle aria-hidden="true" className="size-3.5 animate-spin text-muted-foreground" />
+          </span>
+        ) : null}
+        <span className="min-w-0 truncate">
+          {title}
+          <span className="text-muted-foreground/70"> · {agent} agent</span>
+        </span>
+        {childSessionId && onOpenSubagentSession ? (
+          <ArrowUpRight
+            aria-hidden="true"
+            className="size-3.5 shrink-0 text-muted-foreground/70 opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"
+          />
+        ) : null}
+      </span>
+      <span className={cn("min-w-0 truncate text-xs text-muted-foreground/70", inFlight && "ps-5.5")}>
+        {isFailed ? `Failed — ${status}` : status}
+        {!inFlight && !isFailed && duration ? ` · ${duration}` : ""}
+      </span>
+    </>
+  )
+
+  if (childSessionId && onOpenSubagentSession) {
+    return (
+      <div data-subagent-run={part.toolCallId} data-subagent-session-id={childSessionId} className={className}>
+        <button
+          type="button"
+          className="group flex min-w-0 max-w-full cursor-pointer flex-col gap-0.5 text-start text-sm text-muted-foreground transition-colors hover:text-foreground"
+          aria-label={`${title}. Open sub-agent chat`}
+          onClick={() => onOpenSubagentSession(childSessionId)}
+        >
+          {lines}
+        </button>
+      </div>
+    )
+  }
+
   return (
     <Collapsible data-subagent-run={part.toolCallId} open={open} onOpenChange={setOpen} className={className}>
       <CollapsibleTrigger
         className="group flex min-w-0 max-w-full cursor-pointer flex-col gap-0.5 text-start text-sm text-muted-foreground transition-colors hover:text-foreground"
         aria-label={open ? `${title}. Hide details` : `${title}. Show details`}
       >
-        <span className="flex min-w-0 items-center gap-2">
-          {inFlight ? (
-            <span className="flex size-3.5 shrink-0 items-center justify-center">
-              <DotMatrixLoader label={`${title} — ${agent}`} className="text-muted-foreground" />
-            </span>
-          ) : null}
-          <span className="min-w-0 truncate">
-            {title}
-            <span className="text-muted-foreground/70"> · {agent} agent</span>
-          </span>
-        </span>
-        <span className={cn("min-w-0 truncate text-xs text-muted-foreground/70", inFlight && "ps-5.5")}>
-          {isFailed ? `Failed — ${status}` : status}
-          {!inFlight && !isFailed && duration ? ` · ${duration}` : ""}
-        </span>
+        {lines}
       </CollapsibleTrigger>
       <CollapsibleContent className="h-(--collapsible-panel-height) overflow-hidden transition-[height] duration-150 ease-out data-starting-style:h-0 data-ending-style:h-0 [&[hidden]:not([hidden='until-found'])]:hidden">
         <div className="mt-2 flex flex-col gap-2 rounded-lg bg-muted p-2 text-xs">

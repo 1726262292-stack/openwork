@@ -18,6 +18,7 @@ import { getToolActivityLabel, isToolPartInFlight } from "@/lib/tool-activity"
 import { cn } from "@/lib/utils"
 import {
   Bot,
+  BookOpenCheck,
   Check,
   ChevronDown,
   CircleAlert,
@@ -30,7 +31,6 @@ import {
   MessageCircleQuestion,
   RefreshCcw,
   Search,
-  Sparkles,
   SquareCode,
   Wrench,
 } from "lucide-react"
@@ -50,7 +50,7 @@ function toolIcon(part: ToolPart) {
     case "lsp":
       return SquareCode
     case "skill":
-      return Sparkles
+      return BookOpenCheck
     case "todowrite":
       return ListTodo
     case "question":
@@ -175,6 +175,7 @@ const Tool = ({
       : null
   const inputDiff = getInputDiff(input)
   const Icon = toolIcon(toolPart)
+  const isSkill = toolPart.type === "dynamic-tool" && toolPart.toolName === "skill"
   const [copied, setCopied] = useState(false)
   const ReconnectIcon = reconnectState === "opening"
     ? LoaderCircle
@@ -206,7 +207,7 @@ const Tool = ({
               ) : isError ? (
                 <CircleAlert className="text-destructive size-4" />
               ) : (
-                <Icon className="size-3.5" />
+                <Icon className={cn("size-3.5", isSkill && "text-violet-11")} />
               )}
             </span>
             <ChevronDown className="absolute size-4 opacity-0 transition-opacity group-hover:opacity-100 group-data-panel-open:rotate-180" />

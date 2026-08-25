@@ -15,7 +15,6 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible"
-import { DotMatrixLoader } from "@/components/ui/dot-matrix-loader"
 import { getCapabilityCallQuote, getCapabilityCallSentence, parseRecord } from "@/lib/capability-call"
 import { normalizeErrorText } from "@/lib/error-text"
 import { trackToolCallDuration } from "@/lib/tool-call-duration"
@@ -96,7 +95,7 @@ function TechnicalDetailsPanel({ part }: { part: DynamicToolUIPart }) {
 
 /**
  * Paper "Capability calls → sentences" + "No icon per tool call":
- * a plain muted text line — dot-matrix while running, past-tense verb
+ * a plain muted text line — circular spinner while running, past-tense verb
  * with duration when done. IDs, schema digests, and raw payloads live
  * under a collapsed "Technical details" section.
  * Failures render the Paper "Failed Call Card": service avatar +
@@ -237,7 +236,7 @@ export function CapabilityCallLine({
         >
           {inFlight ? (
             <span className="flex size-3.5 shrink-0 items-center justify-center">
-              <DotMatrixLoader label={line} className="text-muted-foreground" />
+              <LoaderCircle aria-hidden="true" className="size-3.5 animate-spin text-muted-foreground" />
             </span>
           ) : null}
           <span className="min-w-0 truncate">{line}</span>
