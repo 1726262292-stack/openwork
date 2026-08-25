@@ -1,5 +1,12 @@
 import { z } from "zod";
+import { createWorldDefinition } from "@openwork/world";
 import type { EnterpriseMcpProfileId } from "@openwork/labs";
+import type {
+  WorldDefinition as SharedWorldDefinition,
+  WorldPatch,
+} from "@openwork/world";
+
+export type { WorldPatch } from "@openwork/world";
 
 export interface WorldPerson {
   email?: string;
@@ -62,14 +69,7 @@ export interface WorldTopology {
   witnesses?: Record<string, WorldWitness>;
 }
 
-export type WorldPatch<T> = T extends object
-  ? { [Key in keyof T]?: WorldPatch<T[Key]> }
-  : T;
-
-export interface WorldDefinition {
-  topology: WorldTopology;
-  with(patch: WorldPatch<WorldTopology>): WorldDefinition;
-}
+export type WorldDefinition = SharedWorldDefinition<WorldTopology>;
 
 const worldPersonSchema = z.strictObject({
   email: z.string().optional(),
@@ -237,15 +237,6 @@ export const worldTopologySchema = z.strictObject({
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function deepMerge(base: unknown, patch: unknown): unknown {
-  if (!isRecord(base) || !isRecord(patch)) return patch;
-  const merged: Record<string, unknown> = { ...base };
-  for (const [key, value] of Object.entries(patch)) {
-    merged[key] = key in base ? deepMerge(base[key], value) : value;
-  }
-  return merged;
 }
 
 function validateReferences(topology: WorldTopology): void {
@@ -417,7 +408,7 @@ export function usesLiveSharedProductionState(topology: WorldTopology): boolean 
   );
 }
 
-function parseTopology(input: unknown): WorldTopology {
+export function parseWorldTopology(input: unknown): WorldTopology {
   const topology: WorldTopology = worldTopologySchema.parse(input);
   validateReferences(topology);
   return topology;
@@ -448,17 +439,12 @@ export function resolveWorldPerson(
   };
 }
 
-function makeDefinition(topology: WorldTopology): WorldDefinition {
-  return {
-    topology,
-    with(patch) {
-      return makeDefinition(parseTopology(deepMerge(topology, patch)));
-    },
-  };
-}
-
 export function defineWorld(t: WorldTopology): WorldDefinition {
-  return makeDefinition(parseTopology(t));
+  const topology = parseWorldTopology(t);
+  return createWorldDefinition(topology, (resolvedTopology) => ({
+    adapter: "eval",
+    requiresSharedState: usesLiveSharedProductionState(resolvedTopology),
+  }), parseWorldTopology);
 }
 
 export function onKind(definition: WorldDefinition): WorldDefinition {

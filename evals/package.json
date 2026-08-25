@@ -23,7 +23,8 @@
     "@openwork/hosts": "workspace:*",
     "@openwork/labs": "workspace:*",
     "@openwork/matchers": "workspace:*",
-    "@openwork/testkit": "workspace:*"
+    "@openwork/testkit": "workspace:*",
+    "@openwork/world": "link:../packages/world"
   },
   "devDependencies": {
     "dependency-cruiser": "18.1.0",

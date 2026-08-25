@@ -133,8 +133,8 @@ This is enforced by `pnpm --dir evals run lint:layers`.
 | L0 | `@openwork/matchers` | Turn supplied facts into pure findings; no I/O. |
 | L1 | `@openwork/cdp`, `@openwork/labs` | Provide protocol and lab primitives; do not own journeys or test lifecycle. |
 | L2 | `@openwork/behaviors` | Provide framework-free actions and observations over narrow handles. |
-| L3 | `@openwork/env` | Own environment lifecycle and composition; do not depend on Vitest. |
-| L4 | `@openwork/testkit`, `evals/bin/evals.mjs`, and the world CLI | Adapt environments to specs, Vitest, evidence, and command-line entrypoints. |
+| L3 | root `@openwork/world` + `@openwork/env` | The shared package owns definitions/CLI/state/surfaces; env injects the eval-only Den/desktop runtime adapter. Neither depends on Vitest. |
+| L4 | `@openwork/testkit` and `evals/bin/evals.mjs` | Adapt environments to specs, Vitest, and evidence. |
 
 ## Composable packages and diagnostics
 
@@ -143,7 +143,8 @@ executable coverage is always assembled as a test under `specs/`.
 
 | Package | Owns |
 | --- | --- |
-| `@openwork/env` | environment lifecycle: places, Den server, desktop apps, mocks, worlds/presets/snapshots, kind stack |
+| root `@openwork/world` | generic definitions, path discovery, CLI lifecycle, local state store, and headless-web surface |
+| `@openwork/env` | eval runtime adapter: places, Den server, desktop apps, mocks, eval snapshots, and kind stack |
 | `@openwork/testkit` | thin Vitest adapter: fixture, needs/skip mapping, evidence bridging, and spec-facing re-exports |
 | `@openwork/cdp` | raw CDP client, targets, `Surface`, and `attachSurface` |
 | `@openwork/labs` | egress, identity-provider, release-feed, and mock-MCP labs |
@@ -161,7 +162,9 @@ endpoint without creating test evidence.
 
 ## Worlds
 
-A world is a declarative environment topology managed by `@openwork/env`.
+A world is a declarative topology managed by root `@openwork/world`.
+`@openwork/env` keeps the eval-only topology schema and injects its Den/desktop
+runtime adapter into the shared shell.
 `defineWorld()` validates a `WorldTopology` and returns a definition that can be
 deep-patched with `.with()`. The topology has:
 
@@ -202,15 +205,21 @@ pnpm world rebuild <snapshot>      # rebuild the world a failed run was in
 pnpm world list
 pnpm world forget <name>
 
+# Path definitions use the filename as their name and can default to detached.
+pnpm world up ./worlds/dev-headless.ts
+pnpm world up ./worlds/headless-prod-live.ts --allow-shared-state
+
 # Explicit macOS-only live sharing with the installed production stores.
-pnpm world up desktop-prod-live --allow-shared-state --name prod-live-dev --keep
+pnpm world up ./worlds/desktop-prod-live.ts --allow-shared-state
 ```
 
 `up` also accepts `--name <name>`. Without `--keep`, Ctrl-C tears down the
 resources; with `--keep`, Ctrl-C leaves them detached. `resume` accepts a world
 name or snapshot path and detaches on Ctrl-C unless `--teardown` is present.
 `forget` removes snapshot metadata without stopping detached services. `help`
-prints usage and the available presets.
+and `list` auto-discover `worlds/*.ts`. Path definitions may select detached mode,
+so the checked-in headless and production-live definitions return after health
+without requiring `--name`, `--keep`, or `--detach`.
 
 `desktop-prod-live` is a deliberately dangerous local-only mode. It launches
 source Electron through `pnpm dev` with isolated Electron userData, app
@@ -224,6 +233,14 @@ only attaches to the already-running isolated dev process. Snapshots retain the
 symbolic `desktopState` source/mode plus CDP/workspace metadata, never resolved
 production paths or tokens. Teardown stops only the dev process and does not
 delete shared stores.
+
+`headless-prod-live` applies the same symbolic state selection to source Vite +
+`openwork-server` without Electron. Its production tokens, server state, config,
+OpenWork data, and OpenCode database are resolved in place and never copied into
+the owner-only world snapshot. It refuses remote access, public hosts, and
+non-loopback host bindings. Named headless worlds use separate runtime/config/log
+directories and a launch identity, and their detached supervisor tears down the
+remaining sibling if Vite or the backend exits.
 
 World v1 has deliberate limits:
 

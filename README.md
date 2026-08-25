@@ -113,8 +113,14 @@ If a second instance cannot get the profile lock it now says so and exits, inste
 To run the OpenWork UI in a browser against a local `openwork-server` (no desktop shell):
 
 ```bash
-pnpm dev:headless-web
+pnpm world up ./worlds/dev-headless.ts
 ```
+
+`pnpm dev:headless-web` is a compatibility alias for the same world-managed
+surface. The path-based command gets its `dev-headless` name and detached
+lifecycle from the world file, so common usage needs no `--name` or `--detach`
+flags. For compatibility, the alias remains foreground by default and accepts
+`--detach`.
 
 This is an isolated launcher:
 
@@ -124,9 +130,9 @@ This is an isolated launcher:
 - Proxies Den Cloud calls same-origin: Vite serves `/api/den` (forwarded to the Den control plane) and the app pins its Den API there via `VITE_DEN_API_BASE_URL`, so Cloud calls are never CORS-blocked and stale `localStorage` base URLs are cleared on load
 - Publishes agent-facing URLs/tokens at `tmp/dev-headless-web.json` (owner-only, `0600`), and allows browser calls to the local server only from the web app's own origins — not every site you visit
 - Uses stable ports by default (web `5178`, server `8778`; falls back to free ports when taken, override with `OPENWORK_WEB_PORT` / `OPENWORK_PORT`)
-- Is single-instance per worktree: re-running it reuses a healthy instance and prints its URL; stale instances are cleaned up automatically; `--replace` forces a restart
-- Detaches the servers from the launching terminal, so they survive the terminal closing
-- Supports `--detach` to run the whole stack independent of the invoking shell (recommended for agents): it starts detached, waits for health, prints the URLs, and exits
+- Is single-instance per world name: re-running the same name reuses its healthy instance, while `--name` can launch another isolated stack; stale instances are cleaned up automatically and `--replace` forces a restart
+- Keeps Vite and the backend under a detached supervisor, so either sibling exiting stops the other instead of leaving an orphan
+- Starts detached through `world up`, waits for health, prints the URLs, and exits; the compatibility alias preserves its previous foreground default
 
 Open the printed Web URL. Cloud sign-in in headless web uses the **copy/paste** handoff (hosted Den cannot redirect session grants back to `http://127.0.0.1`):
 
@@ -136,3 +142,10 @@ Open the printed Web URL. Cloud sign-in in headless web uses the **copy/paste** 
 4. Paste it under **Paste sign-in code** → Finish sign-in
 
 Point Den at a local stack with `OPENWORK_DEV_DEN_PROXY_TARGET=http://127.0.0.1:3005` while `pnpm dev:web-local` is running. Set `OPENWORK_DEV_HEADLESS_WEB_DEN_PROXY=0` to disable the Den wiring.
+
+The other checked-in world files are `worlds/headless-prod-live.ts` and
+`worlds/desktop-prod-live.ts`. Both intentionally share installed production
+state and therefore require `--allow-shared-state` on every launch. List saved
+worlds and auto-discovered definitions with `pnpm world list`. The headless
+production world is hard-limited to loopback; remote-access/public-host settings
+are refused because its browser session uses production credentials.

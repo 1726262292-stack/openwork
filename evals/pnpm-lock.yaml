@@ -32,6 +32,9 @@ importers:
       '@openwork/testkit':
         specifier: workspace:*
         version: link:packages/testkit
+      '@openwork/world':
+        specifier: link:../packages/world
+        version: link:../packages/world
     devDependencies:
       dependency-cruiser:
         specifier: 18.1.0
@@ -71,6 +74,9 @@ importers:
       '@openwork/labs':
         specifier: workspace:*
         version: link:../labs
+      '@openwork/world':
+        specifier: link:../../../packages/world
+        version: link:../../../packages/world
       effect:
         specifier: 4.0.0-beta.83
         version: 4.0.0-beta.83
