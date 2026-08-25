@@ -2,10 +2,9 @@
  * Organization-granted dashboard tiles and their per-user launch consent.
  *
  * Granted dashboards arrive from Den as plain element references. The consent
- * model stays exactly the local one: a grant never bypasses launch approval,
- * write-tools stay run-on-request, and auto-launch is only unlocked after this
- * user has run the tile manually once. That consent is therefore stored
- * locally per user and organization, never on the org dashboard.
+ * model never bypasses launch approval: read-only tools launch automatically,
+ * while write-tools stay run-on-request. Approval is stored locally per user
+ * and organization, never on the org dashboard.
  */
 import type { DenDashboardElement, DenGrantedDashboard } from "@/app/lib/den";
 
@@ -21,8 +20,6 @@ export type DashboardMcpAppEntry = {
   title: string;
   /** Launch arguments selected by the organization administrator. */
   launchArguments?: Record<string, unknown>;
-  /** Earned locally after the member completes a manual first run. */
-  autoLaunch?: boolean;
   /** Write-capable apps remain manual-only. */
   requiresApproval?: boolean;
   /** The member's locally stored approval for this exact managed element. */
@@ -32,7 +29,6 @@ export type DashboardMcpAppEntry = {
 const CONSENT_STORAGE_PREFIX = "openwork.react.dashboardGrantedConsent.v1";
 
 export type GrantedTileConsent = {
-  autoLaunch?: boolean;
   launchApproved?: boolean;
 };
 
@@ -89,7 +85,6 @@ export function grantedDashboardEntry(
     resourceUri: element.resourceUri,
     title: element.title,
     ...(element.launchArguments ? { launchArguments: element.launchArguments } : {}),
-    ...(consent?.autoLaunch === true ? { autoLaunch: true } : {}),
     ...(element.requiresApproval === true ? { requiresApproval: true } : {}),
     ...(consent?.launchApproved === true ? { launchApproved: true } : {}),
   };
@@ -110,10 +105,9 @@ export function readGrantedConsent(scopeKey: string): GrantedConsentMap {
     for (const [id, value] of Object.entries(parsed)) {
       if (!isRecord(value)) continue;
       const entry: GrantedTileConsent = {
-        ...(value.autoLaunch === true ? { autoLaunch: true } : {}),
         ...(value.launchApproved === true ? { launchApproved: true } : {}),
       };
-      if (entry.autoLaunch || entry.launchApproved) consent[id] = entry;
+      if (entry.launchApproved) consent[id] = entry;
     }
     return consent;
   } catch {
