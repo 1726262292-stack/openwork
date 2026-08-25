@@ -1,6 +1,6 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { getErrorMessage, getRequestError, requestJson } from "../../_lib/den-flow";
 import { useOrgDashboard } from "../_providers/org-dashboard-provider";
 
@@ -46,6 +46,28 @@ export type ConnectionMcpApp = DashboardElement & {
   requiresInput: boolean;
   requiresApproval: boolean;
 };
+
+export type ConnectionMcpAppCatalogItem = ConnectionMcpApp & {
+  connectionName: string;
+};
+
+export function flattenConnectionMcpAppCatalog(
+  connections: Array<{ id: string; name: string }>,
+  appLists: ConnectionMcpApp[][],
+): ConnectionMcpAppCatalogItem[] {
+  return appLists.flatMap((apps, index) => apps.map((app) => ({
+    ...app,
+    connectionName: connections[index].name,
+  })));
+}
+
+export function filterConnectionsWithMcpApps<T extends { id: string }>(
+  connections: T[],
+  apps: ConnectionMcpApp[],
+): T[] {
+  const connectionIds = new Set(apps.map((app) => app.connectionId));
+  return connections.filter((connection) => connectionIds.has(connection.id));
+}
 
 export const orgDashboardsQueryKeys = {
   all: ["org-dashboards"] as const,
@@ -344,24 +366,31 @@ export function useRevokeDashboardAccess() {
   });
 }
 
-/** MCP Apps one connection can launch cold, ready to add as dashboard elements. */
-export function useConnectionMcpApps(connectionId: string | null) {
+/** A flat catalog containing only connections that expose launchable MCP Apps. */
+export function useConnectionMcpAppCatalog(connections: Array<{ id: string; name: string }>) {
   const { orgContext } = useOrgDashboard();
   const organizationId = orgContext?.organization.id ?? "";
-  return useQuery({
-    enabled: Boolean(organizationId && connectionId),
-    queryKey: orgDashboardsQueryKeys.connectionApps(organizationId, connectionId ?? "none"),
-    queryFn: async (): Promise<ConnectionMcpApp[]> => {
-      const { response, payload } = await requestJson(
-        `/v1/mcp-connections/${encodeURIComponent(connectionId ?? "")}/mcp-apps`,
-        { method: "GET" },
-        20000,
-      );
-      if (!response.ok) {
-        throw new Error(getErrorMessage(payload, `Failed to load this connection's apps (${response.status}).`));
-      }
-      const apps = isRecord(payload) && Array.isArray(payload.apps) ? payload.apps : [];
-      return apps.map(parseConnectionApp).filter((app): app is ConnectionMcpApp => app !== null);
-    },
+  return useQueries({
+    queries: connections.map((connection) => ({
+      enabled: Boolean(organizationId),
+      queryKey: orgDashboardsQueryKeys.connectionApps(organizationId, connection.id),
+      queryFn: async (): Promise<ConnectionMcpApp[]> => {
+        const { response, payload } = await requestJson(
+          `/v1/mcp-connections/${encodeURIComponent(connection.id)}/mcp-apps`,
+          { method: "GET" },
+          20000,
+        );
+        if (!response.ok) {
+          throw new Error(getErrorMessage(payload, `Failed to load ${connection.name}'s apps (${response.status}).`));
+        }
+        const apps = isRecord(payload) && Array.isArray(payload.apps) ? payload.apps : [];
+        return apps.map(parseConnectionApp).filter((app): app is ConnectionMcpApp => app !== null);
+      },
+    })),
+    combine: (results) => ({
+      data: flattenConnectionMcpAppCatalog(connections, results.map((result) => result.data ?? [])),
+      isLoading: results.some((result) => result.isPending),
+      error: results.find((result) => result.error)?.error ?? null,
+    }),
   });
 }

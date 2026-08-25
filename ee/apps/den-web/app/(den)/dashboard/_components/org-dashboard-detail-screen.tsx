@@ -15,10 +15,11 @@ import { useOrgDashboard } from "../_providers/org-dashboard-provider";
 import { useMcpConnections } from "./mcp-connections-data";
 import { OrgMemberIdentity } from "./org-member-identity";
 import {
-  type ConnectionMcpApp,
+  type ConnectionMcpAppCatalogItem,
   type DashboardAccessGrant,
   type DashboardElement,
-  useConnectionMcpApps,
+  filterConnectionsWithMcpApps,
+  useConnectionMcpAppCatalog,
   useDashboardAccess,
   useDeleteDashboard,
   useGrantDashboardAccess,
@@ -257,9 +258,16 @@ function AddDashboardAppDialog({
     () => (connectionsQuery.data ?? []).filter((connection) => connection.nativeProviderKey == null),
     [connectionsQuery.data],
   );
+  const appsQuery = useConnectionMcpAppCatalog(connections);
+  const appConnections = useMemo(
+    () => filterConnectionsWithMcpApps(connections, appsQuery.data),
+    [appsQuery.data, connections],
+  );
   const [connectionId, setConnectionId] = useState<string | null>(null);
-  const selectedConnectionId = connectionId ?? connections[0]?.id ?? null;
-  const appsQuery = useConnectionMcpApps(selectedConnectionId);
+  const selectedConnectionId = appConnections.some((connection) => connection.id === connectionId)
+    ? connectionId
+    : appConnections[0]?.id ?? null;
+  const visibleApps = appsQuery.data.filter((app) => app.connectionId === selectedConnectionId);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 px-4 py-6" onClick={onClose}>
@@ -274,19 +282,19 @@ function AddDashboardAppDialog({
           Add app
         </h2>
         <p className="mt-1 text-[13px] leading-6 text-gray-500">
-          Pick an MCP app from one of your organization&apos;s connectors.
+          Select an MCP, then choose one of its Apps. MCPs without Apps are hidden.
         </p>
 
         <label className="mt-4 block">
-          <span className="mb-1.5 block text-[12px] font-medium text-gray-700">Connector</span>
+          <span className="mb-1.5 block text-[12px] font-medium text-gray-700">MCP</span>
           <DenSelect
-            aria-label="Connector"
+            aria-label="MCP"
             value={selectedConnectionId ?? ""}
             onChange={(event) => setConnectionId(event.target.value || null)}
-            disabled={connections.length === 0}
+            disabled={appConnections.length === 0}
           >
-            {connections.length === 0 ? <option value="">No connectors available</option> : null}
-            {connections.map((connection) => (
+            {appConnections.length === 0 ? <option value="">No MCPs with Apps available</option> : null}
+            {appConnections.map((connection) => (
               <option key={connection.id} value={connection.id}>{connection.name}</option>
             ))}
           </DenSelect>
@@ -300,13 +308,13 @@ function AddDashboardAppDialog({
               tone="error"
               message={appsQuery.error instanceof Error ? appsQuery.error.message : "Failed to load this connector's apps."}
             />
-          ) : (appsQuery.data ?? []).length === 0 ? (
+          ) : visibleApps.length === 0 ? (
             <p className="py-6 text-center text-[13px] text-gray-400">
-              {selectedConnectionId ? "This connector has no launchable apps." : "Add a connector first."}
+              No MCP Apps are available from your organization&apos;s connections.
             </p>
           ) : (
             <div className="divide-y divide-gray-100 rounded-xl border border-gray-100">
-              {(appsQuery.data ?? []).map((app) => (
+              {visibleApps.map((app) => (
                 <ConnectionAppRow
                   key={elementKey(app)}
                   app={app}
@@ -331,7 +339,7 @@ function ConnectionAppRow({
   added,
   onAdd,
 }: {
-  app: ConnectionMcpApp;
+  app: ConnectionMcpAppCatalogItem;
   added: boolean;
   onAdd: (element: DashboardElement) => void;
 }) {
@@ -375,6 +383,7 @@ function ConnectionAppRow({
           <p className="truncate text-[13.5px] font-medium text-gray-900">{app.title}</p>
           <p className="truncate text-[12px] text-gray-400">
             {app.description ?? app.toolName}
+            {` · ${app.connectionName}`}
             {app.requiresApproval ? " · modifies data, runs on request" : ""}
           </p>
         </div>

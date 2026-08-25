@@ -142,6 +142,10 @@ test(title, async ({ evidence, place }) => {
     const allText = document.body.innerText;
     const weeklyTile = [...section.querySelectorAll("[data-dashboard-entry]")]
       .find((tile) => tile.textContent?.includes("Weekly report"));
+    const searchButton = [...document.querySelectorAll("button")]
+      .find((button) => button.textContent?.includes("Search sessions"));
+    const dashboardButton = [...document.querySelectorAll("button")]
+      .find((button) => button.textContent?.trim() === "Dashboard");
     return {
       boardVisible: section.innerText.includes(${JSON.stringify(grantedName)}),
       privateBoardVisible: allText.includes(${JSON.stringify(privateName)}),
@@ -151,6 +155,9 @@ test(title, async ({ evidence, place }) => {
       addAppVisible: [...document.querySelectorAll("button")]
         .some((button) => button.textContent?.trim() === "Add app"),
       managedLabelVisible: section.innerText.includes("Managed by your organization"),
+      dashboardImmediatelyAfterSearch: searchButton instanceof HTMLElement
+        && dashboardButton instanceof HTMLElement
+        && searchButton.parentElement?.nextElementSibling?.contains(dashboardButton) === true,
     };
   })()`);
   expect(initialState).toEqual({
@@ -161,6 +168,7 @@ test(title, async ({ evidence, place }) => {
     removeVisible: false,
     addAppVisible: false,
     managedLabelVisible: true,
+    dashboardImmediatelyAfterSearch: true,
   });
   await waitFor(desktop, `(() => {
     const section = document.querySelector(${JSON.stringify(`[data-granted-dashboard="${grantedDashboardId}"]`)});
@@ -194,6 +202,11 @@ test(title, async ({ evidence, place }) => {
     };
   })()`);
   expect(organizationPolicyState).toMatchObject({ automaticAttemptVisible: true, runVisible: false });
+  evidence.recordAssertionEvidence(
+    "Desktop places Dashboard directly below Search in the left sidebar",
+    `state=${JSON.stringify(initialState)}`,
+    isRecord(initialState) && initialState.dashboardImmediatelyAfterSearch === true,
+  );
   evidence.recordAssertionEvidence(
     "Organization admins can authorize automatic launch even for an app that modifies data",
     `tile=Automatic ticket summary; state=${JSON.stringify(organizationPolicyState)}`,
