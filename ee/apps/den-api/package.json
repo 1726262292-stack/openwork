@@ -16,6 +16,7 @@
     "build:codemode": "pnpm --filter @openwork/codemode build",
     "build:headless-threads": "pnpm --filter @openwork/headless-threads build",
     "build:den-db": "pnpm --filter @openwork-ee/den-db build",
+    "build:telemetry": "pnpm --filter @openwork-ee/telemetry build",
     "openapi:snapshot": "tsx scripts/generate-openapi-snapshot.ts",
     "smoke:config-object-payload-boundary": "tsx scripts/smoke-config-object-payload-boundary.ts",
     "backfill:desktop-policies": "pnpm run build:den-db && tsx scripts/backfill-desktop-policies.ts",
