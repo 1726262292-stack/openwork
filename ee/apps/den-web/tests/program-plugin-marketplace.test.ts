@@ -43,9 +43,10 @@ describe("Workflow Plugin and Marketplace presentation", () => {
     expect(pluginDetail).toContain('workflow.plugin ? `Currently in ${workflow.plugin.name}` : "Shared directly"');
   });
 
-  test("writes the canonical workflows organization capability", () => {
-    expect(adminPanel).toContain('saveOrganizationCapability(org, "workflows"');
+  test("does not expose a workflows rollout toggle now that Workflows are always on", () => {
+    expect(adminPanel).not.toContain('saveOrganizationCapability(org, "workflows"');
     expect(adminPanel).not.toContain('saveOrganizationCapability(org, "codemodeScripts"');
+    expect(adminPanel).not.toContain('saveOrganizationCapability(org, "remoteMcpApps"');
   });
 
   test("serves the canonical Workflow page and redirects the old Program path", () => {

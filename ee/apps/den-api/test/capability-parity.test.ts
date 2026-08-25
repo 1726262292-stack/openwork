@@ -144,7 +144,6 @@ function fixtureContext(platformAdmin: boolean): CapabilityRegistryContext {
     organizationId,
     member: { orgMembershipId: memberId, teamIds: [] },
     redirectUriBase: "http://127.0.0.1:8790",
-    codemodeEnabled: true,
     generatedArtifactViewsEnabled: false,
     externalMcpConnectionsEnabled: true,
     resolvePlatformAdmin: () => {

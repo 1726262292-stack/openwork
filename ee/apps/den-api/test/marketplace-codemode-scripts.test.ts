@@ -190,13 +190,11 @@ async function seedScript(input: {
 function executeScript(seeded: SeededScript, input: {
   body?: unknown
   buildTools?: Parameters<MarketplaceCapabilities["executeMarketplaceCapability"]>[0]["buildTools"]
-  codemodeEnabled?: boolean
   validateScriptOutput?: boolean
 } = {}) {
   return marketplaceCapabilities.executeMarketplaceCapability({
     body: input.body,
     buildTools: input.buildTools,
-    codemodeEnabled: input.codemodeEnabled ?? true,
     validateScriptOutput: input.validateScriptOutput,
     configObjectId: seeded.configObjectId,
     enabled: true,
@@ -526,7 +524,6 @@ describe("saved marketplace Workflows", () => {
       toolCalls: [],
     })
     const matches = await marketplaceCapabilities.searchMarketplaceCapabilities({
-      codemodeEnabled: true,
       enabled: true,
       member: seeded.member,
       organizationId: seeded.organizationId,
@@ -547,7 +544,6 @@ describe("saved marketplace Workflows", () => {
       .where(eq(ConfigObjectTable.id, seeded.configObjectId))
 
     const matches = await marketplaceCapabilities.searchMarketplaceCapabilities({
-      codemodeEnabled: true,
       enabled: true,
       member: seeded.member,
       organizationId: seeded.organizationId,
@@ -564,25 +560,22 @@ describe("saved marketplace Workflows", () => {
     })
   })
 
-  test("keeps saved scripts unknown and undiscoverable when Code Mode is disabled", async () => {
+  test("keeps saved scripts discoverable and executable without any rollout flag", async () => {
     const seeded = await seedScript({
       title: "Hidden Script",
       code: "return 1",
       payload: { language: "codemode-js", requiredCapabilities: [] },
     })
     const matches = await marketplaceCapabilities.searchMarketplaceCapabilities({
-      codemodeEnabled: false,
       enabled: true,
       member: seeded.member,
       organizationId: seeded.organizationId,
       query: "hidden script",
     })
-    expect(matches).toEqual([])
-    expect(await executeScript(seeded, { codemodeEnabled: false })).toEqual({
-      ok: false,
-      error: "unknown_capability",
-      message: "No such capability.",
-    })
+    expect(matches[0]).toMatchObject({ kind: "workflow" })
+    const result = await executeScript(seeded)
+    if (!result.ok) throw new Error(result.message)
+    expect(result.result).toMatchObject({ kind: "workflow", status: "executed", value: 1 })
   })
 
   test("fails closed before running when a declared capability is unavailable", async () => {
@@ -648,7 +641,6 @@ describe("saved marketplace Workflows", () => {
       organizationId: seeded.organizationId,
       member: seeded.member,
       redirectUriBase: "http://127.0.0.1:8790",
-      codemodeEnabled: true,
       externalMcpConnectionsEnabled: true,
       resolvePlatformAdmin: () => {
         platformAdmin ??= Promise.resolve(false)

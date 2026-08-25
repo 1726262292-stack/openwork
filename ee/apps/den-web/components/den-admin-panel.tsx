@@ -131,8 +131,6 @@ type AdminUser = {
 type AdminOrganizationCapabilities = {
   installLinks: boolean;
   mcpConnections: boolean;
-  workflows: boolean;
-  remoteMcpApps: boolean;
   cloud: boolean;
 };
 
@@ -420,8 +418,6 @@ function parseAdminPayload(payload: unknown): AdminPayload | null {
           capabilities: {
             installLinks: capabilities.installLinks === true,
             mcpConnections: capabilities.mcpConnections === true,
-            workflows: capabilities.workflows === true,
-            remoteMcpApps: capabilities.remoteMcpApps === true,
             cloud: capabilities.cloud === true
           }
         };
@@ -792,7 +788,7 @@ function buildFixtureOrganization(index: number): AdminOrganization {
     freeSeatCount: target ? 25 : DEFAULT_FREE_SEAT_COUNT,
     seatsFreeAdditional: target ? 20 : 0,
     billableSeatCount: target ? 103 : 0,
-    capabilities: { installLinks: target, mcpConnections: target, workflows: false, remoteMcpApps: false, cloud: false }
+    capabilities: { installLinks: target, mcpConnections: target, cloud: false }
   };
 }
 
@@ -2626,32 +2622,6 @@ export function DenAdminPanel() {
                           className="h-4 w-4 rounded border-slate-300"
                         />
                         OpenWork Connect (alpha)
-                      </label>
-                      <label className="inline-flex items-center gap-2 text-sm text-slate-700">
-                        <input
-                          type="checkbox"
-                          data-testid="admin-capability-workflows"
-                          checked={org.capabilities.workflows}
-                          disabled={savingCapabilityOrgId === org.id}
-                          onChange={(event) => {
-                            void saveOrganizationCapability(org, "workflows", event.target.checked);
-                          }}
-                          className="h-4 w-4 rounded border-slate-300"
-                        />
-                        Codemode scripts (alpha)
-                      </label>
-                      <label className="inline-flex items-center gap-2 text-sm text-slate-700">
-                        <input
-                          type="checkbox"
-                          data-testid="admin-capability-remoteMcpApps"
-                          checked={org.capabilities.remoteMcpApps}
-                          disabled={savingCapabilityOrgId === org.id}
-                          onChange={(event) => {
-                            void saveOrganizationCapability(org, "remoteMcpApps", event.target.checked);
-                          }}
-                          className="h-4 w-4 rounded border-slate-300"
-                        />
-                        Native MCP Apps (preview)
                       </label>
                       <label className="inline-flex items-center gap-2 text-sm text-slate-700">
                         <input

@@ -242,8 +242,8 @@ export type DenOrgEntitlements = {
 export type DenOrgCapabilities = {
   installLinks: boolean;
   mcpConnections: boolean;
+  /** Always on: Workflows/Code Mode shipped for every organization. Older servers may still return false. */
   workflows: boolean;
-  remoteMcpApps: boolean;
   cloud: boolean;
 };
 
@@ -939,14 +939,15 @@ function parseOrgAuthMethods(value: unknown): DenOrgAuthMethods {
 
 function parseOrgCapabilities(value: unknown): DenOrgCapabilities {
   if (!isRecord(value)) {
-    return { installLinks: false, mcpConnections: false, workflows: false, remoteMcpApps: false, cloud: false };
+    return { installLinks: false, mcpConnections: false, workflows: true, cloud: false };
   }
 
   return {
     installLinks: value.installLinks === true,
     mcpConnections: value.mcpConnections === true,
-    workflows: value.workflows === true,
-    remoteMcpApps: value.remoteMcpApps === true,
+    // Workflows are enabled everywhere on current servers; only an explicit
+    // false from an older server still hides the surface.
+    workflows: value.workflows !== false,
     cloud: value.cloud === true,
   };
 }

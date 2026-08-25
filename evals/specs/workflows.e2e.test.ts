@@ -226,29 +226,14 @@ test(title, { timeout: 1_500_000 }, async ({ evidence, place }) => {
   const orgId = await organizationIdOf(den.admin);
   const adminMcpToken = await mintMcpToken(den.admin, orgId);
 
-  // ---- Frame 1: the org-level toggle, off by default ------------------------
-  const toolsBefore = await listAgentToolNames(den.ref.apiUrl, adminMcpToken);
-  evidence.recordAssertionEvidence(
-    "With the org flag off, execute_capability_script is not even discoverable",
-    `tools/list before enabling: ${JSON.stringify(toolsBefore)}`,
-    toolsBefore.includes("execute_capability") && !toolsBefore.includes("execute_capability_script"),
-  );
-  expect(toolsBefore).not.toContain("execute_capability_script");
-
-  const flip = await denFetch(den.admin, `/v1/admin/organizations/${orgId}/capabilities`, {
-    method: "PUT",
-    headers: { authorization: `Bearer ${den.admin.token}` },
-    body: JSON.stringify({ capabilities: { workflows: true } }),
-  });
-  if (!flip.response.ok) {
-    throw new Error(`Enabling workflows failed: HTTP ${flip.response.status} ${flip.text.slice(0, 500)}`);
-  }
+  // ---- Frame 1: Code Mode is on for every organization by default ------------
   const toolsAfter = await listAgentToolNames(den.ref.apiUrl, adminMcpToken);
   evidence.recordAssertionEvidence(
-    "Flipping the Codemode scripts org capability registers the script tool",
-    `tools/list after enabling: ${JSON.stringify(toolsAfter)}`,
-    toolsAfter.includes("execute_capability_script"),
+    "execute_capability_script is registered for a brand-new organization without any rollout flag",
+    `tools/list for a fresh org: ${JSON.stringify(toolsAfter)}`,
+    toolsAfter.includes("execute_capability") && toolsAfter.includes("execute_capability_script"),
   );
+  expect(toolsAfter).toContain("execute_capability");
   expect(toolsAfter).toContain("execute_capability_script");
 
   // ---- Seed: three workers with no activity + two mock org connections ------

@@ -49,7 +49,7 @@ export const acmeDocs = defineWorld({
         members: {
           jordan: { name: "Jordan Lee", email: "jordan@acme.dev" },
         },
-        capabilities: { workflows: true, mcpConnections: true, cloud: true },
+        capabilities: { mcpConnections: true, cloud: true },
         plugins: [
           {
             name: "Customer Research",
