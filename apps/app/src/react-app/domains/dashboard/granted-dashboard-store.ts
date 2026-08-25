@@ -91,7 +91,11 @@ export function grantedDashboardEntry(
     ...(element.launchArguments ? { launchArguments: element.launchArguments } : {}),
     ...(element.requiresApproval === true ? { requiresApproval: true } : {}),
     ...(consent?.launchApproved === true ? { launchApproved: true } : {}),
-    ...(element.requiresApproval !== true && consent?.autoLaunch === true ? { autoLaunch: true } : {}),
+    ...(element.requiresApproval !== true
+      && consent?.autoLaunch === true
+      && consent.launchApproved !== true
+      ? { autoLaunch: true }
+      : {}),
   };
 }
 

@@ -73,8 +73,12 @@ export function dashboardTileCacheScopeKey(userId: string | null, organizationId
   return `${DASHBOARD_TILE_CACHE_STORAGE_PREFIX}.${userId?.trim() || "local"}.${organizationId?.trim() || "none"}`;
 }
 
-export function dashboardTileRunsAutomatically(requiresApproval: boolean, autoLaunchEnabled: boolean): boolean {
-  return !requiresApproval && autoLaunchEnabled;
+export function dashboardTileRunsAutomatically(
+  requiresApproval: boolean,
+  autoLaunchEnabled: boolean,
+  launchApproved: boolean,
+): boolean {
+  return !requiresApproval && autoLaunchEnabled && !launchApproved;
 }
 
 export function shouldAutoRefreshDashboardTile(input: {

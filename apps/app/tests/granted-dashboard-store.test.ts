@@ -56,11 +56,18 @@ describe("grantedEntryId", () => {
     };
 
     expect(grantedDashboardEntry(dashboard, element, { autoLaunch: true }).autoLaunch).toBe(true);
-    expect(grantedDashboardEntry(
+    const approvalGatedEntry = grantedDashboardEntry(
       dashboard,
       { ...element, requiresApproval: true },
       { autoLaunch: true, launchApproved: true },
-    )).toMatchObject({ requiresApproval: true, launchApproved: true });
+    );
+    expect(approvalGatedEntry).toMatchObject({ requiresApproval: true, launchApproved: true });
+    expect(approvalGatedEntry.autoLaunch).toBeUndefined();
+    expect(grantedDashboardEntry(
+      dashboard,
+      element,
+      { autoLaunch: true, launchApproved: true },
+    ).autoLaunch).toBeUndefined();
     expect(grantedDashboardEntry(
       dashboard,
       { ...element, requiresApproval: true },

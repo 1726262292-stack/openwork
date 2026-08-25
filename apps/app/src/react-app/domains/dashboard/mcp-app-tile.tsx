@@ -34,7 +34,7 @@ export type DashboardLaunchEndpoint = {
 const EMPTY_ARGUMENTS: Record<string, unknown> = {};
 
 type TileState =
-  | { phase: "idle" }
+  | { phase: "idle"; revokeAutoLaunch?: boolean }
   | { phase: "loading" }
   | {
       phase: "ready";
@@ -83,7 +83,14 @@ function freshnessLabel(cachedAt: number): string {
   return ageHours === 1 ? "Updated 1 hour ago" : `Updated ${ageHours} hours ago`;
 }
 
-export function McpAppTile({ entry, cacheScopeKey, onApprovedLaunch, onAutoLaunchEnabled, fallbackEndpoints }: {
+export function McpAppTile({
+  entry,
+  cacheScopeKey,
+  onApprovedLaunch,
+  onAutoLaunchEnabled,
+  onAutoLaunchDisabled,
+  fallbackEndpoints,
+}: {
   entry: DashboardMcpAppEntry;
   /** Per-user and per-organization scope for workspace-bound last-known-good dashboard data. */
   cacheScopeKey: string;
@@ -91,6 +98,8 @@ export function McpAppTile({ entry, cacheScopeKey, onApprovedLaunch, onAutoLaunc
   onApprovedLaunch?: () => void;
   /** Enables later on-load launches after this user successfully runs a safe tile. */
   onAutoLaunchEnabled?: () => void;
+  /** Revokes automatic launch when the live server requires approval. */
+  onAutoLaunchDisabled?: () => void;
   /** Other workspace runtimes to try when the primary one cannot resolve the app. */
   fallbackEndpoints?: DashboardLaunchEndpoint[];
 }) {
@@ -102,6 +111,7 @@ export function McpAppTile({ entry, cacheScopeKey, onApprovedLaunch, onAutoLaunc
   const runsAutomatically = dashboardTileRunsAutomatically(
     entry.requiresApproval === true,
     entry.autoLaunch === true,
+    entry.launchApproved === true,
   );
   const manualLaunch = !runsAutomatically;
   const launchEndpoints = useMemo(() => [
@@ -137,6 +147,8 @@ export function McpAppTile({ entry, cacheScopeKey, onApprovedLaunch, onAutoLaunc
   onApprovedLaunchRef.current = onApprovedLaunch;
   const onAutoLaunchEnabledRef = useRef(onAutoLaunchEnabled);
   onAutoLaunchEnabledRef.current = onAutoLaunchEnabled;
+  const onAutoLaunchDisabledRef = useRef(onAutoLaunchDisabled);
+  onAutoLaunchDisabledRef.current = onAutoLaunchDisabled;
   // A write-tool launch must map 1:1 to a Run/refresh press. The effect also
   // re-runs when the client or workspace identity changes; this ref keeps such
   // re-runs from repeating an already-executed data-modifying call.
@@ -211,7 +223,7 @@ export function McpAppTile({ entry, cacheScopeKey, onApprovedLaunch, onAutoLaunc
         // A stored entry can go stale: a tool that was read-only at add time
         // may need approval now. Never pop a consent prompt from an automatic
         // mount launch — fall back to the idle Run card and ask on request.
-        if (!userInitiated) return { phase: "idle" };
+        if (!userInitiated) return { phase: "idle", revokeAutoLaunch: true };
         const approved = window.confirm(
           `Allow this MCP App to call ${app.toolName} on ${app.serverName}? `
           + "OpenWork remembers your choice for this tile until you remove it.",
@@ -220,6 +232,7 @@ export function McpAppTile({ entry, cacheScopeKey, onApprovedLaunch, onAutoLaunc
         result = await endpoint.client.callMcpAppTool(endpoint.workspaceId, { ...request, approved: true });
         launchApprovedRef.current = true;
         onApprovedLaunchRef.current?.();
+        onAutoLaunchDisabledRef.current?.();
       }
       if (result.isError) {
         return {
@@ -261,6 +274,13 @@ export function McpAppTile({ entry, cacheScopeKey, onApprovedLaunch, onAutoLaunc
           if (userInitiated && next.autoLaunchEligible && entry.autoLaunch !== true) {
             onAutoLaunchEnabledRef.current?.();
           }
+          return;
+        }
+        if (next.phase === "idle" && next.revokeAutoLaunch) {
+          setStarted(false);
+          setState({ phase: "idle" });
+          setRefreshState("idle");
+          onAutoLaunchDisabledRef.current?.();
           return;
         }
         if (stateRef.current.phase === "ready") {

@@ -71,9 +71,10 @@ afterEach(() => {
 
 describe("dashboard tile cache", () => {
   test("automatically runs only opted-in apps that do not require approval", () => {
-    expect(dashboardTileRunsAutomatically(false, false)).toBe(false);
-    expect(dashboardTileRunsAutomatically(false, true)).toBe(true);
-    expect(dashboardTileRunsAutomatically(true, true)).toBe(false);
+    expect(dashboardTileRunsAutomatically(false, false, false)).toBe(false);
+    expect(dashboardTileRunsAutomatically(false, true, false)).toBe(true);
+    expect(dashboardTileRunsAutomatically(true, true, false)).toBe(false);
+    expect(dashboardTileRunsAutomatically(false, true, true)).toBe(false);
   });
 
   test("keeps last-known-good app data isolated by user and organization with its originating workspace", () => {
