@@ -40,6 +40,7 @@ import {
   CommandInput,
   CommandItem,
   CommandList,
+  CommandPanel,
 } from "@/components/ui/command";
 import { openModelPickerEvent, openProviderAuthEvent } from "@/react-app/shell/new-providers-listener";
 import { newProvidersEvent } from "@/app/lib/provider-events";
@@ -257,10 +258,12 @@ export function ModelSelect({
   );
   const checkDesktopRestriction = useCheckDesktopRestriction();
   const canAddProviders = !checkDesktopRestriction({ restriction: "allowCustomProviders" });
-  const shortcutLabel = thinkingModeShortcutLabel(resolveThinkingModeShortcutOs(
+  const shortcutOs = resolveThinkingModeShortcutOs(
     platform.os,
     typeof navigator === "undefined" ? "" : navigator.platform,
-  ));
+  );
+  const shortcutLabel = thinkingModeShortcutLabel(shortcutOs);
+  const favoriteShortcutLabel = shortcutOs === "macos" ? "⌃⇧M" : favoriteModelShortcutLabel;
 
   const focusSearchInput = React.useCallback(() => {
     window.requestAnimationFrame(() => {
@@ -459,6 +462,9 @@ export function ModelSelect({
               <span className="max-w-24 truncate text-muted-foreground">
                 {selectedThinkingOptions.length > 0 ? effectiveBehaviorLabel : "Unavailable"}
               </span>
+              <kbd className="hidden shrink-0 rounded border border-border/70 bg-muted/40 px-1.5 py-0.5 font-sans text-[10px] leading-none text-muted-foreground sm:inline-flex">
+                {shortcutLabel}
+              </kbd>
               <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
             </button>
             <button
@@ -471,6 +477,9 @@ export function ModelSelect({
               <span className="max-w-36 truncate text-muted-foreground">
                 {currentFavorite?.title ?? "None"}
               </span>
+              <kbd className="hidden shrink-0 rounded border border-border/70 bg-muted/40 px-1.5 py-0.5 font-sans text-[10px] leading-none text-muted-foreground sm:inline-flex">
+                {favoriteShortcutLabel}
+              </kbd>
               <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
             </button>
             <button
@@ -568,10 +577,10 @@ export function ModelSelect({
               <span className="text-sm font-medium">Model</span>
             </button>
             <Command items={groups} value={search} onValueChange={setSearch}>
+              <div className="flex min-h-0 flex-1 flex-col">
               <CommandHeader className="p-1.5 pb-1">
                 <CommandInput ref={searchInputRef} placeholder="Search models..." className="h-9 text-sm" />
               </CommandHeader>
-              <CommandEmpty>No models found.</CommandEmpty>
               {openWorkModelsSyncing ? (
                 <div className="mx-1 mb-1 flex items-center gap-2 rounded-md border border-amber-6/60 bg-amber-2/40 px-2 py-1.5">
                   <ProviderIcon providerId={OPENWORK_MODELS_PROVIDER_ID} providerName={OPENWORK_MODELS_PROVIDER_NAME} className="size-3.5 shrink-0 text-amber-11" size={14} />
@@ -581,52 +590,55 @@ export function ModelSelect({
                   </span>
                 </div>
               ) : null}
-              <CommandList className="not-empty:scroll-py-1 not-empty:p-1">
-                {(group: ModelSelectGroup) => (
-                  <CommandGroup key={group.value} items={group.items} className="[[role=group]+&]:mt-1">
-                    <CommandGroupLabel className="px-2 py-1 text-xs">{group.value}</CommandGroupLabel>
-                    <CommandCollection>
-                      {(item: ModelSelectItem) => {
-                        const option = item.option;
-                        const hasThinking = Boolean(onBehaviorChange) && thinkingOptionsFor(option).length > 0;
-                        const favorite = favoriteKeys.has(modelRefKey(option));
-                        return (
-                          <CommandItem
-                            className="min-h-0 gap-2 rounded-lg px-2 py-1.5"
-                            key={item.id}
-                            value={`${option.providerID}:${option.modelID} ${option.title} ${option.description ?? ""}`}
-                            onClick={() => handleSelect(option)}
-                            data-checked={isSameModel(value, option)}
-                          >
-                            <ProviderIcon providerId={option.providerID} providerName={option.description} className="size-3.5 opacity-70" size={14} />
-                            <span className="min-w-0 flex-1">
-                              <span className="block truncate text-foreground">{option.title}</span>
-                              <span className="block truncate text-xs text-muted-foreground">{option.description ?? getProviderDisplayName(option.providerID)}</span>
-                            </span>
-                            <button
-                              type="button"
-                              className="cursor-pointer rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                              aria-label={favorite ? `Remove ${option.title} from favorites` : `Add ${option.title} to favorites`}
-                              onPointerDown={(event) => {
-                                event.preventDefault();
-                                event.stopPropagation();
-                              }}
-                              onClick={(event) => {
-                                event.preventDefault();
-                                event.stopPropagation();
-                                useModelCollectionsStore.getState().toggleFavorite(option);
-                              }}
+              <CommandPanel className="h-0 min-h-0 flex-1 overflow-y-auto overscroll-y-contain">
+                <CommandEmpty>No models found.</CommandEmpty>
+                <CommandList className="not-empty:scroll-py-1 not-empty:p-1">
+                  {(group: ModelSelectGroup) => (
+                    <CommandGroup key={group.value} items={group.items} className="[[role=group]+&]:mt-1">
+                      <CommandGroupLabel className="px-2 py-1 text-xs">{group.value}</CommandGroupLabel>
+                      <CommandCollection>
+                        {(item: ModelSelectItem) => {
+                          const option = item.option;
+                          const hasThinking = Boolean(onBehaviorChange) && thinkingOptionsFor(option).length > 0;
+                          const favorite = favoriteKeys.has(modelRefKey(option));
+                          return (
+                            <CommandItem
+                              className="min-h-0 gap-2 rounded-lg px-2 py-1.5"
+                              key={item.id}
+                              value={`${option.providerID}:${option.modelID} ${option.title} ${option.description ?? ""}`}
+                              onClick={() => handleSelect(option)}
+                              data-checked={isSameModel(value, option)}
                             >
-                              <Star className="size-3.5" fill={favorite ? "currentColor" : "none"} />
-                            </button>
-                            {hasThinking ? <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" /> : null}
-                          </CommandItem>
-                        );
-                      }}
-                    </CommandCollection>
-                  </CommandGroup>
-                )}
-              </CommandList>
+                              <ProviderIcon providerId={option.providerID} providerName={option.description} className="size-3.5 opacity-70" size={14} />
+                              <span className="min-w-0 flex-1">
+                                <span className="block truncate text-foreground">{option.title}</span>
+                                <span className="block truncate text-xs text-muted-foreground">{option.description ?? getProviderDisplayName(option.providerID)}</span>
+                              </span>
+                              <button
+                                type="button"
+                                className="cursor-pointer rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                                aria-label={favorite ? `Remove ${option.title} from favorites` : `Add ${option.title} to favorites`}
+                                onPointerDown={(event) => {
+                                  event.preventDefault();
+                                  event.stopPropagation();
+                                }}
+                                onClick={(event) => {
+                                  event.preventDefault();
+                                  event.stopPropagation();
+                                  useModelCollectionsStore.getState().toggleFavorite(option);
+                                }}
+                              >
+                                <Star className="size-3.5" fill={favorite ? "currentColor" : "none"} />
+                              </button>
+                              {hasThinking ? <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" /> : null}
+                            </CommandItem>
+                          );
+                        }}
+                      </CommandCollection>
+                    </CommandGroup>
+                  )}
+                </CommandList>
+              </CommandPanel>
               {canAddProviders ? (
                 <div className="border-t border-border px-2 py-1">
                   <button type="button" className="flex w-full cursor-pointer items-center gap-2 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground" onClick={handleConnectProvider}>
@@ -648,6 +660,7 @@ export function ModelSelect({
                   <Settings2 className="size-3.5" />
                   All models
                 </button>
+              </div>
               </div>
             </Command>
           </div>
