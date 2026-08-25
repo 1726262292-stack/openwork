@@ -29,8 +29,8 @@ import { idParamSchema } from "./shared.js"
  * elements that admins assign to members and teams through the same grants
  * mechanism connector assignment uses (`dashboard_access_grant` mirrors
  * `connector_instance_access_grant`). Granted dashboards render on the desktop
- * MCP Apps dashboard as read-only tiles; per-user launch consent stays on the
- * desktop and is never granted here.
+ * MCP Apps dashboard as read-only tiles. Per-user launch consent stays on the
+ * desktop; admins may explicitly authorize automatic launch on an element.
  */
 
 type DashboardId = typeof DashboardTable.$inferSelect.id
@@ -54,6 +54,7 @@ const dashboardElementSchema = z.object({
   title: z.string().trim().min(1).max(255),
   launchArguments: z.record(z.string(), z.unknown()).optional(),
   requiresApproval: z.boolean().optional(),
+  organizationAutoLaunch: z.boolean().optional(),
 }).meta({ ref: "DashboardElement" })
 
 const dashboardCreateSchema = z.object({
@@ -140,6 +141,7 @@ function toStoredElement(value: DashboardElementInput): DashboardElement {
     title: value.title,
     ...(value.launchArguments ? { launchArguments: value.launchArguments } : {}),
     ...(value.requiresApproval === true ? { requiresApproval: true } : {}),
+    ...(value.organizationAutoLaunch === true ? { organizationAutoLaunch: true } : {}),
   }
 }
 

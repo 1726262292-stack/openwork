@@ -23,6 +23,8 @@ export type DashboardMcpAppEntry = {
   launchArguments?: Record<string, unknown>;
   /** Write-capable apps remain manual-only. */
   requiresApproval?: boolean;
+  /** Server-authored admin policy to run this exact managed element automatically. */
+  organizationAutoLaunch?: boolean;
   /** The member's locally stored approval for this exact managed element. */
   launchApproved?: boolean;
   /** The member enabled automatic launch by successfully running this exact safe element. */
@@ -69,6 +71,7 @@ export function grantedEntryId(dashboardId: string, element: DenDashboardElement
     resourceUri: element.resourceUri,
     launchArguments: element.launchArguments ?? null,
     requiresApproval: element.requiresApproval === true,
+    organizationAutoLaunch: element.organizationAutoLaunch === true,
   });
   return `granted:${dashboardId}:mcp:${encodeURIComponent(material)}`;
 }
@@ -90,6 +93,7 @@ export function grantedDashboardEntry(
     title: element.title,
     ...(element.launchArguments ? { launchArguments: element.launchArguments } : {}),
     ...(element.requiresApproval === true ? { requiresApproval: true } : {}),
+    ...(element.organizationAutoLaunch === true ? { organizationAutoLaunch: true } : {}),
     ...(consent?.launchApproved === true ? { launchApproved: true } : {}),
     ...(element.requiresApproval !== true
       && consent?.autoLaunch === true

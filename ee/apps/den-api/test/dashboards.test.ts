@@ -57,6 +57,11 @@ const writeElement = {
   requiresApproval: true,
 }
 
+const organizationAutoLaunchElement = {
+  ...writeElement,
+  organizationAutoLaunch: true,
+}
+
 async function cleanup() {
   await db.delete(DashboardAccessGrantTable).where(inArray(DashboardAccessGrantTable.organizationId, [organizationId, otherOrganizationId]))
   await db.delete(DashboardTable).where(inArray(DashboardTable.organizationId, [organizationId, otherOrganizationId]))
@@ -208,7 +213,7 @@ async function grantAccess(dashboardId: string, body: Record<string, unknown>) {
 }
 
 test("admins create, list, update, and soft-delete dashboards", async () => {
-  const created = await createDashboard("Support board", [readOnlyElement, writeElement])
+  const created = await createDashboard("Support board", [readOnlyElement, organizationAutoLaunchElement])
   expect(created.id.startsWith("dsb_")).toBe(true)
 
   const listResponse = await request("/v1/dashboards")
@@ -216,17 +221,17 @@ test("admins create, list, update, and soft-delete dashboards", async () => {
   const list = await listResponse.json() as { items: Array<{ id: string; name: string; elements: unknown[] }> }
   const listed = list.items.find((item) => item.id === created.id)
   expect(listed?.name).toBe("Support board")
-  expect(listed?.elements).toEqual([readOnlyElement, writeElement])
+  expect(listed?.elements).toEqual([readOnlyElement, organizationAutoLaunchElement])
 
   const updateResponse = await request(`/v1/dashboards/${created.id}`, {
     method: "PATCH",
-    body: JSON.stringify({ name: "Support board v2", elements: [writeElement, readOnlyElement] }),
+    body: JSON.stringify({ name: "Support board v2", elements: [organizationAutoLaunchElement, readOnlyElement] }),
   })
   expect(updateResponse.status).toBe(200)
   const updated = await updateResponse.json() as { item: { name: string; elements: unknown[] } }
   expect(updated.item.name).toBe("Support board v2")
   // Element array order is the tile order.
-  expect(updated.item.elements).toEqual([writeElement, readOnlyElement])
+  expect(updated.item.elements).toEqual([organizationAutoLaunchElement, readOnlyElement])
 
   const deleteResponse = await request(`/v1/dashboards/${created.id}`, { method: "DELETE" })
   expect(deleteResponse.status).toBe(204)
