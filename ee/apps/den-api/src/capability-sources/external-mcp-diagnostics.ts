@@ -1064,6 +1064,16 @@ function classifyByCode(code: string): Classification | null {
       operatorAction: "Retry with the newer OAuth credential after the concurrent refresh completes.",
     }
   }
+  if (code === "MCP_OAUTH_CONFIGURATION_CHANGED") {
+    return {
+      phase: "AUTH_CLIENT_REGISTRATION",
+      category: "oauth_configuration_changed",
+      code,
+      retryable: true,
+      actionOwner: "openwork",
+      operatorAction: "Reload the MCP connection and retry client registration against its current OAuth issuer.",
+    }
+  }
   if (code === "MCP_OAUTH_CONFIGURATION_REQUIRED") {
     return {
       phase: "AUTH_CLIENT_REGISTRATION",
@@ -1629,8 +1639,12 @@ export class ExternalMcpDiagnosticTracker {
         inferredClassification = classifyError(this.backgroundFailure.error, this.backgroundFailure.phase)
       }
     }
+    const sourceCode = errorCode(source.error)
+    const sourceIsApplicationOwnedOAuthFailure = sourceCode?.startsWith("MCP_OAUTH_") === true
+      || sourceCode === "MCP_LIFECYCLE_DEADLINE"
     const classified = this.forcedClassification
       && !TYPED_OAUTH_ERROR_NAMES.has(errorName(source.error))
+      && !sourceIsApplicationOwnedOAuthFailure
       && inferredClassification.phase !== "MCP_VERSION"
       ? this.forcedClassification
       : inferredClassification
@@ -1731,7 +1745,10 @@ function requestPhase(input: string | URL, init: RequestInit | undefined, endpoi
 
   if (url.origin === endpoint.origin && url.pathname === endpoint.pathname) {
     const method = jsonRpcMethod(body)
-    if (method === "initialize") return "MCP_INITIALIZE"
+    // server/discover is the modern wire's protocol negotiation; it shares
+    // the initialize phase so its unauthenticated bearer challenge is
+    // suppressed the same way.
+    if (method === "server/discover" || method === "initialize") return "MCP_INITIALIZE"
     if (method === "notifications/initialized") return "MCP_INITIALIZED"
     if (method === "tools/list") return "MCP_TOOL_DISCOVERY"
     if (method === "tools/call") return "MCP_TOOL_EXECUTION"

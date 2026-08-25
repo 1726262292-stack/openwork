@@ -542,6 +542,19 @@ test("connect start repairs a verified stale resource issuer alias before author
     port: 0,
     async fetch(incoming) {
       const url = new URL(incoming.url)
+      if (url.pathname === "/.well-known/oauth-authorization-server") {
+        return Response.json({
+          issuer: authorizationOrigin,
+          authorization_endpoint: `${authorizationOrigin}/authorize`,
+          token_endpoint: `${authorizationOrigin}/token`,
+          registration_endpoint: `${authorizationOrigin}/register`,
+          authorization_response_iss_parameter_supported: true,
+          response_types_supported: ["code"],
+          grant_types_supported: ["authorization_code", "refresh_token"],
+          code_challenge_methods_supported: ["S256"],
+          token_endpoint_auth_methods_supported: ["none"],
+        })
+      }
       if (url.pathname === "/register") {
         const metadata: unknown = await incoming.json()
         const redirectUris = isRecord(metadata) && isStringArray(metadata.redirect_uris)
@@ -623,9 +636,9 @@ test("connect start repairs a verified stale resource issuer alias before author
             authorizationServerUrl: resourceOrigin,
             authorizationServerMetadata: {
               issuer: authorizationOrigin,
-              authorization_endpoint: `${authorizationOrigin}/authorize`,
-              token_endpoint: `${authorizationOrigin}/token`,
-              registration_endpoint: `${authorizationOrigin}/register`,
+              authorization_endpoint: "http://127.0.0.1:1/authorize",
+              token_endpoint: "http://127.0.0.1:1/token",
+              registration_endpoint: "http://127.0.0.1:1/register",
               authorization_response_iss_parameter_supported: true,
               code_challenge_methods_supported: ["S256"],
             },
@@ -654,6 +667,9 @@ test("connect start repairs a verified stale resource issuer alias before author
       .limit(1)
     expect(repaired?.oauthConfiguration?.authorizationServerIssuer).toBe(authorizationOrigin)
     expect(repaired?.oauthIssuerReviewRequiredAt).toBeNull()
+    expect(repaired?.oauthConfiguration?.discovery?.authorizationServerUrl).toBe(authorizationOrigin)
+    expect(repaired?.oauthConfiguration?.discovery?.authorizationServerMetadata?.authorization_endpoint).toBe(`${authorizationOrigin}/authorize`)
+    expect(repaired?.oauthConfiguration?.discovery?.authorizationServerMetadata?.token_endpoint).toBe(`${authorizationOrigin}/token`)
 
     if (!repaired?.oauthConfiguration?.discovery) throw new Error("Expected repaired discovery state.")
     await db
@@ -665,6 +681,18 @@ test("connect start repairs a verified stale resource issuer alias before author
         },
       })
       .where(drizzle.eq(schema.ExternalMcpConnectionTable.id, connection.id))
+    const [staleAgain] = await db
+      .select()
+      .from(schema.ExternalMcpConnectionTable)
+      .where(drizzle.eq(schema.ExternalMcpConnectionTable.id, connection.id))
+      .limit(1)
+    expect(staleAgain?.oauthConfiguration?.authorizationServerIssuer).toBe(resourceOrigin)
+    expect(staleAgain?.oauthConfiguration?.discovery?.authorizationServerUrl).toBe(authorizationOrigin)
+    expect(staleAgain?.oauthConfiguration?.discovery?.authorizationServerMetadata).toMatchObject({
+      issuer: authorizationOrigin,
+      authorization_endpoint: `${authorizationOrigin}/authorize`,
+      token_endpoint: `${authorizationOrigin}/token`,
+    })
     const memberResponse = await principalRequest(
       regularUserId,
       `/v1/mcp-connections/${connection.id}/connect/start`,
@@ -684,6 +712,128 @@ test("connect start repairs a verified stale resource issuer alias before author
   } finally {
     resourceServer.stop(true)
     authorizationServer.stop(true)
+  }
+})
+
+test("connect start reloads and retries once when the selected issuer changes during client registration", async () => {
+  let origin = ""
+  let currentIssuer = ""
+  let racedConnectionId: DenTypeId<"externalMcpConnection"> | undefined
+  const registrationAttempts: string[] = []
+  const server = Bun.serve({
+    port: 0,
+    async fetch(incoming) {
+      const url = new URL(incoming.url)
+      if (url.pathname === "/.well-known/oauth-protected-resource/mcp") {
+        return Response.json({
+          resource: `${origin}/mcp`,
+          authorization_servers: [currentIssuer],
+        })
+      }
+      const issuerName = url.pathname === "/.well-known/oauth-authorization-server/issuer-a"
+        || url.pathname === "/issuer-a/.well-known/oauth-authorization-server"
+        ? "issuer-a"
+        : url.pathname === "/.well-known/oauth-authorization-server/issuer-b"
+          || url.pathname === "/issuer-b/.well-known/oauth-authorization-server"
+          ? "issuer-b"
+          : null
+      if (issuerName) {
+        const issuer = `${origin}/${issuerName}`
+        return Response.json({
+          issuer,
+          authorization_endpoint: `${origin}/authorize-${issuerName}`,
+          token_endpoint: `${origin}/token-${issuerName}`,
+          registration_endpoint: `${origin}/register-${issuerName}`,
+          authorization_response_iss_parameter_supported: true,
+          response_types_supported: ["code"],
+          grant_types_supported: ["authorization_code", "refresh_token"],
+          code_challenge_methods_supported: ["S256"],
+          token_endpoint_auth_methods_supported: ["none"],
+        })
+      }
+      if (url.pathname === "/register-issuer-a" || url.pathname === "/register-issuer-b") {
+        const issuerName = url.pathname.endsWith("issuer-a") ? "issuer-a" : "issuer-b"
+        const metadata: unknown = await incoming.json()
+        const redirectUris = isRecord(metadata) && isStringArray(metadata.redirect_uris)
+          ? metadata.redirect_uris
+          : []
+        registrationAttempts.push(issuerName)
+        if (issuerName === "issuer-a") {
+          if (!racedConnectionId) throw new Error("Expected the raced MCP connection id.")
+          currentIssuer = `${origin}/issuer-b`
+          const [current] = await db
+            .select()
+            .from(schema.ExternalMcpConnectionTable)
+            .where(drizzle.eq(schema.ExternalMcpConnectionTable.id, racedConnectionId))
+            .limit(1)
+          if (!current?.oauthConfiguration) throw new Error("Expected the raced OAuth configuration.")
+          const { discovery: _discovery, ...configuration } = current.oauthConfiguration
+          await db
+            .update(schema.ExternalMcpConnectionTable)
+            .set({
+              oauthConfiguration: {
+                ...configuration,
+                authorizationServerIssuer: currentIssuer,
+              },
+            })
+            .where(drizzle.eq(schema.ExternalMcpConnectionTable.id, racedConnectionId))
+        }
+        return Response.json({
+          client_id: `${issuerName}-client`,
+          token_endpoint_auth_method: "none",
+          redirect_uris: redirectUris,
+        }, { status: 201 })
+      }
+      if (url.pathname === "/mcp") {
+        return new Response(null, {
+          status: 401,
+          headers: {
+            "www-authenticate": `Bearer resource_metadata="${origin}/.well-known/oauth-protected-resource/mcp"`,
+          },
+        })
+      }
+      return new Response(null, { status: 404 })
+    },
+  })
+  origin = `http://127.0.0.1:${server.port}`
+  currentIssuer = `${origin}/issuer-a`
+
+  try {
+    const connection = await createExternalMcpConnection({
+      organizationId,
+      name: "Concurrent issuer update MCP",
+      url: `${origin}/mcp`,
+      authType: "oauth",
+      credentialMode: "shared",
+      oauthConfiguration: {
+        version: 1,
+        authorizationServerIssuer: currentIssuer,
+        requestedScopes: [],
+      },
+      createdByOrgMembershipId: memberId,
+      access: { orgWide: true, memberIds: [], teamIds: [] },
+    })
+    racedConnectionId = connection.id
+
+    const response = await request(`/v1/mcp-connections/${connection.id}/connect/start`)
+    expect(response.status).toBe(200)
+    const body: unknown = await response.json()
+    if (!isRecord(body) || typeof body.authorizeUrl !== "string") {
+      throw new Error("Expected an OAuth authorize URL after the configuration retry.")
+    }
+    expect(new URL(body.authorizeUrl).pathname).toBe("/authorize-issuer-b")
+    expect(registrationAttempts).toEqual(["issuer-a", "issuer-b"])
+
+    const [savedClient] = await db
+      .select()
+      .from(schema.OrgOAuthClientTable)
+      .where(drizzle.eq(schema.OrgOAuthClientTable.providerId, connection.id))
+      .limit(1)
+    expect(savedClient?.clientId).toBe("issuer-b-client")
+    expect(savedClient?.extra?.authorizationServerIssuer).toBe(`${origin}/issuer-b`)
+    expect(JSON.stringify(savedClient)).not.toContain("issuer-a-client")
+  } finally {
+    server.stop(true)
   }
 })
 
