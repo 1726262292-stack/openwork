@@ -116,7 +116,11 @@ describe("artifact file routes", () => {
     const xlsxDownload = await fetch(`${base}/workspace/ws_1/files/raw?path=${encodeURIComponent("reports/artifact-eval.xlsx")}`, { headers: auth(token) });
     expect(xlsxDownload.status).toBe(200);
     expect(Array.from(new Uint8Array(await xlsxDownload.arrayBuffer()))).toEqual([80, 75, 9, 9]);
+  });
 
+  test("lists code artifacts while excluding heavy directories", async () => {
+    const root = await createWorkspaceRoot();
+    const { base, token } = await startOpenworkServer(root);
     const sessionResponse = await fetch(`${base}/workspace/ws_1/files/sessions`, {
       method: "POST",
       headers: auth(token),
