@@ -1,6 +1,6 @@
 /** @jsxImportSource react */
 import type { ReactNode } from "react";
-import { RefreshCw, X } from "lucide-react";
+import { RefreshCw } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 
@@ -9,11 +9,10 @@ type DashboardTileShellProps = {
   subtitle?: string;
   badge?: ReactNode;
   onRefresh?: () => void;
-  onRemove: () => void;
   children: ReactNode;
 };
 
-export function DashboardTileShell({ title, subtitle, badge, onRefresh, onRemove, children }: DashboardTileShellProps) {
+export function DashboardTileShell({ title, subtitle, badge, onRefresh, children }: DashboardTileShellProps) {
   return (
     <section className="flex min-h-64 flex-col overflow-hidden rounded-xl border border-border bg-background">
       <header className="flex items-center gap-2 border-b border-border px-3 py-1.5">
@@ -27,9 +26,6 @@ export function DashboardTileShell({ title, subtitle, badge, onRefresh, onRemove
             <RefreshCw className="size-4" />
           </Button>
         ) : null}
-        <Button variant="ghost" size="icon" aria-label={`Remove ${title}`} title="Remove" onClick={onRemove}>
-          <X className="size-4" />
-        </Button>
       </header>
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-3 pb-3">{children}</div>
     </section>

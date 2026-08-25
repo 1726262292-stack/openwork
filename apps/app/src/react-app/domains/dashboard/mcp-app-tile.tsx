@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useWorkspace, WorkspaceProvider } from "@/react-app/shell/workspace-provider";
 import { DashboardTileShell } from "./dashboard-tile-shell";
-import type { DashboardMcpAppEntry } from "./dashboard-store";
+import type { DashboardMcpAppEntry } from "./granted-dashboard-store";
 
 /** A workspace MCP runtime a tile may launch through. */
 export type DashboardLaunchEndpoint = {
@@ -57,9 +57,8 @@ function launchFailureMessage(content: Array<Record<string, unknown>>): string |
   return text;
 }
 
-export function McpAppTile({ entry, onRemove, onApprovedLaunch, onFirstRunCompleted, fallbackEndpoints }: {
+export function McpAppTile({ entry, onApprovedLaunch, onFirstRunCompleted, fallbackEndpoints }: {
   entry: DashboardMcpAppEntry;
-  onRemove: () => void;
   /** Persists the user's one-time launch approval on the stored entry. */
   onApprovedLaunch?: () => void;
   /** Persists that the user has run this tile once, unlocking automatic launches. */
@@ -214,7 +213,6 @@ export function McpAppTile({ entry, onRemove, onApprovedLaunch, onFirstRunComple
       title={entry.title}
       subtitle={entry.serverName}
       onRefresh={run}
-      onRemove={onRemove}
     >
       {state.phase === "idle" ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-2 py-6 text-center">
