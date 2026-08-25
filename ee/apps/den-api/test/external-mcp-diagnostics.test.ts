@@ -1124,6 +1124,26 @@ describe("external MCP diagnostics", () => {
     })
   })
 
+  test("suppresses the unauthenticated bearer challenge on a modern server/discover probe", async () => {
+    const tracker = new ExternalMcpDiagnosticTracker("req_discover_challenge")
+    const diagnosticFetch = createExternalMcpDiagnosticFetch({
+      endpoint: "https://mcp.example.invalid/mcp",
+      tracker,
+      fetch: async () => new Response(null, {
+        status: 401,
+        headers: { "www-authenticate": "Bearer resource_metadata=\"https://mcp.example.invalid/.well-known/oauth-protected-resource\"" },
+      }),
+    })
+    await diagnosticFetch("https://mcp.example.invalid/mcp", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "server/discover", params: {} }),
+    })
+    const diagnostic = tracker.error(new Error("Unauthorized")).diagnostic
+    expect(diagnostic.code).not.toBe("MCP_HTTP_401")
+    expect(diagnostic.category).not.toBe("http_failure")
+  })
+
   test("preserves an application-owned OAuth issuer mismatch over a captured HTTP 401", async () => {
     const tracker = new ExternalMcpDiagnosticTracker("req_issuer_mismatch")
     const diagnosticFetch = createExternalMcpDiagnosticFetch({

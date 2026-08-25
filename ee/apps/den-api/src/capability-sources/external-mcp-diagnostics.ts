@@ -1745,7 +1745,10 @@ function requestPhase(input: string | URL, init: RequestInit | undefined, endpoi
 
   if (url.origin === endpoint.origin && url.pathname === endpoint.pathname) {
     const method = jsonRpcMethod(body)
-    if (method === "initialize") return "MCP_INITIALIZE"
+    // server/discover is the modern wire's protocol negotiation; it shares
+    // the initialize phase so its unauthenticated bearer challenge is
+    // suppressed the same way.
+    if (method === "server/discover" || method === "initialize") return "MCP_INITIALIZE"
     if (method === "notifications/initialized") return "MCP_INITIALIZED"
     if (method === "tools/list") return "MCP_TOOL_DISCOVERY"
     if (method === "tools/call") return "MCP_TOOL_EXECUTION"
