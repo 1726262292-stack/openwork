@@ -15,7 +15,9 @@ REF=""
 FORCE_INSTALL=0
 RUN_SEED=0
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SANDBOX="openwork-server-$(date +%Y%m%d-%H%M%S)"
+# Pid + random suffix so parallel invocations (multiple features/worktrees)
+# never collide on the second-granularity timestamp.
+SANDBOX="openwork-server-$(date +%Y%m%d-%H%M%S)-$$-$(od -An -N2 -tx2 /dev/urandom | tr -d ' ')"
 DAYTONA_SERVER_SNAPSHOT="${DAYTONA_SERVER_SNAPSHOT:-openwork-server}"
 DAYTONA_TARGET="${DAYTONA_TARGET:-us}"
 DEN_API_PORT="${DEN_API_PORT:-8788}"
