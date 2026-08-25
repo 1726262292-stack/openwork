@@ -1,5 +1,7 @@
 import { spawnSync } from "node:child_process"
-import { resolve } from "node:path"
+import { mkdtempSync, readFileSync, rmSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join, resolve } from "node:path"
 import { expect } from "vitest"
 import { test } from "@openwork/testkit"
 
@@ -76,24 +78,36 @@ test("OpenWork Connect and the agent endpoint implement stateless MCP 2026", ({ 
   expect(scopes.output).toContain("tests 3")
   expect(scopes.output).toContain("fail 0")
 
-  const agent = run("pnpm", [
-    "--filter",
-    "@openwork-ee/den-api",
-    "exec",
-    "bun",
-    "test",
-    "test/mcp-agent-stateless.test.ts",
-  ])
-  expect(agent.error, agent.output).toBeUndefined()
-  expect(agent.status, agent.output).toBe(0)
-  expect(agent.output).toContain("serves the 2026 stateless wire with fresh per-request servers")
-  expect(agent.output).toContain("rejects a modern protocol header/body mismatch instead of normalizing it")
-  expect(agent.output).toContain("keeps the 2025 stateless fallback for existing clients")
-  expect(agent.output).toContain("keeps a prepared request-local server bound through legacy request cloning")
-  expect(agent.output).toContain("delivers modern list changes through subscriptions/listen")
-  expect(agent.output).toContain("isolates list-change subscriptions by authenticated catalog audience")
-  expect(agent.output).toContain("6 pass")
-  expect(agent.output).toContain("0 fail")
+  // Older bun releases only print per-test names on failure, so witness the
+  // executed test names through the version-stable JUnit report instead.
+  const agentReportDir = mkdtempSync(join(tmpdir(), "mcp-agent-stateless-"))
+  const agentReportPath = join(agentReportDir, "junit.xml")
+  try {
+    const agent = run("pnpm", [
+      "--filter",
+      "@openwork-ee/den-api",
+      "exec",
+      "bun",
+      "test",
+      "test/mcp-agent-stateless.test.ts",
+      "--reporter=junit",
+      `--reporter-outfile=${agentReportPath}`,
+    ])
+    expect(agent.error, agent.output).toBeUndefined()
+    expect(agent.status, agent.output).toBe(0)
+    const agentReport = readFileSync(agentReportPath, "utf8")
+    expect(agentReport).toContain('name="serves the 2026 stateless wire with fresh per-request servers"')
+    expect(agentReport).toContain('name="rejects a modern protocol header/body mismatch instead of normalizing it"')
+    expect(agentReport).toContain('name="keeps the 2025 stateless fallback for existing clients"')
+    expect(agentReport).toContain('name="keeps a prepared request-local server bound through legacy request cloning"')
+    expect(agentReport).toContain('name="delivers modern list changes through subscriptions/listen"')
+    expect(agentReport).toContain('name="isolates list-change subscriptions by authenticated catalog audience"')
+    expect(agentReport).not.toContain("<failure")
+    expect(agent.output).toContain("6 pass")
+    expect(agent.output).toContain("0 fail")
+  } finally {
+    rmSync(agentReportDir, { recursive: true, force: true })
+  }
 
   const managedGateway = run("pnpm", [
     "--filter",
