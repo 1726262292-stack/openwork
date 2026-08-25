@@ -8,6 +8,7 @@
     "build": "node ./scripts/build.mjs",
     "build:workspace-dependencies": "pnpm --filter '@openwork-ee/den-api^...' --if-present run build",
     "build:den-db": "pnpm --filter @openwork-ee/den-db build",
+    "build:mcp-apps": "pnpm --filter @openwork/mcp-apps build",
     "openapi:snapshot": "tsx scripts/generate-openapi-snapshot.ts",
     "smoke:config-object-payload-boundary": "tsx scripts/smoke-config-object-payload-boundary.ts",
     "backfill:desktop-policies": "pnpm run build:den-db && tsx scripts/backfill-desktop-policies.ts",
