@@ -119,6 +119,7 @@ function main() {
   run(pnpmCommand, ["run", "build:codemode"])
   run(pnpmCommand, ["run", "build:headless-threads"])
   run(pnpmCommand, ["run", "build:den-db"])
+  run(pnpmCommand, ["run", "build:telemetry"])
   run(pnpmCommand, ["exec", "tsc", "-p", "tsconfig.json"])
   maybeUploadSentrySourcemaps()
 }
