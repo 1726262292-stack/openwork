@@ -38,7 +38,14 @@ const INTERNAL_RESPONSE_HEADERS = new Set([
   "x-vercel-id",
 ]);
 const SAFE_X_RESPONSE_HEADERS = new Set(["x-content-type-options"]);
-const AUTH_COOKIE_PREFIXES = ["better-auth.", "__Secure-better-auth.", "better-auth-"];
+const AUTH_COOKIE_PREFIXES = [
+  "openwork-den.",
+  "__Secure-openwork-den.",
+  "openwork-den-",
+  "better-auth.",
+  "__Secure-better-auth.",
+  "better-auth-",
+];
 
 /**
  * OpenWork Cloud instances are served from Daytona preview origins that are

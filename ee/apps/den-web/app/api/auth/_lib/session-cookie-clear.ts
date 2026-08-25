@@ -1,4 +1,7 @@
-const BETTER_AUTH_SECURE_SESSION_COOKIE = "__Secure-better-auth.session_token";
+const BETTER_AUTH_SECURE_SESSION_COOKIES = [
+  "__Secure-openwork-den.session_token",
+  "__Secure-better-auth.session_token",
+];
 
 function normalizeCookieDomain(value: string | null | undefined): string | null {
   const domain = value?.trim().replace(/^\.+/u, "").toLowerCase() ?? "";
@@ -35,9 +38,11 @@ function domainCandidates(requestUrl: string, configuredDomain?: string): string
 }
 
 export function buildAuthSessionCookieClearHeaders(requestUrl: string, configuredDomain = process.env.DEN_BETTER_AUTH_COOKIE_DOMAIN): string[] {
-  const expiredCookie = `${BETTER_AUTH_SECURE_SESSION_COOKIE}=; Max-Age=0; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Secure; HttpOnly; SameSite=Lax`;
-  return [
-    expiredCookie,
-    ...domainCandidates(requestUrl, configuredDomain).map((domain) => `${expiredCookie}; Domain=${domain}`),
-  ];
+  return BETTER_AUTH_SECURE_SESSION_COOKIES.flatMap((cookieName) => {
+    const expiredCookie = `${cookieName}=; Max-Age=0; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Secure; HttpOnly; SameSite=Lax`;
+    return [
+      expiredCookie,
+      ...domainCandidates(requestUrl, configuredDomain).map((domain) => `${expiredCookie}; Domain=${domain}`),
+    ];
+  });
 }
