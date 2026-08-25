@@ -13,20 +13,17 @@ describe("OpenWork capabilities knowledge plugin", () => {
     expect(knowledge).toContain("https://api.openworklabs.com/mcp/agent");
     expect(knowledge).toContain("app.openworklabs.com/api/den");
     expect(knowledge).toContain("internal same-origin desktop proxy");
-    expect(knowledge).toContain("OpenCode is verified");
-    expect(knowledge).toContain("Codex is setup-only");
-    expect(knowledge).toContain("cursor://anysphere.cursor-mcp/oauth/callback");
-    expect(knowledge).toContain("Settings > MCP servers");
-    expect(knowledge).toContain("https://app.openworklabs.com/api/auth");
-    expect(knowledge).toContain("RFC9728 discovery");
-    expect(knowledge).toContain("PKCE S256");
-    expect(knowledge).toContain("opencode mcp auth openwork");
-    expect(knowledge).toContain("codex mcp login openwork");
     expect(knowledge).toContain("search_capabilities");
     expect(knowledge).toContain("execute_capability");
-    expect(knowledge).toContain("JWTs signed and validated with EdDSA");
-    expect(knowledge).toContain("30-day inactivity window");
-    expect(knowledge).toContain("reference_id");
+    // Protocol and client-setup detail lives in the docs, reachable through
+    // openwork_docs_read — the always-on prompt only routes to it. Keeping
+    // OAuth mechanics out of every request saves ~2.5k characters per turn.
+    expect(knowledge).toContain("read packages/docs/cloud/run-in-the-cloud/cloud-mcp.mdx with openwork_docs_read");
+    expect(knowledge).not.toContain("cursor://anysphere.cursor-mcp/oauth/callback");
+    expect(knowledge).not.toContain("RFC9728 discovery");
+    expect(knowledge).not.toContain("JWTs signed and validated with EdDSA");
+    expect(knowledge).not.toContain("30-day inactivity window");
+    expect(knowledge).not.toContain("codex mcp login openwork");
     expect(knowledge).toContain("OpenWork documentation tools answer product questions. Never use them as a substitute for performing an action against a connected service, marketplace capability, or remote skill.");
     expect(knowledge).toContain("require the user to sign in to OpenWork first");
     expect(knowledge).toContain("Runtime steering from the OpenWork extensions plugin is the source of truth");
