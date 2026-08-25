@@ -47,6 +47,7 @@ function installWindow(): Storage {
 
 const cache: DashboardTileCache = {
   cachedAt: 1_000_000,
+  workspaceId: "workspace_reports",
   app: {
     serverName: "reports",
     toolName: "show_report",
@@ -74,7 +75,7 @@ describe("dashboard tile cache", () => {
     expect(dashboardTileRunsAutomatically(true)).toBe(false);
   });
 
-  test("keeps last-known-good app data isolated by user and organization", () => {
+  test("keeps last-known-good app data isolated by user and organization with its originating workspace", () => {
     installWindow();
     const aliceOps = dashboardTileCacheScopeKey("user_alice", "org_ops");
     const aliceFinance = dashboardTileCacheScopeKey("user_alice", "org_finance");
@@ -83,6 +84,7 @@ describe("dashboard tile cache", () => {
     writeDashboardTileCache(aliceOps, "tile_report", cache);
 
     expect(readDashboardTileCache(aliceOps, "tile_report", cache.cachedAt)).toEqual(cache);
+    expect(readDashboardTileCache(aliceOps, "tile_report", cache.cachedAt)?.workspaceId).toBe("workspace_reports");
     expect(readDashboardTileCache(aliceFinance, "tile_report", cache.cachedAt)).toBeNull();
     expect(readDashboardTileCache(bobOps, "tile_report", cache.cachedAt)).toBeNull();
   });
@@ -95,6 +97,11 @@ describe("dashboard tile cache", () => {
     expect(readDashboardTileCache(scope, "tile_report", cache.cachedAt + 24 * 60 * 60 * 1_000 + 1)).toBeNull();
 
     storage.setItem(scope, JSON.stringify({ tile_report: { cachedAt: cache.cachedAt, app: {}, result: {} } }));
+    expect(readDashboardTileCache(scope, "tile_report", cache.cachedAt)).toBeNull();
+
+    storage.setItem(scope, JSON.stringify({
+      tile_report: { ...cache, workspaceId: "" },
+    }));
     expect(readDashboardTileCache(scope, "tile_report", cache.cachedAt)).toBeNull();
   });
 

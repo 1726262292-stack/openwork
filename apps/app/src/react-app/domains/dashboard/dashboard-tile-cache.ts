@@ -8,6 +8,7 @@ export const DASHBOARD_AUTO_REFRESH_INTERVAL_MS = 5 * 60 * 1_000;
 
 export type DashboardTileCache = {
   cachedAt: number;
+  workspaceId: string;
   app: OpenworkMcpAppResource;
   result: PreservedMcpAppResult;
 };
@@ -61,10 +62,11 @@ function parseResult(value: unknown): PreservedMcpAppResult | null {
 
 function parseCache(value: unknown, now: number): DashboardTileCache | null {
   if (!isRecord(value) || typeof value.cachedAt !== "number" || !Number.isFinite(value.cachedAt)) return null;
+  if (typeof value.workspaceId !== "string" || !value.workspaceId.trim()) return null;
   if (value.cachedAt <= 0 || now - value.cachedAt > MAX_CACHE_AGE_MS) return null;
   const app = parseApp(value.app);
   const result = parseResult(value.result);
-  return app && result ? { cachedAt: value.cachedAt, app, result } : null;
+  return app && result ? { cachedAt: value.cachedAt, workspaceId: value.workspaceId, app, result } : null;
 }
 
 export function dashboardTileCacheScopeKey(userId: string | null, organizationId: string | null): string {

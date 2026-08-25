@@ -170,6 +170,7 @@ test(title, async ({ evidence, place }) => {
     localStorage.setItem(scope, JSON.stringify({
       [entryId]: {
         cachedAt: Date.now(),
+        workspaceId: ${JSON.stringify(desktop.workspaceId)},
         app: {
           serverName: "openwork-app-host-connect-0123456789ab",
           toolName: "render_report",

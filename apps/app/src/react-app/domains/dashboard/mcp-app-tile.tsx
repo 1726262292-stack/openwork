@@ -1,5 +1,5 @@
 /** @jsxImportSource react */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Play } from "lucide-react";
 
 import {
@@ -40,7 +40,7 @@ type TileState =
       phase: "ready";
       app: OpenworkMcpAppResource;
       result: PreservedMcpAppResult;
-      endpoint: DashboardLaunchEndpoint | null;
+      endpoint: DashboardLaunchEndpoint;
       cachedAt: number;
     }
   | { phase: "closed" }
@@ -83,7 +83,7 @@ function freshnessLabel(cachedAt: number): string {
 
 export function McpAppTile({ entry, cacheScopeKey, onApprovedLaunch, fallbackEndpoints }: {
   entry: DashboardMcpAppEntry;
-  /** Per-user and per-organization scope for last-known-good dashboard data. */
+  /** Per-user and per-organization scope for workspace-bound last-known-good dashboard data. */
   cacheScopeKey: string;
   /** Persists the user's one-time launch approval on the stored entry. */
   onApprovedLaunch?: () => void;
@@ -96,11 +96,20 @@ export function McpAppTile({ entry, cacheScopeKey, onApprovedLaunch, fallbackEnd
   // stay run-on-request forever, so a dashboard visit never repeats a
   // data-modifying call.
   const manualLaunch = !dashboardTileRunsAutomatically(entry.requiresApproval === true);
+  const launchEndpoints = useMemo(() => [
+    ...(openworkServerClient && workspaceId ? [{ client: openworkServerClient, workspaceId }] : []),
+    ...(fallbackEndpoints ?? []),
+  ].filter((endpoint, index, all) => (
+    all.findIndex((other) => other.workspaceId === endpoint.workspaceId) === index
+  )), [fallbackEndpoints, openworkServerClient, workspaceId]);
   const cached = readDashboardTileCache(cacheScopeKey, entry.id);
+  const cachedEndpoint = cached
+    ? launchEndpoints.find((endpoint) => endpoint.workspaceId === cached.workspaceId) ?? null
+    : null;
   const [started, setStarted] = useState(!manualLaunch);
   const [nonce, setNonce] = useState(0);
-  const [state, setState] = useState<TileState>(() => cached
-    ? { phase: "ready", app: cached.app, result: cached.result, endpoint: null, cachedAt: cached.cachedAt }
+  const [state, setState] = useState<TileState>(() => cached && cachedEndpoint
+    ? { phase: "ready", app: cached.app, result: cached.result, endpoint: cachedEndpoint, cachedAt: cached.cachedAt }
     : { phase: manualLaunch ? "idle" : "loading" });
   const [refreshState, setRefreshState] = useState<RefreshState>(manualLaunch ? "idle" : "refreshing");
   const refreshStateRef = useRef(refreshState);
@@ -108,7 +117,7 @@ export function McpAppTile({ entry, cacheScopeKey, onApprovedLaunch, fallbackEnd
   const launchArguments = entry.launchArguments ?? EMPTY_ARGUMENTS;
   const stateRef = useRef(state);
   stateRef.current = state;
-  const lastRefreshAtRef = useRef(cached?.cachedAt ?? 0);
+  const lastRefreshAtRef = useRef(cachedEndpoint ? cached?.cachedAt ?? 0 : 0);
   const userInitiatedNonceRef = useRef<number | null>(null);
   // Read consent through refs so persisting it after the first approval does
   // not re-run the launch effect and duplicate a write-tool call.
@@ -134,10 +143,7 @@ export function McpAppTile({ entry, cacheScopeKey, onApprovedLaunch, fallbackEnd
     // Tiles are user-scoped while MCP servers are workspace-scoped: prefer the
     // selected workspace's runtime, then any other available one that can
     // still resolve this app.
-    const candidates: DashboardLaunchEndpoint[] = [
-      ...(openworkServerClient && workspaceId ? [{ client: openworkServerClient, workspaceId }] : []),
-      ...(fallbackEndpoints ?? []),
-    ].filter((endpoint, index, all) => all.findIndex((other) => other.workspaceId === endpoint.workspaceId) === index);
+    const candidates = launchEndpoints;
     if (candidates.length === 0) {
       if (stateRef.current.phase === "ready") setRefreshState("failed");
       else {
@@ -227,6 +233,7 @@ export function McpAppTile({ entry, cacheScopeKey, onApprovedLaunch, fallbackEnd
         if (next.phase === "ready") {
           writeDashboardTileCache(cacheScopeKey, entry.id, {
             cachedAt: next.cachedAt,
+            workspaceId: next.endpoint.workspaceId,
             app: next.app,
             result: next.result,
           });
@@ -257,7 +264,7 @@ export function McpAppTile({ entry, cacheScopeKey, onApprovedLaunch, fallbackEnd
     return () => {
       cancelled = true;
     };
-  }, [cacheScopeKey, entry.connectionId, entry.id, entry.projectedToolName, entry.resourceUri, entry.toolName, fallbackEndpoints, launchArguments, manualLaunch, nonce, openworkServerClient, started, workspaceId]);
+  }, [cacheScopeKey, entry.connectionId, entry.id, entry.projectedToolName, entry.resourceUri, entry.toolName, launchArguments, launchEndpoints, manualLaunch, nonce, started]);
 
   useEffect(() => {
     if (manualLaunch) return;
@@ -288,7 +295,11 @@ export function McpAppTile({ entry, cacheScopeKey, onApprovedLaunch, fallbackEnd
     });
   };
 
+  const interactiveEndpoint = state.phase === "ready"
+    ? launchEndpoints.find((endpoint) => endpoint.workspaceId === state.endpoint.workspaceId) ?? null
+    : null;
   const badge = (() => {
+    if (state.phase === "ready" && !interactiveEndpoint) return "Saved locally · workspace unavailable";
     if (state.phase === "ready" && refreshState === "refreshing") return "Saved locally · refreshing";
     if (state.phase === "ready" && refreshState === "failed") return "Saved locally · refresh failed";
     if (state.phase === "ready" && refreshState === "approval-required") return "Saved locally · run required";
@@ -313,7 +324,7 @@ export function McpAppTile({ entry, cacheScopeKey, onApprovedLaunch, fallbackEnd
           data-dashboard-cache-state={refreshState}
         >
           <span
-            className={`size-1.5 rounded-full ${state.phase === "error" || refreshState === "failed" || refreshState === "approval-required" ? "bg-amber-500" : "bg-emerald-500"}`}
+            className={`size-1.5 rounded-full ${state.phase === "error" || refreshState === "failed" || refreshState === "approval-required" || (state.phase === "ready" && !interactiveEndpoint) ? "bg-amber-500" : "bg-emerald-500"}`}
             aria-hidden
           />
           {badge}
@@ -349,12 +360,12 @@ export function McpAppTile({ entry, cacheScopeKey, onApprovedLaunch, fallbackEnd
       ) : null}
       {state.phase === "ready" ? (
         // The sandbox bridge calls tools through the workspace context, so the
-        // view must run under the endpoint that actually resolved the app.
-        state.endpoint ? <WorkspaceProvider
+        // view only runs while that exact workspace endpoint is connected.
+        interactiveEndpoint ? <WorkspaceProvider
           client={workspace.client}
           opencodeBaseUrl={workspace.opencodeBaseUrl}
-          openworkServerClient={state.endpoint.client}
-          workspaceId={state.endpoint.workspaceId}
+          openworkServerClient={interactiveEndpoint.client}
+          workspaceId={interactiveEndpoint.workspaceId}
           selectedWorkspaceRoot={workspace.selectedWorkspaceRoot}
         >
           <McpAppSandboxView
@@ -367,15 +378,9 @@ export function McpAppTile({ entry, cacheScopeKey, onApprovedLaunch, fallbackEnd
             onRequestTeardown={() => setState({ phase: "closed" })}
           />
         </WorkspaceProvider> : (
-          <McpAppSandboxView
-            key={nonce}
-            app={state.app}
-            toolName={entry.projectedToolName}
-            inputArguments={launchArguments}
-            result={state.result}
-            unavailableNotice="This saved app view is unavailable until its workspace reconnects."
-            onRequestTeardown={() => setState({ phase: "closed" })}
-          />
+          <p className="pt-3 text-xs text-muted-foreground" role="status">
+            This saved app view is unavailable until its workspace reconnects.
+          </p>
         )
       ) : null}
       {state.phase === "ready" && refreshState === "approval-required" ? (
