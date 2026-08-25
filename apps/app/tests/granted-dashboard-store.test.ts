@@ -1,7 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
-import { grantedEntryId } from "../src/react-app/domains/dashboard/granted-dashboard-store";
-import type { DenDashboardElement } from "../src/app/lib/den";
+import {
+  grantedDashboardEntry,
+  grantedEntryId,
+} from "../src/react-app/domains/dashboard/granted-dashboard-store";
+import type { DenDashboardElement, DenGrantedDashboard } from "../src/app/lib/den";
 
 const element: DenDashboardElement = {
   serverName: "connect-mcp-app-host-abc",
@@ -42,5 +45,33 @@ describe("grantedEntryId", () => {
 
   test("is scoped to the granting dashboard", () => {
     expect(grantedEntryId("dsb_2", element)).not.toBe(grantedEntryId("dsb_1", element));
+  });
+
+  test("applies auto-launch consent only to elements that are not approval-gated", () => {
+    const dashboard: DenGrantedDashboard = {
+      id: "dsb_1",
+      name: "Operations",
+      elements: [element],
+      updatedAt: null,
+    };
+
+    expect(grantedDashboardEntry(dashboard, element, { autoLaunch: true }).autoLaunch).toBe(true);
+    const approvalGatedEntry = grantedDashboardEntry(
+      dashboard,
+      { ...element, requiresApproval: true },
+      { autoLaunch: true, launchApproved: true },
+    );
+    expect(approvalGatedEntry).toMatchObject({ requiresApproval: true, launchApproved: true });
+    expect(approvalGatedEntry.autoLaunch).toBeUndefined();
+    expect(grantedDashboardEntry(
+      dashboard,
+      element,
+      { autoLaunch: true, launchApproved: true },
+    ).autoLaunch).toBeUndefined();
+    expect(grantedDashboardEntry(
+      dashboard,
+      { ...element, requiresApproval: true },
+      { autoLaunch: true },
+    ).autoLaunch).toBeUndefined();
   });
 });

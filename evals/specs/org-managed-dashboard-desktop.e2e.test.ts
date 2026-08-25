@@ -10,7 +10,7 @@ const requirements: TestNeeds = {
 const missingRequirements = unmetNeeds(requirements, process.env);
 const title = missingRequirements.length > 0
   ? `organization-managed Desktop dashboard skipped — needs: ${missingRequirements.join(", ")}`
-  : "Desktop consumes server-managed dashboards without local authoring or launch consent";
+  : "Desktop enables managed dashboard caching and automatic refresh after member opt-in";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -48,7 +48,8 @@ async function createDashboard(session: DenSession, name: string): Promise<strin
   });
   const item = isRecord(result.body) && isRecord(result.body.item) ? result.body.item : null;
   const id = item && typeof item.id === "string" ? item.id : "";
-  if (result.response.status !== 201 || !id) {
+  const elements = item && Array.isArray(item.elements) ? item.elements : [];
+  if (result.response.status !== 201 || !id || elements.length !== 1) {
     throw new Error(`Creating ${name} failed: HTTP ${result.response.status} ${result.text.slice(0, 500)}`);
   }
   return id;
@@ -107,40 +108,124 @@ test(title, async ({ evidence, place }) => {
     label: "granted organization dashboard rendered in Desktop",
   });
 
-  const state = await evalIn(desktop, `(() => {
+  const initialState = await evalIn(desktop, `(() => {
     const section = document.querySelector(${JSON.stringify(`[data-granted-dashboard="${grantedDashboardId}"]`)});
     if (!(section instanceof HTMLElement)) return null;
     const allText = document.body.innerText;
+    const weeklyTile = [...section.querySelectorAll("[data-dashboard-entry]")]
+      .find((tile) => tile.textContent?.includes("Weekly report"));
     return {
       boardVisible: section.innerText.includes(${JSON.stringify(grantedName)}),
       privateBoardVisible: allText.includes(${JSON.stringify(privateName)}),
-      runVisible: Boolean(section.querySelector('button[aria-label="Run Weekly report"]')),
+      readOnlyRunVisible: Boolean(section.querySelector('button[aria-label="Run Weekly report"]')),
+      automaticAttemptVisible: weeklyTile instanceof HTMLElement && weeklyTile.innerText.includes("Refresh failed"),
       removeVisible: Boolean(section.querySelector('button[aria-label="Remove Weekly report"]')),
       addAppVisible: [...document.querySelectorAll("button")]
         .some((button) => button.textContent?.trim() === "Add app"),
       managedLabelVisible: section.innerText.includes("Managed by your organization"),
     };
   })()`);
-  expect(state).toEqual({
+  expect(initialState).toEqual({
     boardVisible: true,
     privateBoardVisible: false,
-    runVisible: true,
+    readOnlyRunVisible: true,
+    automaticAttemptVisible: false,
     removeVisible: false,
     addAppVisible: false,
     managedLabelVisible: true,
   });
   evidence.recordAssertionEvidence(
     "Desktop renders only dashboards granted to the signed-in member",
-    `org=${orgId}; granted=${grantedName}; ungranted=${privateName}; state=${JSON.stringify(state)}`,
-    isRecord(state) && state.boardVisible === true && state.privateBoardVisible === false,
+    `org=${orgId}; granted=${grantedName}; ungranted=${privateName}; state=${JSON.stringify(initialState)}`,
+    isRecord(initialState) && initialState.boardVisible === true && initialState.privateBoardVisible === false,
   );
   evidence.recordAssertionEvidence(
-    "Desktop has no local dashboard authoring, while managed tiles remain manual-first and non-removable",
-    `tile=Weekly report; state=${JSON.stringify(state)}`,
-    isRecord(state)
-      && state.runVisible === true
-      && state.removeVisible === false
-      && state.addAppVisible === false
-      && state.managedLabelVisible === true,
+    "Managed app metadata cannot trigger a first-visit launch without member opt-in",
+    `tile=Weekly report; state=${JSON.stringify(initialState)}`,
+    isRecord(initialState)
+      && initialState.readOnlyRunVisible === true
+      && initialState.automaticAttemptVisible === false,
+  );
+
+  const cacheSeeded = await evalIn(desktop, `(() => {
+    const page = document.querySelector("[data-dashboard-cache-scope]");
+    const section = document.querySelector(${JSON.stringify(`[data-granted-dashboard="${grantedDashboardId}"]`)});
+    if (!(page instanceof HTMLElement) || !(section instanceof HTMLElement)) return false;
+    const weeklyTile = [...section.querySelectorAll("[data-dashboard-entry]")]
+      .find((tile) => tile.textContent?.includes("Weekly report"));
+    const scope = page.dataset.dashboardCacheScope;
+    const consentScope = page.dataset.dashboardConsentScope;
+    const entryId = weeklyTile instanceof HTMLElement ? weeklyTile.dataset.dashboardEntry : undefined;
+    if (!scope || !consentScope || !entryId) return false;
+    localStorage.setItem(consentScope, JSON.stringify({ [entryId]: { autoLaunch: true } }));
+    localStorage.setItem(scope, JSON.stringify({
+      [entryId]: {
+        cachedAt: Date.now(),
+        workspaceId: ${JSON.stringify(desktop.workspaceId)},
+        app: {
+          serverName: "openwork-app-host-connect-0123456789ab",
+          toolName: "render_report",
+          resourceUri: "ui://fixture/report/view.html",
+          html: "<!doctype html><html><body><main>Saved weekly report</main></body></html>",
+          csp: { connectDomains: [], resourceDomains: [], frameDomains: [], baseUriDomains: [] },
+          prefersBorder: true,
+        },
+        result: {
+          content: [{ type: "text", text: "Saved weekly report" }],
+          structuredContent: { report: "saved" },
+        },
+      },
+    }));
+    location.reload();
+    return true;
+  })()`);
+  expect(cacheSeeded).toBe(true);
+
+  await waitFor(desktop, `(() => {
+    const section = document.querySelector(${JSON.stringify(`[data-granted-dashboard="${grantedDashboardId}"]`)});
+    if (!(section instanceof HTMLElement)) return false;
+    const weeklyTile = [...section.querySelectorAll("[data-dashboard-entry]")]
+      .find((tile) => tile.textContent?.includes("Weekly report"));
+    return weeklyTile instanceof HTMLElement
+      && Boolean(weeklyTile.querySelector("iframe"))
+      && weeklyTile.innerText.includes("Saved locally · refresh failed");
+  })()`, {
+    timeoutMs: 90_000,
+    label: "saved dashboard view remained visible after background refresh failed",
+  });
+
+  const cachedState = await evalIn(desktop, `(() => {
+    const section = document.querySelector(${JSON.stringify(`[data-granted-dashboard="${grantedDashboardId}"]`)});
+    const weeklyTile = section instanceof HTMLElement
+      ? [...section.querySelectorAll("[data-dashboard-entry]")]
+        .find((tile) => tile.textContent?.includes("Weekly report"))
+      : null;
+    return {
+      cachedViewVisible: weeklyTile instanceof HTMLElement && Boolean(weeklyTile.querySelector("iframe")),
+      refreshFailureVisible: weeklyTile instanceof HTMLElement
+        && weeklyTile.innerText.includes("Saved locally · refresh failed"),
+      readOnlyRunVisible: Boolean(section?.querySelector('button[aria-label="Run Weekly report"]')),
+    };
+  })()`);
+  expect(cachedState).toEqual({
+    cachedViewVisible: true,
+    refreshFailureVisible: true,
+    readOnlyRunVisible: false,
+  });
+  evidence.recordAssertionEvidence(
+    "Desktop renders saved dashboard data immediately and keeps it visible when refresh fails",
+    `tile=Weekly report; state=${JSON.stringify(cachedState)}`,
+    isRecord(cachedState)
+      && cachedState.cachedViewVisible === true
+      && cachedState.refreshFailureVisible === true
+      && cachedState.readOnlyRunVisible === false,
+  );
+  evidence.recordAssertionEvidence(
+    "Managed dashboards stay non-removable and have no local authoring controls",
+    `state=${JSON.stringify(initialState)}`,
+    isRecord(initialState)
+      && initialState.removeVisible === false
+      && initialState.addAppVisible === false
+      && initialState.managedLabelVisible === true,
   );
 });

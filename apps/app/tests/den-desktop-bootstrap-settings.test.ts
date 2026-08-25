@@ -281,7 +281,13 @@ describe("desktop Den bootstrap settings", () => {
     expect(window.localStorage.getItem(CLOUD_MCP_SYNC_MARKER_STORAGE_KEY)).toBeNull();
 
     window.localStorage.setItem(CLOUD_MCP_SYNC_MARKER_STORAGE_KEY, "stale-marker");
+    window.localStorage.setItem("openwork.react.dashboardTileCache.v1.user_alice.org_ops", "private report");
+    window.localStorage.setItem("openwork.react.dashboardTileCache.v1.user_bob.org_finance", "private forecast");
+    window.localStorage.setItem("unrelated.preference", "keep me");
     clearDenSession();
     expect(window.localStorage.getItem(CLOUD_MCP_SYNC_MARKER_STORAGE_KEY)).toBeNull();
+    expect(window.localStorage.getItem("openwork.react.dashboardTileCache.v1.user_alice.org_ops")).toBeNull();
+    expect(window.localStorage.getItem("openwork.react.dashboardTileCache.v1.user_bob.org_finance")).toBeNull();
+    expect(window.localStorage.getItem("unrelated.preference")).toBe("keep me");
   });
 });

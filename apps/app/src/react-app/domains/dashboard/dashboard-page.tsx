@@ -14,6 +14,7 @@ import {
   EmptyTitle,
 } from "@/components/ui/empty";
 import { useDenAuth } from "@/react-app/domains/cloud/den-auth-provider";
+import { dashboardTileCacheScopeKey } from "./dashboard-tile-cache";
 import {
   grantedConsentScopeKey,
   grantedDashboardEntry,
@@ -46,6 +47,10 @@ export function DashboardPage({ fallbackEndpoints }: {
   const activeOrgId = denSettings.activeOrgId ?? null;
   const consentScopeKey = useMemo(
     () => grantedConsentScopeKey(denAuth.user?.id ?? null, activeOrgId),
+    [activeOrgId, denAuth.user?.id],
+  );
+  const cacheScopeKey = useMemo(
+    () => dashboardTileCacheScopeKey(denAuth.user?.id ?? null, activeOrgId),
     [activeOrgId, denAuth.user?.id],
   );
 
@@ -85,6 +90,7 @@ export function DashboardPage({ fallbackEndpoints }: {
     <DashboardBoard
       key={consentScopeKey}
       consentScopeKey={consentScopeKey}
+      cacheScopeKey={cacheScopeKey}
       grantedDashboards={grantedReady ? grantedQuery.data ?? [] : []}
       grantedError={grantedReady && grantedQuery.error ? true : false}
       fallbackEndpoints={fallbackEndpoints}
@@ -92,8 +98,9 @@ export function DashboardPage({ fallbackEndpoints }: {
   );
 }
 
-function DashboardBoard({ consentScopeKey, grantedDashboards, grantedError, fallbackEndpoints }: {
+function DashboardBoard({ consentScopeKey, cacheScopeKey, grantedDashboards, grantedError, fallbackEndpoints }: {
   consentScopeKey: string;
+  cacheScopeKey: string;
   /** Organization-managed dashboards granted to this member, rendered read-only. */
   grantedDashboards: DenGrantedDashboard[];
   grantedError: boolean;
@@ -103,7 +110,7 @@ function DashboardBoard({ consentScopeKey, grantedDashboards, grantedError, fall
   useEffect(() => {
     setConsent(readGrantedConsent(consentScopeKey));
   }, [consentScopeKey]);
-  const updateConsent = (id: string, patch: { autoLaunch?: true; launchApproved?: true }) => {
+  const updateConsent = (id: string, patch: { launchApproved?: true; autoLaunch?: boolean }) => {
     setConsent((current) => {
       const next: GrantedConsentMap = { ...current, [id]: { ...current[id], ...patch } };
       writeGrantedConsent(consentScopeKey, next);
@@ -112,7 +119,12 @@ function DashboardBoard({ consentScopeKey, grantedDashboards, grantedError, fall
   };
 
   return (
-    <div className="mx-auto w-full max-w-6xl px-6 py-6" data-dashboard-page>
+    <div
+      className="mx-auto w-full max-w-6xl px-6 py-6"
+      data-dashboard-page
+      data-dashboard-cache-scope={cacheScopeKey}
+      data-dashboard-consent-scope={consentScopeKey}
+    >
       <p className="mb-4 text-sm text-muted-foreground">
         MCP app dashboards assigned to you by your organization.
       </p>
@@ -137,8 +149,10 @@ function DashboardBoard({ consentScopeKey, grantedDashboards, grantedError, fall
                   <McpAppTile
                     key={id}
                     entry={grantedDashboardEntry(dashboard, element, consent[id])}
+                    cacheScopeKey={cacheScopeKey}
                     onApprovedLaunch={() => updateConsent(id, { launchApproved: true })}
-                    onFirstRunCompleted={() => updateConsent(id, { autoLaunch: true })}
+                    onAutoLaunchEnabled={() => updateConsent(id, { autoLaunch: true })}
+                    onAutoLaunchDisabled={() => updateConsent(id, { autoLaunch: false })}
                     fallbackEndpoints={fallbackEndpoints}
                   />
                 );

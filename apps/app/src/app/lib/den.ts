@@ -40,6 +40,7 @@ import {
 } from "./desktop";
 import { getOpenworkGatewayOrigin } from "./gateway-runtime";
 import { clearDesktopSignInIntent, clearOrgSelectionPending } from "./den-sign-in-intent";
+import { clearDashboardTileCacheStorage } from "./dashboard-cache-storage";
 import { isDesktopRuntime } from "./runtime-env";
 import type { ReloadReason } from "../types";
 import type {
@@ -1609,6 +1610,9 @@ export function clearDenSession(options?: { includeBaseUrls?: boolean }) {
   window.localStorage.removeItem(STORAGE_ACTIVE_ORG_SLUG);
   window.localStorage.removeItem(STORAGE_ACTIVE_ORG_NAME);
   window.localStorage.removeItem(CLOUD_MCP_SYNC_MARKER_STORAGE_KEY);
+  // Cached MCP results can contain member data. Clear every user/org
+  // namespace so another account using this browser profile cannot recover it.
+  clearDashboardTileCacheStorage(window.localStorage);
   // Sign-out resets any in-flight sign-in intent and pending org choice so a
   // later handoff starts from a clean slate.
   clearDesktopSignInIntent();
