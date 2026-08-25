@@ -282,6 +282,54 @@ describe("Den enterprise MCP OAuth persistence adapter", () => {
     expect(loser.clientInformation.client_id).toBe("registered-client")
   })
 
+  test("rejects a stale client registration when the selected issuer changes in flight", async () => {
+    const originalIssuer = "https://login.registration-old.example.test"
+    const replacementIssuer = "https://login.registration-new.example.test"
+    const changed = await createExternalMcpConnection({
+      organizationId,
+      name: "Enterprise MCP registration issuer race",
+      url: "https://mcp.example.test/registration-issuer-race",
+      authType: "oauth",
+      credentialMode: "shared",
+      oauthConfiguration: {
+        version: 1,
+        authorizationServerIssuer: originalIssuer,
+        requestedScopes: [],
+      },
+      createdByOrgMembershipId: memberId,
+      access: { orgWide: true, memberIds: [], teamIds: [] },
+    })
+    const persistence = new DenEnterpriseMcpOAuthPersistence(changed)
+    await db
+      .update(schema.ExternalMcpConnectionTable)
+      .set({
+        oauthConfiguration: {
+          ...changed.oauthConfiguration,
+          authorizationServerIssuer: replacementIssuer,
+        },
+      })
+      .where(drizzle.eq(schema.ExternalMcpConnectionTable.id, changed.id))
+
+    await expect(persistence.clientRegistrations.save({
+      context: {
+        connectionId: changed.id,
+        commitExpiresAt: Date.now() + 30_000,
+        signal: new AbortController().signal,
+      },
+      clientInformation: {
+        client_id: "stale-registration",
+        issuer: originalIssuer,
+      },
+      redirectUri: "https://app.openworklabs.com/api/den/v1/mcp-connections/oauth/callback",
+      source: "dynamic",
+    })).rejects.toMatchObject({ code: "MCP_OAUTH_CONFIGURATION_CHANGED" })
+
+    expect(await db
+      .select()
+      .from(schema.OrgOAuthClientTable)
+      .where(drizzle.eq(schema.OrgOAuthClientTable.providerId, changed.id))).toEqual([])
+  })
+
   test("isolates concurrent signed PKCE transactions and consumes only the callback winner", async () => {
     const persistence = new DenEnterpriseMcpOAuthPersistence(connection)
     const registration = await persistence.clientRegistrations.load(context())

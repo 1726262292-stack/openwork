@@ -1064,6 +1064,16 @@ function classifyByCode(code: string): Classification | null {
       operatorAction: "Retry with the newer OAuth credential after the concurrent refresh completes.",
     }
   }
+  if (code === "MCP_OAUTH_CONFIGURATION_CHANGED") {
+    return {
+      phase: "AUTH_CLIENT_REGISTRATION",
+      category: "oauth_configuration_changed",
+      code,
+      retryable: true,
+      actionOwner: "openwork",
+      operatorAction: "Reload the MCP connection and retry client registration against its current OAuth issuer.",
+    }
+  }
   if (code === "MCP_OAUTH_CONFIGURATION_REQUIRED") {
     return {
       phase: "AUTH_CLIENT_REGISTRATION",

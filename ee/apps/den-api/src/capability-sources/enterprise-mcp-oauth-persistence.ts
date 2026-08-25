@@ -334,8 +334,8 @@ export class DenEnterpriseMcpOAuthPersistence implements EnterpriseMcpOAuthPersi
           && input.clientInformation.issuer !== selectedIssuer
         ) {
           throw new EnterpriseMcpOAuthContractError(
-            "MCP_OAUTH_ISSUER_MISMATCH",
-            "The OAuth client registration does not match the selected authorization server issuer.",
+            "MCP_OAUTH_CONFIGURATION_CHANGED",
+            "The selected OAuth issuer changed while client registration was in progress; retry with the current connection configuration.",
           )
         }
         const existing = await tx

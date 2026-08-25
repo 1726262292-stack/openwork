@@ -1150,6 +1150,21 @@ describe("external MCP diagnostics", () => {
     })
   })
 
+  test("classifies an in-flight OAuth configuration change as safely retryable", () => {
+    const tracker = new ExternalMcpDiagnosticTracker("req_oauth_configuration_changed")
+    const oauthError = Object.assign(new Error("The selected issuer changed during registration."), {
+      code: "MCP_OAUTH_CONFIGURATION_CHANGED",
+    })
+
+    expect(tracker.error(oauthError, "AUTH_CLIENT_REGISTRATION").diagnostic).toMatchObject({
+      phase: "AUTH_CLIENT_REGISTRATION",
+      category: "oauth_configuration_changed",
+      code: "MCP_OAUTH_CONFIGURATION_CHANGED",
+      retryable: true,
+      actionOwner: "openwork",
+    })
+  })
+
   test("maps bounded SDK protocol incompatibility errors to MCP_VERSION", () => {
     const tracker = new ExternalMcpDiagnosticTracker("req_version")
     tracker.passed("MCP_TRANSPORT", "reachable")

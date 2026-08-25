@@ -2739,9 +2739,33 @@ export function registerMcpConnectionRoutes<T extends { Variables: OrgRouteVaria
           }
         }
 
+        const beginAuthorizationWithConfigurationRefresh = async (target: ExternalMcpConnectionRow) => {
+          try {
+            const started = await beginAuthorization(target)
+            connection = target
+            return started
+          } catch (error) {
+            const diagnostic = externalMcpDiagnosticForResponse(error, c.get("requestId"), "AUTH_CLIENT_REGISTRATION")
+            if (diagnostic.code !== "MCP_OAUTH_CONFIGURATION_CHANGED") throw error
+            const refreshed = await getExternalMcpConnection({
+              organizationId: payload.organization.id,
+              connectionId: externalMcpConnectionId,
+            })
+            if (!refreshed || externalMcpIdentityBinding(refreshed) !== externalMcpIdentityBinding(target)) {
+              throw error
+            }
+            connection = refreshed
+            logger.info("external_mcp_oauth_configuration_change_retried", {
+              connection_id: refreshed.id,
+              organization_id: payload.organization.id,
+            })
+            return beginAuthorization(refreshed)
+          }
+        }
+
         let started: Awaited<ReturnType<typeof beginAuthorization>>
         try {
-          started = await beginAuthorization(connection)
+          started = await beginAuthorizationWithConfigurationRefresh(connection)
         } catch (error) {
           const diagnostic = externalMcpDiagnosticForResponse(error, c.get("requestId"), "AUTH_RESOURCE_DISCOVERY")
           const configuredIssuer = connection.oauthConfiguration?.authorizationServerIssuer
@@ -2803,7 +2827,7 @@ export function registerMcpConnectionRoutes<T extends { Variables: OrgRouteVaria
             previous_authorization_server_issuer: configuredIssuer,
             authorization_server_issuer: replacementIssuer,
           })
-          started = await beginAuthorization(connection)
+          started = await beginAuthorizationWithConfigurationRefresh(connection)
         }
         if (started.result.status === "needs_auth" && connection.oauthConfiguration?.callbackMode === "shared-v1") {
           const discovered = await getExternalMcpConnection({
@@ -2817,10 +2841,11 @@ export function registerMcpConnectionRoutes<T extends { Variables: OrgRouteVaria
               || started.authorizationResponseIssuerRequired !== discoveredResponseIssuerRequired
             if (signedBindingChanged) {
               await abandonExternalMcpAuth(discovered, started.signedState, member, c.get("requestId"))
-              started = await beginAuthorization(discovered)
+              started = await beginAuthorizationWithConfigurationRefresh(discovered)
+            } else {
+              connection = discovered
             }
-            connection = discovered
-            if (usesPinnedSharedOAuthCallback(discovered)) {
+            if (usesPinnedSharedOAuthCallback(connection)) {
               logger.info("external_mcp_oauth_pinned_shared_callback_selected", {
                 connection_id: connection.id,
                 organization_id: payload.organization.id,
