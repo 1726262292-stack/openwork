@@ -2,9 +2,10 @@
  * Organization-granted dashboard tiles and their per-user launch consent.
  *
  * Granted dashboards arrive from Den as plain element references. The consent
- * model never bypasses launch approval: read-only tools launch automatically,
- * while write-tools stay run-on-request. Approval is stored locally per user
- * and organization, never on the org dashboard.
+ * model never treats provider metadata as user authorization: safe-looking
+ * tools run automatically only after a successful user-initiated launch,
+ * while approval-gated tools stay run-on-request. Consent is stored locally
+ * per user and organization, never on the org dashboard.
  */
 import type { DenDashboardElement, DenGrantedDashboard } from "@/app/lib/den";
 
@@ -24,12 +25,15 @@ export type DashboardMcpAppEntry = {
   requiresApproval?: boolean;
   /** The member's locally stored approval for this exact managed element. */
   launchApproved?: boolean;
+  /** The member enabled automatic launch by successfully running this exact safe element. */
+  autoLaunch?: boolean;
 };
 
 const CONSENT_STORAGE_PREFIX = "openwork.react.dashboardGrantedConsent.v1";
 
 export type GrantedTileConsent = {
   launchApproved?: boolean;
+  autoLaunch?: boolean;
 };
 
 export type GrantedConsentMap = Record<string, GrantedTileConsent>;
@@ -87,6 +91,7 @@ export function grantedDashboardEntry(
     ...(element.launchArguments ? { launchArguments: element.launchArguments } : {}),
     ...(element.requiresApproval === true ? { requiresApproval: true } : {}),
     ...(consent?.launchApproved === true ? { launchApproved: true } : {}),
+    ...(element.requiresApproval !== true && consent?.autoLaunch === true ? { autoLaunch: true } : {}),
   };
 }
 
@@ -106,8 +111,9 @@ export function readGrantedConsent(scopeKey: string): GrantedConsentMap {
       if (!isRecord(value)) continue;
       const entry: GrantedTileConsent = {
         ...(value.launchApproved === true ? { launchApproved: true } : {}),
+        ...(value.autoLaunch === true ? { autoLaunch: true } : {}),
       };
-      if (entry.launchApproved) consent[id] = entry;
+      if (entry.launchApproved || entry.autoLaunch) consent[id] = entry;
     }
     return consent;
   } catch {

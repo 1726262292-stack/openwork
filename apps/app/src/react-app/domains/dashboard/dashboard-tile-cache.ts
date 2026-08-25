@@ -1,7 +1,7 @@
 import type { OpenworkMcpAppResource } from "@/app/lib/openwork-server";
+import { DASHBOARD_TILE_CACHE_STORAGE_PREFIX } from "@/app/lib/dashboard-cache-storage";
 import type { PreservedMcpAppResult } from "@/components/chat/mcp-app-frame";
 
-const CACHE_STORAGE_PREFIX = "openwork.react.dashboardTileCache.v1";
 const MAX_CACHE_AGE_MS = 24 * 60 * 60 * 1_000;
 const MAX_SCOPE_CACHE_BYTES = 3_000_000;
 export const DASHBOARD_AUTO_REFRESH_INTERVAL_MS = 5 * 60 * 1_000;
@@ -70,11 +70,11 @@ function parseCache(value: unknown, now: number): DashboardTileCache | null {
 }
 
 export function dashboardTileCacheScopeKey(userId: string | null, organizationId: string | null): string {
-  return `${CACHE_STORAGE_PREFIX}.${userId?.trim() || "local"}.${organizationId?.trim() || "none"}`;
+  return `${DASHBOARD_TILE_CACHE_STORAGE_PREFIX}.${userId?.trim() || "local"}.${organizationId?.trim() || "none"}`;
 }
 
-export function dashboardTileRunsAutomatically(requiresApproval: boolean): boolean {
-  return !requiresApproval;
+export function dashboardTileRunsAutomatically(requiresApproval: boolean, autoLaunchEnabled: boolean): boolean {
+  return !requiresApproval && autoLaunchEnabled;
 }
 
 export function shouldAutoRefreshDashboardTile(input: {

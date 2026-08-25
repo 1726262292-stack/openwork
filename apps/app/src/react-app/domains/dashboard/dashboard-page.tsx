@@ -110,7 +110,7 @@ function DashboardBoard({ consentScopeKey, cacheScopeKey, grantedDashboards, gra
   useEffect(() => {
     setConsent(readGrantedConsent(consentScopeKey));
   }, [consentScopeKey]);
-  const updateConsent = (id: string, patch: { launchApproved: true }) => {
+  const updateConsent = (id: string, patch: { launchApproved?: true; autoLaunch?: true }) => {
     setConsent((current) => {
       const next: GrantedConsentMap = { ...current, [id]: { ...current[id], ...patch } };
       writeGrantedConsent(consentScopeKey, next);
@@ -123,6 +123,7 @@ function DashboardBoard({ consentScopeKey, cacheScopeKey, grantedDashboards, gra
       className="mx-auto w-full max-w-6xl px-6 py-6"
       data-dashboard-page
       data-dashboard-cache-scope={cacheScopeKey}
+      data-dashboard-consent-scope={consentScopeKey}
     >
       <p className="mb-4 text-sm text-muted-foreground">
         MCP app dashboards assigned to you by your organization.
@@ -150,6 +151,7 @@ function DashboardBoard({ consentScopeKey, cacheScopeKey, grantedDashboards, gra
                     entry={grantedDashboardEntry(dashboard, element, consent[id])}
                     cacheScopeKey={cacheScopeKey}
                     onApprovedLaunch={() => updateConsent(id, { launchApproved: true })}
+                    onAutoLaunchEnabled={() => updateConsent(id, { autoLaunch: true })}
                     fallbackEndpoints={fallbackEndpoints}
                   />
                 );

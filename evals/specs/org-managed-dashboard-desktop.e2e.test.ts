@@ -10,7 +10,7 @@ const requirements: TestNeeds = {
 const missingRequirements = unmetNeeds(requirements, process.env);
 const title = missingRequirements.length > 0
   ? `organization-managed Desktop dashboard skipped — needs: ${missingRequirements.join(", ")}`
-  : "Desktop opens managed dashboards from local cache and refreshes read-only apps automatically";
+  : "Desktop enables managed dashboard caching and automatic refresh after member opt-in";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -108,17 +108,6 @@ test(title, async ({ evidence, place }) => {
     label: "granted organization dashboard rendered in Desktop",
   });
 
-  await waitFor(desktop, `(() => {
-    const section = document.querySelector(${JSON.stringify(`[data-granted-dashboard="${grantedDashboardId}"]`)});
-    if (!(section instanceof HTMLElement)) return false;
-    const weeklyTile = [...section.querySelectorAll("[data-dashboard-entry]")]
-      .find((tile) => tile.textContent?.includes("Weekly report"));
-    return weeklyTile instanceof HTMLElement && weeklyTile.innerText.includes("Refresh failed");
-  })()`, {
-    timeoutMs: 90_000,
-    label: "read-only dashboard tile attempted its automatic load",
-  });
-
   const initialState = await evalIn(desktop, `(() => {
     const section = document.querySelector(${JSON.stringify(`[data-granted-dashboard="${grantedDashboardId}"]`)});
     if (!(section instanceof HTMLElement)) return null;
@@ -139,8 +128,8 @@ test(title, async ({ evidence, place }) => {
   expect(initialState).toEqual({
     boardVisible: true,
     privateBoardVisible: false,
-    readOnlyRunVisible: false,
-    automaticAttemptVisible: true,
+    readOnlyRunVisible: true,
+    automaticAttemptVisible: false,
     removeVisible: false,
     addAppVisible: false,
     managedLabelVisible: true,
@@ -151,11 +140,11 @@ test(title, async ({ evidence, place }) => {
     isRecord(initialState) && initialState.boardVisible === true && initialState.privateBoardVisible === false,
   );
   evidence.recordAssertionEvidence(
-    "Read-only apps run on dashboard load without a Run click",
+    "Managed app metadata cannot trigger a first-visit launch without member opt-in",
     `tile=Weekly report; state=${JSON.stringify(initialState)}`,
     isRecord(initialState)
-      && initialState.readOnlyRunVisible === false
-      && initialState.automaticAttemptVisible === true,
+      && initialState.readOnlyRunVisible === true
+      && initialState.automaticAttemptVisible === false,
   );
 
   const cacheSeeded = await evalIn(desktop, `(() => {
@@ -165,8 +154,10 @@ test(title, async ({ evidence, place }) => {
     const weeklyTile = [...section.querySelectorAll("[data-dashboard-entry]")]
       .find((tile) => tile.textContent?.includes("Weekly report"));
     const scope = page.dataset.dashboardCacheScope;
+    const consentScope = page.dataset.dashboardConsentScope;
     const entryId = weeklyTile instanceof HTMLElement ? weeklyTile.dataset.dashboardEntry : undefined;
-    if (!scope || !entryId) return false;
+    if (!scope || !consentScope || !entryId) return false;
+    localStorage.setItem(consentScope, JSON.stringify({ [entryId]: { autoLaunch: true } }));
     localStorage.setItem(scope, JSON.stringify({
       [entryId]: {
         cachedAt: Date.now(),

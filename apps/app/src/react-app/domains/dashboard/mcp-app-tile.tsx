@@ -42,6 +42,8 @@ type TileState =
       result: PreservedMcpAppResult;
       endpoint: DashboardLaunchEndpoint;
       cachedAt: number;
+      /** True only when the successful call did not need an approval override. */
+      autoLaunchEligible?: boolean;
     }
   | { phase: "closed" }
   | { phase: "error"; message: string };
@@ -81,28 +83,36 @@ function freshnessLabel(cachedAt: number): string {
   return ageHours === 1 ? "Updated 1 hour ago" : `Updated ${ageHours} hours ago`;
 }
 
-export function McpAppTile({ entry, cacheScopeKey, onApprovedLaunch, fallbackEndpoints }: {
+export function McpAppTile({ entry, cacheScopeKey, onApprovedLaunch, onAutoLaunchEnabled, fallbackEndpoints }: {
   entry: DashboardMcpAppEntry;
   /** Per-user and per-organization scope for workspace-bound last-known-good dashboard data. */
   cacheScopeKey: string;
   /** Persists the user's one-time launch approval on the stored entry. */
   onApprovedLaunch?: () => void;
+  /** Enables later on-load launches after this user successfully runs a safe tile. */
+  onAutoLaunchEnabled?: () => void;
   /** Other workspace runtimes to try when the primary one cannot resolve the app. */
   fallbackEndpoints?: DashboardLaunchEndpoint[];
 }) {
   const workspace = useWorkspace();
   const { openworkServerClient, workspaceId } = workspace;
-  // Read-only dashboards run on load and refresh in the background. Write-tools
-  // stay run-on-request forever, so a dashboard visit never repeats a
-  // data-modifying call.
-  const manualLaunch = !dashboardTileRunsAutomatically(entry.requiresApproval === true);
+  // Provider annotations are not an authorization boundary. A safe-looking
+  // tile runs on load only after this user has successfully run this exact
+  // element once; approval-gated tools stay run-on-request forever.
+  const runsAutomatically = dashboardTileRunsAutomatically(
+    entry.requiresApproval === true,
+    entry.autoLaunch === true,
+  );
+  const manualLaunch = !runsAutomatically;
   const launchEndpoints = useMemo(() => [
     ...(openworkServerClient && workspaceId ? [{ client: openworkServerClient, workspaceId }] : []),
     ...(fallbackEndpoints ?? []),
   ].filter((endpoint, index, all) => (
     all.findIndex((other) => other.workspaceId === endpoint.workspaceId) === index
   )), [fallbackEndpoints, openworkServerClient, workspaceId]);
-  const cached = readDashboardTileCache(cacheScopeKey, entry.id);
+  // Cached app HTML is interactive, so it follows the same per-user launch
+  // consent as a live call and never mounts on a first visit.
+  const cached = runsAutomatically ? readDashboardTileCache(cacheScopeKey, entry.id) : null;
   const cachedEndpoint = cached
     ? launchEndpoints.find((endpoint) => endpoint.workspaceId === cached.workspaceId) ?? null
     : null;
@@ -125,6 +135,8 @@ export function McpAppTile({ entry, cacheScopeKey, onApprovedLaunch, fallbackEnd
   launchApprovedRef.current = entry.launchApproved === true;
   const onApprovedLaunchRef = useRef(onApprovedLaunch);
   onApprovedLaunchRef.current = onApprovedLaunch;
+  const onAutoLaunchEnabledRef = useRef(onAutoLaunchEnabled);
+  onAutoLaunchEnabledRef.current = onAutoLaunchEnabled;
   // A write-tool launch must map 1:1 to a Run/refresh press. The effect also
   // re-runs when the client or workspace identity changes; this ref keeps such
   // re-runs from repeating an already-executed data-modifying call.
@@ -136,7 +148,7 @@ export function McpAppTile({ entry, cacheScopeKey, onApprovedLaunch, fallbackEnd
       if (stateRef.current.phase !== "ready") setState({ phase: "idle" });
       return;
     }
-    if (manualLaunch && executedRunRef.current === nonce) return;
+    if (executedRunRef.current === nonce) return;
     executedRunRef.current = nonce;
     setRefreshState("refreshing");
     if (stateRef.current.phase !== "ready") setState({ phase: "loading" });
@@ -190,10 +202,12 @@ export function McpAppTile({ entry, cacheScopeKey, onApprovedLaunch, fallbackEnd
         ...(launchApprovedRef.current ? { approved: true } : {}),
       };
       let result;
+      let approvalWasRequired = false;
       try {
         result = await endpoint.client.callMcpAppTool(endpoint.workspaceId, request);
       } catch (cause) {
         if (!(cause instanceof OpenworkServerError) || cause.code !== "tool_requires_approval") throw cause;
+        approvalWasRequired = true;
         // A stored entry can go stale: a tool that was read-only at add time
         // may need approval now. Never pop a consent prompt from an automatic
         // mount launch — fall back to the idle Run card and ask on request.
@@ -226,6 +240,10 @@ export function McpAppTile({ entry, cacheScopeKey, onApprovedLaunch, fallbackEnd
           ...(result.structuredContent ? { structuredContent: result.structuredContent } : {}),
           ...(result._meta ? { _meta: result._meta } : {}),
         },
+        // A tile that has ever required an approval override remains manual.
+        // This also covers later runs where stored approval makes the call
+        // succeed without another tool_requires_approval response.
+        autoLaunchEligible: !approvalWasRequired && !launchApprovedRef.current,
       };
     })()
       .then((next) => {
@@ -240,6 +258,9 @@ export function McpAppTile({ entry, cacheScopeKey, onApprovedLaunch, fallbackEnd
           lastRefreshAtRef.current = next.cachedAt;
           setState(next);
           setRefreshState("idle");
+          if (userInitiated && next.autoLaunchEligible && entry.autoLaunch !== true) {
+            onAutoLaunchEnabledRef.current?.();
+          }
           return;
         }
         if (stateRef.current.phase === "ready") {
@@ -303,11 +324,12 @@ export function McpAppTile({ entry, cacheScopeKey, onApprovedLaunch, fallbackEnd
     if (state.phase === "ready" && refreshState === "refreshing") return "Saved locally · refreshing";
     if (state.phase === "ready" && refreshState === "failed") return "Saved locally · refresh failed";
     if (state.phase === "ready" && refreshState === "approval-required") return "Saved locally · run required";
-    if (state.phase === "ready" && manualLaunch) return "Saved locally · run on request";
+    if (state.phase === "ready" && entry.requiresApproval === true) return "Saved locally · run on request";
     if (state.phase === "ready") return freshnessLabel(state.cachedAt);
     if (state.phase === "loading") return "Loading";
     if (state.phase === "error") return "Refresh failed";
-    if (manualLaunch) return "Run on request";
+    if (entry.requiresApproval === true) return "Run on request";
+    if (manualLaunch) return "Run once to enable";
     return null;
   })();
 
@@ -337,7 +359,9 @@ export function McpAppTile({ entry, cacheScopeKey, onApprovedLaunch, fallbackEnd
         <div className="flex flex-1 flex-col items-center justify-center gap-2 py-6 text-center">
           <Play className="size-6 text-muted-foreground" aria-hidden />
           <p className="max-w-xs text-xs text-muted-foreground">
-            This app modifies data when it runs, so it only runs when you ask.
+            {entry.requiresApproval === true
+              ? "This app modifies data when it runs, so it only runs when you ask."
+              : "Run once to enable automatic loading and refresh for this tile."}
           </p>
           <Button variant="outline" size="sm" onClick={run} aria-label={`Run ${entry.title}`}>
             <Play className="size-4" /> Run
