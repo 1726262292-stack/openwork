@@ -36,7 +36,11 @@ RUN git clone --depth 1 --branch dev https://github.com/different-ai/openwork.gi
 # and every DEN_* value is runtime env consumed by `next start`.
 # .devcontainer/start-daytona-server.sh skips these rebuilds when the git tree
 # hashes recorded here still match the checked-out ref.
-RUN CI=1 pnpm install --store-dir /workspace/.openwork-daytona/pnpm-store --frozen-lockfile \
+# The server stack never runs Electron or browser automation; skipping those
+# binary downloads keeps the baked image inside the 10 GB sandbox disk cap.
+RUN CI=1 ELECTRON_SKIP_BINARY_DOWNLOAD=1 PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 \
+    PUPPETEER_SKIP_DOWNLOAD=1 CYPRESS_INSTALL_BINARY=0 \
+    pnpm install --store-dir /workspace/.openwork-daytona/pnpm-store --frozen-lockfile \
   && NEXT_PUBLIC_POSTHOG_KEY= NEXT_PUBLIC_POSTHOG_API_KEY= \
     pnpm --filter @openwork/ui build \
   && NEXT_PUBLIC_POSTHOG_KEY= NEXT_PUBLIC_POSTHOG_API_KEY= \

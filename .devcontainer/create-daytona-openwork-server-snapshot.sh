@@ -24,13 +24,13 @@ if [ -n "$existing_snapshot_id" ]; then
 fi
 
 echo "==> Creating Daytona server snapshot: $SNAPSHOT_NAME"
-# Disk holds the baked node_modules, pnpm store, and Den build outputs that
-# make sandbox boots delta-only.
+# 10 GB is the per-sandbox maximum in this org; the baked node_modules and
+# Den build outputs fit because the image skips Electron/browser binaries.
 daytona snapshot create "$SNAPSHOT_NAME" \
   --dockerfile "$ROOT_DIR/.devcontainer/Dockerfile.daytona-server" \
   --cpu 4 \
   --memory 8 \
-  --disk 20 \
+  --disk 10 \
   --region "$REGION"
 
 echo "Snapshot ready: $SNAPSHOT_NAME"
