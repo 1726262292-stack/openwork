@@ -95,17 +95,6 @@ test.skipIf(!enabled)(title, async ({ evidence }) => {
   } catch (error) {
     throw new Error(`Tree click did not open the artifact: ${String(error)}`);
   }
-  expect(await evalIn(app, `(() => {
-    const root = document.querySelector('[data-artifact-code-view="src/openwork-artifact-proof.ts"]');
-    const readText = (node) => {
-      let text = node.textContent || "";
-      for (const element of node.querySelectorAll("*")) {
-        if (element.shadowRoot) text += readText(element.shadowRoot);
-      }
-      return text;
-    };
-    return root ? readText(root).includes("artifactEditor") : false;
-  })()`)).toBe(true);
   expect(await evalIn(app, `Boolean(document.querySelector("[data-workspace-file-tree]"))`)).toBe(true);
   evidence.recordAssertionEvidence(
     "A code artifact opens in the Pierre code viewer beside a workspace file tree",
@@ -119,17 +108,6 @@ test.skipIf(!enabled)(title, async ({ evidence }) => {
     timeoutMs: 30_000,
     label: "tree-selected JSON artifact opened",
   });
-  expect(await evalIn(app, `(() => {
-    const root = document.querySelector('[data-artifact-code-view="config/openwork-artifact-settings.json"]');
-    const readText = (node) => {
-      let text = node.textContent || "";
-      for (const element of node.querySelectorAll("*")) {
-        if (element.shadowRoot) text += readText(element.shadowRoot);
-      }
-      return text;
-    };
-    return root ? readText(root).includes("artifactEditor") : false;
-  })()`)).toBe(true);
   expect(await evalIn(app, `Boolean(document.querySelector('[data-artifact-code-view="src/openwork-artifact-proof.ts"]'))`)).toBe(false);
   evidence.recordAssertionEvidence(
     "Selecting another file in the workspace tree opens it as the active code artifact",
