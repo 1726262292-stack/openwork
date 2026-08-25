@@ -12,7 +12,7 @@ export const soloWorkspace = defineWorld({
 });
 
 export const desktopProductionLive = defineWorld({
-  den: { orgs: {} },
+  den: { orgs: {}, substrate: "local" },
   apps: {
     main: {
       desktopState: { source: "installed-production", mode: "live-shared" },

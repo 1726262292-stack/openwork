@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { chmod, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
@@ -975,6 +975,9 @@ export async function startWorld(
     throw new Error('den.substrate "kind" requires local placement because the kind cluster and its port-forwards run on the local Docker host.');
   }
   const name = options.name ?? `world-${Date.now().toString(36)}-${process.pid.toString(36)}`;
+  if (!SNAPSHOT_NAME.test(name)) {
+    throw new Error("World names must use only letters, numbers, dots, underscores, and hyphens.");
+  }
   const primary = Object.entries(resolvedOrganizations)[0];
   const primaryOrgName = primary?.[0];
   const primaryOrg = primary?.[1];
@@ -1095,7 +1098,11 @@ export async function startWorld(
     });
     yield* Effect.promise(async () => {
       await mkdir(WORLDS_DIR, { recursive: true });
-      await writeFile(snapshotPath, `${JSON.stringify(snapshot, null, 2)}\n`, "utf8");
+      await writeFile(snapshotPath, `${JSON.stringify(snapshot, null, 2)}\n`, {
+        encoding: "utf8",
+        mode: 0o600,
+      });
+      await chmod(snapshotPath, 0o600);
     });
     return { den, apps, snapshotPath };
   });

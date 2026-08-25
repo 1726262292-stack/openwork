@@ -6,6 +6,7 @@ export * from "./desktop-app.ts";
 export * from "./topology.ts";
 export * from "./presets.ts";
 export * from "./world.ts";
+export * from "./world-adapter.ts";
 export * from "./kind-stack.ts";
 export * from "./faults.ts";
 export * from "./litellm.ts";

@@ -21,6 +21,14 @@ module.exports = {
       from: { path: "^packages/(?:behaviors|matchers|cdp|labs|hosts|timeline)(?:/|$)" },
       to: { path: "^(?:vitest|@openwork/(?:testkit|env|test-evidence))(?:/|$)" },
     },
+    // Eval primitives stay independent of the shared world shell; env is the
+    // single adapter boundary that supplies Den/desktop orchestration.
+    {
+      name: "world-shell-through-env",
+      severity: "error",
+      from: { path: "^packages/(?:behaviors|matchers|cdp|labs|hosts|timeline)(?:/|$)" },
+      to: { path: "^@openwork/world(?:/|$)" },
+    },
     // Reusable packages must not depend on runner implementation modules.
     {
       name: "no-runner-from-packages",
