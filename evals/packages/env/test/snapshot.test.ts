@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import { defineWorld } from "../src/topology.ts";
 import { buildSnapshot, fromSnapshot, parseUntrustedSnapshot, resumeWorld } from "../src/world.ts";
 
@@ -281,6 +282,7 @@ test("fromSnapshot rejects out-of-range topology and resolved ports", () => {
   );
 
   const derivedPortSnapshot = safeSnapshot();
+  if (derivedPortSnapshot.resolved.den.origin === "none") throw new Error("safe snapshot unexpectedly had no Den");
   const badDerivedPort = {
     ...derivedPortSnapshot,
     resolved: {
@@ -367,6 +369,39 @@ test("kind world snapshots preserve their resolved Den substrate", () => {
     },
   });
 
+  if (snapshot.resolved.den.origin === "none") throw new Error("kind snapshot unexpectedly had no Den");
   assert.equal(snapshot.resolved.den.substrate, "kind");
   assert.deepEqual(fromSnapshot(JSON.stringify(snapshot)), { topology, name: "kind-world" });
+});
+
+test("live shared production snapshots preserve only symbolic state selection", () => {
+  const profileDir = fileURLToPath(new URL("../../../results/.surfaces/production-live-fixture", import.meta.url));
+  const topology = defineWorld({
+    den: { orgs: {} },
+    apps: {
+      main: { desktopState: { source: "installed-production", mode: "live-shared" } },
+    },
+  }).topology;
+  const snapshot = buildSnapshot({
+    name: "production-live",
+    createdAt: "2026-08-25T12:00:00.000Z",
+    place: "local",
+    topology,
+    resolved: {
+      den: { origin: "none" },
+      apps: {
+        main: {
+          cdpUrl: "http://127.0.0.1:9222",
+          workspaceId: null,
+          sessions: [],
+          owner: { pid: 4242, profileDir },
+        },
+      },
+    },
+  });
+  assert.deepEqual(fromSnapshot(JSON.stringify(snapshot)), { topology, name: "production-live" });
+  assert.throws(
+    () => fromSnapshot(JSON.stringify({ ...snapshot, place: "daytona" })),
+    /live-shared installed-production desktop snapshots must use local placement/,
+  );
 });

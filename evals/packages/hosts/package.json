@@ -32,6 +32,7 @@
   },
   "dependencies": {
     "@openwork/cdp": "workspace:*",
+    "@openwork/paths": "link:../../../packages/paths",
     "@openwork/timeline": "workspace:*"
   }
 }

@@ -2,11 +2,12 @@ import { readFile, readdir, unlink } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { resolvePlace } from "./place.ts";
-import { acmeDemo, acmeDocs, soloWorkspace, supportOrg } from "./presets.ts";
+import { acmeDemo, acmeDocs, desktopProductionLive, soloWorkspace, supportOrg } from "./presets.ts";
 import type { Place } from "./place.ts";
+import { usesLiveSharedProductionState } from "./topology.ts";
 import type { WorldDefinition, WorldTopology } from "./topology.ts";
 import { fromSnapshot, parseUntrustedSnapshot, resumeWorld as attachWorld, startWorld } from "./world.ts";
-import type { ResumedWorld, WorldTeardownResult } from "./world.ts";
+import type { ResumedWorld, StartWorldOptions, WorldTeardownResult } from "./world.ts";
 
 const REPO_ROOT = fileURLToPath(new URL("../../../..", import.meta.url));
 const WORLDS_DIR = join(REPO_ROOT, "evals", "results", ".worlds");
@@ -14,13 +15,14 @@ const WORLDS_DIR = join(REPO_ROOT, "evals", "results", ".worlds");
 export const presetCatalog: Record<string, WorldDefinition> = {
   "acme-demo": acmeDemo,
   "acme-docs": acmeDocs,
+  "desktop-prod-live": desktopProductionLive,
   solo: soloWorkspace,
   "support-org": supportOrg,
 };
 
 export type WorldCommand =
-  | { kind: "up"; preset: string; name?: string; keep?: boolean }
-  | { kind: "rebuild"; snapshotPath: string }
+  | { kind: "up"; preset: string; name?: string; keep?: boolean; allowSharedState?: boolean }
+  | { kind: "rebuild"; snapshotPath: string; allowSharedState?: boolean }
   | { kind: "resume"; nameOrSnapshotPath: string; teardown?: boolean }
   | { kind: "list" }
   | { kind: "forget"; name: string }
@@ -45,7 +47,7 @@ interface WorldIo {
   print?: (line: string) => void;
   startWorld?: (
     definition: WorldDefinition | WorldTopology,
-    options?: { place?: Place; name?: string },
+    options?: StartWorldOptions,
   ) => Promise<StartedWorld>;
   resumeWorld?: (
     snapshotJsonText: string,
@@ -72,10 +74,15 @@ export function parseWorldArgs(argv: string[]): WorldCommand {
     if (!Object.hasOwn(presetCatalog, preset)) return helpError(`Unknown preset ${JSON.stringify(preset)}.`);
     let name: string | undefined;
     let keep = false;
+    let allowSharedState = false;
     for (let index = 0; index < options.length; index += 1) {
       const option = options[index];
       if (option === "--keep" && !keep) {
         keep = true;
+        continue;
+      }
+      if (option === "--allow-shared-state" && !allowSharedState) {
+        allowSharedState = true;
         continue;
       }
       if (option === "--name" && name === undefined) {
@@ -85,19 +92,24 @@ export function parseWorldArgs(argv: string[]): WorldCommand {
         index += 1;
         continue;
       }
-      return helpError("Use --name <name> and/or --keep after the preset.");
+      return helpError("Use --name <name>, --keep, and/or --allow-shared-state after the preset.");
     }
     return {
       kind: "up",
       preset,
       ...(name === undefined ? {} : { name }),
       ...(keep ? { keep: true } : {}),
+      ...(allowSharedState ? { allowSharedState: true } : {}),
     };
   }
   if (command === "rebuild") {
-    return args.length === 1 && args[0]
-      ? { kind: "rebuild", snapshotPath: args[0] }
-      : helpError("The rebuild command needs exactly one snapshot path.");
+    const [snapshotPath, ...options] = args;
+    if (!snapshotPath) return helpError("The rebuild command needs one snapshot path.");
+    if (options.length === 0) return { kind: "rebuild", snapshotPath };
+    if (options.length === 1 && options[0] === "--allow-shared-state") {
+      return { kind: "rebuild", snapshotPath, allowSharedState: true };
+    }
+    return helpError("Use only --allow-shared-state after the rebuild snapshot path.");
   }
   if (command === "resume") {
     const [nameOrSnapshotPath, ...options] = args;
@@ -121,10 +133,11 @@ export function parseWorldArgs(argv: string[]): WorldCommand {
 }
 
 const HELP = `Usage:
-  pnpm world up <preset> [--name <name>] [--keep]
+  pnpm world up <preset> [--name <name>] [--keep] [--allow-shared-state]
       Start a world from a preset. --keep leaves its detached services running after Ctrl-C.
-  pnpm world rebuild <snapshot-path>
-      Start a new world using a saved snapshot.
+      --allow-shared-state explicitly permits a local live-shared production-state desktop.
+  pnpm world rebuild <snapshot-path> [--allow-shared-state]
+      Start a new world using a saved snapshot. Shared state requires the opt-in again.
   pnpm world resume <name-or-snapshot-path> [--teardown]
       Attach to a detached world, or stop its services and database with --teardown.
   pnpm world list
@@ -134,7 +147,10 @@ const HELP = `Usage:
   pnpm world help
       Show this help.
 
-Presets: acme-demo, acme-docs, solo, support-org`;
+Presets: acme-demo, acme-docs, desktop-prod-live, solo, support-org
+
+Live shared production state:
+  pnpm world up desktop-prod-live --allow-shared-state --name prod-live-dev --keep`;
 
 function messageText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
@@ -165,9 +181,15 @@ function printStarted(
   lifecycle: string,
   print: (line: string) => void,
 ): void {
-  print(`World ${JSON.stringify(world.name)} is up (${description}, ${placeKind}).`);
-  print(`den web  ${world.den.ref.webUrl}`);
-  print(`den api  ${world.den.ref.apiUrl}`);
+  const sharedProductionState = usesLiveSharedProductionState(world.topology);
+  if (sharedProductionState) {
+    print("LIVE SHARED PRODUCTION STATE — concurrent writes by production and dev are unsupported and may corrupt state.");
+  }
+  print(`World ${JSON.stringify(world.name)} is up (${description}, ${placeKind}${sharedProductionState ? ", LIVE SHARED PRODUCTION STATE" : ""}).`);
+  if (!sharedProductionState) {
+    print(`den web  ${world.den.ref.webUrl}`);
+    print(`den api  ${world.den.ref.apiUrl}`);
+  }
   for (const [name, app] of Object.entries(world.apps)) {
     const signedInTo = world.topology.apps?.[name]?.signedInTo;
     const signIn = signedInTo ? ` (signed in to ${signedInTo.org} as ${signedInTo.as})` : "";
@@ -179,7 +201,7 @@ function printStarted(
 
 async function runWorld(
   definition: WorldDefinition | WorldTopology,
-  options: { place: Place; name?: string; keep?: boolean },
+  options: { place: Place; name?: string; keep?: boolean; allowSharedState?: boolean },
   description: string,
   io: Required<Pick<WorldIo, "print" | "startWorld" | "onExit">>,
 ): Promise<number> {
@@ -219,6 +241,7 @@ function snapshotSummary(text: string): {
   place: string;
   orgs: string[];
   apps: string[];
+  sharedProductionState: boolean;
 } {
   const parsed = parseUntrustedSnapshot(text);
   return {
@@ -227,6 +250,7 @@ function snapshotSummary(text: string): {
     place: parsed.place,
     orgs: Object.keys(parsed.topology.den.orgs),
     apps: Object.keys(parsed.topology.apps ?? {}),
+    sharedProductionState: usesLiveSharedProductionState(parsed.topology),
   };
 }
 
@@ -270,7 +294,12 @@ export async function main(argv = process.argv.slice(2), io: WorldIo = {}): Prom
     const definition = presetCatalog[command.preset];
     if (!definition) throw new Error(`Unknown preset ${JSON.stringify(command.preset)}.`);
     const place = resolvePlace(process.env);
-    return runWorld(definition, { place, name: command.name, keep: command.keep }, `preset ${command.preset}`, {
+    return runWorld(definition, {
+      place,
+      name: command.name,
+      keep: command.keep,
+      allowSharedState: command.allowSharedState,
+    }, `preset ${command.preset}`, {
       print,
       startWorld: boot,
       onExit,
@@ -280,7 +309,11 @@ export async function main(argv = process.argv.slice(2), io: WorldIo = {}): Prom
     try {
       const snapshot = fromSnapshot(await load(command.snapshotPath));
       const place = resolvePlace(process.env);
-      return runWorld(snapshot.topology, { place, name: snapshot.name }, "rebuilt from snapshot", {
+      return runWorld(snapshot.topology, {
+        place,
+        name: snapshot.name,
+        allowSharedState: command.allowSharedState,
+      }, "rebuilt from snapshot", {
         print,
         startWorld: boot,
         onExit,
@@ -343,7 +376,7 @@ export async function main(argv = process.argv.slice(2), io: WorldIo = {}): Prom
       const path = join(WORLDS_DIR, name);
       try {
         const summary = snapshotSummary(await load(path));
-        print(`${summary.name}  ${summary.createdAt}  ${summary.place}  orgs ${joinedKeys(summary.orgs)}  apps ${joinedKeys(summary.apps)}`);
+        print(`${summary.name}  ${summary.createdAt}  ${summary.place}  orgs ${joinedKeys(summary.orgs)}  apps ${joinedKeys(summary.apps)}${summary.sharedProductionState ? "  LIVE SHARED PRODUCTION STATE" : ""}`);
         printed += 1;
       } catch (error) {
         print(`Warning: skipped ${displayPath(path)}: ${messageText(error)}`);

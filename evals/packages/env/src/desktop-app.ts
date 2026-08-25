@@ -1,7 +1,9 @@
 import { createAndSelectWorkspace, signInDesktopAs } from "@openwork/behaviors";
+import { attachSurface, evaluateOnSurface, isInteractive, probeAppStateOnSurface } from "@openwork/cdp";
 import type { Surface } from "@openwork/cdp";
 import { desktop } from "@openwork/hosts";
-import type { DesktopHandle, Host } from "@openwork/hosts";
+import { liveSharedProductionStateEnv } from "@openwork/hosts";
+import type { AppReadiness, DesktopHandle, Host, InstalledProductionDesktopState } from "@openwork/hosts";
 import type { Den } from "./den.ts";
 import type { Place } from "./place.ts";
 
@@ -34,6 +36,102 @@ export type AppOptions = SignedInAppOptions | FreshAppOptions;
 /** A desktop; its Electron profile root is available at handle.profileDir. */
 export interface App extends DesktopHandle {
   workspaceId: string;
+  /** Live-state launches may have no selected workspace; snapshots preserve that as null. */
+  snapshotWorkspaceId?: string | null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function serializedPageValue(value: unknown): string {
+  const serialized = JSON.stringify(value);
+  if (serialized === undefined) throw new Error("Installed production renderer state could not be serialized.");
+  return serialized.replace(/</g, "\\u003c").replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029");
+}
+
+async function mirrorInstalledProductionRendererState(target: Surface): Promise<AppReadiness> {
+  const cdpUrl = process.env.OPENWORK_EVAL_INSTALLED_PRODUCTION_CDP_URL?.trim() || "http://127.0.0.1:9223";
+  await using source = await attachSurface({
+    name: "installed-production-source",
+    kind: "electron",
+    hostKind: "local",
+    cdpUrl,
+  });
+  const raw = await evaluateOnSurface(source, `({
+    route: location.hash,
+    entries: Object.entries(localStorage).filter(([key]) => key.startsWith("openwork.")),
+  })`);
+  if (!isRecord(raw) || typeof raw.route !== "string" || !Array.isArray(raw.entries)) {
+    throw new Error(`Installed production desktop at ${cdpUrl} returned invalid renderer state.`);
+  }
+  const entries: [string, string][] = [];
+  for (const entry of raw.entries) {
+    if (!Array.isArray(entry) || entry.length !== 2 || typeof entry[0] !== "string" || typeof entry[1] !== "string") {
+      throw new Error(`Installed production desktop at ${cdpUrl} returned an invalid localStorage entry.`);
+    }
+    entries.push([entry[0], entry[1]]);
+  }
+  try {
+    await evaluateOnSurface(target, `(() => {
+      const state = ${serializedPageValue({ route: raw.route, entries })};
+      for (const [key, value] of state.entries) localStorage.setItem(key, value);
+      location.hash = state.route;
+      location.reload();
+      return true;
+    })()`);
+  } catch {
+    // The CDP evaluator includes expression prefixes in timeout errors. Never
+    // propagate the expression because it contains production localStorage.
+    throw new Error("Dev desktop could not adopt installed production renderer state.");
+  }
+
+  const deadline = Date.now() + 60_000;
+  let lastRoute = "";
+  while (Date.now() < deadline) {
+    try {
+      const probe = await probeAppStateOnSurface(target, { timeoutMs: 5_000 });
+      lastRoute = probe.route;
+      if (isInteractive(probe) && probe.surface && !probe.route.endsWith("/signin")) {
+        return { state: probe.surface, workspaceId: probe.workspaceId, route: probe.route };
+      }
+    } catch {
+      // Reload briefly destroys the renderer execution context.
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  throw new Error(`Dev desktop did not adopt installed production renderer state within 60 seconds; last route ${JSON.stringify(lastRoute)}.`);
+}
+
+export async function liveSharedProductionApp(options: {
+  host: Host;
+  name: string;
+  state: InstalledProductionDesktopState;
+}): Promise<App> {
+  const surface = await desktop({
+    name: options.name,
+    host: options.host,
+    devCommand: "dev",
+    prepareSharedResources: false,
+    env: liveSharedProductionStateEnv(options.state),
+  });
+  try {
+    const readiness = await mirrorInstalledProductionRendererState(surface);
+    const selectedWorkspaceId = readiness.workspaceId;
+    return {
+      handle: surface.handle,
+      client: surface.client,
+      readiness,
+      workspaceRoot: surface.workspaceRoot,
+      workspaceId: selectedWorkspaceId === null ? "" : selectedWorkspaceId,
+      snapshotWorkspaceId: selectedWorkspaceId,
+      stop: () => surface.stop(),
+      [Symbol.asyncDispose]: () => surface[Symbol.asyncDispose](),
+    };
+  } catch (error) {
+    await surface[Symbol.asyncDispose]();
+    throw error;
+  }
 }
 
 export async function app(options: AppOptions): Promise<App> {

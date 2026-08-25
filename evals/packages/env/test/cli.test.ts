@@ -4,7 +4,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { buildSnapshot } from "../src/world.ts";
 import { parseWorldArgs, main } from "../src/cli.ts";
-import { supportOrg } from "../src/presets.ts";
+import { desktopProductionLive, supportOrg } from "../src/presets.ts";
 
 const REPO_ROOT = fileURLToPath(new URL("../../../..", import.meta.url));
 const DEMO_SNAPSHOT_PATH = join(REPO_ROOT, "evals", "results", ".worlds", "demo.json");
@@ -29,9 +29,20 @@ test("parseWorldArgs parses every world command", () => {
     name: "demo",
     keep: true,
   });
+  assert.deepEqual(parseWorldArgs(["up", "desktop-prod-live", "--allow-shared-state", "--keep"]), {
+    kind: "up",
+    preset: "desktop-prod-live",
+    keep: true,
+    allowSharedState: true,
+  });
   assert.deepEqual(parseWorldArgs(["rebuild", "saved.json"]), {
     kind: "rebuild",
     snapshotPath: "saved.json",
+  });
+  assert.deepEqual(parseWorldArgs(["rebuild", "saved.json", "--allow-shared-state"]), {
+    kind: "rebuild",
+    snapshotPath: "saved.json",
+    allowSharedState: true,
   });
   assert.deepEqual(parseWorldArgs(["list"]), { kind: "list" });
   assert.deepEqual(parseWorldArgs(["resume", "demo"]), {
@@ -53,6 +64,7 @@ test("parseWorldArgs turns invalid input into help with an error", () => {
     ["up", "unknown"],
     ["up", "solo", "--name"],
     ["up", "solo", "--keep", "--keep"],
+    ["up", "solo", "--allow-shared-state", "--allow-shared-state"],
     ["rebuild"],
     ["rebuild", "one", "two"],
     ["resume"],
@@ -101,6 +113,32 @@ test("main starts, describes, and tears down a world", async () => {
   assert.ok(lines.includes("app alice  CDP http://cdp.test (signed in to acme as admin)"));
   assert.ok(lines.includes("snapshot  evals/results/.worlds/demo.json"));
   assert.equal(lines.at(-1), 'World "demo" torn down.');
+});
+
+test("main forwards shared-state opt-in and labels the dangerous mode", async () => {
+  const lines: string[] = [];
+  let receivedAllowSharedState = false;
+  const exitCode = await main(["up", "desktop-prod-live", "--allow-shared-state"], {
+    print: (line) => lines.push(line),
+    startWorld: async (_definition, options) => {
+      receivedAllowSharedState = options?.allowSharedState === true;
+      return {
+        name: "prod-live",
+        topology: desktopProductionLive.topology,
+        den: { ref: { webUrl: "", apiUrl: "" } },
+        apps: { main: { handle: { cdpUrl: "http://127.0.0.1:31002" } } },
+        snapshotPath: DEMO_SNAPSHOT_PATH,
+        async [Symbol.asyncDispose]() {},
+      };
+    },
+    onExit: async () => {},
+  });
+
+  assert.equal(exitCode, 0);
+  assert.equal(receivedAllowSharedState, true);
+  assert.ok(lines.includes("LIVE SHARED PRODUCTION STATE — concurrent writes by production and dev are unsupported and may corrupt state."));
+  assert.ok(lines.some((line) => line.includes("LIVE SHARED PRODUCTION STATE")));
+  assert.ok(!lines.some((line) => line.startsWith("den web") || line.startsWith("den api")));
 });
 
 test("main lists valid snapshots from an injected directory", async () => {

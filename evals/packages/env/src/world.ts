@@ -12,13 +12,13 @@ import {
   seedSessions,
   signIn,
 } from "@openwork/behaviors";
-import { desktop, freePort } from "@openwork/hosts";
+import { desktop, freePort, localHost, resolveInstalledProductionDesktopState, stopOwnedElectronSurface } from "@openwork/hosts";
 import { Effect, Exit, Scope } from "effect";
 import { createConnection } from "mysql2/promise";
 import { z } from "zod";
 import type { ProvisionedOrg } from "@openwork/behaviors";
-import type { DesktopHandle } from "@openwork/hosts";
-import { app as bootApp } from "./desktop-app.ts";
+import type { DesktopHandle, InstalledProductionDesktopState } from "@openwork/hosts";
+import { app as bootApp, liveSharedProductionApp } from "./desktop-app.ts";
 import type { App } from "./desktop-app.ts";
 import { defaultReuseAdmin, personDefaults, server } from "./den.ts";
 import type { Den } from "./den.ts";
@@ -26,7 +26,7 @@ import { DEMO_PASSWORD, ensureKindDenReady, exposeEndpointHandles, kubeProfileCo
 import { mcpMock } from "./mock.ts";
 import { resolvePlace, validateDatabaseName } from "./place.ts";
 import type { Place } from "./place.ts";
-import { defineWorld, resolveWorldPerson, worldTopologySchema } from "./topology.ts";
+import { defineWorld, resolveWorldPerson, usesLiveSharedProductionState, worldTopologySchema } from "./topology.ts";
 import type { WorldDefinition, WorldOrg, WorldPerson, WorldTopology } from "./topology.ts";
 import type { DenRef, DenSession } from "@openwork/behaviors";
 
@@ -62,8 +62,13 @@ export interface WorldSnapshotResolved {
     substrate?: "kind";
     database?: string;
     ports?: { api: number; web: number };
-  };
-  apps: Record<string, { cdpUrl: string; workspaceId: string; sessions: string[] }>;
+  } | { origin: "none" };
+  apps: Record<string, {
+    cdpUrl: string;
+    workspaceId: string | null;
+    sessions: string[];
+    owner?: { pid: number; profileDir: string };
+  }>;
 }
 
 export interface WorldTeardownResult {
@@ -99,8 +104,12 @@ export interface BuildSnapshotInput {
 
 const resolvedAppSchema = z.strictObject({
   cdpUrl: z.string(),
-  workspaceId: z.string(),
+  workspaceId: z.string().nullable(),
   sessions: z.array(z.string()),
+  owner: z.strictObject({
+    pid: z.number().int().positive(),
+    profileDir: z.string(),
+  }).optional(),
 });
 
 const resolvedPortsSchema = z.strictObject({
@@ -115,14 +124,17 @@ const worldSnapshotSchema = z.strictObject({
   place: z.enum(["local", "daytona"]),
   topology: worldTopologySchema,
   resolved: z.strictObject({
-    den: z.strictObject({
-      apiUrl: z.string(),
-      webUrl: z.string(),
-      origin: z.enum(["attached", "launched"]),
-      substrate: z.literal("kind").optional(),
-      database: z.string().optional(),
-      ports: resolvedPortsSchema.optional(),
-    }),
+    den: z.union([
+      z.strictObject({
+        apiUrl: z.string(),
+        webUrl: z.string(),
+        origin: z.enum(["attached", "launched"]),
+        substrate: z.literal("kind").optional(),
+        database: z.string().optional(),
+        ports: resolvedPortsSchema.optional(),
+      }),
+      z.strictObject({ origin: z.literal("none") }),
+    ]),
     apps: z.record(z.string(), resolvedAppSchema),
   }),
 });
@@ -233,6 +245,17 @@ function validateUntrustedSnapshot(snapshot: WorldSnapshot): void {
   if (!SNAPSHOT_NAME.test(snapshot.name)) {
     rejectSnapshotField("name", snapshot.name, "expected a filesystem-safe name using letters, numbers, dots, underscores, or hyphens");
   }
+  const sharedProductionState = usesLiveSharedProductionState(snapshot.topology);
+  if (sharedProductionState && snapshot.place !== "local") {
+    rejectSnapshotField("place", snapshot.place, "live-shared installed-production desktop snapshots must use local placement");
+  }
+  if (sharedProductionState !== (snapshot.resolved.den.origin === "none")) {
+    rejectSnapshotField(
+      "resolved.den.origin",
+      snapshot.resolved.den.origin,
+      "origin none is reserved for live-shared installed-production desktop worlds and is required by them",
+    );
+  }
 
   for (const [key, value] of Object.entries(snapshot.topology.den.env ?? {})) {
     if (!SNAPSHOT_ENV_KEY.test(key)) {
@@ -261,29 +284,44 @@ function validateUntrustedSnapshot(snapshot: WorldSnapshot): void {
       rejectSnapshotField(`topology.apps.${name}.localServerDelayMs`, app.localServerDelayMs, "expected an integer from 0 to 300000");
     }
   }
+  for (const [name, app] of Object.entries(snapshot.resolved.apps)) {
+    if (sharedProductionState && app.owner === undefined) {
+      rejectSnapshotField(`resolved.apps.${name}.owner`, app.owner, "live-shared app snapshots require an owned dev process receipt");
+    }
+    if (app.owner) {
+      const profileRoot = resolve(RESULTS_DIR, ".surfaces");
+      const candidate = resolve(app.owner.profileDir);
+      const child = relative(profileRoot, candidate);
+      if (!child || child === ".." || child.startsWith(`..${sep}`) || isAbsolute(child)) {
+        rejectSnapshotField(`resolved.apps.${name}.owner.profileDir`, app.owner.profileDir, "expected an eval-owned profile inside evals/results/.surfaces");
+      }
+    }
+  }
   for (const [name, witness] of Object.entries(snapshot.topology.witnesses ?? {})) {
     if (witness.fault !== undefined && !SNAPSHOT_FAULT.test(witness.fault)) {
       rejectSnapshotField(`topology.witnesses.${name}.fault`, witness.fault, "expected a lowercase fault id containing only letters, numbers, or hyphens");
     }
   }
 
-  const database = snapshot.resolved.den.database;
-  if (database !== undefined) {
-    try {
-      validateDatabaseName(database);
-    } catch {
-      rejectSnapshotField("resolved.den.database", database, "expected a valid ephemeral database name matching ^[a-z][a-z0-9_]{0,62}$");
+  if (snapshot.resolved.den.origin !== "none") {
+    const database = snapshot.resolved.den.database;
+    if (database !== undefined) {
+      try {
+        validateDatabaseName(database);
+      } catch {
+        rejectSnapshotField("resolved.den.database", database, "expected a valid ephemeral database name matching ^[a-z][a-z0-9_]{0,62}$");
+      }
+      if (!database.startsWith("openwork_eval_")) {
+        rejectSnapshotField("resolved.den.database", database, "only generated openwork_eval_* databases may be torn down");
+      }
     }
-    if (!database.startsWith("openwork_eval_")) {
-      rejectSnapshotField("resolved.den.database", database, "only generated openwork_eval_* databases may be torn down");
+    if (snapshot.resolved.den.ports) {
+      validateSnapshotPort("resolved.den.ports.api", snapshot.resolved.den.ports.api);
+      validateSnapshotPort("resolved.den.ports.web", snapshot.resolved.den.ports.web);
     }
+    validateSnapshotLoopbackUrlPort("resolved.den.apiUrl", snapshot.resolved.den.apiUrl);
+    validateSnapshotLoopbackUrlPort("resolved.den.webUrl", snapshot.resolved.den.webUrl);
   }
-  if (snapshot.resolved.den.ports) {
-    validateSnapshotPort("resolved.den.ports.api", snapshot.resolved.den.ports.api);
-    validateSnapshotPort("resolved.den.ports.web", snapshot.resolved.den.ports.web);
-  }
-  validateSnapshotLoopbackUrlPort("resolved.den.apiUrl", snapshot.resolved.den.apiUrl);
-  validateSnapshotLoopbackUrlPort("resolved.den.webUrl", snapshot.resolved.den.webUrl);
   for (const [name, app] of Object.entries(snapshot.resolved.apps)) {
     validateSnapshotCdpUrl(`resolved.apps.${name}.cdpUrl`, app.cdpUrl);
   }
@@ -659,10 +697,16 @@ function resolvedApps(
 ): WorldSnapshotResolved["apps"] {
   const resolved: WorldSnapshotResolved["apps"] = {};
   for (const [name, booted] of Object.entries(apps)) {
+    const workspaceId = booted.snapshotWorkspaceId === undefined
+      ? booted.workspaceId
+      : booted.snapshotWorkspaceId;
     resolved[name] = {
       cdpUrl: booted.handle.cdpUrl,
-      workspaceId: booted.workspaceId,
+      workspaceId,
       sessions: seededTitles[name],
+      ...(booted.handle.pid && booted.handle.profileDir
+        ? { owner: { pid: booted.handle.pid, profileDir: booted.handle.profileDir } }
+        : {}),
     };
   }
   return resolved;
@@ -678,7 +722,7 @@ export function buildSnapshot(input: BuildSnapshotInput): WorldSnapshot {
     topology: snapshotTopology(topology),
     resolved: input.resolved,
   });
-  if (snapshot.resolved.den.database !== undefined) {
+  if (snapshot.resolved.den.origin !== "none" && snapshot.resolved.den.database !== undefined) {
     validateDatabaseName(snapshot.resolved.den.database);
   }
   return snapshot;
@@ -726,6 +770,7 @@ export function fromSnapshot(jsonText: string): { topology: WorldTopology; name:
 }
 
 async function requireRunningWorld(snapshot: WorldSnapshot): Promise<void> {
+  if (snapshot.resolved.den.origin === "none") return;
   const url = `${snapshot.resolved.den.apiUrl.replace(/\/+$/, "")}/health`;
   let last = "not attempted";
   for (let attempt = 0; attempt < 6; attempt += 1) {
@@ -768,16 +813,27 @@ export async function resumeWorld(
   const snapshot = parseUntrustedSnapshot(snapshotJsonText);
   rejectUnsafeSnapshotOperation(snapshot);
   const topology = defineWorld(snapshot.topology).topology;
+  const sharedProductionState = usesLiveSharedProductionState(topology);
   await requireRunningWorld(snapshot);
-  const [, primaryOrg] = primaryOrganization(topology);
-  const adminPerson = topology.den.seed === "demo-org"
-    ? defaultReuseAdmin()
-    : personDefaults("admin", primaryOrg.admin, emailSegment(snapshot.name));
-  const ref: DenRef = {
-    apiUrl: snapshot.resolved.den.apiUrl,
-    webUrl: snapshot.resolved.den.webUrl,
-  };
-  const admin = await signIn(ref, { email: adminPerson.email, password: adminPerson.password });
+  let ref: DenRef;
+  let admin: DenSession;
+  if (sharedProductionState) {
+    ref = { apiUrl: "", webUrl: "" };
+    admin = { ...ref, token: "", email: "", password: "" };
+  } else {
+    if (snapshot.resolved.den.origin === "none") {
+      throw new Error("World snapshot has no Den but its topology is not a live-shared installed-production desktop world.");
+    }
+    const [, primaryOrg] = primaryOrganization(topology);
+    const adminPerson = topology.den.seed === "demo-org"
+      ? defaultReuseAdmin()
+      : personDefaults("admin", primaryOrg.admin, emailSegment(snapshot.name));
+    ref = {
+      apiUrl: snapshot.resolved.den.apiUrl,
+      webUrl: snapshot.resolved.den.webUrl,
+    };
+    admin = await signIn(ref, { email: adminPerson.email, password: adminPerson.password });
+  }
   const apps: Record<string, DesktopHandle> = {};
   if (options.teardown !== true) {
     for (const [name, resolved] of Object.entries(snapshot.resolved.apps)) {
@@ -811,6 +867,14 @@ export async function resumeWorld(
     await detach();
     const stoppedApps: string[] = [];
     for (const [name, resolved] of Object.entries(snapshot.resolved.apps)) {
+      if (sharedProductionState && resolved.owner) {
+        await stopOwnedElectronSurface(resolved.owner.pid, resolved.owner.profileDir)
+          .then(() => stoppedApps.push(name))
+          .catch((error: unknown) => {
+            console.error(`[openwork/testkit] World app ${JSON.stringify(name)} owned teardown failed: ${messageText(error)}`);
+          });
+        continue;
+      }
       const port = localUrlPort(resolved.cdpUrl);
       if (port === null) continue;
       await freePort(port)
@@ -841,15 +905,14 @@ export async function resumeWorld(
     }
 
     let droppedDatabase: string | undefined;
-    if (
-      snapshot.resolved.den.origin === "launched"
-      && snapshot.place === "local"
-      && snapshot.resolved.den.database
-    ) {
-      await dropSnapshotDatabase(snapshot.resolved.den.database)
-        .then(() => { droppedDatabase = snapshot.resolved.den.database; })
+    const database = snapshot.resolved.den.origin === "launched"
+      ? snapshot.resolved.den.database
+      : undefined;
+    if (snapshot.place === "local" && database) {
+      await dropSnapshotDatabase(database)
+        .then(() => { droppedDatabase = database; })
         .catch((error: unknown) => {
-          console.error(`[openwork/testkit] World database ${snapshot.resolved.den.database} teardown failed: ${messageText(error)}`);
+          console.error(`[openwork/testkit] World database ${database} teardown failed: ${messageText(error)}`);
         });
     }
     teardownResult = {
@@ -873,13 +936,41 @@ function worldTopology(definition: WorldDefinition | WorldTopology): WorldTopolo
   return defineWorld("topology" in definition ? definition.topology : definition).topology;
 }
 
+function disabledDen(): Den {
+  const ref: DenRef = { apiUrl: "", webUrl: "" };
+  return {
+    ref,
+    admin: { ...ref, token: "", email: "", password: "" },
+    members: {},
+    mocks: {},
+    async apiLog(): Promise<string> {
+      throw new Error("This desktop-only world does not run a Den.");
+    },
+    async [Symbol.asyncDispose](): Promise<void> {},
+  };
+}
+
+export interface StartWorldOptions {
+  place?: Place;
+  name?: string;
+  allowSharedState?: boolean;
+  resolveInstalledProductionState?: () => Promise<InstalledProductionDesktopState>;
+}
+
 export async function startWorld(
   definition: WorldDefinition | WorldTopology,
-  options: { place?: Place; name?: string } = {},
+  options: StartWorldOptions = {},
 ): Promise<World> {
   const topology = worldTopology(definition);
   const resolvedOrganizations = resolveOrganizationMap(topology.den.orgs, process.env);
   const place = options.place ?? resolvePlace(process.env);
+  const sharedProductionState = usesLiveSharedProductionState(topology);
+  if (sharedProductionState && options.allowSharedState !== true) {
+    throw new Error("Refusing LIVE SHARED PRODUCTION STATE launch without explicit --allow-shared-state opt-in.");
+  }
+  if (sharedProductionState && place.kind !== "local") {
+    throw new Error("LIVE SHARED PRODUCTION STATE requires local placement; remote and Daytona placement are refused.");
+  }
   if (topology.den.substrate === "kind" && place.kind !== "local") {
     throw new Error('den.substrate "kind" requires local placement because the kind cluster and its port-forwards run on the local Docker host.');
   }
@@ -891,7 +982,9 @@ export async function startWorld(
 
   const acquisition = Effect.gen(function*() {
     const den = yield* Effect.acquireRelease(
-      Effect.promise(() => topology.den.substrate === "kind"
+      Effect.promise(() => sharedProductionState
+        ? Promise.resolve(disabledDen())
+        : topology.den.substrate === "kind"
         ? kindDen()
         : server({
             place,
@@ -923,6 +1016,7 @@ export async function startWorld(
     if (
       primaryOrgName !== undefined
       && primaryOrg !== undefined
+      && !sharedProductionState
       && topology.den.substrate !== "kind"
       && topology.den.seed !== "demo-org"
     ) {
@@ -947,18 +1041,31 @@ export async function startWorld(
 
     const apps: Record<string, App> = {};
     const seededTitles: Record<string, string[]> = {};
+    let installedProductionState: InstalledProductionDesktopState | null = null;
     for (const [appName, appDefinition] of Object.entries(topology.apps ?? {})) {
       const booted = yield* Effect.acquireRelease(
-        Effect.promise(() => bootApp({
-          den,
-          place,
-          workspacePath: appDefinition.workspacePath,
-          model: appDefinition.model,
-          localServerDelayMs: appDefinition.localServerDelayMs,
-          ...(appDefinition.signedInTo
-            ? { as: appDefinition.signedInTo.as }
-            : { signIn: false }),
-        })),
+        Effect.promise(async () => {
+          if (appDefinition.desktopState?.mode === "live-shared") {
+            installedProductionState ??= await (
+              options.resolveInstalledProductionState ?? resolveInstalledProductionDesktopState
+            )();
+            return liveSharedProductionApp({
+              host: localHost(),
+              name: `world-${name}-${appName}`,
+              state: installedProductionState,
+            });
+          }
+          return bootApp({
+            den,
+            place,
+            workspacePath: appDefinition.workspacePath,
+            model: appDefinition.model,
+            localServerDelayMs: appDefinition.localServerDelayMs,
+            ...(appDefinition.signedInTo
+              ? { as: appDefinition.signedInTo.as }
+              : { signIn: false }),
+          });
+        }),
         (running) => Effect.promise(() => running[Symbol.asyncDispose]()),
       );
       apps[appName] = booted;
@@ -974,13 +1081,15 @@ export async function startWorld(
       place: place.kind,
       topology,
       resolved: {
-        den: {
-          ...den.ref,
-          origin: topology.den.attach ? "attached" : "launched",
-          ...(topology.den.substrate === "kind" ? { substrate: "kind" } : {}),
-          ...(den.database ? { database: den.database.name } : {}),
-          ...(den.ports ? { ports: den.ports } : {}),
-        },
+        den: sharedProductionState
+          ? { origin: "none" }
+          : {
+              ...den.ref,
+              origin: topology.den.attach ? "attached" : "launched",
+              ...(topology.den.substrate === "kind" ? { substrate: "kind" } : {}),
+              ...(den.database ? { database: den.database.name } : {}),
+              ...(den.ports ? { ports: den.ports } : {}),
+            },
         apps: resolvedApps(apps, seededTitles),
       },
     });

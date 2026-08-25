@@ -166,10 +166,14 @@ export function createWorkspaceStore({
   }
 
   function workspaceStatePath() {
+    const override = process.env.OPENWORK_DESKTOP_WORKSPACE_STATE_PATH?.trim();
+    if (override) return path.resolve(override);
     return path.join(app.getPath("userData"), "openwork-workspaces.json");
   }
 
   function openworkServerTokenStorePath() {
+    const override = process.env.OPENWORK_SERVER_TOKEN_STORE_PATH?.trim();
+    if (override) return path.resolve(override);
     return path.join(app.getPath("userData"), "openwork-server-tokens.json");
   }
 

@@ -1,8 +1,8 @@
 import { randomBytes } from "node:crypto";
 import { existsSync, readdirSync } from "node:fs";
 import { createRequire } from "node:module";
-import { isAbsolute, join } from "node:path";
-import { opencodeDataDirs as defaultOpencodeDataDirs } from "@openwork/paths";
+import { join } from "node:path";
+import { opencodeDataDirs as defaultOpencodeDataDirs, opencodeDbCandidates } from "@openwork/paths";
 
 // better-sqlite3's N-API binding hard-crashes Bun (panic: "NAPI FATAL ERROR:
 // Error::New napi_get_last_error_info"), and the Daytona worker runtime ships
@@ -54,12 +54,6 @@ const DEFAULT_PROVIDER = "openai";
 const DEFAULT_MODEL = "gpt-5.4";
 const OPENWORK_DEV_DATA_DIRS = ["openwork-dev-data", "opencode-dev"];
 
-function truthy(value: string | undefined): boolean {
-  if (!value) return false;
-  const normalized = value.trim().toLowerCase();
-  return normalized === "1" || normalized === "true" || normalized === "yes" || normalized === "on";
-}
-
 function opencodeOpenworkDataDirs(): string[] {
   const root = process.env.OPENWORK_DATA_DIR?.trim();
   if (!root) return [];
@@ -88,35 +82,12 @@ function opencodeDataDirs(): string[] {
   return Array.from(new Set(dirs));
 }
 
-function preferredDbNames(): string[] {
-  const channel = process.env.OPENCODE_CHANNEL?.trim() || "local";
-  return channel === "latest" || channel === "beta" || truthy(process.env.OPENCODE_DISABLE_CHANNEL_DB)
-    ? ["opencode.db"]
-    : [`opencode-${channel.replace(/[^a-zA-Z0-9._-]/g, "-")}.db`, "opencode.db"];
-}
-
 function candidateOpencodeDbPaths(): string[] {
-  const override = process.env.OPENCODE_DB?.trim();
-  if (override) {
-    if (isAbsolute(override)) return [override];
-    const candidates: string[] = [];
-    const dirs = opencodeDataDirs();
-    for (const dir of dirs) {
-      candidates.push(join(dir, override));
-    }
-    const firstDir = dirs[0];
-    if (firstDir) candidates.push(join(firstDir, override));
-    return Array.from(new Set(candidates));
-  }
-
-  const candidates: string[] = [];
-  for (const dir of opencodeDataDirs()) {
-    for (const name of preferredDbNames()) {
-      candidates.push(join(dir, name));
-    }
-  }
-
-  return Array.from(new Set(candidates));
+  return opencodeDbCandidates({
+    env: process.env,
+    dataDirs: opencodeDataDirs(),
+    defaultChannel: "local",
+  });
 }
 
 export function resolveOpencodeDbPath(): string {
