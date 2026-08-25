@@ -1,6 +1,7 @@
 import { expect } from "vitest";
 import { clickButton, control, createAndSelectWorkspace, evalIn, fill, seedSessions, waitFor } from "@openwork/behaviors";
 import { desktop } from "@openwork/hosts";
+import { screenshot, validate } from "@openwork/test-evidence";
 import { needs, test } from "@openwork/testkit";
 
 const enabled = process.env.OPENWORK_EVAL_E2E_TESTS === "1";
@@ -101,6 +102,13 @@ test.skipIf(!enabled)(title, async ({ evidence }) => {
     "The TypeScript artifact mounted the dedicated code-view surface and the artifact editor exposed its workspace tree at the same time.",
     true,
   );
+  const typeScriptShot = await screenshot(app);
+  const typeScriptSeen = await validate(typeScriptShot, [
+    "The artifact panel visibly shows a workspace file tree beside a syntax-highlighted TypeScript code viewer",
+    "The visible artifact is openwork-artifact-proof.ts and the file tree search is focused on that file",
+    "No error dialog, blank artifact surface, or crash message is visible",
+  ]);
+  expect(typeScriptSeen.ok, typeScriptSeen.why).toBe(true);
 
   await fill(app, searchSelector, "openwork-artifact-settings.json");
   expect(await clickTreeFile("openwork-artifact-settings.json")).toBe(true);
@@ -114,4 +122,11 @@ test.skipIf(!enabled)(title, async ({ evidence }) => {
     "Choosing the JSON file replaced the visible TypeScript code surface with the selected JSON artifact; the old file was no longer active.",
     true,
   );
+  const jsonShot = await screenshot(app);
+  const jsonSeen = await validate(jsonShot, [
+    "The artifact panel visibly shows the workspace file tree beside a syntax-highlighted JSON code viewer",
+    "The visible artifact is openwork-artifact-settings.json and the TypeScript artifact is no longer the active code surface",
+    "No error dialog, blank artifact surface, or crash message is visible",
+  ]);
+  expect(jsonSeen.ok, jsonSeen.why).toBe(true);
 });
