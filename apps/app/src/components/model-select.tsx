@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { BrainCircuit, Check, ChevronDown, ChevronLeft, ChevronRight, Cpu, Keyboard, Settings2, Star } from "lucide-react";
+import { Check, ChevronDown, ChevronLeft, ChevronRight, Settings2, Star } from "lucide-react";
 
 import type { ModelBehaviorOption, ModelOption, ModelRef } from "@/app/types";
 import { getModelBehaviorSummary } from "@/app/lib/model-behavior";
@@ -448,59 +448,36 @@ export function ModelSelect({
             <button
               type="button"
               disabled={!selectedOption || selectedThinkingOptions.length === 0 || !onBehaviorChange}
-              className="group relative flex w-full cursor-pointer items-center gap-3 rounded-xl px-2.5 py-2 text-left text-sm transition-colors hover:bg-accent disabled:cursor-default disabled:opacity-50"
+              className="flex w-full cursor-pointer items-center gap-3 rounded-xl px-2.5 py-2 text-left text-sm transition-colors hover:bg-accent disabled:cursor-default disabled:opacity-50"
               onClick={() => {
                 if (!selectedOption) return;
                 setThinkingFor(selectedOption);
                 setPane("effort");
               }}
             >
-              <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-violet-3 text-violet-11 transition-colors group-hover:bg-violet-4">
-                <BrainCircuit className="size-4" />
-              </span>
               <span className="min-w-0 flex-1 font-medium text-foreground">Effort</span>
-              <span className="max-w-24 truncate text-muted-foreground transition-opacity group-hover:opacity-0">
+              <span className="max-w-24 truncate text-muted-foreground">
                 {selectedThinkingOptions.length > 0 ? effectiveBehaviorLabel : "Unavailable"}
-              </span>
-              <span
-                className="pointer-events-none absolute right-8 flex size-7 items-center justify-center rounded-lg border border-border/70 bg-popover/90 text-muted-foreground opacity-0 shadow-xs backdrop-blur-sm transition-opacity group-hover:opacity-100"
-                title={`Cycle thinking: ${shortcutLabel}`}
-                aria-label={`Cycle thinking: ${shortcutLabel}`}
-              >
-                <Keyboard className="size-3.5" />
               </span>
               <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
             </button>
             <button
               type="button"
               disabled={favoriteOptions.length === 0}
-              className="group relative flex w-full cursor-pointer items-center gap-3 rounded-xl px-2.5 py-2 text-left text-sm transition-colors hover:bg-accent disabled:cursor-default disabled:opacity-50"
+              className="flex w-full cursor-pointer items-center gap-3 rounded-xl px-2.5 py-2 text-left text-sm transition-colors hover:bg-accent disabled:cursor-default disabled:opacity-50"
               onClick={() => setPane("favorites")}
             >
-              <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-amber-3 text-amber-11 transition-colors group-hover:bg-amber-4">
-                <Star className="size-4" fill="currentColor" />
-              </span>
               <span className="min-w-0 flex-1 font-medium text-foreground">Favorites</span>
-              <span className="max-w-36 truncate text-muted-foreground transition-opacity group-hover:opacity-0">
+              <span className="max-w-36 truncate text-muted-foreground">
                 {currentFavorite?.title ?? "None"}
-              </span>
-              <span
-                className="pointer-events-none absolute right-8 flex size-7 items-center justify-center rounded-lg border border-border/70 bg-popover/90 text-muted-foreground opacity-0 shadow-xs backdrop-blur-sm transition-opacity group-hover:opacity-100"
-                title={`Cycle favorites: ${favoriteModelShortcutLabel}`}
-                aria-label={`Cycle favorites: ${favoriteModelShortcutLabel}`}
-              >
-                <Keyboard className="size-3.5" />
               </span>
               <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
             </button>
             <button
               type="button"
-              className="group flex w-full cursor-pointer items-center gap-3 rounded-xl px-2.5 py-2 text-left text-sm transition-colors hover:bg-accent"
+              className="flex w-full cursor-pointer items-center gap-3 rounded-xl px-2.5 py-2 text-left text-sm transition-colors hover:bg-accent"
               onClick={() => setPane("model")}
             >
-              <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-blue-3 text-blue-11 transition-colors group-hover:bg-blue-4">
-                <Cpu className="size-4" />
-              </span>
               <span className="min-w-0 flex-1 font-medium text-foreground">Model</span>
               <span className="max-w-36 truncate text-muted-foreground">
                 {selectedOption?.title ?? value.modelID ?? "Select model"}
