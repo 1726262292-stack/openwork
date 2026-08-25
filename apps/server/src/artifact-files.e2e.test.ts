@@ -55,7 +55,7 @@ async function startOpenworkServer(workspaceRoot: string) {
 }
 
 function auth(token: string) {
-  return { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
+  return { Authorization: `Bearer ${token}`, "Content-Type": "application/json", Connection: "close" };
 }
 
 describe("artifact file routes", () => {
