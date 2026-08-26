@@ -120,6 +120,22 @@ describe("managed provider auth delivery", () => {
     await rm(dir, { recursive: true, force: true });
   });
 
+  test("does not deliver an unrelated env-store secret to a managed provider", async () => {
+    const config = await makeConfig(dir);
+    await seedProvider(config, { id: "azure", name: "Azure", env: ["AZURE_RESOURCE_NAME", "AZURE_API_KEY"] });
+    const fetchStub = stubFetch();
+
+    const result = await syncManagedProviderAuth({
+      config,
+      env: { list: async () => [{ key: "OPENAI_API_KEY", value: "unrelated-secret" }] },
+      fetchImpl: fetchStub.impl,
+    });
+
+    expect(result.skipped).toEqual([{ providerId: PROVIDER, reason: "no_stored_credential" }]);
+    expect(fetchStub.calls).toHaveLength(0);
+    await rm(dir, { recursive: true, force: true });
+  });
+
   test("does not re-deliver an unchanged credential", async () => {
     const config = await makeConfig(dir);
     await seedProvider(config, { id: "anthropic", env: ["ANTHROPIC_API_KEY"] });

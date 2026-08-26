@@ -127,6 +127,16 @@ describe("resolveCloudProviderCredentials", () => {
     ]);
   });
 
+  test("undeclared API-shaped map keys are not used as the auth credential", () => {
+    const { primaryApiKey } = resolveCloudProviderCredentials({
+      apiKey: null,
+      apiKeys: { OPENAI_API_KEY: "unrelated-secret" },
+      providerConfig: { env: ["AZURE_RESOURCE_NAME", "AZURE_API_KEY"] },
+    });
+
+    expect(primaryApiKey).toBe("");
+  });
+
   test("no credential at all yields empty results", () => {
     expect(
       resolveCloudProviderCredentials({

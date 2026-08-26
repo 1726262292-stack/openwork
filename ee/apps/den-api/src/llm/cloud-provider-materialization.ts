@@ -282,7 +282,11 @@ function providerEnvEntries(provider: CloudProviderMaterializationProvider): Env
   }
 
   if (credential.apiKey && envNames[0]) {
-    upsertEnvEntry(entries, envNames[0], credential.apiKey)
+    upsertEnvEntry(
+      entries,
+      selectPrimaryCredentialEnvName(envNames, envNames) ?? envNames[0],
+      credential.apiKey,
+    )
   }
 
   const primaryCredentialEnvName = selectPrimaryCredentialEnvName(envNames, entries.map((entry) => entry.key))

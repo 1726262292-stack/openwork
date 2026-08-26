@@ -480,6 +480,28 @@ describe("Cloud provider materialization", () => {
     expect(instance.runtimeProvider(provider.id)).toBeNull()
   })
 
+  test("materializes a legacy scalar Azure credential as the API key env", async () => {
+    const provider = makeAzureProvider({})
+    provider.apiKey = "legacy-api-key"
+    const instance = makeInstance()
+
+    const result = await materialize({
+      providers: () => [provider],
+      fetchImpl: instance.fetchImpl,
+      force: true,
+    })
+
+    expect(result.ok).toBe(true)
+    expect(result.providers).toBe(1)
+    expect(instance.calls.find((call) => call.method === "PUT" && call.path === "/env")?.body).toEqual({
+      entries: [{ key: "AZURE_API_KEY", value: "legacy-api-key" }],
+    })
+    expect(instance.runtimeProvider(provider.id)).toMatchObject({
+      id: "azure",
+      env: ["AZURE_RESOURCE_NAME", "AZURE_API_KEY"],
+    })
+  })
+
   test("skips writes and reloads when observed provider and env state match", async () => {
     const provider = makeAnthropicProvider({ apiKey: "sk-anthropic" })
     const fingerprint = computeCloudProviderMaterializationFingerprint([provider])

@@ -42,6 +42,15 @@ describe("selectPrimaryCredentialEnvName", () => {
     ).toBeNull()
   })
 
+  test("ignores API-shaped names that the provider did not declare", () => {
+    expect(
+      selectPrimaryCredentialEnvName(
+        ["AZURE_RESOURCE_NAME", "AZURE_API_KEY"],
+        ["OPENAI_API_KEY"],
+      ),
+    ).toBeNull()
+  })
+
   test("keeps AWS access key as the primary credential", () => {
     expect(selectPrimaryCredentialEnvName(AWS_ENV, ["AWS_ACCESS_KEY_ID", "AWS_REGION"])).toBe("AWS_ACCESS_KEY_ID")
   })

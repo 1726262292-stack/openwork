@@ -70,10 +70,7 @@ function credentialEnvRank(name: string): number | null {
 
 function selectPrimaryCredentialEnvName(envNames: string[], availableNames: Iterable<string>): string | null {
   const available = new Set([...availableNames].filter((name) => name.trim().length > 0));
-  const orderedNames = [
-    ...envNames.filter((name) => available.has(name)),
-    ...[...available].filter((name) => !envNames.includes(name)),
-  ];
+  const orderedNames = envNames.filter((name) => available.has(name));
   const ranked = orderedNames
     .map((name, index) => ({ name, index, rank: credentialEnvRank(name) }))
     .filter((entry): entry is { name: string; index: number; rank: number } => entry.rank !== null)
