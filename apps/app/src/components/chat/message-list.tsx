@@ -858,6 +858,31 @@ interface ErrorMessageProps {
 function ErrorMessage({ error, resumePrompt }: ErrorMessageProps) {
   const { onResumeInterrupted } = useMessageList()
 
+  // A resumable interruption is a pause, not a failure: it renders as a
+  // quiet status line (like "Working 12s"), with Resume as the emphasis.
+  if (resumePrompt && onResumeInterrupted) {
+    return (
+      <Message className="not-prose mx-auto flex w-full max-w-3xl flex-col items-start gap-2 px-2 md:px-10">
+        <div
+          data-testid="session-error-interrupted"
+          className="flex min-w-0 items-center gap-2 py-1 text-sm text-muted-foreground"
+        >
+          <CirclePause aria-hidden="true" className="size-4 shrink-0" />
+          <span className="min-w-0 truncate">{error}</span>
+          <span aria-hidden="true" className="text-muted-foreground/60">·</span>
+          <button
+            type="button"
+            data-testid="session-error-resume"
+            onClick={() => onResumeInterrupted(resumePrompt)}
+            className="shrink-0 cursor-pointer font-medium text-foreground underline-offset-2 transition-colors hover:underline"
+          >
+            {t("session.resume_interrupted")}
+          </button>
+        </div>
+      </Message>
+    )
+  }
+
   return (
     <Message className="not-prose mx-auto flex w-full max-w-3xl flex-col items-start gap-2 px-0 md:px-10">
       <div className="group flex w-full flex-col items-start gap-0">
@@ -866,18 +891,6 @@ function ErrorMessage({ error, resumePrompt }: ErrorMessageProps) {
             <AlertTriangle aria-hidden="true" size={16} className="mt-0.5 shrink-0 text-destructive" />
             <p className="whitespace-pre-wrap text-destructive">{error}</p>
           </div>
-          {resumePrompt && onResumeInterrupted ? (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="ml-6 h-7 w-fit px-2 text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
-              data-testid="session-error-resume"
-              onClick={() => onResumeInterrupted(resumePrompt)}
-            >
-              {t("session.resume_interrupted")}
-            </Button>
-          ) : null}
         </div>
       </div>
     </Message>
