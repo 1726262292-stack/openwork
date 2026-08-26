@@ -530,7 +530,7 @@ const AssistantMessage = React.memo(
             if (group.kind === "tool-aggregate") {
               return (
                 <div key={`tool-aggregate-${index}`} className="w-full">
-                  <ToolAggregateGroup parts={group.parts} />
+                  <ToolAggregateGroup parts={group.parts} thoughts={group.thoughts} />
                 </div>
               )
             }
@@ -1062,7 +1062,7 @@ function MessageGroup({
         total +
         (item.message.role === "assistant" && !isSessionErrorMessage(item.message)
           ? getAssistantRenderGroups(item.message.parts, showThinking).reduce(
-            (rows, group) => rows + (group.kind === "tool-aggregate" ? group.parts.length : 1),
+            (rows, group) => rows + (group.kind === "tool-aggregate" ? group.parts.length + group.thoughts.length : 1),
             0
           )
           : 1),

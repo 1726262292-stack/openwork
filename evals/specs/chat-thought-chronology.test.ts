@@ -20,9 +20,10 @@ function reasoningPart(text: string): Part {
   return { type: "reasoning", text, state: "done" };
 }
 
-test("interleaved thoughts render chronologically between tool aggregates", ({ evidence }) => {
-  // The user-reported shape: R T T R T T — the model thinks, runs two
-  // commands, thinks again, runs two more.
+test("mid-run thoughts stay chronological inside one compact tool aggregate", ({ evidence }) => {
+  // An alternating run: the model thinks, runs two commands, thinks again,
+  // runs two more. This must NOT render as a thought/command ladder of
+  // repeated single lines, and it must NOT reorder thoughts below the run.
   const parts: Parts = [
     reasoningPart("plan the first probe"),
     bashPart("c1"),
@@ -34,41 +35,45 @@ test("interleaved thoughts render chronologically between tool aggregates", ({ e
 
   const visible = getAssistantRenderGroups(parts, true);
 
-  // Chronology: thought, aggregate, thought, aggregate — a later call is
-  // never absorbed into the aggregate above a thought, and interleaved
-  // thoughts are never merged into one block below the run.
-  expect(visible.map((group) => group.kind)).toEqual([
-    "reasoning",
-    "tool-aggregate",
-    "reasoning",
-    "tool-aggregate",
-  ]);
-  const aggregates = visible.flatMap((group) =>
-    group.kind === "tool-aggregate" ? [group.parts.map((part) => part.toolCallId)] : []
-  );
-  expect(aggregates).toEqual([["c1", "c2"], ["c3", "c4"]]);
-  const thoughts = visible.flatMap((group) => (group.kind === "reasoning" ? [group.text] : []));
-  expect(thoughts).toEqual(["plan the first probe", "interpret and go deeper"]);
+  // Compactness: the turn-opening thought is its own line, then ONE
+  // aggregate carries the whole run.
+  expect(visible.map((group) => group.kind)).toEqual(["reasoning", "tool-aggregate"]);
+  const opening = visible[0];
+  expect(opening.kind === "reasoning" ? opening.text : "").toBe("plan the first probe");
 
-  // Negative half 1: with thinking hidden, the same turn still collapses to
-  // one compact aggregate — chronology never degrades hidden-thinking runs.
+  // Chronology: the mid-run thought is anchored between c2 and c3 —
+  // after exactly two of the run's calls — not merged below the run.
+  const aggregate = visible[1];
+  if (aggregate.kind === "tool-aggregate") {
+    expect(aggregate.parts.map((part) => part.toolCallId)).toEqual(["c1", "c2", "c3", "c4"]);
+    expect(aggregate.thoughts).toEqual([
+      { afterIndex: 2, text: "interpret and go deeper", isStreaming: false },
+    ]);
+  }
+
+  // Negative half 1: with thinking hidden, the same turn is one aggregate
+  // with no embedded thoughts — nothing leaks and nothing fragments.
   const hidden = getAssistantRenderGroups(parts, false);
   expect(hidden.map((group) => group.kind)).toEqual(["tool-aggregate"]);
-  expect(
-    hidden[0].kind === "tool-aggregate" ? hidden[0].parts.map((part) => part.toolCallId) : []
-  ).toEqual(["c1", "c2", "c3", "c4"]);
+  if (hidden[0].kind === "tool-aggregate") {
+    expect(hidden[0].parts.map((part) => part.toolCallId)).toEqual(["c1", "c2", "c3", "c4"]);
+    expect(hidden[0].thoughts).toEqual([]);
+  }
 
-  // Negative half 2: whitespace-only reasoning forms no thought and must not
-  // fragment the aggregate even when thinking is shown.
+  // Negative half 2: whitespace-only reasoning embeds no thought and does
+  // not fragment the run even when thinking is shown.
   const blank = getAssistantRenderGroups(
     [bashPart("c1"), reasoningPart("  \n"), bashPart("c2")],
     true
   );
   expect(blank.map((group) => group.kind)).toEqual(["tool-aggregate"]);
+  if (blank[0].kind === "tool-aggregate") {
+    expect(blank[0].thoughts).toEqual([]);
+  }
 
   evidence.recordAssertionEvidence(
-    "Interleaved thoughts stay chronological between tool aggregates",
-    "An R T T R T T turn rendered as thought, two-call aggregate, thought, two-call aggregate in model order; hiding thinking kept one four-call aggregate; whitespace-only reasoning did not fragment the run.",
+    "Mid-run thoughts stay chronological inside one compact aggregate",
+    "An alternating thought/command turn rendered as one opening thought plus one four-call aggregate carrying its mid-run thought anchored after the second call; hiding thinking produced the same single aggregate with no thoughts; whitespace-only reasoning embedded nothing.",
     true,
   );
 });
