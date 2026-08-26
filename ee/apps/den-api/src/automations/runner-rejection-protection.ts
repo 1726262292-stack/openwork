@@ -70,10 +70,22 @@ export class AutomationRunnerRejectionLimiter {
   }
 }
 
+function rightMostForwardedAddress(value: string | null) {
+  const hops = value?.split(",") ?? []
+  for (let index = hops.length - 1; index >= 0; index -= 1) {
+    const address = hops[index]?.trim()
+    if (address) return address
+  }
+  return null
+}
+
 function requestAddress(headers: Headers) {
-  return headers.get("x-forwarded-for")?.split(",", 1)[0]?.trim()
-    || headers.get("x-real-ip")?.trim()
-    || "unknown"
+  // Render's trusted edge appends the connection address to X-Forwarded-For.
+  // Earlier hops remain caller-controlled, so only the right-most non-empty
+  // hop is stable for limiting. X-Real-IP is trusted only when no XFF hop is
+  // present; deployments must keep direct, edge-bypassing ingress closed.
+  const forwarded = rightMostForwardedAddress(headers.get("x-forwarded-for"))
+  return forwarded ?? (headers.get("x-real-ip")?.trim() || "unknown")
 }
 
 export function automationRunnerRejectionLimitKey(rejection: AutomationRunnerRejection, headers: Headers) {

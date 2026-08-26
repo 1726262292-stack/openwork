@@ -15,6 +15,7 @@ let automationRunnerAudienceFromRequestUrl: typeof import("../src/automations/ru
 let automationRunnerRejectionLogFields: typeof import("../src/automations/runner-auth.js")["automationRunnerRejectionLogFields"]
 let AutomationRunnerRejectionLimiter: typeof import("../src/automations/runner-rejection-protection.js")["AutomationRunnerRejectionLimiter"]
 let AutomationRunnerRequestAuthenticator: typeof import("../src/automations/runner-rejection-protection.js")["AutomationRunnerRequestAuthenticator"]
+let automationRunnerRejectionLimitKey: typeof import("../src/automations/runner-rejection-protection.js")["automationRunnerRejectionLimitKey"]
 
 beforeAll(async () => {
   seedRequiredEnv()
@@ -27,6 +28,7 @@ beforeAll(async () => {
   ;({
     AutomationRunnerRejectionLimiter,
     AutomationRunnerRequestAuthenticator,
+    automationRunnerRejectionLimitKey,
   } = await import("../src/automations/runner-rejection-protection.js"))
 })
 
@@ -146,6 +148,35 @@ describe("Automation runner credentials", () => {
     ]) {
       expect(serialized).not.toContain(secretValue)
     }
+  })
+
+  test("keys rejected requests by Render's right-most forwarded address", () => {
+    const secret = "runner-auth-forwarded-address-secret".repeat(2)
+    const auth = new AutomationRunnerAuth(secret)
+    const issued = auth.issue({
+      organizationId: "org_forwarded",
+      ownerMemberId: "member_forwarded",
+      runnerId: "runner_forwarded",
+      capabilities: [],
+    }, "https://den.example.com")
+    const result = auth.authenticate(`Bearer ${issued.token}x`, "https://den.example.com")
+    if (result.ok) throw new Error("expected rejected runner credential")
+
+    const first = automationRunnerRejectionLimitKey(result.rejection, new Headers({
+      "x-forwarded-for": "198.51.100.1, 203.0.113.9",
+      "x-real-ip": "192.0.2.1",
+    }))
+    const variedLeadingHop = automationRunnerRejectionLimitKey(result.rejection, new Headers({
+      "x-forwarded-for": "198.51.100.200, , 203.0.113.9",
+      "x-real-ip": "192.0.2.200",
+    }))
+    const changedTrustedHop = automationRunnerRejectionLimitKey(result.rejection, new Headers({
+      "x-forwarded-for": "198.51.100.1, 203.0.113.10",
+      "x-real-ip": "192.0.2.1",
+    }))
+
+    expect(variedLeadingHop).toBe(first)
+    expect(changedTrustedHop).not.toBe(first)
   })
 
   test("binds a runner credential to the API base that minted it", () => {

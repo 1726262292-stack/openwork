@@ -33,7 +33,7 @@ test("rejected Automation runner credentials stay attributable and bounded", ({ 
 
     const junit = readFileSync(reportPath, "utf8");
     const summary = junit.match(/<testsuite\b[^>]*>/)?.[0] ?? "";
-    expect(summary).toContain('tests="11"');
+    expect(summary).toContain('tests="12"');
     expect(summary).toContain('failures="0"');
     expect(summary).toContain('skipped="0"');
     expect(junit).not.toContain("<failure");
@@ -46,7 +46,7 @@ test("rejected Automation runner credentials stay attributable and bounded", ({ 
     );
     evidence.recordAssertionEvidence(
       "Repeated rejected credentials are bounded without affecting valid runners",
-      "The focused protocol witness returns 401 before the threshold, then 429 with Retry-After, keeps its limiter memory bounded, and still accepts a valid credential sharing the same runner and address.",
+      "The focused protocol witness ignores caller-controlled leading X-Forwarded-For hops, separates changed trusted edge hops, returns 401 before the threshold, then 429 with Retry-After, keeps limiter memory bounded, and still accepts a valid credential sharing the same runner and address.",
       true,
     );
     evidence.recordAssertionEvidence(
