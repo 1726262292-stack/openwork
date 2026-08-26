@@ -14,6 +14,17 @@ import { getToolActivityLabel, isToolPartInFlight } from "./tool-activity"
 export type AnyToolPart = ToolUIPart | DynamicToolUIPart
 
 /**
+ * A thought that happened inside an aggregate run, anchored to its
+ * chronological slot: `afterIndex` is how many of the run's tool calls
+ * had already happened when the model produced it.
+ */
+export type AggregateThought = {
+  afterIndex: number
+  text: string
+  isStreaming: boolean
+}
+
+/**
  * Paper "Recurring actions · aggregate + latest": consecutive tool calls
  * of the same families (commands, file edits, reads, searches) collapse
  * into one aggregate line. Prose from the model always breaks a group.

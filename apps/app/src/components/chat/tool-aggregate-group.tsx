@@ -1,9 +1,10 @@
 "use client"
 
-import { useState } from "react"
+import { Fragment, useState } from "react"
 import { AlertTriangle, CirclePause, MoreHorizontal } from "lucide-react"
 
 import { FileChip } from "@/components/chat/file-chip"
+import { ReasoningBlock } from "@/components/chat/reasoning-block"
 import { useCurrentToolLifecycleResolver } from "@/components/chat/current-tool-lifecycle-context"
 import {
   getAggregateNowLabel,
@@ -11,6 +12,7 @@ import {
   getAggregateRowFile,
   getAggregateRowLabel,
   getAggregateSummary,
+  type AggregateThought,
   type AnyToolPart,
 } from "@/lib/tool-aggregate"
 import { isToolPartInFlight } from "@/lib/tool-activity"
@@ -26,6 +28,8 @@ const showAllByGroupKey = new Map<string, boolean>()
 
 type ToolAggregateGroupProps = {
   parts: AnyToolPart[]
+  /** Thoughts that happened inside the run, anchored by afterIndex. */
+  thoughts?: AggregateThought[]
   className?: string
 }
 
@@ -47,7 +51,7 @@ function failureReason(part: AnyToolPart): string | null {
  * summary when done. Chevron expands the chronological list — status
  * dot, monospace action, per-item duration — capped with "Show N more".
  */
-export function ToolAggregateGroup({ parts, className }: ToolAggregateGroupProps) {
+export function ToolAggregateGroup({ parts, thoughts = [], className }: ToolAggregateGroupProps) {
   const groupKey = parts[0]?.toolCallId ?? "aggregate"
   const latestToolCallId = parts.at(-1)?.toolCallId ?? groupKey
   const [expanded, setExpandedState] = useState(() => expandedByGroupKey.get(groupKey) ?? false)
@@ -80,6 +84,10 @@ export function ToolAggregateGroup({ parts, className }: ToolAggregateGroupProps
       ? `Task interrupted · ${countSummary}`
       : getAggregateSummary(parts, visiblyRunning ? "present" : "past")
   const nowLabel = visiblyRunning ? getAggregateNowLabel(parts) : null
+  // The model is thinking mid-run: no tool is in flight but the run's
+  // latest thought is still streaming. Show that instead of dead air.
+  const lastThought = thoughts.at(-1)
+  const thinkingNow = !nowLabel && Boolean(lastThought?.isStreaming)
 
   // Track durations for every part so each is frozen the moment it completes.
   const durations = parts.map((part) => trackToolCallDuration(part))
@@ -87,6 +95,10 @@ export function ToolAggregateGroup({ parts, className }: ToolAggregateGroupProps
   const singleCommandDuration = singleCommand ? durations[0] : null
   const visibleParts = showAll ? parts : parts.slice(0, ROW_CAP)
   const hiddenCount = parts.length - visibleParts.length
+  // Expanded rows interleave the run's thoughts at their chronological
+  // slots; thoughts belonging to capped rows stay behind "Show N more".
+  const thoughtsAt = (index: number) => thoughts.filter((thought) => thought.afterIndex === index)
+  const trailingThoughts = hiddenCount > 0 ? [] : thoughts.filter((thought) => thought.afterIndex >= parts.length)
 
   return (
     <div
@@ -101,6 +113,11 @@ export function ToolAggregateGroup({ parts, className }: ToolAggregateGroupProps
         className="group flex min-w-0 max-w-full cursor-pointer items-center gap-1.5 text-start text-sm text-muted-foreground transition-colors hover:text-foreground"
       >
         <span className="min-w-0 truncate">{summary}</span>
+        {thoughts.length > 0 ? (
+          <span data-tool-aggregate-thought-count className="shrink-0 text-xs text-muted-foreground/70">
+            · {thoughts.length === 1 ? "1 thought" : `${thoughts.length} thoughts`}
+          </span>
+        ) : null}
         {singleCommandDuration ? (
           <span className="shrink-0 tabular-nums text-xs text-muted-foreground/70">
             {singleCommandDuration}
@@ -136,6 +153,12 @@ export function ToolAggregateGroup({ parts, className }: ToolAggregateGroupProps
         </div>
       ) : null}
 
+      {thinkingNow ? (
+        <div data-tool-aggregate-thinking className="mt-1 min-w-0 text-sm text-muted-foreground">
+          <span className="ow-text-shimmer">Thinking…</span>
+        </div>
+      ) : null}
+
       {expanded ? (
         <div className="mt-1.5 flex flex-col gap-1">
           {visibleParts.map((part, index) => {
@@ -148,7 +171,13 @@ export function ToolAggregateGroup({ parts, className }: ToolAggregateGroupProps
               ? part.input?.description?.trim() || "command"
               : ""
             return (
-              <div key={part.toolCallId} className="flex min-w-0 flex-col gap-1.5 py-1">
+              <Fragment key={part.toolCallId}>
+              {thoughtsAt(index).map((thought) => (
+                <div key={`thought-${index}-${thought.afterIndex}`} data-tool-aggregate-thought className="py-1">
+                  <ReasoningBlock text={thought.text} isStreaming={thought.isStreaming} />
+                </div>
+              ))}
+              <div className="flex min-w-0 flex-col gap-1.5 py-1">
                 {!singleCommand ? (
                   <div className="flex min-w-0 items-center gap-2 text-sm text-muted-foreground">
                   {status === "waiting" ? (
@@ -201,8 +230,14 @@ export function ToolAggregateGroup({ parts, className }: ToolAggregateGroupProps
                   <div className="text-[11px] text-muted-foreground">failed — {reason}</div>
                 ) : null}
               </div>
+              </Fragment>
             )
           })}
+          {trailingThoughts.map((thought) => (
+            <div key={`thought-trailing-${thought.afterIndex}`} data-tool-aggregate-thought className="py-1">
+              <ReasoningBlock text={thought.text} isStreaming={thought.isStreaming} />
+            </div>
+          ))}
           {hiddenCount > 0 ? (
             <button
               type="button"

@@ -52,7 +52,7 @@ describe("getAssistantRenderGroups tool aggregation", () => {
     }
   });
 
-  test("visible reasoning between tool calls breaks the run so thoughts stay chronological", () => {
+  test("mid-run thoughts embed inside one aggregate at their chronological slots", () => {
     const groups = getAssistantRenderGroups(
       [
         reasoningPart("let me look"),
@@ -66,24 +66,35 @@ describe("getAssistantRenderGroups tool aggregation", () => {
       true
     );
 
-    // Thought, calls, thought, calls… in the order the model produced them —
-    // later calls are never absorbed into an aggregate above a thought.
-    expect(groups.map((group) => group.kind)).toEqual([
-      "reasoning",
-      "tool-aggregate",
-      "reasoning",
-      "tool-aggregate",
-      "reasoning",
-      "tool-aggregate",
-      "text",
-    ]);
-    const aggregates = groups.filter((group) => group.kind === "tool-aggregate");
-    expect(
-      aggregates.map((group) => (group.kind === "tool-aggregate" ? group.parts.map((part) => part.toolCallId) : []))
-    ).toEqual([["c1"], ["c2"], ["c3"]]);
+    // The turn-opening thought stays its own line; the run stays ONE
+    // aggregate (no thought/command ladder) that carries its mid-run
+    // thoughts in order.
+    expect(groups.map((group) => group.kind)).toEqual(["reasoning", "tool-aggregate", "text"]);
+    const aggregate = groups[1];
+    if (aggregate.kind === "tool-aggregate") {
+      expect(aggregate.parts.map((part) => part.toolCallId)).toEqual(["c1", "c2", "c3"]);
+      expect(aggregate.thoughts).toEqual([
+        { afterIndex: 1, text: "now edit", isStreaming: false },
+        { afterIndex: 2, text: "one more", isStreaming: false },
+      ]);
+    }
   });
 
-  test("hidden reasoning keeps the run as one compact aggregate", () => {
+  test("consecutive mid-run reasoning parts merge into one embedded thought", () => {
+    const groups = getAssistantRenderGroups(
+      [bashPart("c1"), reasoningPart("first"), reasoningPart("second"), bashPart("c2")],
+      true
+    );
+
+    expect(groups.map((group) => group.kind)).toEqual(["tool-aggregate"]);
+    if (groups[0].kind === "tool-aggregate") {
+      expect(groups[0].thoughts).toEqual([
+        { afterIndex: 1, text: "first\n\nsecond", isStreaming: false },
+      ]);
+    }
+  });
+
+  test("hidden reasoning keeps the run as one compact aggregate without thoughts", () => {
     const groups = getAssistantRenderGroups(
       [
         reasoningPart("let me look"),
@@ -99,10 +110,11 @@ describe("getAssistantRenderGroups tool aggregation", () => {
     expect(groups.map((group) => group.kind)).toEqual(["tool-aggregate", "text"]);
     if (groups[0].kind === "tool-aggregate") {
       expect(groups[0].parts.map((part) => part.toolCallId)).toEqual(["c1", "c2", "c3"]);
+      expect(groups[0].thoughts).toEqual([]);
     }
   });
 
-  test("whitespace-only reasoning does not break the run", () => {
+  test("whitespace-only reasoning embeds no thought and does not break the run", () => {
     const groups = getAssistantRenderGroups(
       [bashPart("c1"), reasoningPart("  \n"), bashPart("c2")],
       true
@@ -111,6 +123,7 @@ describe("getAssistantRenderGroups tool aggregation", () => {
     expect(groups.map((group) => group.kind)).toEqual(["tool-aggregate"]);
     if (groups[0].kind === "tool-aggregate") {
       expect(groups[0].parts.map((part) => part.toolCallId)).toEqual(["c1", "c2"]);
+      expect(groups[0].thoughts).toEqual([]);
     }
   });
 
