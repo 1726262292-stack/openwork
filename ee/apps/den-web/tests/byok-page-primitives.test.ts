@@ -36,7 +36,7 @@ describe("Bring your Own Keys page", () => {
   test("editor explains Azure Foundry project URLs for resource names", () => {
     const editor = readComponent("dashboard", "_components", "llm-provider-editor-screen.tsx");
     expect(editor).toContain("Azure Foundry may show a project URL");
-    expect(editor).toContain("foundry-ow-instant");
+    expect(editor).toContain("yourFoundryResourceName");
     expect(editor).toContain("Paste the resource name or Azure Foundry project URL");
   });
 
