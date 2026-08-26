@@ -17,7 +17,7 @@ import { cn } from "@/lib/utils";
 import type { LibraryAddKind } from "../library";
 
 const MAKE_KINDS: LibraryAddKind[] = ["skill", "command", "agent", "plugin"];
-const CONNECT_KINDS: LibraryAddKind[] = ["mcp", "connection"];
+const CONNECT_KINDS: LibraryAddKind[] = ["mcp", "workspace-mcp", "connection"];
 
 type KindMeta = {
   title: string;
@@ -56,6 +56,12 @@ function kindMeta(kind: LibraryAddKind): KindMeta {
       return {
         title: t("extensions.kind_mcp"),
         description: t("extensions.kind_mcp_hint"),
+        icon: Server,
+      };
+    case "workspace-mcp":
+      return {
+        title: t("extensions.kind_workspace_mcp"),
+        description: t("extensions.kind_workspace_mcp_hint"),
         icon: Server,
       };
     case "connection":

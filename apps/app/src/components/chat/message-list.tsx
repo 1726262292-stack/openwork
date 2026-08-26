@@ -16,7 +16,6 @@ import {
   Split,
   Undo2,
 } from "lucide-react"
-import { PaperGrainGradient } from "@openwork/ui/react"
 import {
   DynamicToolUIPart,
   isFileUIPart,
@@ -112,8 +111,9 @@ import type { ThreadStatus } from "@/lib/messages"
 import type { SessionActivityStatus } from "@/react-app/domains/session/status/session-activity-store"
 import { formatToolCallDuration } from "@/lib/tool-call-duration"
 import { collectLatestAssistantToolParts } from "@/lib/latest-assistant-tool-parts"
-import { getActiveToolLabel, isToolPartInFlight } from "@/lib/tool-activity"
+import { isToolPartInFlight } from "@/lib/tool-activity"
 import { faviconUrlForHref } from "@/lib/favicon"
+import { useOpenArtifactPath } from "@/lib/artifacts"
 import { cn } from "@/lib/utils"
 import { groupMessages, isMessageGroup, getLastTextPart, getAggregateOnlyParts, getAssistantRenderGroups, getFileTitle, getMediaBadge, getMessageCompleted, getMessageCreated, formatMessageTimestamp, splitTurnAtAnswer, type UIMessageWithIndex, getMessagesText, getSafeFileDownloadUrl, getSafeFileRevealPath } from "./utils"
 import type { AnyToolPart } from "@/lib/tool-aggregate"
@@ -318,6 +318,7 @@ interface FileMessageProps {
 }
 
 function FileMessage({ part, tone }: FileMessageProps) {
+  const openArtifactPath = useOpenArtifactPath()
   const title = getFileTitle(part)
   const badge = getMediaBadge(part)
   const isImage = part.mediaType.startsWith("image/") && Boolean(part.url)
@@ -341,6 +342,22 @@ function FileMessage({ part, tone }: FileMessageProps) {
     void revealDesktopItemInDir(revealPath)
   }, [revealPath])
 
+  const fileContent = (
+    <>
+      <DescriptiveButtonIcon>
+        <FileIcon className="size-5 shrink-0" />
+      </DescriptiveButtonIcon>
+      <DescriptiveButtonContent className="gap-0">
+        <DescriptiveButtonTitle className="truncate text-xs">{title}</DescriptiveButtonTitle>
+        {badge ? (
+          <DescriptiveButtonDescription className="text-[10px]">
+            {badge}
+          </DescriptiveButtonDescription>
+        ) : null}
+      </DescriptiveButtonContent>
+    </>
+  )
+
   if (isImage && tone === "user") {
     return <ImageAttachmentBadge src={part.url} alt={title} />
   }
@@ -361,19 +378,18 @@ function FileMessage({ part, tone }: FileMessageProps) {
 
   return (
     <div className="flex h-auto w-fit min-w-0 max-w-full shrink items-center justify-start gap-2 rounded-xl border border-border/70 bg-background/40 ps-2 pe-2 py-1 text-left text-sm font-medium whitespace-normal">
-      <div className="flex min-w-0 items-center gap-2 pe-2">
-        <DescriptiveButtonIcon>
-          <FileIcon className="size-5 shrink-0" />
-        </DescriptiveButtonIcon>
-        <DescriptiveButtonContent className="gap-0">
-          <DescriptiveButtonTitle className="truncate text-xs">{title}</DescriptiveButtonTitle>
-          {badge ? (
-            <DescriptiveButtonDescription className="text-[10px]">
-              {badge}
-            </DescriptiveButtonDescription>
-          ) : null}
-        </DescriptiveButtonContent>
-      </div>
+      {revealPath ? (
+        <button
+          type="button"
+          className="flex min-w-0 items-center gap-2 pe-2 text-left transition-opacity hover:opacity-80"
+          onClick={() => openArtifactPath(revealPath)}
+          title={`Open ${title} in Artifacts`}
+        >
+          {fileContent}
+        </button>
+      ) : (
+        <div className="flex min-w-0 items-center gap-2 pe-2">{fileContent}</div>
+      )}
       {downloadUrl || canReveal ? (
         <DropdownMenu>
           <DropdownMenuTrigger
@@ -812,26 +828,13 @@ const MessageComponent = React.memo(
 
 MessageComponent.displayName = "MessageComponent"
 
-const LoadingMessage = React.memo(({ label }: { label?: string }) => (
-  <Message className="mx-auto flex w-full max-w-3xl flex-col items-start gap-2 px-2 md:px-10">
-    <div className="group flex w-full flex-col gap-0">
+const LoadingMessage = React.memo(({ elapsedSeconds }: { elapsedSeconds: number }) => (
+    <Message className="mx-auto flex w-full max-w-3xl flex-col items-start gap-2 px-2 md:px-10">
       <div className="flex items-center gap-1.5 px-1 py-1 text-sm text-muted-foreground">
-        <div style={{ width: 20, height: 20, borderRadius: "50%", overflow: "hidden" }}>
-          <PaperGrainGradient
-            speed={12}
-            softness={0.1}
-            intensity={1}
-            noise={0.05}
-            shape="sphere"
-            colors={["#818cf8", "#fb7185", "#fbbf24", "#34d399"]}
-            colorBack="#ffffff00"
-            style={{ backgroundColor: "#818cf8", width: "100%", height: "100%", borderRadius: "50%" }}
-          />
-        </div>
-        <span>{label ?? "Thinking…"}</span>
+        <LoaderCircle aria-hidden="true" className="size-3.5 animate-spin" />
+        <span className="tabular-nums">Working {elapsedSeconds}s</span>
       </div>
-    </div>
-  </Message>
+    </Message>
 ))
 
 LoadingMessage.displayName = "LoadingMessage"
@@ -1204,22 +1207,47 @@ interface MessageListProps {
   retryStatus?: RetryStatus | null
 }
 
-export function shouldShowMessageListLoading(status: ThreadStatus, messageCount: number) {
+export function shouldShowMessageListLoading(
+  status: ThreadStatus,
+  messageCount: number,
+  hasVisibleToolActivity = false,
+) {
+  if (hasVisibleToolActivity) return false
   return status === "streaming" || (status === "submitted" && messageCount > 0)
 }
 
 export function MessageList({ messages, status, activityStatus, retryStatus }: MessageListProps) {
   const isStreaming = status === "streaming" || status === "retrying"
-  const showLoading = shouldShowMessageListLoading(status, messages.length)
+  const runActive = status === "submitted" || status === "streaming" || status === "retrying"
+  const runStartedAtRef = React.useRef<number | null>(null)
+  const [runElapsedSeconds, setRunElapsedSeconds] = React.useState(0)
+  React.useEffect(() => {
+    if (!runActive) {
+      runStartedAtRef.current = null
+      setRunElapsedSeconds(0)
+      return
+    }
+    if (runStartedAtRef.current === null) runStartedAtRef.current = Date.now()
+    const updateElapsed = () => {
+      const startedAt = runStartedAtRef.current
+      if (startedAt !== null) setRunElapsedSeconds(Math.floor((Date.now() - startedAt) / 1000))
+    }
+    updateElapsed()
+    const interval = window.setInterval(updateElapsed, 1000)
+    return () => window.clearInterval(interval)
+  }, [runActive])
   const items = React.useMemo(() => groupMessages(messages, status), [messages, status]);
   const error = useSessionErrorMessage();
   const hasSessionErrorMessage = React.useMemo(() => messages.some(isSessionErrorMessage), [messages])
-  const liveActionLabel = isStreaming
-    ? getActiveToolLabel(collectLatestAssistantToolParts(messages))
-    : null
-  const currentToolCallIds = React.useMemo(
-    () => new Set(collectLatestAssistantToolParts(messages).map((part) => part.toolCallId)),
+  const latestAssistantToolParts = React.useMemo(
+    () => collectLatestAssistantToolParts(messages),
     [messages],
+  )
+  const hasVisibleToolActivity = latestAssistantToolParts.some(isToolPartInFlight)
+  const showLoading = shouldShowMessageListLoading(status, messages.length, hasVisibleToolActivity)
+  const currentToolCallIds = React.useMemo(
+    () => new Set(latestAssistantToolParts.map((part) => part.toolCallId)),
+    [latestAssistantToolParts],
   )
 
   return (
@@ -1259,7 +1287,7 @@ export function MessageList({ messages, status, activityStatus, retryStatus }: M
         )
         })}
 
-        {showLoading && <LoadingMessage label={liveActionLabel ?? undefined} />}
+        {showLoading && <LoadingMessage elapsedSeconds={runElapsedSeconds} />}
         {retryStatus ? <RetryMessage status={retryStatus} /> : null}
         {error && !hasSessionErrorMessage ? <ErrorMessage error={error} /> : null}
       </div>

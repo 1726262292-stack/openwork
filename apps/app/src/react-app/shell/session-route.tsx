@@ -112,7 +112,7 @@ import { firstLineLocalFileParts, joinWorkspaceRelativePath, toFileUrl } from "@
 import { composerAttachmentsToWorkspaceFileParts } from "@/react-app/domains/session/sync/attachment-file-part";
 import { useSessionInteractions } from "@/react-app/domains/session/sync/use-session-interactions";
 import { useModelBehavior } from "@/react-app/domains/session/surface/use-model-behavior";
-import { getModelBehaviorSummary, nextModelBehaviorValue } from "@/app/lib/model-behavior";
+import { getModelBehaviorSummary, nextModelBehaviorValue, previousModelBehaviorValue } from "@/app/lib/model-behavior";
 import { computeModelAvailability, type ModelAvailability } from "@/react-app/domains/session/surface/model-availability";
 import { useSessionFindStore } from "@/react-app/domains/session/surface/find-store";
 import { useModelPicker } from "@/react-app/domains/session/modals/use-model-picker";
@@ -169,6 +169,7 @@ import { useShareWorkspaceState } from "@/react-app/domains/workspace/share-work
 import { ModelPickerModal, MODEL_PICKER_UNAVAILABLE_SUBTITLE } from "@/react-app/domains/session/modals/model-picker-modal";
 import { CommandPalette, type PaletteItem, type SessionGroupOption } from "./command-palette";
 import { buildCommandPaletteSessions } from "./command-palette-sessions";
+import type { ThinkingModeShortcutDirection } from "./thinking-mode-shortcut";
 import { SessionSearchDialog } from "./session-search-dialog";
 import type { SessionMessageFetcher } from "@/react-app/domains/session/search/session-search";
 import { useBootState } from "./boot-state";
@@ -2007,7 +2008,7 @@ export function SessionRoute() {
   const goToNextSessionTab = useCallback(() => goToSessionTabByOffset(1), [goToSessionTabByOffset]);
   const goToPrevSessionTab = useCallback(() => goToSessionTabByOffset(-1), [goToSessionTabByOffset]);
 
-  const cycleThinkingMode = useCallback(() => {
+  const cycleThinkingMode = useCallback((direction: ThinkingModeShortcutDirection = "forward") => {
     const workbench = useWorkbenchStore.getState();
     const activeSessionId = workbench.focusedPane === "secondary" && workbench.splitSessionId
       ? workbench.splitSessionId
@@ -2023,7 +2024,9 @@ export function SessionRoute() {
       : null;
     const options = selection ? (summary?.options ?? []) : modelBehaviorOptions;
     const current = selection ? (summary?.value ?? selection.variant) : modelVariantValue;
-    const next = nextModelBehaviorValue(options, current);
+    const next = direction === "reverse"
+      ? previousModelBehaviorValue(options, current)
+      : nextModelBehaviorValue(options, current);
     if (!next) return null;
 
     if (activeSessionId && selection) {
@@ -2294,6 +2297,50 @@ export function SessionRoute() {
     () => buildCommandPaletteSessions(workspaces, sessionsByWorkspaceId, selectedWorkspaceId),
     [sessionsByWorkspaceId, selectedWorkspaceId, workspaces],
   );
+
+  const paletteSessionModelSelection = selectedSessionId
+    ? getSessionModelSelection(selectedSessionId)
+    : null;
+  const paletteSelectedModel = paletteSessionModelSelection?.model
+    ?? local.prefs.defaultModel
+    ?? undefined;
+  const paletteSelectedModelBehavior = paletteSessionModelSelection
+    ? (() => {
+        const selected = paletteSessionModelSelection.model;
+        const model = providerCatalog?.[selected.providerID]?.[selected.modelID];
+        return model
+          ? getModelBehaviorSummary(
+              paletteSessionModelSelection.model.providerID,
+              model,
+              paletteSessionModelSelection.variant,
+            ).value
+          : paletteSessionModelSelection.variant;
+      })()
+    : modelVariantValue;
+
+  const applySessionRouteModelSelection = useCallback((
+    next: ModelRef,
+    targetSessionId: string | null,
+    behavior?: { value: string | null },
+  ) => {
+    const explicitBehavior = behavior !== undefined;
+    useModelCollectionsStore.getState().recordRecent(next);
+    if (targetSessionId) {
+      const sessionStore = useSessionModelStore.getState();
+      sessionStore.setModel(targetSessionId, next, explicitBehavior ? behavior.value : undefined);
+      if (explicitBehavior) sessionStore.setVariant(targetSessionId, behavior.value);
+    }
+    local.setPrefs((previous) => ({
+      ...previous,
+      defaultModel: next,
+      modelVariant: explicitBehavior
+        ? behavior.value
+        : previous.defaultModel?.providerID === next.providerID && previous.defaultModel.modelID === next.modelID
+          ? previous.modelVariant
+          : null,
+    }));
+    focusPromptSoon();
+  }, [local]);
 
   // Refresh the non-tab fields of the nav ref during render. The `options`
   // field is maintained by the `onSessionTabsChange` callback from SessionPage.
@@ -3144,11 +3191,11 @@ export function SessionRoute() {
       onOpenSession={(workspaceId, sessionId) => navigateToWorkspaceSession(workspaceId, sessionId)}
       onOpenSettings={(route) => handleOpenSettings(route ?? "/settings/general")}
       onOpenExtensions={() => handleOpenExtensions()}
-      onOpenModelPicker={() => {
-        setModelPickerSessionId(selectedSessionId || null);
-        modelPicker.setQuery("");
-        modelPicker.setRecentProviderIds(new Set());
-        window.requestAnimationFrame(() => modelPicker.setOpen(true));
+      modelOptions={modelPicker.options}
+      selectedModel={paletteSelectedModel}
+      selectedModelBehavior={paletteSelectedModelBehavior}
+      onSelectModel={(next, behavior) => {
+        applySessionRouteModelSelection(next, selectedSessionId || null, { value: behavior });
       }}
       selectedModelLabel={modelLabel}
       accessibleTargets={paletteAccessibleTargets}
@@ -3207,30 +3254,9 @@ export function SessionRoute() {
           ?? ({ providerID: "", modelID: "" } satisfies ModelRef)
       }
       onSelect={(next: ModelRef) => {
-        useModelCollectionsStore.getState().recordRecent(next);
-        if (modelPickerSessionId) {
-          // Keep the conversation's own model, and also remember it as the
-          // last used default so a newly created session starts on it.
-          useSessionModelStore.getState().setModel(modelPickerSessionId, next);
-          local.setPrefs((previous) => ({
-            ...previous,
-            defaultModel: next,
-            modelVariant: previous.defaultModel?.providerID === next.providerID && previous.defaultModel.modelID === next.modelID
-              ? previous.modelVariant
-              : null,
-          }));
-          setModelPickerSessionId(null);
-        } else {
-          local.setPrefs((previous) => ({
-            ...previous,
-            defaultModel: next,
-            modelVariant: previous.defaultModel?.providerID === next.providerID && previous.defaultModel.modelID === next.modelID
-              ? previous.modelVariant
-              : null,
-          }));
-        }
+        applySessionRouteModelSelection(next, modelPickerSessionId);
+        setModelPickerSessionId(null);
         modelPicker.setOpen(false);
-        focusPromptSoon();
       }}
       disabledProviders={disabledProviderIds}
       onBehaviorChange={() => {}}

@@ -13,16 +13,17 @@ import {
   libraryCommandTriggers,
   libraryCommandsFromSlashOptions,
   libraryPathForSection,
-    denLibraryPluginCreateRequest,
-    libraryAddAction,
-    libraryAddKindsForFilter,
-    libraryPluginFileDisplayName,
-    libraryPluginFileFallbackDetailId,
-    libraryPluginFilePreferredDetailId,
-    parseLibraryPluginFileDetailId,
-    waitForListedLibraryPlugin,
-    slugifyLibraryItemName,
+  denLibraryPluginCreateRequest,
+  libraryAddAction,
+  libraryAddKindsForFilter,
+  libraryPluginFileDisplayName,
+  libraryPluginFileFallbackDetailId,
+  libraryPluginFilePreferredDetailId,
+  parseLibraryPluginFileDetailId,
+  waitForListedLibraryPlugin,
+  slugifyLibraryItemName,
 } from "../src/react-app/domains/settings/library";
+import { libraryAddKindLabel } from "../src/react-app/domains/settings/pages/library-add-control";
 
 describe("library destination", () => {
   test("composer Configure opens the matching Library filter except for providers", () => {
@@ -114,7 +115,7 @@ describe("library destination", () => {
     expect(libraryAddKindsForFilter("skill")).toEqual(["skill"]);
     expect(libraryAddKindsForFilter("command")).toEqual(["command"]);
     expect(libraryAddKindsForFilter("agent")).toEqual(["agent"]);
-    expect(libraryAddKindsForFilter("mcp")).toEqual(["mcp"]);
+    expect(libraryAddKindsForFilter("mcp")).toEqual(["mcp", "workspace-mcp"]);
     expect(libraryAddKindsForFilter("plugin")).toEqual(["plugin"]);
     expect(libraryAddKindsForFilter("connection")).toEqual(["connection"]);
     expect(libraryAddKindsForFilter("app")).toEqual([]);
@@ -123,6 +124,7 @@ describe("library destination", () => {
       "command",
       "agent",
       "mcp",
+      "workspace-mcp",
       "plugin",
       "connection",
     ]);
@@ -135,7 +137,7 @@ describe("library destination", () => {
   });
 
   test("Library Add creates on Den when signed in", () => {
-    const signedIn = { cloudSignedIn: true };
+    const signedIn = { cloudSignedIn: true, allowManageExtensions: true };
     expect(libraryAddAction("skill", signedIn)).toEqual({ type: "den-modal", kind: "skill" });
     expect(libraryAddAction("plugin", signedIn)).toEqual({ type: "den-modal", kind: "plugin" });
     expect(libraryAddAction("mcp", signedIn)).toEqual({ type: "den-modal", kind: "mcp" });
@@ -143,11 +145,30 @@ describe("library destination", () => {
   });
 
   test("Library Add is unavailable when signed out", () => {
-    const signedOut = { cloudSignedIn: false };
+    const signedOut = { cloudSignedIn: false, allowManageExtensions: false };
     expect(libraryAddAction("skill", signedOut)).toBeNull();
     expect(libraryAddAction("mcp", signedOut)).toBeNull();
     expect(libraryAddAction("plugin", signedOut)).toBeNull();
     expect(libraryAddAction("connection", signedOut)).toBeNull();
+  });
+
+  test("Library Add opens workspace MCP locally while signed out when policy allows", () => {
+    const signedOut = { cloudSignedIn: false, allowManageExtensions: true };
+
+    expect(libraryAddAction("workspace-mcp", signedOut)).toEqual({ type: "workspace-mcp" });
+    expect(libraryAddAction("mcp", signedOut)).toBeNull();
+  });
+
+  test("extension policy gates workspace MCP without blocking organization MCP authoring", () => {
+    const restricted = { cloudSignedIn: true, allowManageExtensions: false };
+
+    expect(libraryAddAction("workspace-mcp", restricted)).toBeNull();
+    expect(libraryAddAction("mcp", restricted)).toEqual({ type: "den-modal", kind: "mcp" });
+  });
+
+  test("Library Add distinguishes organization and workspace MCP labels", () => {
+    expect(libraryAddKindLabel("mcp")).toBe("Add organization MCP");
+    expect(libraryAddKindLabel("workspace-mcp")).toBe("Add workspace MCP");
   });
 
   test("signed-in Library Add posts a Den plugin bundle", () => {

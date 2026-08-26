@@ -79,6 +79,22 @@ describe("markdown safety and links", () => {
     expect(surfaceHtml).toContain('href="./docs/readme.md"');
     expect(surfaceHtml).toContain('href="https://openworklabs.com"');
   });
+
+  test("marks chat inline file paths as keyboard-accessible artifact links", () => {
+    const chatHtml = renderMarkdownHtml("Open `apps/app/src/main.tsx` and inspect `status`.");
+    expect(chatHtml).toContain('data-openwork-inline-code-path="apps/app/src/main.tsx"');
+    expect(chatHtml).toContain('role="button"');
+    expect(chatHtml).toContain('tabindex="0"');
+    expect(chatHtml).not.toContain('data-openwork-inline-code-path="status"');
+
+    const surfaceHtml = renderPrimitiveMarkdownHtml("Open `apps/app/src/main.tsx`.", "surface");
+    expect(surfaceHtml).not.toContain("data-openwork-inline-code-path");
+  });
+
+  test("does not mark unsafe or parent-relative inline paths", () => {
+    const html = renderMarkdownHtml("Skip `../secrets/config.ts`, `https://example.com/file.ts`, and `a | b.ts`.");
+    expect(html).not.toContain("data-openwork-inline-code-path");
+  });
 });
 
 describe("markdown text highlighting", () => {

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { ArrowUpRight, LoaderCircle } from "lucide-react"
 
 import {
@@ -42,10 +42,20 @@ export function SubagentRunLine({ part, className }: SubagentRunLineProps) {
   const inFlight = isToolPartInFlight(part)
   const isFailed = part.state === "output-error"
   const duration = trackToolCallDuration(part)
+  const [elapsedSeconds, setElapsedSeconds] = useState(0)
+  useEffect(() => {
+    if (!inFlight) return
+    const startedAt = Date.now()
+    setElapsedSeconds(0)
+    const interval = window.setInterval(() => {
+      setElapsedSeconds(Math.floor((Date.now() - startedAt) / 1000))
+    }, 1000)
+    return () => window.clearInterval(interval)
+  }, [inFlight, part.toolCallId])
   const title = part.input?.description?.trim() || "Sub-agent task"
   const agent = agentName(part.input?.subagent_type ?? "")
   const status = inFlight
-    ? "Working…"
+    ? `Working ${elapsedSeconds}s`
     : isFailed
       ? part.errorText?.split("\n")[0]?.trim() || "Failed"
       : "Completed"

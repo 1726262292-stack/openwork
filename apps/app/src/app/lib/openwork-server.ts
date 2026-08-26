@@ -873,7 +873,7 @@ export type OpenworkResolvedArtifactTarget = {
   kind: "file" | "url";
   value: string;
   name: string;
-  preview: "browser" | "markdown" | "code" | "sheet" | "slides" | "image" | "pdf" | "html" | "text" | "external";
+  preview: "browser" | "markdown" | "code" | "sheet" | "slides" | "document" | "image" | "pdf" | "html" | "text" | "external";
   confidence: number;
   reason: string;
   exists?: boolean;

@@ -2,6 +2,7 @@
 import {
   useEffect,
   useMemo,
+  useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
@@ -25,11 +26,19 @@ import {
 } from "@/components/ui/command";
 import { Button } from "@/components/ui/button";
 import { BrainCircuit, Check, ChevronLeftIcon, FileText, FolderInput, Globe, Zap } from "lucide-react";
+import type { ModelOption, ModelRef } from "@/app/types";
+import { ProviderIcon } from "@/react-app/design-system/provider-icon";
 import { usePlatform } from "../kernel/platform";
 import {
   resolveSessionNumberShortcutOs,
   sessionNumberShortcutHelp,
 } from "./session-number-shortcuts";
+import {
+  buildCommandPaletteBehaviorItems,
+  buildCommandPaletteModelItems,
+  commandPaletteBackMode,
+  type CommandPaletteMode,
+} from "./command-palette-models";
 
 export type PaletteItem = {
   id: string;
@@ -38,8 +47,19 @@ export type PaletteItem = {
   meta?: string;
   icon?: ReactNode;
   searchText?: string;
+  disabled?: boolean;
   action: () => void;
 };
+
+function paletteItemSearchValue(item: unknown) {
+  if (!item || typeof item !== "object") return "";
+  const title = Reflect.get(item, "title");
+  const detail = Reflect.get(item, "detail");
+  const searchText = Reflect.get(item, "searchText");
+  return [title, detail, searchText]
+    .filter((value): value is string => typeof value === "string")
+    .join(" ");
+}
 
 export type AccessibleTargetOption = {
   id: string;
@@ -48,8 +68,6 @@ export type AccessibleTargetOption = {
   name: string;
   preview: string;
 };
-
-type PaletteMode = "root" | "sessions" | "accessible-items" | "agents" | "groups";
 
 export type SessionOption = {
   workspaceId: string;
@@ -98,6 +116,11 @@ export type CommandPaletteProps = {
   onOpenExtensions: () => void;
   /** Optional: open the full default-model picker. */
   onOpenModelPicker?: () => void;
+  /** Optional: model data for the nested model and effort modes. */
+  modelOptions?: ModelOption[];
+  selectedModel?: ModelRef;
+  selectedModelBehavior?: string | null;
+  onSelectModel?: (model: ModelRef, behavior: string | null) => void;
   selectedModelLabel?: string;
   /** Optional — open a URL in the user's browser. Falls back to window.open. */
   onOpenUrl?: (url: string) => void;
@@ -126,14 +149,25 @@ export type CommandPaletteProps = {
  */
 export function CommandPalette(props: CommandPaletteProps) {
   const platform = usePlatform();
-  const [mode, setMode] = useState<PaletteMode>("root");
+  const [mode, setMode] = useState<CommandPaletteMode>("root");
+  const [behaviorModel, setBehaviorModel] = useState<ModelOption | null>(null);
   const [agents, setAgents] = useState<Agent[]>([]);
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!props.open) {
       setMode("root");
+      setBehaviorModel(null);
     }
   }, [props.open]);
+
+  useEffect(() => {
+    if (!props.open) return;
+    const frame = window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => searchInputRef.current?.focus());
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [mode, props.open]);
 
   // Fetch agents lazily when the submode opens so the palette stays instant.
   const listAgents = props.listAgents;
@@ -171,6 +205,7 @@ export function CommandPalette(props: CommandPaletteProps) {
     () => sessionNumberShortcutHelp(sessionNumberOs),
     [sessionNumberOs],
   );
+  const hasNestedModelPicker = props.modelOptions !== undefined && props.onSelectModel !== undefined;
 
   const rootItems = useMemo<PaletteItem[]>(() => [
     {
@@ -201,7 +236,7 @@ export function CommandPalette(props: CommandPaletteProps) {
         setMode("sessions");
       },
     },
-    ...(props.onOpenModelPicker
+    ...(hasNestedModelPicker || props.onOpenModelPicker
       ? [{
           id: "models",
           title: "Switch model",
@@ -210,6 +245,11 @@ export function CommandPalette(props: CommandPaletteProps) {
           icon: <BrainCircuit className="size-4 text-primary" />,
           searchText: "model models llm provider openai anthropic claude gpt gemini switch pick select default",
           action: () => {
+            if (hasNestedModelPicker) {
+              setBehaviorModel(null);
+              setMode("models");
+              return;
+            }
             props.onClose();
             props.onOpenModelPicker?.();
           },
@@ -328,7 +368,7 @@ export function CommandPalette(props: CommandPaletteProps) {
         props.onOpenSettings("/settings/updates");
       },
     },
-  ], [accessibleTargetCount, canMoveCurrentSessionToGroup, props, sessionGroupCount, sessionNumberHelp]);
+  ], [accessibleTargetCount, canMoveCurrentSessionToGroup, hasNestedModelPicker, props, sessionGroupCount, sessionNumberHelp]);
 
   const sessionItems = useMemo<PaletteItem[]>(
     () =>
@@ -424,12 +464,66 @@ export function CommandPalette(props: CommandPaletteProps) {
     }))
   ), [props]);
 
+  const modelItems = useMemo<PaletteItem[]>(() => (
+    buildCommandPaletteModelItems(props.modelOptions ?? [], props.selectedModel).map((item) => ({
+      id: item.id,
+      title: item.title,
+      detail: item.detail,
+      meta: item.meta,
+      icon: <ProviderIcon providerId={item.option.providerID} providerName={item.option.description} size={16} />,
+      searchText: item.searchText,
+      disabled: item.option.disabled,
+      action: () => {
+        if ((item.option.behaviorOptions?.length ?? 0) > 0) {
+          setBehaviorModel(item.option);
+          setMode("model-behavior");
+          return;
+        }
+        props.onSelectModel?.(
+          { providerID: item.option.providerID, modelID: item.option.modelID },
+          null,
+        );
+        props.onClose();
+      },
+    }))
+  ), [props.modelOptions, props.onClose, props.onSelectModel, props.selectedModel]);
+
+  const behaviorItems = useMemo<PaletteItem[]>(() => {
+    if (!behaviorModel) return [];
+    return buildCommandPaletteBehaviorItems(
+      behaviorModel,
+      props.selectedModel,
+      props.selectedModelBehavior,
+    ).map((item) => ({
+      id: item.id,
+      title: item.title,
+      detail: item.detail,
+      meta: item.meta,
+      icon: item.meta ? <Check className="size-4 text-primary" /> : <BrainCircuit className="size-4 text-muted-foreground" />,
+      searchText: item.searchText,
+      action: () => {
+        props.onSelectModel?.(
+          { providerID: behaviorModel.providerID, modelID: behaviorModel.modelID },
+          item.option.value,
+        );
+        props.onClose();
+      },
+    }));
+  }, [behaviorModel, props.onClose, props.onSelectModel, props.selectedModel, props.selectedModelBehavior]);
+
+  const navigateBack = () => {
+    const nextMode = commandPaletteBackMode(mode);
+    if (!nextMode) return;
+    if (mode === "model-behavior") setBehaviorModel(null);
+    setMode(nextMode);
+  };
+
   const handleEscape = (event: ReactKeyboardEvent<HTMLElement>) => {
     if (event.key === "Escape") {
       event.preventDefault();
       event.stopPropagation();
       if (mode !== "root") {
-        setMode("root");
+        navigateBack();
         return;
       }
       props.onClose();
@@ -443,7 +537,7 @@ export function CommandPalette(props: CommandPaletteProps) {
       mode !== "root"
     ) {
       event.preventDefault();
-      setMode("root");
+      navigateBack();
     }
   };
 
@@ -461,6 +555,10 @@ export function CommandPalette(props: CommandPaletteProps) {
         ? agentItems
         : mode === "groups"
           ? groupItems
+          : mode === "models"
+            ? modelItems
+            : mode === "model-behavior"
+              ? behaviorItems
           : rootItems;
 
   return (
@@ -475,18 +573,27 @@ export function CommandPalette(props: CommandPaletteProps) {
                 ? t("session.cmd_agents_title")
                 : mode === "groups"
                   ? "Move to Group"
+                  : mode === "models"
+                    ? "Models"
+                    : mode === "model-behavior"
+                      ? behaviorModel?.behaviorTitle ?? "Thinking / Effort"
                   : t("session.palette_title_actions")
           }
         </CommandDialogTitle>
-        <Command key={mode} items={items}>
+        <Command
+          key={mode}
+          items={items}
+          itemToStringValue={paletteItemSearchValue}
+        >
           <CommandHeader className="flex items-center gap-0">
             {mode !== "root" && (
-              <Button variant="outline" size="icon-sm" className="rounded-xl" onClick={() => setMode("root")}>
+              <Button variant="outline" size="icon-sm" className="rounded-xl" onClick={navigateBack}>
                 <ChevronLeftIcon className="size-4" />
                 <span className="sr-only">{t("common.back")}</span>
               </Button>
             )}
             <CommandInput
+              ref={searchInputRef}
               className="w-full"
               placeholder={
                 mode === "sessions"
@@ -497,18 +604,23 @@ export function CommandPalette(props: CommandPaletteProps) {
                       ? t("session.palette_placeholder_agents")
                       : mode === "groups"
                         ? "Search groups..."
+                        : mode === "models"
+                          ? "Search models..."
+                          : mode === "model-behavior"
+                            ? "Search thinking or effort..."
                         : t("session.palette_placeholder_actions")
               }
               onKeyDown={handleBackspace}
             />
           </CommandHeader>
           <CommandPanel>
-            <CommandEmpty>{mode === "accessible-items" ? "No accessible items found for this session." : mode === "groups" ? "No groups found for this workspace." : t("session.palette_no_matches")}</CommandEmpty>
+            <CommandEmpty>{mode === "accessible-items" ? "No accessible items found for this session." : mode === "groups" ? "No groups found for this workspace." : mode === "models" ? "No models match your search." : mode === "model-behavior" ? "No thinking or effort options match your search." : t("session.palette_no_matches")}</CommandEmpty>
             <CommandList>
               {(item: PaletteItem) => (
                 <CommandItem
                   key={item.id}
-                  value={item.id}
+                  value={item}
+                  disabled={item.disabled}
                   onClick={item.action}
                 >
                   {item.icon ? <span className="mr-2 shrink-0">{item.icon}</span> : null}

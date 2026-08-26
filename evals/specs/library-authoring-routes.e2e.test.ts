@@ -26,7 +26,8 @@ const addChoices = [
   "Command",
   "Agent",
   "Plugin",
-  "MCP server",
+  "Organization MCP",
+  "Workspace MCP",
   "Connection",
 ];
 const forbiddenFlashes = [
@@ -136,13 +137,17 @@ test(title, async ({ evidence, place }) => {
         timeoutMs: 60_000,
         label: "signed-out desktop Library",
       });
-      const signedOutAddVisible = await evalIn(surface, `[...document.querySelectorAll("button")]
-        .some((button) => (button.textContent ?? "").trim() === "Add")`);
-      expect(signedOutAddVisible).toBe(false);
+      const signedOutAddState = await evalIn(surface, `({
+        generic: [...document.querySelectorAll("button")]
+          .some((button) => (button.textContent ?? "").trim() === "Add"),
+        workspaceMcp: [...document.querySelectorAll("button")]
+          .some((button) => (button.textContent ?? "").trim() === "Add workspace MCP"),
+      })`);
+      expect(signedOutAddState).toEqual({ generic: false, workspaceMcp: true });
       evidence.recordAssertionEvidence(
-        "Signed-out desktop Library hides Add",
-        "app.beforeSignIn opened /extensions and found the Library search control but no button whose exact label was Add.",
-        signedOutAddVisible === false,
+        "Signed-out desktop Library offers only workspace MCP setup",
+        `app.beforeSignIn opened /extensions and observed ${JSON.stringify(signedOutAddState)}.`,
+        signedOutAddState.generic === false && signedOutAddState.workspaceMcp === true,
       );
     },
   });
@@ -172,7 +177,7 @@ test(title, async ({ evidence, place }) => {
     .map((item) => (item.textContent ?? "").trim())`);
   expect(visibleAddChoices).toEqual(addChoices);
   evidence.recordAssertionEvidence(
-    "Signed-in desktop Library shows Add and all six kind rows",
+    "Signed-in desktop Library shows Add and all seven kind rows",
     `The open Add picker contained exact titles ${JSON.stringify(visibleAddChoices)}.`,
     JSON.stringify(visibleAddChoices) === JSON.stringify(addChoices),
   );

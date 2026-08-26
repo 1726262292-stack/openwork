@@ -17,8 +17,9 @@ import {
   type SessionNumberShortcutTransition,
 } from "./session-number-shortcuts";
 import {
-  isThinkingModeShortcut,
+  getThinkingModeShortcutDirection,
   resolveThinkingModeShortcutOs,
+  type ThinkingModeShortcutDirection,
 } from "./thinking-mode-shortcut";
 import { isFavoriteModelShortcut } from "./favorite-model-shortcut";
 
@@ -28,7 +29,7 @@ export type UseShellShortcutsInput = {
   onCreateTask: (workspaceId: string) => void | Promise<void>;
   onNextSessionTab?: () => void;
   onPrevSessionTab?: () => void;
-  onCycleThinkingMode?: () => void;
+  onCycleThinkingMode?: (direction: ThinkingModeShortcutDirection) => void;
   onCycleFavoriteModel?: () => void;
 };
 
@@ -112,7 +113,8 @@ export function useShellShortcuts(input: UseShellShortcutsInput) {
   //   Cmd/Ctrl+Shift+F  -> search every session (titles + messages)
   //   Cmd/Ctrl+T        -> next session tab
   //   Cmd/Ctrl+Shift+T  -> previous session tab
-  //   Ctrl+T (macOS) / Ctrl+Alt+T (Windows/Linux) -> next thinking mode
+  //   Ctrl+T / Ctrl+Shift+T (macOS) -> next / previous thinking mode
+  //   Ctrl+Alt+T / Ctrl+Alt+Shift+T (Windows/Linux) -> next / previous thinking mode
   //   Ctrl+Shift+M      -> next favorite model
   //   Cmd/Ctrl+1–9      -> matching visible sidebar session
   const handleGlobalShortcut = useEffectEvent((event: KeyboardEvent) => {
@@ -121,9 +123,10 @@ export function useShellShortcuts(input: UseShellShortcutsInput) {
       if (!event.repeat) onCycleFavoriteModel?.();
       return;
     }
-    if (isThinkingModeShortcut(event, thinkingModeShortcutOs)) {
+    const thinkingModeDirection = getThinkingModeShortcutDirection(event, thinkingModeShortcutOs);
+    if (thinkingModeDirection) {
       event.preventDefault();
-      if (!event.repeat) onCycleThinkingMode?.();
+      if (!event.repeat) onCycleThinkingMode?.(thinkingModeDirection);
       return;
     }
     const isMac = typeof navigator !== "undefined" && /Mac/i.test(navigator.platform);

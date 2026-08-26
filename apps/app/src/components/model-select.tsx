@@ -263,6 +263,7 @@ export function ModelSelect({
     typeof navigator === "undefined" ? "" : navigator.platform,
   );
   const shortcutLabel = thinkingModeShortcutLabel(shortcutOs);
+  const reverseShortcutLabel = thinkingModeShortcutLabel(shortcutOs, "reverse");
   const favoriteShortcutLabel = shortcutOs === "macos" ? "⌃⇧M" : favoriteModelShortcutLabel;
 
   const focusSearchInput = React.useCallback(() => {
@@ -438,7 +439,7 @@ export function ModelSelect({
           <ChevronDown className="h-3 w-3" />
         </TooltipTrigger>
         <TooltipContent>
-          Change model · Cycle thinking ({shortcutLabel})
+          Change model · Cycle thinking ({shortcutLabel} forward, {reverseShortcutLabel} back)
         </TooltipContent>
       </Tooltip>
       <PopoverContent
