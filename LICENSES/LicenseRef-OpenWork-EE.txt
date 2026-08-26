@@ -41,7 +41,7 @@ marks, or product names.
 
 Grant of Future License: Different AI, Inc. hereby irrevocably grants you
 an additional license to use each version of the Software under the MIT
-license, effective on the first anniversary of the date that version of
+license, effective on the second anniversary of the date that version of
 the Software is first made publicly available. On or after that date, you
 may use that version of the Software under the MIT license.
 
