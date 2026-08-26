@@ -12,11 +12,31 @@ function seedRequiredEnv() {
 let AutomationRunnerAuth: typeof import("../src/automations/runner-auth.js")["AutomationRunnerAuth"]
 let automationRunnerAudienceFromRequest: typeof import("../src/automations/runner-auth.js")["automationRunnerAudienceFromRequest"]
 let automationRunnerAudienceFromRequestUrl: typeof import("../src/automations/runner-auth.js")["automationRunnerAudienceFromRequestUrl"]
+let automationRunnerRejectionLogFields: typeof import("../src/automations/runner-auth.js")["automationRunnerRejectionLogFields"]
+let AutomationRunnerRejectionLimiter: typeof import("../src/automations/runner-rejection-protection.js")["AutomationRunnerRejectionLimiter"]
+let AutomationRunnerRequestAuthenticator: typeof import("../src/automations/runner-rejection-protection.js")["AutomationRunnerRequestAuthenticator"]
 
 beforeAll(async () => {
   seedRequiredEnv()
-  ;({ AutomationRunnerAuth, automationRunnerAudienceFromRequest, automationRunnerAudienceFromRequestUrl } = await import("../src/automations/runner-auth.js"))
+  ;({
+    AutomationRunnerAuth,
+    automationRunnerAudienceFromRequest,
+    automationRunnerAudienceFromRequestUrl,
+    automationRunnerRejectionLogFields,
+  } = await import("../src/automations/runner-auth.js"))
+  ;({
+    AutomationRunnerRejectionLimiter,
+    AutomationRunnerRequestAuthenticator,
+  } = await import("../src/automations/runner-rejection-protection.js"))
 })
+
+function signedToken(secret: string, payloadValue: unknown) {
+  const payload = Buffer.from(JSON.stringify(payloadValue)).toString("base64url")
+  const signature = createHmac("sha256", secret)
+    .update(`openwork-automation-runner-v1.${payload}`)
+    .digest("base64url")
+  return `${payload}.${signature}`
+}
 
 describe("Automation runner credentials", () => {
   test("survive process-local auth instances while remaining scoped and tamper-evident", () => {
@@ -30,16 +50,102 @@ describe("Automation runner credentials", () => {
       capabilities: [AUTOMATION_MODEL_ATTENTION_CAPABILITY],
     }, "https://den.example.com/api/den")
 
-    expect(verifier.authenticate(`Bearer ${issued.token}`)).toEqual({
-      organizationId: "org_test",
-      ownerMemberId: "member_test",
-      runnerId: "desktop-test",
-      capabilities: [AUTOMATION_MODEL_ATTENTION_CAPABILITY],
-      audience: "https://den.example.com/api/den",
-      expiresAt: issued.expiresAt,
+    expect(verifier.authenticate(`Bearer ${issued.token}`, "https://den.example.com/api/den")).toEqual({
+      ok: true,
+      identity: {
+        organizationId: "org_test",
+        ownerMemberId: "member_test",
+        runnerId: "desktop-test",
+        capabilities: [AUTOMATION_MODEL_ATTENTION_CAPABILITY],
+        audience: "https://den.example.com/api/den",
+        expiresAt: issued.expiresAt,
+      },
     })
-    expect(new AutomationRunnerAuth(`${secret}x`).authenticate(`Bearer ${issued.token}`)).toBeNull()
-    expect(verifier.authenticate(`Bearer ${issued.token}x`)).toBeNull()
+    expect(new AutomationRunnerAuth(`${secret}x`).authenticate(
+      `Bearer ${issued.token}`,
+      "https://den.example.com/api/den",
+    )).toMatchObject({ ok: false, rejection: { reason: "bad_signature" } })
+    expect(verifier.authenticate(
+      `Bearer ${issued.token}x`,
+      "https://den.example.com/api/den",
+    )).toMatchObject({ ok: false, rejection: { reason: "bad_signature" } })
+  })
+
+  test("classifies malformed, bad-signature, expired, and wrong-audience credentials", () => {
+    const secret = "runner-auth-classification-secret".repeat(2)
+    const verifier = new AutomationRunnerAuth(secret)
+    const audience = "https://den.example.com/api/den"
+    expect(verifier.authenticate("Bearer opaque", audience))
+      .toMatchObject({ ok: false, rejection: { reason: "malformed_token", claims: {} } })
+
+    const issued = verifier.issue({
+      organizationId: "org_claimed",
+      ownerMemberId: "member_claimed",
+      runnerId: "runner_claimed",
+      capabilities: [],
+    }, audience)
+    const badSignature = verifier.authenticate(`Bearer ${issued.token}x`, audience)
+    expect(badSignature).toEqual({
+      ok: false,
+      rejection: {
+        reason: "bad_signature",
+        claims: {
+          credentialVersion: 2,
+          organizationId: "org_claimed",
+          ownerMemberId: "member_claimed",
+          runnerId: "runner_claimed",
+          expiresAt: issued.expiresAt,
+        },
+      },
+    })
+
+    const expiredAt = Date.now() - 1
+    const expired = signedToken(secret, {
+      v: 2,
+      o: "org_expired",
+      m: "member_expired",
+      r: "runner_expired",
+      c: [],
+      a: audience,
+      e: expiredAt,
+    })
+    expect(verifier.authenticate(`Bearer ${expired}`, audience))
+      .toMatchObject({ ok: false, rejection: { reason: "expired", claims: { expiresAt: expiredAt } } })
+    expect(verifier.authenticate(`Bearer ${issued.token}`, "https://other.example.com/api/den"))
+      .toMatchObject({ ok: false, rejection: { reason: "audience_mismatch" } })
+  })
+
+  test("logs only stable claimed-identity fingerprints for rejected credentials", () => {
+    const secret = "runner-auth-safe-log-secret".repeat(3)
+    const auth = new AutomationRunnerAuth(secret)
+    const issued = auth.issue({
+      organizationId: "org_never_log_raw",
+      ownerMemberId: "member_never_log_raw",
+      runnerId: "runner_never_log_raw",
+      capabilities: [],
+    }, "https://den.example.com")
+    const result = auth.authenticate(`Bearer ${issued.token}x`, "https://den.example.com")
+    if (result.ok) throw new Error("expected rejected runner credential")
+    const fields = automationRunnerRejectionLogFields(result.rejection)
+    expect(fields).toMatchObject({
+      reason: "bad_signature",
+      runner_auth_version: 2,
+      runner_auth_expires_at_ms: issued.expiresAt,
+      claimed_runner_id_fingerprint: expect.stringMatching(/^sha256:[a-f0-9]{16}$/),
+      claimed_organization_id_fingerprint: expect.stringMatching(/^sha256:[a-f0-9]{16}$/),
+      claimed_owner_member_id_fingerprint: expect.stringMatching(/^sha256:[a-f0-9]{16}$/),
+    })
+    const serialized = JSON.stringify(fields)
+    for (const secretValue of [
+      issued.token,
+      issued.token.split(".")[1] ?? "missing-signature",
+      secret,
+      "org_never_log_raw",
+      "member_never_log_raw",
+      "runner_never_log_raw",
+    ]) {
+      expect(serialized).not.toContain(secretValue)
+    }
   })
 
   test("binds a runner credential to the API base that minted it", () => {
@@ -48,6 +154,10 @@ describe("Automation runner credentials", () => {
     )).toBe("https://den.example.com/api/den")
     expect(() => automationRunnerAudienceFromRequestUrl("https://den.example.com/not-the-token-route"))
       .toThrow("automation_runner_audience_invalid")
+    expect(automationRunnerAudienceFromRequest(
+      new Request("https://den.example.com/api/den/v1/automation-runners/events"),
+      { trustedOrigins: [] },
+    )).toBe("https://den.example.com/api/den")
   })
 
   test("binds a Den Web proxied credential to its trusted public route", () => {
@@ -137,13 +247,74 @@ describe("Automation runner credentials", () => {
       .update(`openwork-automation-runner-v1.${payload}`)
       .digest("base64url")
 
-    expect(new AutomationRunnerAuth(secret).authenticate(`Bearer ${payload}.${signature}`)).toEqual({
-      organizationId: "org_test",
-      ownerMemberId: "member_test",
-      runnerId: "desktop-test",
-      capabilities: [],
-      audience: null,
-      expiresAt,
+    expect(new AutomationRunnerAuth(secret).authenticate(
+      `Bearer ${payload}.${signature}`,
+      "https://different.example.com",
+    )).toEqual({
+      ok: true,
+      identity: {
+        organizationId: "org_test",
+        ownerMemberId: "member_test",
+        runnerId: "desktop-test",
+        capabilities: [],
+        audience: null,
+        expiresAt,
+      },
     })
+  })
+
+  test("returns 401 then 429 without leaking claims, while a valid credential remains usable", async () => {
+    const secret = "runner-auth-protocol-secret".repeat(3)
+    const auth = new AutomationRunnerAuth(secret)
+    const issued = auth.issue({
+      organizationId: "org_protocol",
+      ownerMemberId: "member_protocol",
+      runnerId: "runner_protocol",
+      capabilities: [],
+    }, "https://den.example.com")
+    const logs: Readonly<Record<string, unknown>>[] = []
+    const limiter = new AutomationRunnerRejectionLimiter({
+      maxFailures: 1,
+      windowMs: 60_000,
+      maxEntries: 2,
+      now: () => 10_000,
+    })
+    const authenticator = new AutomationRunnerRequestAuthenticator({
+      auth,
+      limiter,
+      audienceFromRequest: (request) => automationRunnerAudienceFromRequest(request, { trustedOrigins: [] }),
+      isActiveOwner: async () => true,
+      logRejection: (fields) => logs.push(fields),
+    })
+    const request = (authorization: string) => new Request(
+      "https://den.example.com/v1/automation-runner/work",
+      { headers: { authorization, "x-real-ip": "192.0.2.10" } },
+    )
+
+    const first = await authenticator.authenticate(request(`Bearer ${issued.token}x`))
+    if (first.ok) throw new Error("expected first rejection")
+    expect(first.response.status).toBe(401)
+    expect(first.response.headers.get("retry-after")).toBeNull()
+    expect(await first.response.json()).toEqual({ error: "runner_unauthorized" })
+
+    const second = await authenticator.authenticate(request(`Bearer ${issued.token}x`))
+    if (second.ok) throw new Error("expected rate-limited rejection")
+    expect(second.response.status).toBe(429)
+    expect(second.response.headers.get("retry-after")).toBe("60")
+    expect(await second.response.json()).toEqual({ error: "runner_unauthorized" })
+
+    const valid = await authenticator.authenticate(request(`Bearer ${issued.token}`))
+    expect(valid).toMatchObject({ ok: true, identity: { runnerId: "runner_protocol" } })
+
+    const serialized = JSON.stringify(logs)
+    expect(logs).toHaveLength(2)
+    expect(logs[1]).toMatchObject({ reason: "bad_signature", rate_limited: true, retry_after_seconds: 60 })
+    for (const secretValue of [issued.token, secret, "org_protocol", "member_protocol", "runner_protocol"]) {
+      expect(serialized).not.toContain(secretValue)
+    }
+
+    limiter.record("second-key")
+    limiter.record("third-key")
+    expect(limiter.size).toBe(2)
   })
 })
