@@ -63,6 +63,13 @@ import {
   searchNativeCapabilities,
 } from "./native-capabilities.js"
 import {
+  executeRemoteSessionCapability,
+  parseRemoteSessionCapabilityName,
+  searchRemoteSessionCapabilities,
+  type RemoteSessionAction,
+} from "./remote-session-capabilities.js"
+import { DEN_MCP_WRITE_SCOPE } from "./scopes.js"
+import {
   compareCapabilityMatches,
   EXECUTE_CAPABILITY_TOOL_NAME,
   searchCapabilities,
@@ -74,7 +81,7 @@ import {
 import type { AgentToolContentPart } from "./tool-content.js"
 import { externalToolContent } from "./tool-content.js"
 
-export const CAPABILITY_SOURCE_KINDS = ["catalog", "native", "externalMcp", "marketplace", "builtinSkill", "admin"] as const
+export const CAPABILITY_SOURCE_KINDS = ["catalog", "native", "externalMcp", "marketplace", "builtinSkill", "remoteSession", "admin"] as const
 export type CapabilitySourceKind = (typeof CAPABILITY_SOURCE_KINDS)[number]
 
 export type ParsedCapability =
@@ -83,6 +90,7 @@ export type ParsedCapability =
   | { kind: "externalMcp"; name: string; connectionId: string; toolName: string }
   | { kind: "marketplace"; name: string; configObjectId: string; pluginId: string }
   | { kind: "builtinSkill"; name: string }
+  | { kind: "remoteSession"; name: string; action: RemoteSessionAction }
   | { kind: "admin"; name: string; toolName: string }
 
 export type ExecuteCapabilityToolResult = {
@@ -676,6 +684,45 @@ const builtinSkillSource: CapabilitySource = {
   },
 }
 
+const remoteSessionSource: CapabilitySource = {
+  kind: "remoteSession",
+  parseName: (name) => {
+    const action = parseRemoteSessionCapabilityName(name)
+    return action ? { kind: "remoteSession", name, action } : null
+  },
+  search: async (ctx, query, limit) => {
+    // Remote sessions require an active membership; the runtime is the
+    // member's own Cloud worker. Deeper availability (cloud enabled, worker
+    // provisioned) is checked at execute time and reported as an actionable
+    // needs-setup result.
+    if (!ctx.sourceFilter.api || !ctx.member) return []
+    return searchRemoteSessionCapabilities(query, limit)
+  },
+  // Deliberately absent from the confined-script tool tree in v1: remote
+  // sessions are long-lived side effects that agents should drive through
+  // explicit execute_capability calls, not batched scripts.
+  enumerate: () => Promise.resolve([]),
+  execute: async (ctx, parsed, input) => {
+    if (!parsedForKind(parsed, "remoteSession")) return unknownCapabilityResult(input.name)
+    if (!ctx.member) {
+      return {
+        isError: true,
+        content: textContent(JSON.stringify({
+          error: "membership_required",
+          message: "Remote sessions require an active organization membership.",
+        })),
+      }
+    }
+    return executeRemoteSessionCapability({
+      action: parsed.action,
+      organizationId: ctx.organizationId,
+      userId: ctx.principal.userId,
+      hasWriteScope: ctx.principal.scopes.has(DEN_MCP_WRITE_SCOPE),
+      body: input.body,
+    })
+  },
+}
+
 const adminSource: CapabilitySource = {
   kind: "admin",
   parseName: (name) => {
@@ -723,6 +770,7 @@ export const CAPABILITY_SOURCES: Record<CapabilitySourceKind, CapabilitySource> 
   externalMcp: externalMcpSource,
   marketplace: marketplaceSource,
   builtinSkill: builtinSkillSource,
+  remoteSession: remoteSessionSource,
   admin: adminSource,
 }
 
