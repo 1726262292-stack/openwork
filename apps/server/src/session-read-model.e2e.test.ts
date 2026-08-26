@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtemp, mkdir, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -350,6 +350,29 @@ describe("workspace session read APIs", () => {
     expect(response.status).toBe(200);
     const proxyRequest = mock.requests.find((request) => request.pathname === "/session");
     expect(proxyRequest?.directory).toBe(encodeURIComponent(workspaceRoot));
+  });
+
+  test("keeps opencode proxy requests off the workspace bootstrap path", async () => {
+    const workspaceRoot = await createWorkspaceRoot();
+    const mock = startMockOpencode();
+    const openwork = await startOpenworkServer({
+      workspaceRoot,
+      opencodeBaseUrl: `http://127.0.0.1:${mock.server.port}`,
+      readOnly: false,
+    });
+    const commandsDir = join(workspaceRoot, ".opencode", "commands");
+    const commandPath = join(commandsDir, "legacy.md");
+    const legacyCommand = "---\nname: legacy\ndescription: Legacy\nmodel: null\n---\nRun legacy command\n";
+    await mkdir(commandsDir, { recursive: true });
+    await writeFile(commandPath, legacyCommand, "utf8");
+
+    const response = await fetch(`http://127.0.0.1:${openwork.server.port}/workspace/ws_1/opencode/session`, {
+      headers: auth(openwork.token),
+    });
+
+    expect(response.status).toBe(200);
+    expect(mock.requests.some((request) => request.pathname === "/session")).toBe(true);
+    expect(await readFile(commandPath, "utf8")).toBe(legacyCommand);
   });
 
   test("returns 404 when the upstream session is missing", async () => {
