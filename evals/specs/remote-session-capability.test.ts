@@ -205,7 +205,7 @@ function payload(result: RemoteSessionToolResult): Record<string, unknown> {
   return JSON.parse(result.content[0]?.text ?? "{}") as Record<string, unknown>;
 }
 
-test("remote-session capabilities are discoverable and drive a real openwork-server session wire", async ({ evidence }) => {
+test("remote-session capabilities drive a real openwork-server wire with scoped guardrails", async ({ evidence }) => {
   const matches = searchRemoteSessionCapabilities("send a chat to my cloud web session", 10);
   expect(matches.map((match) => match.name)).toContain("remote-session:send");
   expect(matches.every((match) => match.invocation?.argumentsField === "body")).toBe(true);
@@ -268,27 +268,25 @@ test("remote-session capabilities are discoverable and drive a real openwork-ser
     "remote-session:read (read scope only) returned session status, total message count 4, a limit-bounded slice of 3 messages, and the final assistant text from the witness snapshot.",
     true,
   );
-});
 
-test("a session id that does not exist on the member's worker maps to unknown_session", async ({ evidence }) => {
-  const result = await executeRemoteSessionCapability(
+  // Guardrail: a session id absent from the caller's own worker.
+  const foreign = await executeRemoteSessionCapability(
     input("read", { sessionId: "ses_of_someone_else" }),
     deps,
   );
-  expect(result.isError).toBe(true);
-  const body = payload(result);
-  expect(body.error).toBe("unknown_session");
-  expect(body.retryable).toBe(false);
+  expect(foreign.isError).toBe(true);
+  const foreignBody = payload(foreign);
+  expect(foreignBody.error).toBe("unknown_session");
+  expect(foreignBody.retryable).toBe(false);
   evidence.recordAssertionEvidence(
     "Member scoping degrades to unknown_session",
     "A session id absent from the caller's own worker (including another member's session id) returns unknown_session rather than leaking existence or data.",
     true,
   );
-});
 
-test("a caller without a cloud runtime never reaches the worker", async ({ evidence }) => {
-  const requestsBefore = witness.requests.length;
-  const result = await executeRemoteSessionCapability(input("create", { title: "no runtime" }), {
+  // Guardrail: no cloud runtime resolved for the member.
+  const requestsBeforeNoRuntime = witness.requests.length;
+  const noRuntime = await executeRemoteSessionCapability(input("create", { title: "no runtime" }), {
     resolveRuntime: async () => ({
       ok: false,
       error: "needs_cloud_setup",
@@ -297,25 +295,27 @@ test("a caller without a cloud runtime never reaches the worker", async ({ evide
     }),
     createClient: DEFAULT_REMOTE_SESSION_DEPS.createClient,
   });
-  expect(result.isError).toBe(true);
-  expect(payload(result).error).toBe("needs_cloud_setup");
-  expect(witness.requests.length).toBe(requestsBefore);
+  expect(noRuntime.isError).toBe(true);
+  expect(payload(noRuntime).error).toBe("needs_cloud_setup");
+  expect(witness.requests.length).toBe(requestsBeforeNoRuntime);
   evidence.recordAssertionEvidence(
     "Runtime resolution gates all worker traffic",
     "When the member has no cloud runtime, the capability returns the actionable needs_cloud_setup result and zero requests reach the worker.",
     true,
   );
-});
 
-test("write-scope enforcement blocks create and send before any side effect", async ({ evidence }) => {
-  const requestsBefore = witness.requests.length;
-  const created = await executeRemoteSessionCapability(input("create", {}, false), deps);
-  const sent = await executeRemoteSessionCapability(input("send", { sessionId: "ses_witness_1", prompt: "x" }, false), deps);
-  expect(created.isError).toBe(true);
-  expect(sent.isError).toBe(true);
-  expect(payload(created).error).toBe("insufficient_mcp_scope");
-  expect(payload(sent).error).toBe("insufficient_mcp_scope");
-  expect(witness.requests.length).toBe(requestsBefore);
+  // Guardrail: mcp:write gates mutations before any side effect.
+  const requestsBeforeScope = witness.requests.length;
+  const createdWithoutScope = await executeRemoteSessionCapability(input("create", {}, false), deps);
+  const sentWithoutScope = await executeRemoteSessionCapability(
+    input("send", { sessionId, prompt: "x" }, false),
+    deps,
+  );
+  expect(createdWithoutScope.isError).toBe(true);
+  expect(sentWithoutScope.isError).toBe(true);
+  expect(payload(createdWithoutScope).error).toBe("insufficient_mcp_scope");
+  expect(payload(sentWithoutScope).error).toBe("insufficient_mcp_scope");
+  expect(witness.requests.length).toBe(requestsBeforeScope);
   evidence.recordAssertionEvidence(
     "mcp:write gates mutations",
     "Without the write scope, create and send fail with insufficient_mcp_scope and no request reaches the worker; read remains available with read scope.",
