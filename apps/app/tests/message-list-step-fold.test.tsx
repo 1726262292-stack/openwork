@@ -125,7 +125,7 @@ describe("finished turn step fold (single OpenCode message per turn)", () => {
     expect(markup).toContain("Done.");
   });
 
-  test("reasoning between calls splits the aggregate so thoughts stay in order", () => {
+  test("reasoning between calls stays one aggregate line that advertises its thought", () => {
     const assistant: UIMessage = {
       id: "assistant-3",
       role: "assistant",
@@ -142,17 +142,15 @@ describe("finished turn step fold (single OpenCode message per turn)", () => {
 
     const markup = renderList([userMessage, assistant]);
 
-    // The second call is not absorbed into the aggregate above the thought.
-    expect(markup).not.toContain("Ran 2 commands");
+    // No thought/command ladder: the run is ONE aggregate line…
+    expect(markup).toContain("Ran 2 commands");
+    // …that counts the thought it carries.
+    expect(markup).toContain("1 thought");
 
-    // Thought, call, thought, call — chronological in the rendered output.
-    const firstThought = markup.indexOf("Thought");
-    const firstRun = markup.indexOf("Ran command", firstThought);
-    const secondThought = markup.indexOf("Thought", firstRun);
-    const secondRun = markup.indexOf("Ran command", secondThought);
-    expect(firstThought).toBeGreaterThan(-1);
-    expect(firstRun).toBeGreaterThan(firstThought);
-    expect(secondThought).toBeGreaterThan(firstRun);
-    expect(secondRun).toBeGreaterThan(secondThought);
+    // The turn-opening thought still renders as its own line above the run.
+    const openingThought = markup.indexOf("Thought");
+    const run = markup.indexOf("Ran 2 commands");
+    expect(openingThought).toBeGreaterThan(-1);
+    expect(run).toBeGreaterThan(openingThought);
   });
 });
