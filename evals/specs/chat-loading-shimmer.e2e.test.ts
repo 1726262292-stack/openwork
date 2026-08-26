@@ -52,10 +52,13 @@ test.skipIf(!enabled)(title, async ({ evidence }) => {
   });
   const aggregate = await evalIn(app, `(() => {
     const row = document.querySelector('[data-tool-aggregate-now]');
+    const summary = [...document.querySelectorAll('[data-tool-aggregate] > button')]
+      .find((button) => (button.textContent ?? "").includes("Running command"));
     return {
       text: row instanceof HTMLElement ? row.innerText.replace(/\\s+/g, " ").trim() : "",
       hasSpinner: Boolean(row?.querySelector('.animate-spin')),
       hasShimmer: Boolean(row?.querySelector('.ow-text-shimmer')),
+      singularSummary: summary instanceof HTMLElement ? summary.innerText.replace(/\\s+/g, " ").trim() : "",
     };
   })()`);
   expect(aggregate).toMatchObject({ hasSpinner: false, hasShimmer: true });
@@ -63,6 +66,11 @@ test.skipIf(!enabled)(title, async ({ evidence }) => {
     throw new Error(`Aggregate activity row was not readable: ${JSON.stringify(aggregate)}`);
   }
   expect(aggregate.text).toContain("Now:");
+  if (!("singularSummary" in aggregate) || typeof aggregate.singularSummary !== "string") {
+    throw new Error(`Aggregate summary was not readable: ${JSON.stringify(aggregate)}`);
+  }
+  expect(aggregate.singularSummary).toContain("Running command");
+  expect(aggregate.singularSummary).not.toContain("Running 1 command");
   evidence.recordAssertionEvidence(
     "The aggregate Now state uses shimmer instead of a circular spinner",
     `The live aggregate row remained readable as “${aggregate.text}” and contained no animate-spin indicator.`,
@@ -82,10 +90,20 @@ test.skipIf(!enabled)(title, async ({ evidence }) => {
   });
   const command = await evalIn(app, `(() => {
     const block = document.querySelector('[data-tool-aggregate-command]');
-    return block instanceof HTMLElement ? block.innerText.replace(/\\s+/g, " ").trim() : "";
+    const aggregate = block?.closest('[data-tool-aggregate]');
+    return {
+      text: block instanceof HTMLElement ? block.innerText.replace(/\\s+/g, " ").trim() : "",
+      commandSummaryCount: aggregate instanceof HTMLElement
+        ? (aggregate.innerText.match(/(?:Ran|Running) command/g) ?? []).length
+        : 0,
+    };
   })()`);
-  expect(command).toContain("$");
-  expect(command).toContain("git status --short --branch");
+  expect(command).toMatchObject({ commandSummaryCount: 1 });
+  if (!command || typeof command !== "object" || !("text" in command) || typeof command.text !== "string") {
+    throw new Error(`Expanded command block was not readable: ${JSON.stringify(command)}`);
+  }
+  expect(command.text).toContain("$");
+  expect(command.text).toContain("git status --short --branch");
   evidence.recordAssertionEvidence(
     "Expanded command history uses a readable rounded shell block",
     "The live expanded aggregate rendered the command with a shell prompt inside its dedicated command block.",

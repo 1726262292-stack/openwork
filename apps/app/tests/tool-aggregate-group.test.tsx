@@ -17,7 +17,8 @@ describe("tool aggregate running feedback", () => {
 
     const markup = renderToStaticMarkup(<ToolAggregateGroup parts={[runningCommand]} />);
 
-    expect(markup).toContain("Running 1 command");
+    expect(markup).toContain("Running command");
+    expect(markup).not.toContain("Running 1 command");
     expect(markup).toContain("Now:");
     expect(markup).toContain("ow-text-shimmer");
     expect(markup).not.toContain("animate-spin");

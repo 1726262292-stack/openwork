@@ -83,6 +83,8 @@ export function ToolAggregateGroup({ parts, className }: ToolAggregateGroupProps
 
   // Track durations for every part so each is frozen the moment it completes.
   const durations = parts.map((part) => trackToolCallDuration(part))
+  const singleCommand = parts.length === 1 && Boolean(parts[0] && isBashToolPart(parts[0]))
+  const singleCommandDuration = singleCommand ? durations[0] : null
   const visibleParts = showAll ? parts : parts.slice(0, ROW_CAP)
   const hiddenCount = parts.length - visibleParts.length
 
@@ -106,6 +108,11 @@ export function ToolAggregateGroup({ parts, className }: ToolAggregateGroupProps
           )}
         />
         <span className="min-w-0 truncate">{summary}</span>
+        {singleCommandDuration ? (
+          <span className="shrink-0 tabular-nums text-xs text-muted-foreground/70">
+            {singleCommandDuration}
+          </span>
+        ) : null}
         {failedCount > 0 ? (
           <span className="shrink-0 text-xs text-muted-foreground">
             {failedCount} failed
@@ -149,7 +156,8 @@ export function ToolAggregateGroup({ parts, className }: ToolAggregateGroupProps
               : ""
             return (
               <div key={part.toolCallId} className="flex min-w-0 flex-col gap-1.5 py-1">
-                <div className="flex min-w-0 items-center gap-2 text-sm text-muted-foreground">
+                {!singleCommand ? (
+                  <div className="flex min-w-0 items-center gap-2 text-sm text-muted-foreground">
                   {status === "waiting" ? (
                     <CirclePause aria-label="Waiting" className="size-3.5 shrink-0 text-amber-11" />
                   ) : null}
@@ -184,7 +192,8 @@ export function ToolAggregateGroup({ parts, className }: ToolAggregateGroupProps
                       {durations[index]}
                     </span>
                   ) : null}
-                </div>
+                  </div>
+                ) : null}
                 {bash && command ? (
                   <div
                     data-tool-aggregate-command
