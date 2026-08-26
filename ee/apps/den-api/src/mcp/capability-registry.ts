@@ -65,6 +65,7 @@ import {
 import {
   executeRemoteSessionCapability,
   parseRemoteSessionCapabilityName,
+  remoteSessionCapabilitiesEnabled,
   searchRemoteSessionCapabilities,
   type RemoteSessionAction,
 } from "./remote-session-capabilities.js"
@@ -118,6 +119,7 @@ export type CapabilityRegistryContext = {
   redirectUriBase: string
   generatedArtifactViewsEnabled: boolean
   externalMcpConnectionsEnabled: boolean
+  remoteSessionsEnabled: boolean
   resolvePlatformAdmin: () => Promise<boolean>
   resolveNamespaceContext: () => Promise<CodemodeConnectionNamespaceContext>
 }
@@ -163,6 +165,7 @@ export function createCapabilityRegistryContext(input: CapabilityRegistryContext
     redirectUriBase: input.redirectUriBase,
     generatedArtifactViewsEnabled: input.generatedArtifactViewsEnabled,
     externalMcpConnectionsEnabled,
+    remoteSessionsEnabled: remoteSessionCapabilitiesEnabled(input.organizationMetadata),
     resolvePlatformAdmin,
     resolveNamespaceContext,
   }
@@ -691,11 +694,11 @@ const remoteSessionSource: CapabilitySource = {
     return action ? { kind: "remoteSession", name, action } : null
   },
   search: async (ctx, query, limit) => {
-    // Remote sessions require an active membership; the runtime is the
-    // member's own Cloud worker. Deeper availability (cloud enabled, worker
-    // provisioned) is checked at execute time and reported as an actionable
-    // needs-setup result.
-    if (!ctx.sourceFilter.api || !ctx.member) return []
+    // Remote sessions require an active membership and the organization's
+    // Cloud capability flag: a member of a flag-off org never discovers
+    // these capabilities. Worker provisioning state is checked at execute
+    // time and reported as an actionable needs-setup result.
+    if (!ctx.sourceFilter.api || !ctx.member || !ctx.remoteSessionsEnabled) return []
     return searchRemoteSessionCapabilities(query, limit)
   },
   // Deliberately absent from the confined-script tool tree in v1: remote
@@ -704,6 +707,15 @@ const remoteSessionSource: CapabilitySource = {
   enumerate: () => Promise.resolve([]),
   execute: async (ctx, parsed, input) => {
     if (!parsedForKind(parsed, "remoteSession")) return unknownCapabilityResult(input.name)
+    if (!ctx.remoteSessionsEnabled) {
+      return {
+        isError: true,
+        content: textContent(JSON.stringify({
+          error: "unknown_capability",
+          message: "Remote session capabilities are not available for this organization.",
+        })),
+      }
+    }
     if (!ctx.member) {
       return {
         isError: true,

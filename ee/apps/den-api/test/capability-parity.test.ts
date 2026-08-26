@@ -149,6 +149,7 @@ function fixtureContext(platformAdmin: boolean): CapabilityRegistryContext {
     redirectUriBase: "http://127.0.0.1:8790",
     generatedArtifactViewsEnabled: false,
     externalMcpConnectionsEnabled: true,
+    remoteSessionsEnabled: true,
     resolvePlatformAdmin: () => {
       platformAdminResolution ??= Promise.resolve(platformAdmin)
       return platformAdminResolution

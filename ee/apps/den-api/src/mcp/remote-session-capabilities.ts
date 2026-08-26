@@ -180,7 +180,7 @@ export type RemoteSessionRuntimeResult =
   | { ok: true; runtime: RemoteSessionRuntime }
   | {
       ok: false
-      error: "needs_cloud_setup" | "cloud_runtime_failed" | "cloud_runtime_waking"
+      error: "cloud_not_available" | "needs_cloud_setup" | "cloud_runtime_failed" | "cloud_runtime_waking"
       message: string
       retryable: boolean
     }
@@ -207,6 +207,23 @@ const FINAL_TEXT_LIMIT = 20_000
 
 const NEEDS_SETUP_MESSAGE =
   "No OpenWork Cloud workspace is available for your account yet. Open OpenWork Cloud in the browser once (the Web tab in OpenWork, or your organization's OpenWork Web URL) so it can be provisioned, then retry this capability."
+
+const CLOUD_NOT_AVAILABLE_MESSAGE =
+  "OpenWork Cloud is not enabled for this organization, so remote sessions are unavailable. An organization administrator can enable OpenWork Cloud; members cannot self-enable it."
+
+/**
+ * Whether the remote-session capabilities exist for an organization at all.
+ * Mirrors the external-MCP rollout pattern: when the org's Cloud capability
+ * flag is off (or this deployment cannot host Cloud), the capabilities are
+ * hidden from search and execute reports them as unknown — members of a
+ * flag-off org never see an action they cannot take.
+ */
+export function remoteSessionCapabilitiesEnabled(
+  organizationMetadata: Record<string, unknown> | string | null | undefined,
+): boolean {
+  if (env.provisionerMode !== "daytona" || !env.daytona.apiKey) return false
+  return organizationCloudEnabled(organizationMetadata, { orgMode: env.orgMode })
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null
@@ -261,16 +278,16 @@ async function ownerCloudWorker(scope: { organizationId: DenTypeId<"organization
 async function defaultResolveRuntime(
   scope: { organizationId: DenTypeId<"organization">; userId: string },
 ): Promise<RemoteSessionRuntimeResult> {
-  if (env.provisionerMode !== "daytona" || !env.daytona.apiKey) {
-    return { ok: false, error: "needs_cloud_setup", message: NEEDS_SETUP_MESSAGE, retryable: false }
-  }
+  // Defense in depth: the registry already hides these capabilities when the
+  // org's Cloud flag is off, but the runtime re-checks with a live read so a
+  // mid-session flag flip cannot keep executing against stale visibility.
   const organizations = await db
     .select({ metadata: OrganizationTable.metadata })
     .from(OrganizationTable)
     .where(eq(OrganizationTable.id, scope.organizationId))
     .limit(1)
-  if (!organizationCloudEnabled(organizations[0]?.metadata, { orgMode: env.orgMode })) {
-    return { ok: false, error: "needs_cloud_setup", message: NEEDS_SETUP_MESSAGE, retryable: false }
+  if (!remoteSessionCapabilitiesEnabled(organizations[0]?.metadata)) {
+    return { ok: false, error: "cloud_not_available", message: CLOUD_NOT_AVAILABLE_MESSAGE, retryable: false }
   }
 
   const worker = await ownerCloudWorker(scope)

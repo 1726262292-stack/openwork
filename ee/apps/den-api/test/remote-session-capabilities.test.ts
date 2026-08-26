@@ -302,3 +302,62 @@ test("capability names round-trip through the registry parser", async () => {
   expect(CAPABILITY_SOURCES.externalMcp.parseName("remote-session:create")).toBeNull()
   expect(CAPABILITY_SOURCES.marketplace.parseName("remote-session:create")).toBeNull()
 })
+
+async function registryContext(input: { remoteSessionsEnabled: boolean }) {
+  const registry = await import("../src/mcp/capability-registry.js")
+  const { createDenTypeId: createId } = await import("@openwork-ee/utils/typeid")
+  const { Hono } = await import("hono")
+  const organizationId = createId("organization")
+  type SearchContext = Parameters<(typeof registry)["CAPABILITY_SOURCES"]["remoteSession"]["search"]>[0]
+  const context: SearchContext = {
+    app: new Hono(),
+    env: undefined,
+    catalog: [],
+    principal: {
+      userId: createId("user"),
+      organizationId,
+      scopes: new Set(["mcp:read", "mcp:write"]),
+      payload: {},
+    },
+    organizationId,
+    member: { orgMembershipId: createId("member"), teamIds: [] },
+    redirectUriBase: "http://127.0.0.1:8790",
+    generatedArtifactViewsEnabled: false,
+    externalMcpConnectionsEnabled: true,
+    remoteSessionsEnabled: input.remoteSessionsEnabled,
+    resolvePlatformAdmin: () => Promise.resolve(false),
+    resolveNamespaceContext: () => Promise.resolve({
+      nativeProviderEntries: [],
+      externalMcpConnections: [],
+      codemodeNativeProviderEntries: [],
+      codemodeExternalMcpConnections: [],
+      namespaces: { native: new Map(), externalMcp: new Map() },
+    }),
+    sourceFilter: { api: true, admin: true, mcp: true, marketplace: true, skills: true },
+    reportExternalCoverage: () => {},
+  }
+  return { registry, context }
+}
+
+test("an org without the cloud capability flag never discovers remote-session capabilities", async () => {
+  const { registry, context } = await registryContext({ remoteSessionsEnabled: false })
+  const source = registry.CAPABILITY_SOURCES.remoteSession
+  const matches = await source.search(context, "remote session cloud web", 10)
+  expect(matches).toEqual([])
+
+  const executed = await source.execute(
+    context,
+    { kind: "remoteSession", name: "remote-session:create", action: "create" },
+    { name: "remote-session:create", body: {} },
+  )
+  expect(executed.isError).toBe(true)
+  const text = executed.content.find((part) => part.type === "text")
+  expect(text?.type === "text" ? text.text : "").toContain("unknown_capability")
+})
+
+test("an org with the cloud capability flag discovers remote-session capabilities", async () => {
+  const { registry, context } = await registryContext({ remoteSessionsEnabled: true })
+  const source = registry.CAPABILITY_SOURCES.remoteSession
+  const matches = await source.search(context, "remote session cloud web", 10)
+  expect(matches.map((match) => match.name)).toContain("remote-session:create")
+})

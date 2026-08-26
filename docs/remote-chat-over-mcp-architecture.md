@@ -126,6 +126,15 @@ without MCP Apps get text fallback with the same URL.
   (e.g. `remote-session`), included in first-party desktop tokens
   (`/v1/mcp/token`) and public OAuth tokens by default; org policy can turn it
   off via the existing exposure allowlist mechanics (`policy.ts` conventions).
+- **Org capability flag**: Cloud is default-off per organization
+  (`metadata.capabilities.cloud`, `cloud-rollout.ts`). When the flag is off,
+  the source is invisible in `search_capabilities` and execute reports
+  `unknown_capability` — mirroring the external-MCP rollout pattern, so
+  members of a flag-off org never see an action they cannot take. The runtime
+  re-checks the flag live at execute time (`cloud_not_available`, an
+  admin-facing action) as defense in depth against mid-session flag flips;
+  `needs_cloud_setup` is reserved for the member-facing "open OpenWork Cloud
+  once to provision" case.
 - Member-scoped only: capabilities operate on the caller's resolved worker.
   `sessionId` from another member's worker must 404, not 403-leak.
 - Prompts transit the gateway but are stored only on the worker (same trust
