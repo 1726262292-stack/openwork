@@ -223,6 +223,19 @@ test(title, async ({ evidence, place }) => {
     timeoutMs: 10_000,
     label: "Connection selected in the unified picker",
   });
+  await evalIn(desktop, `document.documentElement.classList.add('dark')`);
+  try {
+    const shot = await screenshot(desktop);
+    const seen = await validate(shot, [
+      "The Add to your Library dialog is visibly rendered in a dark theme",
+      "Connection is the selected choice and remains in the same continuous list as the OpenWork creation and MCP choices",
+      "The Connection choice visibly includes recognizable marks for Notion, Slack, Google Workspace, Microsoft 365, and Linear",
+      "The dark-theme dialog, all seven choices, descriptions, connector marks, Cancel button, and Continue button fit within the desktop viewport without clipping",
+    ]);
+    expect(seen.ok, seen.why).toBe(true);
+  } finally {
+    await evalIn(desktop, `document.documentElement.classList.remove('dark')`);
+  }
   const connectionContinued = await evalIn(desktop, `(() => {
     const continueButton = [...document.querySelectorAll('[role="dialog"] button')]
       .find((button) => (button.textContent ?? '').trim() === 'Continue');
