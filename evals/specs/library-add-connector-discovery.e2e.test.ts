@@ -1,6 +1,7 @@
 import { expect } from "vitest";
 import { denFetch, evalIn, go, waitFor } from "@openwork/behaviors";
 import type { DenSession } from "@openwork/behaviors";
+import { screenshot, validate } from "@openwork/test-evidence";
 import { app, needs, server, test, unmetNeeds } from "@openwork/testkit";
 import type { TestNeeds } from "@openwork/testkit";
 
@@ -186,6 +187,29 @@ test(title, async ({ evidence, place }) => {
       && picker.continueVisible === true
       && picker.horizontalOverflow === false,
   );
+
+  await waitFor(desktop, `(() => {
+    const cues = [...document.querySelectorAll('[data-connector-cue]')];
+    return cues.length === 5 && cues.every((cue) => {
+      const image = cue.querySelector('img');
+      return image instanceof HTMLImageElement
+        ? image.complete && image.naturalWidth > 0
+        : Boolean(cue.querySelector('[aria-label$=" logo"]'));
+    });
+  })()`, {
+    timeoutMs: 30_000,
+    label: "connector logos loaded or replaced by their labeled fallbacks",
+  });
+  {
+    const shot = await screenshot(desktop);
+    const seen = await validate(shot, [
+      "The Add to your Library dialog presents Skill, Command, Agent, Plugin, Organization MCP, Workspace MCP, and Connection as one continuous selection surface",
+      "The Connection choice visibly includes a compact row of recognizable service marks for Notion, Slack, Google Workspace, Microsoft 365, and Linear",
+      "The dialog has no separate WHAT ARE YOU MAKING or OR CONNECT SOMETHING sections",
+      "The dialog, descriptions, connector marks, Cancel button, and Continue button fit within the desktop viewport without clipping",
+    ]);
+    expect(seen.ok, seen.why).toBe(true);
+  }
 
   const connectionSelected = await evalIn(desktop, `(() => {
     const connection = document.querySelector('[role="radio"][data-kind="connection"]');
