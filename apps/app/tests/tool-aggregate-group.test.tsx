@@ -72,7 +72,14 @@ describe("tool aggregate running feedback", () => {
       input: { filePath: "/repo/message-list.tsx" },
     };
 
-    const markup = renderToStaticMarkup(<ToolAggregateGroup parts={[settledRead, runningEdit]} />);
+    const markup = renderToStaticMarkup(
+      <CurrentToolLifecycleProvider
+        activityStatus="responding"
+        currentToolCallIds={new Set([runningEdit.toolCallId])}
+      >
+        <ToolAggregateGroup parts={[settledRead, runningEdit]} />
+      </CurrentToolLifecycleProvider>,
+    );
 
     expect(markup).not.toContain("Now:");
     expect(markup).toContain("ow-text-shimmer");
