@@ -59,6 +59,25 @@ function readEnvNames(entry: Record<string, unknown>): string[] {
   return entry.env.filter((name): name is string => typeof name === "string" && name.trim().length > 0);
 }
 
+const credentialNamePatterns = [
+  /(?:^|_)API_KEY$/i,
+  /(?:^|_)BEARER_TOKEN(?:_|$)/i,
+  /(?:^|_)SECRET_ACCESS_KEY$/i,
+  /(?:^|_)TOKEN(?:_|$)/i,
+];
+
+export function selectManagedProviderCredentialName(
+  envNames: string[],
+  storedValues: ReadonlyMap<string, string>,
+): string | undefined {
+  const configured = envNames.filter((name) => storedValues.has(name));
+  for (const pattern of credentialNamePatterns) {
+    const match = configured.find((name) => pattern.test(name));
+    if (match) return match;
+  }
+  return configured[0];
+}
+
 /**
  * Forget what we believe the engine holds. Call this when the engine process is
  * replaced: opencode persists auth outside the process, but a fresh engine may
@@ -107,7 +126,7 @@ export async function syncManagedProviderAuth(input: ManagedProviderAuthInput): 
       continue;
     }
 
-    const credentialName = envNames.find((name) => storedValues.has(name));
+    const credentialName = selectManagedProviderCredentialName(envNames, storedValues);
     if (!credentialName) {
       result.skipped.push({ providerId, reason: "no_stored_credential" });
       input.logger?.warn("managed provider credential missing from env store", {

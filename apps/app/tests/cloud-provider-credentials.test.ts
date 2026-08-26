@@ -20,7 +20,7 @@ describe("resolveCloudProviderCredentials", () => {
     ).toEqual({ envEntries: [], primaryApiKey: "sk-test" });
   });
 
-  test("multi-env payloads become env entries with env[0] as the auth key", () => {
+  test("multi-env payloads prefer the secret access key over positional env[0]", () => {
     const { envEntries, primaryApiKey } = resolveCloudProviderCredentials({
       apiKey: null,
       apiKeys: {
@@ -36,7 +36,24 @@ describe("resolveCloudProviderCredentials", () => {
       { key: "AWS_SECRET_ACCESS_KEY", value: "shhh" },
       { key: "AWS_REGION", value: "us-east-1" },
     ]);
-    expect(primaryApiKey).toBe("AKIA");
+    expect(primaryApiKey).toBe("shhh");
+  });
+
+  test("Azure resource-first payloads use AZURE_API_KEY for engine auth", () => {
+    const { envEntries, primaryApiKey } = resolveCloudProviderCredentials({
+      apiKey: null,
+      apiKeys: {
+        AZURE_RESOURCE_NAME: "resource-name",
+        AZURE_API_KEY: "azure-secret",
+      },
+      providerConfig: { env: ["AZURE_RESOURCE_NAME", "AZURE_API_KEY"] },
+    });
+
+    expect(envEntries).toEqual([
+      { key: "AZURE_RESOURCE_NAME", value: "resource-name" },
+      { key: "AZURE_API_KEY", value: "azure-secret" },
+    ]);
+    expect(primaryApiKey).toBe("azure-secret");
   });
 
   test("the first env name with a value wins when env[0] has none", () => {

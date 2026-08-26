@@ -39,11 +39,26 @@ const removeCloudProviderComment = (raw: string, providerId: string) =>
 export const getCloudProviderEnv = (config: Record<string, unknown>) =>
   getStringList(config.env);
 
+const credentialNamePatterns = [
+  /(?:^|_)API_KEY$/i,
+  /(?:^|_)BEARER_TOKEN(?:_|$)/i,
+  /(?:^|_)SECRET_ACCESS_KEY$/i,
+  /(?:^|_)TOKEN(?:_|$)/i,
+];
+
+const primaryCredentialValue = (entries: Array<{ key: string; value: string }>) => {
+  for (const pattern of credentialNamePatterns) {
+    const match = entries.find((entry) => pattern.test(entry.key));
+    if (match) return match.value;
+  }
+  return entries[0]?.value ?? "";
+};
+
 /**
  * Split a connect payload's credential into the opencode auth.json entry and
  * the env vars to upsert. Multi-env providers (`apiKeys`) set every value as
- * an env var and use the first env-ordered value as the auth entry, following
- * the models.dev convention that `env[0]` is the primary credential. Legacy
+ * an env var and prefer an explicitly credential-shaped name for the auth
+ * entry instead of treating positional `env[0]` as a credential. Legacy
  * single-credential payloads (`apiKey`) keep today's auth-only behaviour.
  */
 export const resolveCloudProviderCredentials = (
@@ -62,7 +77,7 @@ export const resolveCloudProviderCredentials = (
     const value = apiKeys[name]?.trim();
     return value ? [{ key: name, value }] : [];
   });
-  const primaryApiKey = provider.apiKey?.trim() || envEntries[0]?.value || "";
+  const primaryApiKey = provider.apiKey?.trim() || primaryCredentialValue(envEntries);
   return { envEntries, primaryApiKey };
 };
 
