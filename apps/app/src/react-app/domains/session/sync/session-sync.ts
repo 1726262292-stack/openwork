@@ -52,6 +52,8 @@ type PendingDelta = {
   delta: string;
 };
 
+type ListenerRegistry<Listener> = Map<Listener, number>;
+
 type SyncEntry = {
   input: SyncOptions;
   openworkToken: string;
@@ -60,10 +62,10 @@ type SyncEntry = {
   disposeTimer: ReturnType<typeof setTimeout> | null;
   trackedSessionRefs: Map<string, number>;
   retainedSessionTimers: Map<string, ReturnType<typeof setTimeout>>;
-  sessionCreatedListeners: Set<NonNullable<SyncOptions["onSessionCreated"]>>;
-  sessionUpdatedListeners: Set<NonNullable<SyncOptions["onSessionUpdated"]>>;
-  sessionDeletedListeners: Set<NonNullable<SyncOptions["onSessionDeleted"]>>;
-  sessionStatusListeners: Set<NonNullable<SyncOptions["onSessionStatus"]>>;
+  sessionCreatedListeners: ListenerRegistry<NonNullable<SyncOptions["onSessionCreated"]>>;
+  sessionUpdatedListeners: ListenerRegistry<NonNullable<SyncOptions["onSessionUpdated"]>>;
+  sessionDeletedListeners: ListenerRegistry<NonNullable<SyncOptions["onSessionDeleted"]>>;
+  sessionStatusListeners: ListenerRegistry<NonNullable<SyncOptions["onSessionStatus"]>>;
   pendingDeltas: Map<string, { messageId: string; reasoning: boolean; text: string }>;
   // Coalesce rapid-fire delta events from the SSE stream into one cache
   // commit per animation frame. Without this, a long response produces a
@@ -81,6 +83,31 @@ const sessionSnapshotFetchStarts = new WeakMap<OpenworkSessionSnapshot, number>(
 const workspaceSyncDisposeGraceMs = 2_000;
 const retainedSessionTtlMs = 10 * 60_000;
 const idleRetainedSessionTtlMs = 10_000;
+
+function createListenerRegistry<Listener>(listener?: Listener) {
+  const registry: ListenerRegistry<Listener> = new Map();
+  if (listener !== undefined) registry.set(listener, 1);
+  return registry;
+}
+
+// Listener identity is not attachment identity: overlapping route lifecycles
+// can reuse one stable callback. Count each owner so an older cleanup cannot
+// detach a newer observer from the workspace-scoped task stream.
+function retainListener<Listener>(registry: ListenerRegistry<Listener>, listener?: Listener) {
+  if (listener === undefined) return;
+  registry.set(listener, (registry.get(listener) ?? 0) + 1);
+}
+
+function releaseListener<Listener>(registry: ListenerRegistry<Listener>, listener?: Listener) {
+  if (listener === undefined) return;
+  const owners = registry.get(listener);
+  if (owners === undefined) return;
+  if (owners <= 1) {
+    registry.delete(listener);
+    return;
+  }
+  registry.set(listener, owners - 1);
+}
 
 type SyncSubscriptionFactory = (
   baseUrl: string,
@@ -677,7 +704,7 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
   if (event.type === "session.created") {
     const session = getSessionCreatedInfo(event);
     if (!session) return;
-    for (const listener of entry.sessionCreatedListeners) listener(session);
+    for (const listener of entry.sessionCreatedListeners.keys()) listener(session);
     return;
   }
 
@@ -699,7 +726,7 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
         return { ...current, session: { ...current.session, revert } };
       },
     );
-    for (const listener of entry.sessionUpdatedListeners) listener(update);
+    for (const listener of entry.sessionUpdatedListeners.keys()) listener(update);
     return;
   }
 
@@ -709,7 +736,7 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
     if (sessionId) entry.titleRecovery?.resolve(sessionId);
     if (sessionId) useSessionActivityStore.getState().removeSession(workspaceId, sessionId);
     if (sessionId) {
-      for (const listener of entry.sessionDeletedListeners) listener(sessionId);
+      for (const listener of entry.sessionDeletedListeners.keys()) listener(sessionId);
     }
     return;
   }
@@ -1031,7 +1058,7 @@ function applyEvent(entry: SyncEntry, workspaceId: string, event: OpencodeEvent)
         exact: true,
       });
     }
-    for (const listener of entry.sessionStatusListeners) listener({ sessionId: props.sessionID, status: idleStatus });
+    for (const listener of entry.sessionStatusListeners.keys()) listener({ sessionId: props.sessionID, status: idleStatus });
     if (input && tracked) releaseRetainedSessionSoon(input, entry, props.sessionID);
   }
 }
@@ -1223,7 +1250,7 @@ function applySessionRunStatus(
   }
   const tracked = isTrackedSession(entry, sessionId);
   if (tracked) getReactQueryClient().setQueryData(statusKey(workspaceId, sessionId), status);
-  for (const listener of entry.sessionStatusListeners) listener({ sessionId, status });
+  for (const listener of entry.sessionStatusListeners.keys()) listener({ sessionId, status });
   if (entry.input && tracked && !isLiveStatus(status)) releaseRetainedSessionSoon(entry.input, entry, sessionId);
 }
 
@@ -1260,10 +1287,10 @@ export function ensureWorkspaceSessionSync(input: SyncOptions) {
       clearTimeout(existing.disposeTimer);
       existing.disposeTimer = null;
     }
-    if (input.onSessionCreated) existing.sessionCreatedListeners.add(input.onSessionCreated);
-    if (input.onSessionUpdated) existing.sessionUpdatedListeners.add(input.onSessionUpdated);
-    if (input.onSessionDeleted) existing.sessionDeletedListeners.add(input.onSessionDeleted);
-    if (input.onSessionStatus) existing.sessionStatusListeners.add(input.onSessionStatus);
+    retainListener(existing.sessionCreatedListeners, input.onSessionCreated);
+    retainListener(existing.sessionUpdatedListeners, input.onSessionUpdated);
+    retainListener(existing.sessionDeletedListeners, input.onSessionDeleted);
+    retainListener(existing.sessionStatusListeners, input.onSessionStatus);
     existing.refs += 1;
     return () => releaseWorkspaceSessionSync(input);
   }
@@ -1276,10 +1303,10 @@ export function ensureWorkspaceSessionSync(input: SyncOptions) {
     disposeTimer: null,
     trackedSessionRefs: new Map(),
     retainedSessionTimers: new Map(),
-    sessionCreatedListeners: new Set(input.onSessionCreated ? [input.onSessionCreated] : []),
-    sessionUpdatedListeners: new Set(input.onSessionUpdated ? [input.onSessionUpdated] : []),
-    sessionDeletedListeners: new Set(input.onSessionDeleted ? [input.onSessionDeleted] : []),
-    sessionStatusListeners: new Set(input.onSessionStatus ? [input.onSessionStatus] : []),
+    sessionCreatedListeners: createListenerRegistry(input.onSessionCreated),
+    sessionUpdatedListeners: createListenerRegistry(input.onSessionUpdated),
+    sessionDeletedListeners: createListenerRegistry(input.onSessionDeleted),
+    sessionStatusListeners: createListenerRegistry(input.onSessionStatus),
     pendingDeltas: new Map(),
     deltaFlushBuffer: [],
     deltaFlushScheduled: false,
@@ -1308,7 +1335,7 @@ export function ensureWorkspaceSessionSync(input: SyncOptions) {
           ? { ...current, session: { ...current.session, title } }
           : current,
       );
-      for (const listener of created.sessionUpdatedListeners) {
+      for (const listener of created.sessionUpdatedListeners.keys()) {
         listener({ sessionId, info: { title } });
       }
     },
@@ -1332,10 +1359,10 @@ function releaseWorkspaceSessionSync(input: SyncOptions) {
   const key = syncKey(input);
   const existing = syncs.get(key);
   if (!existing) return;
-  if (input.onSessionCreated) existing.sessionCreatedListeners.delete(input.onSessionCreated);
-  if (input.onSessionUpdated) existing.sessionUpdatedListeners.delete(input.onSessionUpdated);
-  if (input.onSessionDeleted) existing.sessionDeletedListeners.delete(input.onSessionDeleted);
-  if (input.onSessionStatus) existing.sessionStatusListeners.delete(input.onSessionStatus);
+  releaseListener(existing.sessionCreatedListeners, input.onSessionCreated);
+  releaseListener(existing.sessionUpdatedListeners, input.onSessionUpdated);
+  releaseListener(existing.sessionDeletedListeners, input.onSessionDeleted);
+  releaseListener(existing.sessionStatusListeners, input.onSessionStatus);
   existing.refs = Math.max(0, existing.refs - 1);
   if (existing.refs > 0) return;
   if (existing.retainedSessionTimers.size > 0 || existing.disposeTimer) return;
@@ -1469,10 +1496,10 @@ export function __createWorkspaceSessionSyncForTest(input: SyncOptions) {
     disposeTimer: null,
     trackedSessionRefs: new Map(),
     retainedSessionTimers: new Map(),
-    sessionCreatedListeners: new Set(input.onSessionCreated ? [input.onSessionCreated] : []),
-    sessionUpdatedListeners: new Set(),
-    sessionDeletedListeners: new Set(input.onSessionDeleted ? [input.onSessionDeleted] : []),
-    sessionStatusListeners: new Set(),
+    sessionCreatedListeners: createListenerRegistry(input.onSessionCreated),
+    sessionUpdatedListeners: createListenerRegistry(input.onSessionUpdated),
+    sessionDeletedListeners: createListenerRegistry(input.onSessionDeleted),
+    sessionStatusListeners: createListenerRegistry(input.onSessionStatus),
     pendingDeltas: new Map(),
     deltaFlushBuffer: [],
     deltaFlushScheduled: false,
