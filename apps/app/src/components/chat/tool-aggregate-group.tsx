@@ -1,7 +1,7 @@
 "use client"
 
 import { Fragment, useState } from "react"
-import { CircleHelp, CirclePause, MoreHorizontal } from "lucide-react"
+import { AlertTriangle, CircleHelp, CirclePause, MoreHorizontal } from "lucide-react"
 
 import { FileChip } from "@/components/chat/file-chip"
 import { ShellCommandText } from "@/components/chat/shell-command-text"
