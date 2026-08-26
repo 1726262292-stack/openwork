@@ -120,9 +120,14 @@ test(title, async ({ evidence, place }) => {
     const cueStrip = dialog?.querySelector('[data-testid="connection-logo-cues"]');
     const cueTiles = dialog ? [...dialog.querySelectorAll('[data-connector-cue]')] : [];
     const lightTileBackgrounds = cueTiles.map((tile) => getComputedStyle(tile).backgroundColor);
-    document.documentElement.classList.add('dark');
+    const previousTheme = document.documentElement.dataset.theme;
+    document.documentElement.dataset.theme = 'dark';
     const darkTileBackgrounds = cueTiles.map((tile) => getComputedStyle(tile).backgroundColor);
-    document.documentElement.classList.remove('dark');
+    if (previousTheme) {
+      document.documentElement.dataset.theme = previousTheme;
+    } else {
+      delete document.documentElement.dataset.theme;
+    }
     return {
       choices: dialog
         ? [...dialog.querySelectorAll('[data-kind-title]')]
@@ -223,8 +228,13 @@ test(title, async ({ evidence, place }) => {
     timeoutMs: 10_000,
     label: "Connection selected in the unified picker",
   });
-  await evalIn(desktop, `document.documentElement.classList.add('dark')`);
+  const previousTheme = await evalIn(desktop, `document.documentElement.dataset.theme ?? ''`);
+  await evalIn(desktop, `document.documentElement.dataset.theme = 'dark'`);
   try {
+    await waitFor(desktop, `document.documentElement.dataset.theme === 'dark'`, {
+      timeoutMs: 10_000,
+      label: "dark theme applied through the app theme attribute",
+    });
     const shot = await screenshot(desktop);
     const seen = await validate(shot, [
       "The Add to your Library dialog is visibly rendered in a dark theme",
@@ -234,7 +244,12 @@ test(title, async ({ evidence, place }) => {
     ]);
     expect(seen.ok, seen.why).toBe(true);
   } finally {
-    await evalIn(desktop, `document.documentElement.classList.remove('dark')`);
+    await evalIn(
+      desktop,
+      previousTheme
+        ? `document.documentElement.dataset.theme = ${JSON.stringify(previousTheme)}`
+        : `delete document.documentElement.dataset.theme`,
+    );
   }
   const connectionContinued = await evalIn(desktop, `(() => {
     const continueButton = [...document.querySelectorAll('[role="dialog"] button')]
