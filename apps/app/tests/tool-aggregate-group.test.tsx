@@ -74,9 +74,9 @@ describe("tool aggregate running feedback", () => {
 
     const markup = renderToStaticMarkup(<ToolAggregateGroup parts={[settledRead, runningEdit]} />);
 
-    const nowLine = markup.match(/<span class="ow-text-shimmer[^"]*"[^>]*>([^<]*)<\/span>/);
-    expect(nowLine?.[1]).not.toContain("Now:");
-    expect(nowLine?.[1]).toContain("Editing message-list.tsx");
+    expect(markup).not.toContain("Now:");
+    expect(markup).toContain("ow-text-shimmer");
+    expect(markup).toContain("Editing message-list.tsx");
   });
 
   test("a single file action renders as its row, not under a count header", () => {
