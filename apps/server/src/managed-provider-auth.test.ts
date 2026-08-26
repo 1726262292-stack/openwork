@@ -83,9 +83,9 @@ describe("managed provider auth delivery", () => {
     await rm(dir, { recursive: true, force: true });
   });
 
-  test("delivers AZURE_API_KEY when the Azure resource name is env[0]", async () => {
+  test("delivers Azure API key instead of resource name", async () => {
     const config = await makeConfig(dir);
-    await seedProvider(config, { id: "azure", env: ["AZURE_RESOURCE_NAME", "AZURE_API_KEY"] });
+    await seedProvider(config, { id: "azure", name: "Azure", env: ["AZURE_RESOURCE_NAME", "AZURE_API_KEY"] });
     const fetchStub = stubFetch();
 
     const result = await syncManagedProviderAuth({
@@ -93,39 +93,46 @@ describe("managed provider auth delivery", () => {
       env: {
         list: async () => [
           { key: "AZURE_RESOURCE_NAME", value: "resource-name" },
-          { key: "AZURE_API_KEY", value: "azure-secret" },
+          { key: "AZURE_API_KEY", value: "real-api-key" },
         ],
       },
       fetchImpl: fetchStub.impl,
     });
 
     expect(result.delivered).toEqual([PROVIDER]);
-    expect(fetchStub.calls[0]?.body).toEqual({ type: "api", key: "azure-secret" });
+    expect(fetchStub.calls[0]?.body).toEqual({ type: "api", key: "real-api-key" });
     await rm(dir, { recursive: true, force: true });
   });
 
-  test("prefers the Bedrock bearer token over access-key metadata", async () => {
+  test("does not treat an Azure resource name by itself as a stored credential", async () => {
     const config = await makeConfig(dir);
-    await seedProvider(config, {
-      id: "amazon-bedrock",
-      env: ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_REGION", "AWS_BEARER_TOKEN_BEDROCK"],
-    });
+    await seedProvider(config, { id: "azure", name: "Azure", env: ["AZURE_RESOURCE_NAME", "AZURE_API_KEY"] });
     const fetchStub = stubFetch();
 
-    await syncManagedProviderAuth({
+    const result = await syncManagedProviderAuth({
       config,
-      env: {
-        list: async () => [
-          { key: "AWS_ACCESS_KEY_ID", value: "access-id" },
-          { key: "AWS_SECRET_ACCESS_KEY", value: "secret-key" },
-          { key: "AWS_REGION", value: "us-east-1" },
-          { key: "AWS_BEARER_TOKEN_BEDROCK", value: "bearer-token" },
-        ],
-      },
+      env: { list: async () => [{ key: "AZURE_RESOURCE_NAME", value: "resource-name" }] },
       fetchImpl: fetchStub.impl,
     });
 
-    expect(fetchStub.calls[0]?.body).toEqual({ type: "api", key: "bearer-token" });
+    expect(result.skipped).toEqual([{ providerId: PROVIDER, reason: "no_stored_credential" }]);
+    expect(fetchStub.calls).toHaveLength(0);
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  test("does not deliver an unrelated env-store secret to a managed provider", async () => {
+    const config = await makeConfig(dir);
+    await seedProvider(config, { id: "azure", name: "Azure", env: ["AZURE_RESOURCE_NAME", "AZURE_API_KEY"] });
+    const fetchStub = stubFetch();
+
+    const result = await syncManagedProviderAuth({
+      config,
+      env: { list: async () => [{ key: "OPENAI_API_KEY", value: "unrelated-secret" }] },
+      fetchImpl: fetchStub.impl,
+    });
+
+    expect(result.skipped).toEqual([{ providerId: PROVIDER, reason: "no_stored_credential" }]);
+    expect(fetchStub.calls).toHaveLength(0);
     await rm(dir, { recursive: true, force: true });
   });
 

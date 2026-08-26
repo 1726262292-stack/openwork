@@ -7,6 +7,7 @@ import type {
   ChatToolReconnectResult,
 } from "@/components/tools/error-attribution"
 import * as React from "react"
+import type { ConnectorToolIdentity } from "@/react-app/domains/connections/connector-tool-identity"
 
 interface MessageListContextValue {
   workspaceId: string
@@ -16,6 +17,7 @@ interface MessageListContextValue {
   developerMode: boolean
   displaySuggestions: boolean
   providerConnectedCount: number
+  connectorIdentities: ConnectorToolIdentity[]
   dispatchAction: (action: DispatchAction) => void
   setPrompt: (prompt: string) => void
   onRevertToUserMessage: (messageId: string) => void
@@ -52,6 +54,7 @@ interface MessageListProviderProps {
   onMcpRetry: (action: ChatToolReconnectAction) => void | Promise<void>
   displaySuggestions: boolean
   providerConnectedCount: number
+  connectorIdentities?: ConnectorToolIdentity[]
   dispatchAction: (action: DispatchAction) => void
   setPrompt: (prompt: string) => void
 }
@@ -71,6 +74,7 @@ export function MessageListProvider({
   developerMode,
   displaySuggestions,
   providerConnectedCount,
+  connectorIdentities = [],
   dispatchAction,
   setPrompt,
   onRevertToUserMessage,
@@ -81,6 +85,57 @@ export function MessageListProvider({
   onMcpReopenAuthorization,
   onMcpRetry,
 }: MessageListProviderProps) {
+  const handlersRef = React.useRef({
+    dispatchAction,
+    setPrompt,
+    onRevertToUserMessage,
+    onForkAtMessage,
+    onEditUserMessage,
+    onOpenSubagentSession,
+    onMcpReconnect,
+    onMcpReopenAuthorization,
+    onMcpRetry,
+  })
+  React.useEffect(() => {
+    handlersRef.current = {
+      dispatchAction,
+      setPrompt,
+      onRevertToUserMessage,
+      onForkAtMessage,
+      onEditUserMessage,
+      onOpenSubagentSession,
+      onMcpReconnect,
+      onMcpReopenAuthorization,
+      onMcpRetry,
+    }
+  }, [
+    dispatchAction,
+    setPrompt,
+    onRevertToUserMessage,
+    onForkAtMessage,
+    onEditUserMessage,
+    onOpenSubagentSession,
+    onMcpReconnect,
+    onMcpReopenAuthorization,
+    onMcpRetry,
+  ])
+  const stableHandlers = React.useMemo(() => ({
+    dispatchAction: (action: DispatchAction) => handlersRef.current.dispatchAction(action),
+    setPrompt: (prompt: string) => handlersRef.current.setPrompt(prompt),
+    onRevertToUserMessage: (messageId: string) => handlersRef.current.onRevertToUserMessage(messageId),
+    onForkAtMessage: (messageId: string) => handlersRef.current.onForkAtMessage(messageId),
+    onEditUserMessage: (messageId: string, text: string) => handlersRef.current.onEditUserMessage(messageId, text),
+    onOpenSubagentSession: (sessionId: string) => handlersRef.current.onOpenSubagentSession?.(sessionId),
+    onMcpReconnect: (
+      action: ChatToolReconnectAction,
+      onProgress: (progress: ChatToolReconnectProgress) => void,
+    ) => handlersRef.current.onMcpReconnect(action, onProgress),
+    onMcpReopenAuthorization: (action: ChatToolReconnectAction, authorizeUrl: string) => (
+      handlersRef.current.onMcpReopenAuthorization(action, authorizeUrl)
+    ),
+    onMcpRetry: (action: ChatToolReconnectAction) => handlersRef.current.onMcpRetry(action),
+  }), [])
+  const canOpenSubagentSession = Boolean(onOpenSubagentSession)
   const value = React.useMemo(
     () => ({
       workspaceId,
@@ -90,15 +145,11 @@ export function MessageListProvider({
       developerMode,
       displaySuggestions,
       providerConnectedCount,
-      dispatchAction,
-      setPrompt,
-      onRevertToUserMessage,
-      onForkAtMessage,
-      onEditUserMessage,
-      onOpenSubagentSession,
-      onMcpReconnect,
-      onMcpReopenAuthorization,
-      onMcpRetry,
+      connectorIdentities,
+      ...stableHandlers,
+      onOpenSubagentSession: canOpenSubagentSession
+        ? stableHandlers.onOpenSubagentSession
+        : undefined,
     }),
     [
       workspaceId,
@@ -108,15 +159,9 @@ export function MessageListProvider({
       developerMode,
       displaySuggestions,
       providerConnectedCount,
-      dispatchAction,
-      setPrompt,
-      onRevertToUserMessage,
-      onForkAtMessage,
-      onEditUserMessage,
-      onOpenSubagentSession,
-      onMcpReconnect,
-      onMcpReopenAuthorization,
-      onMcpRetry,
+      connectorIdentities,
+      stableHandlers,
+      canOpenSubagentSession,
     ],
   )
 
