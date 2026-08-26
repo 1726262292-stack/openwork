@@ -7,6 +7,7 @@ export type LibraryConnectorCue = {
   iconSrc?: string;
   iconSlug?: string;
   serviceUrl?: string;
+  faviconDomain?: string;
 };
 
 const MAX_CONNECTOR_CUES = 5;
@@ -28,20 +29,23 @@ const HOSTED_SUITE_CUES: LibraryConnectorCue[] = [
     id: "google-workspace",
     name: "Google Workspace",
     iconSlug: "googleworkspace",
-    serviceUrl: "https://workspace.google.com/",
+    faviconDomain: "google.com",
   },
   {
     id: "microsoft-365",
     name: "Microsoft 365",
     iconSlug: "microsoft365",
-    serviceUrl: "https://www.microsoft365.com/",
+    faviconDomain: "microsoft365.com",
   },
 ];
 
 export function libraryConnectorIconUrls(cue: LibraryConnectorCue): string[] {
   const primary = resolveExtensionIconUrl(cue);
-  const serviceIcon = cue.serviceUrl
-    ? resolveExtensionIconUrl({ serviceUrl: cue.serviceUrl })
+  const fallbackService = cue.faviconDomain
+    ? `https://${cue.faviconDomain}`
+    : cue.serviceUrl;
+  const serviceIcon = fallbackService
+    ? resolveExtensionIconUrl({ serviceUrl: fallbackService })
     : undefined;
   return [...new Set([primary, serviceIcon].filter((url): url is string => Boolean(url)))];
 }

@@ -154,7 +154,7 @@ function ConnectorLogoCue({ cue }: { cue: LibraryConnectorCue }) {
 
   useEffect(() => {
     setImageIndex(0);
-  }, [cue.iconSlug, cue.iconSrc, cue.id, cue.serviceUrl]);
+  }, [cue.faviconDomain, cue.iconSlug, cue.iconSrc, cue.id, cue.serviceUrl]);
 
   return (
     <span
