@@ -153,7 +153,7 @@ export function PricingGrid(props: PricingGridProps) {
         { text: "SSO / SAML and SCIM provisioning", icon: Shield },
         { text: "Usage and adoption analytics", icon: SlidersHorizontal },
         { text: "Desktop policies and version controls", icon: SlidersHorizontal },
-        { text: "White-labeling — your name, logo, and branding", icon: FileText },
+        { text: "Internal white-labeling — your name, logo, and branding", icon: FileText },
         { text: "OpenWork Web", icon: Code2 },
         { text: "Spend observability", icon: FileText },
         { text: "Bring your own inference — self-hosted or private models", icon: Server },
