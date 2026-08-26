@@ -6,6 +6,7 @@ import { test } from "@openwork/testkit";
 import { expect } from "vitest";
 
 const repoRoot = resolve(import.meta.dirname, "../..");
+const desktopRunnerTest = join(repoRoot, "apps/desktop/electron/automation-runner.test.mjs");
 
 test("rejected Automation runner credentials stay attributable and bounded", ({ evidence }) => {
   const reportDir = mkdtempSync(join(tmpdir(), "openwork-runner-rejection-"));
@@ -39,6 +40,30 @@ test("rejected Automation runner credentials stay attributable and bounded", ({ 
     expect(junit).not.toContain("<failure");
     expect(junit).not.toContain("<skipped");
 
+    const desktopResult = spawnSync(process.execPath, [
+      "--test",
+      "--test-reporter=tap",
+      desktopRunnerTest,
+    ], {
+      cwd: repoRoot,
+      encoding: "utf8",
+      maxBuffer: 10 * 1024 * 1024,
+      timeout: 60_000,
+    });
+    const desktopOutput = `${desktopResult.stdout}${desktopResult.stderr}`;
+    expect(desktopResult.error, desktopOutput).toBeUndefined();
+    expect(desktopResult.status, desktopOutput).toBe(0);
+    const tapCounts = Object.fromEntries(
+      [...desktopResult.stdout.matchAll(/^# (tests|pass|fail|skipped) (\d+)$/gm)]
+        .map((match) => [match[1], Number(match[2])]),
+    );
+    expect(tapCounts).toEqual({ tests: 32, pass: 32, fail: 0, skipped: 0 });
+    expect(desktopResult.stdout).not.toContain("not ok");
+    expect(desktopResult.stdout)
+      .toContain("HTTP 429 runner_unauthorized retires exactly that credential without reconnecting");
+    expect(desktopResult.stdout)
+      .toContain("an unrelated HTTP 429 retains generic backoff without requesting a credential remint");
+
     evidence.recordAssertionEvidence(
       "Runner credential rejections retain safe attribution",
       "Malformed, bad-signature, expired, and audience-mismatched credentials are classified; claimed runner, organization, and member IDs are represented only by stable fingerprints with version and expiry.",
@@ -52,6 +77,11 @@ test("rejected Automation runner credentials stay attributable and bounded", ({ 
     evidence.recordAssertionEvidence(
       "Runner HTTP failures disclose no claimed identity or bearer material",
       "The rejection body remains the generic runner_unauthorized envelope and the diagnostics exclude the bearer token, signature, signing secret, and raw claimed IDs.",
+      true,
+    );
+    evidence.recordAssertionEvidence(
+      "Desktop remints only for an authenticated runner rejection",
+      "A 429 carrying runner_unauthorized retires the credential and emits onCredentialRejected exactly once, while an unrelated 429 keeps generic reconnect backoff and emits no credential-rejection signal.",
       true,
     );
   } finally {

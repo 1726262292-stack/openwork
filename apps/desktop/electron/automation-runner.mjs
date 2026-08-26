@@ -44,6 +44,18 @@ function sleep(ms, signal) {
   })
 }
 
+function responseErrorCode(payload) {
+  const code = payload?.error
+  return typeof code === "string" && /^[a-z][a-z0-9_]{0,63}$/.test(code) ? code : null
+}
+
+function responseRetryAfterSeconds(response) {
+  const value = response.headers.get("retry-after")?.trim() ?? ""
+  if (!/^\d{1,9}$/.test(value)) return null
+  const seconds = Number(value)
+  return Number.isSafeInteger(seconds) ? seconds : null
+}
+
 async function requestJson(fetchImpl, baseUrl, token, requestPath, options = {}) {
   const response = await fetchImpl(`${baseUrl.replace(/\/+$/, "")}${requestPath}`, {
     method: options.method ?? "GET",
@@ -61,6 +73,10 @@ async function requestJson(fetchImpl, baseUrl, token, requestPath, options = {})
   if (!response.ok) {
     const error = new Error(String(payload?.message ?? payload?.error ?? `Request returned ${response.status}`))
     Object.defineProperty(error, "status", { value: response.status })
+    const code = responseErrorCode(payload)
+    const retryAfterSeconds = responseRetryAfterSeconds(response)
+    if (code) Object.defineProperty(error, "code", { value: code })
+    if (retryAfterSeconds !== null) Object.defineProperty(error, "retryAfterSeconds", { value: retryAfterSeconds })
     throw error
   }
   return payload
@@ -280,6 +296,9 @@ export function createDesktopAutomationRunner(options) {
     }
   }
 
+  const isCredentialRejection = (error) => [401, 403].includes(error?.status)
+    || (error?.status === 429 && error?.code === "runner_unauthorized")
+
   const runnerRequest = async (state, requestPath, request = {}) => {
     if (!isCurrent(state)) {
       throw state.controller.signal.reason ?? new Error("Automation runner generation retired")
@@ -298,7 +317,7 @@ export function createDesktopAutomationRunner(options) {
         },
       )
     } catch (error) {
-      if ([401, 403].includes(error?.status)) rejectCredential(state, error.status)
+      if (isCredentialRejection(error)) rejectCredential(state, error.status)
       throw error
     }
   }
@@ -425,7 +444,7 @@ export function createDesktopAutomationRunner(options) {
         await waitBeforeReconnect(RUNNER_WORK_POLL_MS, state.controller.signal)
       } catch (error) {
         if (!isCurrent(state)) return
-        if ([401, 403].includes(error?.status)) return
+        if (isCredentialRejection(error)) return
         options.log?.(`runner polling failed: ${error instanceof Error ? error.message : String(error)}`)
         const backoff = Math.min(30_000, 500 * (2 ** reconnectAttempt++))
         try {
