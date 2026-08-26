@@ -235,6 +235,19 @@ test(title, async ({ evidence, place }) => {
       timeoutMs: 10_000,
       label: "dark theme applied through the app theme attribute",
     });
+    await evalIn(desktop, `(() => {
+      for (const toast of document.querySelectorAll('[data-sonner-toast]')) {
+        const closeButton = toast.querySelector(
+          '[data-close-button], button[aria-label*="close" i]',
+        );
+        if (closeButton instanceof HTMLButtonElement) closeButton.click();
+      }
+      return true;
+    })()`);
+    await waitFor(desktop, `document.querySelectorAll('[data-sonner-toast]').length === 0`, {
+      timeoutMs: 10_000,
+      label: "unrelated test-world notifications dismissed before dark-theme evidence",
+    });
     const shot = await screenshot(desktop);
     const seen = await validate(shot, [
       "The Add to your Library dialog is visibly rendered in a dark theme",
