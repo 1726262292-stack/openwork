@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -66,8 +65,8 @@ interface AuthFacts {
   filePresent: boolean;
   providerEntryPresent: boolean;
   apiType: boolean;
-  matchesResourceFingerprint: boolean;
-  matchesApiKeyFingerprint: boolean;
+  matchesResourceValue: boolean;
+  matchesApiKeyValue: boolean;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -78,10 +77,6 @@ function requiredEnv(name: string): string {
   const value = process.env[name]?.trim();
   if (!value) throw new Error(`Required live Azure input ${name} is unavailable.`);
   return value;
-}
-
-function fingerprint(value: string): string {
-  return createHash("sha256").update(value).digest("hex");
 }
 
 function errorCode(error: unknown): string | null {
@@ -280,8 +275,8 @@ async function localServerRequest(
 async function readAuthFacts(
   profileDir: string,
   providerId: string,
-  resourceFingerprint: string,
-  apiKeyFingerprint: string,
+  resourceName: string,
+  apiKey: string,
 ): Promise<AuthFacts> {
   const paths = electronProfilePaths(profileDir);
   const candidates = [
@@ -304,8 +299,8 @@ async function readAuthFacts(
       filePresent: false,
       providerEntryPresent: false,
       apiType: false,
-      matchesResourceFingerprint: false,
-      matchesApiKeyFingerprint: false,
+      matchesResourceValue: false,
+      matchesApiKeyValue: false,
     };
   }
   let parsed: unknown;
@@ -316,13 +311,12 @@ async function readAuthFacts(
   }
   const entry = isRecord(parsed) && isRecord(parsed[providerId]) ? parsed[providerId] : null;
   const key = entry && typeof entry.key === "string" ? entry.key : "";
-  const keyFingerprint = key ? fingerprint(key) : "";
   return {
     filePresent: true,
     providerEntryPresent: entry !== null && key.length > 0,
     apiType: entry?.type === "api",
-    matchesResourceFingerprint: keyFingerprint === resourceFingerprint,
-    matchesApiKeyFingerprint: keyFingerprint === apiKeyFingerprint,
+    matchesResourceValue: key === resourceName,
+    matchesApiKeyValue: key === apiKey,
   };
 }
 
@@ -353,9 +347,7 @@ test.skipIf(missingRequirements.length > 0)(title, { timeout: 30 * 60_000 }, asy
   const resourceName = requiredEnv(RESOURCE_ENV);
   const apiKey = requiredEnv(API_KEY_ENV);
   const deploymentId = requiredEnv(DEPLOYMENT_ENV);
-  const resourceFingerprint = fingerprint(resourceName);
-  const apiKeyFingerprint = fingerprint(apiKey);
-  expect(resourceFingerprint).not.toBe(apiKeyFingerprint);
+  expect(resourceName).not.toBe(apiKey);
 
   await using world = await startWorld(azureByok, {
     place,
@@ -516,24 +508,24 @@ test.skipIf(missingRequirements.length > 0)(title, { timeout: 30 * 60_000 }, asy
     throw new Error("The live Azure reproduction requires an isolated local Electron profile.");
   }
   const authFacts = await eventually(
-    () => readAuthFacts(profileDir, providerId, resourceFingerprint, apiKeyFingerprint),
+    () => readAuthFacts(profileDir, providerId, resourceName, apiKey),
     {
       within: 60_000,
       intervalMs: 500,
-      label: "secret-safe managed provider auth fingerprint",
+      label: "secret-safe managed provider auth selection",
       until: (facts) => facts.providerEntryPresent,
     },
   );
   const correctCredentialDelivered = authFacts.filePresent
     && authFacts.providerEntryPresent
     && authFacts.apiType
-    && !authFacts.matchesResourceFingerprint
-    && authFacts.matchesApiKeyFingerprint;
-  expect(authFacts.matchesResourceFingerprint).toBe(false);
-  expect(authFacts.matchesApiKeyFingerprint).toBe(true);
+    && !authFacts.matchesResourceValue
+    && authFacts.matchesApiKeyValue;
+  expect(authFacts.matchesResourceValue).toBe(false);
+  expect(authFacts.matchesApiKeyValue).toBe(true);
   expect(correctCredentialDelivered).toBe(true);
   evidence.recordAssertionEvidence(
-    "The isolated auth.json stores the API-key fingerprint, not the resource-name fingerprint",
+    "The isolated auth.json selects the API-key value, not the resource-name value",
     `Secret-safe auth facts: ${JSON.stringify(authFacts)}.`,
     correctCredentialDelivered,
   );
