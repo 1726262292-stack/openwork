@@ -169,8 +169,6 @@ export function BrandAppearanceScreen() {
   const currentIconUrl = typeof metadata?.brandIconUrl === "string" ? metadata.brandIconUrl : null;
   const currentLogoAsset = getManagedBrandAssetFromMetadata(orgContext?.organization.metadata ?? null, "logo");
   const currentIconAsset = getManagedBrandAssetFromMetadata(orgContext?.organization.metadata ?? null, "icon");
-  const logoPreviewUrl = logoDraft?.previewUrl ?? (logoClearPending ? null : currentLogoUrl);
-  const iconPreviewUrl = iconDraft?.previewUrl ?? (iconClearPending ? null : currentIconUrl);
 
   useEffect(() => {
     if (!orgContext) return;
@@ -286,38 +284,25 @@ export function BrandAppearanceScreen() {
               <div className="grid gap-2">
                 <p className="text-[12px] font-semibold uppercase tracking-[0.16em] text-violet-500">Workspace brand</p>
                 <h2 className="text-[24px] font-semibold tracking-[-0.04em] text-gray-900">Desktop identity</h2>
-                <p className="text-[14px] text-gray-500">Preview your workspace name, wordmark, app icon, and accent color before saving.</p>
+                <p className="text-[14px] text-gray-500">Set the desktop application name, wordmark, app icon, and accent color.</p>
               </div>
 
-              <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_280px]">
-                <div className="grid gap-5">
-                  <label className="grid gap-3">
-                    <span className="text-[14px] font-medium text-gray-700">Application name</span>
-                    <DenInput type="text" value={appNameDraft} onChange={(event) => setAppNameDraft(event.target.value)} placeholder="OpenWork" maxLength={64} disabled={!canManageBrandAppearance} />
-                    <span className="text-[11px] text-gray-400">The signed application identity stays OpenWork.</span>
-                  </label>
+              <div className="grid gap-5" data-testid="brand-identity-fields">
+                <label className="grid gap-3">
+                  <span className="text-[14px] font-medium text-gray-700">Application name</span>
+                  <DenInput type="text" value={appNameDraft} onChange={(event) => setAppNameDraft(event.target.value)} placeholder="OpenWork" maxLength={64} disabled={!canManageBrandAppearance} />
+                  <span className="text-[11px] text-gray-400">The signed application identity stays OpenWork.</span>
+                </label>
 
-                  <label className="grid gap-3">
-                    <span className="text-[14px] font-medium text-gray-700">Accent color</span>
-                    <select value={accentColorDraft} onChange={(event) => setAccentColorDraft(event.target.value)} disabled={!canManageBrandAppearance} className="h-11 rounded-xl border border-gray-200 bg-white px-4 text-[14px] text-gray-900 outline-none">
-                      <option value="">Default (OpenWork)</option>
-                      {["blue", "violet", "purple", "indigo", "iris", "crimson", "red", "ruby", "pink", "plum", "orange", "tomato", "gold", "green", "grass", "jade", "teal", "cyan", "sky"].map((color) => (
-                        <option key={color} value={color}>{color[0].toUpperCase() + color.slice(1)}</option>
-                      ))}
-                    </select>
-                  </label>
-                </div>
-
-                <div className="overflow-hidden rounded-2xl border border-gray-200 bg-gray-950 p-5 text-white">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-white/50">Preview</p>
-                  <div className="mt-8 flex items-center gap-3">
-                    {iconPreviewUrl ? <img src={iconPreviewUrl} alt="App icon preview" className="size-12 rounded-xl bg-white object-contain" /> : <div className="flex size-12 items-center justify-center rounded-xl bg-white text-[14px] font-semibold text-gray-950">OW</div>}
-                    <div className="min-w-0">
-                      {logoPreviewUrl ? <img src={logoPreviewUrl} alt="Wordmark preview" className="mb-1 max-h-7 max-w-40 object-contain object-left brightness-0 invert" /> : null}
-                      <p className="truncate text-[15px] font-medium">{appNameDraft.trim() || "OpenWork"}</p>
-                    </div>
-                  </div>
-                </div>
+                <label className="grid gap-3">
+                  <span className="text-[14px] font-medium text-gray-700">Accent color</span>
+                  <select value={accentColorDraft} onChange={(event) => setAccentColorDraft(event.target.value)} disabled={!canManageBrandAppearance} className="h-11 rounded-xl border border-gray-200 bg-white px-4 text-[14px] text-gray-900 outline-none">
+                    <option value="">Default (OpenWork)</option>
+                    {["blue", "violet", "purple", "indigo", "iris", "crimson", "red", "ruby", "pink", "plum", "orange", "tomato", "gold", "green", "grass", "jade", "teal", "cyan", "sky"].map((color) => (
+                      <option key={color} value={color}>{color[0].toUpperCase() + color.slice(1)}</option>
+                    ))}
+                  </select>
+                </label>
               </div>
 
               <div className="grid min-w-0 gap-5 lg:grid-cols-2">
