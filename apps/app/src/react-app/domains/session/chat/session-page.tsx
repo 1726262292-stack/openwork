@@ -1856,7 +1856,7 @@ export function SessionPage(props: SessionPageProps) {
               </Sheet>
             ) : null}
           </ResizablePanelGroup>
-          <aside className="hidden w-9 shrink-0 flex-col items-center gap-1 px-0.5 py-2 text-muted-foreground lg:flex mac:titlebar-no-drag">
+          <aside className="hidden w-10 shrink-0 flex-col items-center gap-1 px-1 py-2 text-muted-foreground lg:flex mac:titlebar-no-drag">
             {isElectronRuntime() ? (
               <Button
                 variant="ghost"
