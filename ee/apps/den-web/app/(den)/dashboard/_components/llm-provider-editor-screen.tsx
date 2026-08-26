@@ -847,12 +847,12 @@ export function LlmProviderEditorScreen({
                                 <p className="mt-1 text-sky-800">
                                     Azure Foundry may show a project URL such as{" "}
                                     <code className="rounded bg-white/70 px-1.5 py-0.5 font-mono text-[12px]">
-                                        https://foundry-ow-instant.services.ai.azure.com/api/projects/instant-test
+                                        https://yourFoundryResourceName.services.ai.azure.com/api/projects/your-project
                                     </code>
                                     . Paste that full URL here and we will save just the
                                     resource name, for example{" "}
                                     <code className="rounded bg-white/70 px-1.5 py-0.5 font-mono text-[12px]">
-                                        foundry-ow-instant
+                                        yourFoundryResourceName
                                     </code>
                                     .
                                 </p>
