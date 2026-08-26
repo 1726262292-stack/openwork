@@ -53,6 +53,10 @@ export function selectPrimaryCredentialEnvName(envNames: string[], availableName
   return orderedNames[0] ?? null
 }
 
+export function selectLegacyScalarCredentialEnvName(envNames: string[]): string | null {
+  return selectPrimaryCredentialEnvName(envNames, envNames) ?? envNames[0] ?? null
+}
+
 /**
  * A stored credential is a multi-env map only when it parses to a non-empty
  * JSON object whose values are all strings. Real API keys never take that
@@ -107,7 +111,8 @@ export function listConfiguredEnvKeys(stored: string | null, envNames: string[])
   }
 
   if (credential.apiKey) {
-    return envNames.length > 0 ? [envNames[0]] : []
+    const envName = selectLegacyScalarCredentialEnvName(envNames)
+    return envName ? [envName] : []
   }
 
   return []
@@ -143,7 +148,7 @@ export function resolveProviderCredential(input: {
     const existing = decodeProviderCredential(existingValue)
     const values: Record<string, string> = { ...(existing.apiKeys ?? {}) }
     if (!existing.apiKeys && existing.apiKey) {
-      const legacyEnvName = input.existing?.envNames[0]
+      const legacyEnvName = selectLegacyScalarCredentialEnvName(input.existing?.envNames ?? [])
       if (legacyEnvName) {
         values[legacyEnvName] = existing.apiKey
       }

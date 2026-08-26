@@ -10,7 +10,7 @@ import { db } from "../db.js"
 import { env } from "../env.js"
 import { appLogger } from "../observability/logger.js"
 import { fetchWithConnectRetry, previewFetch } from "../workers/preview-fetch.js"
-import { decodeProviderCredential, readProviderEnvNames, selectPrimaryCredentialEnvName } from "./provider-credentials.js"
+import { decodeProviderCredential, readProviderEnvNames, selectLegacyScalarCredentialEnvName, selectPrimaryCredentialEnvName } from "./provider-credentials.js"
 
 type JsonRecord = Record<string, unknown>
 type OrganizationId = typeof LlmProviderTable.$inferSelect.organizationId
@@ -284,7 +284,7 @@ function providerEnvEntries(provider: CloudProviderMaterializationProvider): Env
   if (credential.apiKey && envNames[0]) {
     upsertEnvEntry(
       entries,
-      selectPrimaryCredentialEnvName(envNames, envNames) ?? envNames[0],
+      selectLegacyScalarCredentialEnvName(envNames) ?? envNames[0],
       credential.apiKey,
     )
   }
