@@ -148,6 +148,18 @@ export const nextModelBehaviorValue = (
   return values[(currentIndex + 1) % values.length] ?? null;
 };
 
+/** Return the previous explicit thinking/reasoning variant, wrapping at the start. */
+export const previousModelBehaviorValue = (
+  options: readonly Pick<ModelBehaviorOption, "value">[],
+  current: string | null,
+) => {
+  const values = options.flatMap((option) => option.value == null ? [] : [option.value]);
+  if (values.length < 2) return null;
+  const currentIndex = current == null ? -1 : values.indexOf(current);
+  if (currentIndex === -1) return values[values.length - 1] ?? null;
+  return values[(currentIndex - 1 + values.length) % values.length] ?? null;
+};
+
 const getVariantDescription = (
   providerID: string,
   key: string,

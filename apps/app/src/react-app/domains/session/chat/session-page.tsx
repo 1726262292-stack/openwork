@@ -80,6 +80,7 @@ import { useBootOverlayVisible } from "../../../shell/boot-state";
 
 import { isElectronRuntime } from "../../../../app/utils";
 import { isCollectibleArtifactTarget, isLocalhostBrowserTarget, isOpenableFileTarget, type OpenTarget } from "../artifacts/open-target";
+import { resolveCollectibleOpenTarget } from "../artifacts/resolve-open-target";
 import type { OpenTargetOptions } from "@/lib/target-provider";
 import { VoicePanel } from "../voice/voice-panel";
 import { SidePanel } from "../panel/side-panel";
@@ -495,47 +496,63 @@ export function SessionPage(props: SessionPageProps) {
       }
       return;
     }
-    if (options?.external && target.kind === "file" && props.selectedWorkspaceDisplay.workspaceType !== "remote") {
-      const path = absoluteWorkspacePath(props.selectedWorkspaceRoot, target.value);
-      if (path && isElectronRuntime()) {
-        void (async () => {
-          try {
-            if (options.reveal) {
-              await revealDesktopItemInDir(path);
-            } else {
-              await openDesktopPath(path);
+
+    const openFileTarget = (fileTarget: OpenTarget) => {
+      if (options?.external && props.selectedWorkspaceDisplay.workspaceType !== "remote") {
+        const path = absoluteWorkspacePath(props.selectedWorkspaceRoot, fileTarget.value);
+        if (path && isElectronRuntime()) {
+          void (async () => {
+            try {
+              if (options.reveal) {
+                await revealDesktopItemInDir(path);
+              } else {
+                await openDesktopPath(path);
+              }
+            } catch {
+              await revealDesktopItemInDir(path).catch(() => undefined);
             }
-          } catch {
-            await revealDesktopItemInDir(path).catch(() => undefined);
-          }
-        })();
-      }
-      return;
-    }
-
-    if (!isCollectibleArtifactTarget(target)) {
-      if (isOpenableFileTarget(target)) {
-        if (props.selectedWorkspaceDisplay.workspaceType === "remote") {
-          void downloadOpenTarget(target).catch(() => undefined);
-        } else if (isElectronRuntime()) {
-          void openDesktopPath(absoluteWorkspacePath(props.selectedWorkspaceRoot, target.value)).catch(() => undefined);
+          })();
         }
+        return;
       }
+
+      if (!isCollectibleArtifactTarget(fileTarget)) {
+        if (isOpenableFileTarget(fileTarget)) {
+          if (props.selectedWorkspaceDisplay.workspaceType === "remote") {
+            void downloadOpenTarget(fileTarget).catch(() => undefined);
+          } else if (isElectronRuntime()) {
+            void openDesktopPath(absoluteWorkspacePath(props.selectedWorkspaceRoot, fileTarget.value)).catch(() => undefined);
+          }
+        }
+        return;
+      }
+
+      const sessionId = sourceSessionId ?? props.selectedSessionId;
+      if (!sessionId) return;
+      if (options?.auto && activePanelTab?.id === fileTarget.id) return;
+      openTab(sessionId, {
+        id: fileTarget.id,
+        type: "artifact",
+        label: fileTarget.name,
+        preview: fileTarget.preview,
+        target: fileTarget,
+      });
+      preserveSidePanelOnPanelOpenRef.current = true;
+      setCurrentSidePanel("panel");
+    };
+
+    if (target.exists !== true) {
+      if (!props.openworkServerClient || !props.runtimeWorkspaceId) return;
+      void resolveCollectibleOpenTarget(props.openworkServerClient, props.runtimeWorkspaceId, target)
+        .then((resolvedTarget) => {
+          if (resolvedTarget) openFileTarget(resolvedTarget);
+        })
+        .catch(() => undefined);
       return;
     }
 
-    const sessionId = sourceSessionId ?? props.selectedSessionId;
-    if (!sessionId) return;
-    if (options?.auto && activePanelTab?.id === target.id) return;
-    openTab(sessionId, {
-      id: target.id,
-      type: "artifact",
-      label: target.name,
-      preview: target.preview,
-    });
-    preserveSidePanelOnPanelOpenRef.current = true;
-    setCurrentSidePanel("panel");
-  }, [activePanelTab?.id, browserUrlForTarget, downloadOpenTarget, openTab, props.selectedSessionId, props.selectedWorkspaceDisplay.workspaceType, props.selectedWorkspaceRoot, setCurrentSidePanel]);
+    openFileTarget(target);
+  }, [activePanelTab?.id, browserUrlForTarget, downloadOpenTarget, openTab, props.openworkServerClient, props.runtimeWorkspaceId, props.selectedSessionId, props.selectedWorkspaceDisplay.workspaceType, props.selectedWorkspaceRoot, setCurrentSidePanel]);
   const closeRightPane = useCallback(() => {
     setCurrentSidePanel(null);
   }, [setCurrentSidePanel]);

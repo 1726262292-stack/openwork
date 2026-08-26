@@ -43,6 +43,14 @@ const MARKDOWN_IMAGE_PREVIEW_MAX_HEIGHT = 160;
 const MARKDOWN_IMAGE_PREVIEW_MAX_WIDTH = 280;
 const CODE_COPY_ICON = `<svg data-openwork-code-copy-icon="" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-3.5 w-3.5" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>`;
 const CODE_COPIED_ICON = `<svg data-openwork-code-copy-check-icon="" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-3.5 w-3.5" aria-hidden="true" hidden><path d="M20 6 9 17l-5-5"/></svg>`;
+const INLINE_CODE_FILE_EXTENSIONS = new Set([
+  "astro", "bash", "c", "cc", "cpp", "cs", "css", "dart", "docx", "ex", "exs", "gif", "go", "graphql",
+  "h", "hpp", "htm", "html", "java", "jpeg", "jpg", "js", "json", "jsonc", "jsx", "key", "kt", "kts",
+  "lua", "markdown", "md", "mdx", "mjs", "cjs", "odp", "ods", "pdf", "php", "png", "pot", "potx",
+  "ppt", "pptm", "pptx", "prisma", "py", "rb", "rs", "scss", "sh", "sql", "svelte", "svg", "swift",
+  "toml", "ts", "tsv", "tsx", "txt", "log", "vue", "webp", "xls", "xlsx", "xml", "yaml", "yml", "zig",
+]);
+const INLINE_CODE_LINE_SUFFIX = /(?::\d+(?::\d+)?|#L\d+(?:-L?\d+)?)$/i;
 
 function escapeHtml(value: string) {
   return value
@@ -55,6 +63,32 @@ function escapeHtml(value: string) {
 
 function escapeAttribute(value: string) {
   return escapeHtml(value).replace(/`/g, "&#96;");
+}
+
+export function inlineCodeArtifactPath(value: string): string | null {
+  const trimmed = value.trim();
+  const path = trimmed.replace(INLINE_CODE_LINE_SUFFIX, "");
+
+  if (
+    !path ||
+    path.length > 500 ||
+    /[\u0000-\u001f<>"'`|?*]/.test(path) ||
+    /^(?:https?|wss?|ftp|mailto|tel|file):/i.test(path)
+  ) {
+    return null;
+  }
+
+  const normalized = path.replace(/[\\]+/g, "/");
+  const withoutDrive = normalized.replace(/^[A-Za-z]:\//, "/");
+  if (withoutDrive.slice(1).includes(":")) return null;
+
+  const segments = withoutDrive.split("/").filter(Boolean);
+  const filename = segments.at(-1);
+  if (!filename || segments.some((segment) => segment === "." || segment === "..")) return null;
+
+  const extensionIndex = filename.lastIndexOf(".");
+  const extension = extensionIndex >= 0 ? filename.slice(extensionIndex + 1).toLowerCase() : "";
+  return INLINE_CODE_FILE_EXTENSIONS.has(extension) ? path : null;
 }
 
 function safeHref(href: string) {
@@ -182,18 +216,21 @@ function sanitizeMarkdownHtml(value: string) {
       "data-openwork-code-copy-icon",
       "data-openwork-code-copy-label",
       "aria-label",
-      "data-openwork-image-preview",
-      "data-openwork-link-href",
+       "data-openwork-image-preview",
+       "data-openwork-inline-code-path",
+       "data-openwork-link-href",
       "data-openwork-link-chevron",
       "data-openwork-shiki",
       "decoding",
       "disabled",
       "hidden",
       "loading",
-      "rel",
-      "start",
-      "style",
-      "target",
+       "rel",
+       "role",
+       "start",
+       "style",
+       "tabindex",
+       "target",
     ],
   });
 }
@@ -315,7 +352,12 @@ function createMarkedOptions(profile: MarkdownProfile, isAsync: boolean) {
         return profile.codeBlockHtml(text, lang);
       },
       codespan({ text }) {
-        return `<code class="${profile.codeSpanClassName}">${escapeHtml(text)}</code>`;
+        const path = profile.linkPresentation === "chat" ? inlineCodeArtifactPath(text) : null;
+        const pathAttributes = path
+          ? ` data-openwork-inline-code-path="${escapeAttribute(path)}" role="button" tabindex="0" aria-label="Open ${escapeAttribute(path)}"`
+          : "";
+        const pathClassName = path ? " cursor-pointer transition-colors hover:bg-gray-3/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" : "";
+        return `<code${pathAttributes} class="${profile.codeSpanClassName}${pathClassName}">${escapeHtml(text)}</code>`;
       },
       del({ raw, tokens }) {
         if (!raw.startsWith("~~")) {

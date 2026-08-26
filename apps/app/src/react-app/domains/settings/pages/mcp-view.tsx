@@ -177,6 +177,8 @@ export type McpViewProps = {
   mcpConnectingName: string | null;
   /** False when secure storage for OpenWork-managed sign-ins is unavailable on this device. */
   managedOAuthAvailable?: boolean;
+  /** Organization policy permission for local extension configuration. */
+  allowManageExtensions: boolean;
   selectedMcp: string | null;
   setSelectedMcp: (name: string | null) => void;
   quickConnect: McpDirectoryInfo[];
@@ -546,6 +548,7 @@ export function McpView(props: McpViewProps) {
     || (Boolean(cloudSession.authToken.trim()) && denAuth.isSignedIn);
   const libraryAddOptions = {
     cloudSignedIn: libraryCloudSignedIn,
+    allowManageExtensions: props.allowManageExtensions,
   };
   const libraryAddKinds = libraryAddKindsForFilter(filter).filter((kind) => (
     libraryAddAction(kind, libraryAddOptions) !== null
@@ -558,6 +561,10 @@ export function McpView(props: McpViewProps) {
   const handleAddKind = (kind: LibraryAddKind) => {
     const action = libraryAddAction(kind, libraryAddOptions);
     if (!action) return;
+    if (action.type === "workspace-mcp") {
+      setAddMcpModalOpen(true);
+      return;
+    }
     if (action.type === "den-url") {
       const url = denAddUrl(denBaseUrl, action.kind);
       if (url) void openDesktopUrl(url);
@@ -1312,6 +1319,7 @@ export function McpView(props: McpViewProps) {
       <div className="mb-7 flex flex-wrap items-center gap-2" aria-label="Library filters">
         <div className="w-full sm:w-[220px]">
           <SettingsListSearchInput
+            containerClassName="bg-background hover:bg-background"
             placeholder="Search your library"
             value={search}
             onChange={(e) => setSearch(e.currentTarget.value)}
@@ -1554,7 +1562,7 @@ export function McpView(props: McpViewProps) {
         onToggle={() => setShowAdvanced((current) => !current)}
         onScopeChange={setConfigScope}
         onReveal={revealConfig}
-        onAddMcp={() => setAddMcpModalOpen(true)}
+        onAddMcp={props.allowManageExtensions ? () => setAddMcpModalOpen(true) : undefined}
         onImportFromGithub={
           props.previewClaudePlugin && props.installClaudePlugin
             ? () => setClaudeImportOpen(true)
@@ -2303,7 +2311,7 @@ function McpAdvancedConfigSection(props: {
   onToggle: () => void;
   onScopeChange: (scope: ConfigScope) => void;
   onReveal: () => Promise<void>;
-  onAddMcp: () => void;
+  onAddMcp?: () => void;
   onImportFromGithub?: () => void;
 }) {
   return (
@@ -2325,10 +2333,12 @@ function McpAdvancedConfigSection(props: {
           <div className="flex flex-col gap-2">
             <div className="text-xs text-dls-secondary">{t("mcp.custom_app_cta_hint")}</div>
             <div className="flex flex-wrap items-center gap-2">
-              <Button variant="outline" onClick={props.onAddMcp}>
-                <Plus size={14} />
-                {t("mcp.add_modal_title")}
-              </Button>
+              {props.onAddMcp ? (
+                <Button variant="outline" onClick={props.onAddMcp}>
+                  <Plus size={14} />
+                  {t("mcp.add_modal_title")}
+                </Button>
+              ) : null}
               {props.onImportFromGithub ? (
                 <Button variant="outline" onClick={props.onImportFromGithub}>
                   <Download size={14} />

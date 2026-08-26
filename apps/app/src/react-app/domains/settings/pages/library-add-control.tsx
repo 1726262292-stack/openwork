@@ -17,6 +17,8 @@ export function libraryAddKindLabel(kind: LibraryAddKind) {
       return t("extensions.add_agent");
     case "mcp":
       return t("extensions.add_mcp");
+    case "workspace-mcp":
+      return t("extensions.add_workspace_mcp");
     case "plugin":
       return t("extensions.add_plugin");
     case "connection":

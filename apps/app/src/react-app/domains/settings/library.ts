@@ -178,7 +178,7 @@ export function openComposerConfigure(
   handlers.openLibrary(destination.path);
 }
 
-export const LIBRARY_ADD_KINDS = ["skill", "command", "agent", "mcp", "plugin", "connection"] as const;
+export const LIBRARY_ADD_KINDS = ["skill", "command", "agent", "mcp", "workspace-mcp", "plugin", "connection"] as const;
 
 export type LibraryAddKind = (typeof LIBRARY_ADD_KINDS)[number];
 
@@ -198,7 +198,7 @@ export function libraryAddKindsForFilter(filter: string): LibraryAddKind[] {
     case "agent":
       return ["agent"];
     case "mcp":
-      return ["mcp"];
+      return ["mcp", "workspace-mcp"];
     case "plugin":
       return ["plugin"];
     case "connection":
@@ -214,15 +214,20 @@ export function isLibraryAuthorableKind(kind: LibraryAddKind): kind is LibraryAu
 
 export type LibraryAddAction =
   | { type: "den-url"; kind: "connection" }
-  | { type: "den-modal"; kind: LibraryAuthorableKind };
+  | { type: "den-modal"; kind: LibraryAuthorableKind }
+  | { type: "workspace-mcp" };
 
-/** Library Add always creates in OpenWork Cloud. Local workspace files are not an authoring path. */
+/** Resolve Cloud authoring separately from local workspace MCP configuration. */
 export function libraryAddAction(
   addKind: LibraryAddKind,
   options: {
     cloudSignedIn: boolean;
+    allowManageExtensions: boolean;
   },
 ): LibraryAddAction | null {
+  if (addKind === "workspace-mcp") {
+    return options.allowManageExtensions ? { type: "workspace-mcp" } : null;
+  }
   if (!options.cloudSignedIn) return null;
   if (addKind === "connection") return { type: "den-url", kind: "connection" };
   if (isLibraryAuthorableKind(addKind)) return { type: "den-modal", kind: addKind };

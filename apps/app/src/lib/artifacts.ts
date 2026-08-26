@@ -136,11 +136,15 @@ export function getArtifactTypeLabel(type: ArtifactType) {
 }
 
 export function canPreviewArtifact(artifact: ArtifactItem) {
-  return isCollectibleArtifactTarget(artifact.legacy_target);
+  const target = artifact.legacy_target;
+  return isCollectibleArtifactTarget(target)
+    || (target.kind === "file" && target.preview !== "browser" && target.preview !== "external");
 }
 
 export function canOpenArtifact(artifact: ArtifactItem) {
-  return canPreviewArtifact(artifact) || isOpenableFileTarget(artifact.legacy_target);
+  return canPreviewArtifact(artifact)
+    || isOpenableFileTarget(artifact.legacy_target)
+    || artifact.legacy_target.kind === "file";
 }
 
 function getArtifactName(path: string) {

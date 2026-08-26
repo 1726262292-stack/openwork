@@ -55,4 +55,12 @@ describe("attachment artifacts", () => {
     expect(attachment).toBeDefined();
     expect(attachment && canOpenArtifact(attachment)).toBe(true);
   });
+
+  test("unverified file-strip artifacts stay clickable for on-demand resolution", () => {
+    const artifacts = getArtifactsFromMessages([userMessageWithAttachment()], []);
+    const attachment = artifacts.find((artifact) => artifact.name.includes("pge_natural_gas"));
+
+    expect(attachment?.legacy_target.exists).toBeUndefined();
+    expect(attachment && canOpenArtifact(attachment)).toBe(true);
+  });
 });
