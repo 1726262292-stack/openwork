@@ -14,8 +14,10 @@ import {
 } from "@/components/ui/dialog";
 import { t } from "../../../../i18n";
 import { cn } from "@/lib/utils";
-import { resolveExtensionIconUrl } from "../../../design-system/extension-icon-src";
-import type { LibraryConnectorCue } from "../library-connector-cues";
+import {
+  libraryConnectorIconUrls,
+  type LibraryConnectorCue,
+} from "../library-connector-cues";
 import type { LibraryAddKind } from "../library";
 
 const PICKER_KIND_ORDER: LibraryAddKind[] = [
@@ -146,8 +148,13 @@ function KindOptionRow(props: {
 }
 
 function ConnectorLogoCue({ cue }: { cue: LibraryConnectorCue }) {
-  const [imageFailed, setImageFailed] = useState(false);
-  const iconUrl = resolveExtensionIconUrl(cue);
+  const [imageIndex, setImageIndex] = useState(0);
+  const iconUrls = libraryConnectorIconUrls(cue);
+  const iconUrl = iconUrls[imageIndex];
+
+  useEffect(() => {
+    setImageIndex(0);
+  }, [cue.iconSlug, cue.iconSrc, cue.id, cue.serviceUrl]);
 
   return (
     <span
@@ -155,12 +162,12 @@ function ConnectorLogoCue({ cue }: { cue: LibraryConnectorCue }) {
       data-connector-cue={cue.id}
       title={cue.name}
     >
-      {iconUrl && !imageFailed ? (
+      {iconUrl ? (
         <img
           src={iconUrl}
           alt={`${cue.name} logo`}
           className="size-full object-contain"
-          onError={() => setImageFailed(true)}
+          onError={() => setImageIndex((current) => current + 1)}
         />
       ) : (
         <span

@@ -193,12 +193,12 @@ test(title, async ({ evidence, place }) => {
     return cues.length === 5 && cues.every((cue) => {
       const image = cue.querySelector('img');
       return image instanceof HTMLImageElement
-        ? image.complete && image.naturalWidth > 0
-        : Boolean(cue.querySelector('[aria-label$=" logo"]'));
+        && image.complete
+        && image.naturalWidth > 0;
     });
   })()`, {
     timeoutMs: 30_000,
-    label: "connector logos loaded or replaced by their labeled fallbacks",
+    label: "all five recognizable connector logos loaded",
   });
   {
     const shot = await screenshot(desktop);

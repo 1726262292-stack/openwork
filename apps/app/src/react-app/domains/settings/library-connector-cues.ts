@@ -1,4 +1,5 @@
 import type { DenExternalMcpPreset } from "../../../app/lib/den";
+import { resolveExtensionIconUrl } from "../../design-system/extension-icon-src";
 
 export type LibraryConnectorCue = {
   id: string;
@@ -27,13 +28,23 @@ const HOSTED_SUITE_CUES: LibraryConnectorCue[] = [
     id: "google-workspace",
     name: "Google Workspace",
     iconSlug: "googleworkspace",
+    serviceUrl: "https://workspace.google.com/",
   },
   {
     id: "microsoft-365",
     name: "Microsoft 365",
     iconSlug: "microsoft365",
+    serviceUrl: "https://www.microsoft365.com/",
   },
 ];
+
+export function libraryConnectorIconUrls(cue: LibraryConnectorCue): string[] {
+  const primary = resolveExtensionIconUrl(cue);
+  const serviceIcon = cue.serviceUrl
+    ? resolveExtensionIconUrl({ serviceUrl: cue.serviceUrl })
+    : undefined;
+  return [...new Set([primary, serviceIcon].filter((url): url is string => Boolean(url)))];
+}
 
 function cueForPreset(preset: DenExternalMcpPreset): LibraryConnectorCue {
   return {

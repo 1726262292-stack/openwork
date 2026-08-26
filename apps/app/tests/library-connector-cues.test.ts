@@ -1,7 +1,10 @@
 import { describe, expect, test } from "bun:test";
 
 import type { DenExternalMcpPreset } from "../src/app/lib/den";
-import { libraryConnectorCues } from "../src/react-app/domains/settings/library-connector-cues";
+import {
+  libraryConnectorCues,
+  libraryConnectorIconUrls,
+} from "../src/react-app/domains/settings/library-connector-cues";
 
 function preset(
   presetId: string,
@@ -58,6 +61,28 @@ describe("Library connector discovery cues", () => {
       "Google Workspace",
       "Microsoft 365",
       "Linear",
+    ]);
+  });
+
+  test("falls back from unavailable catalog slugs to recognizable service favicons", () => {
+    const cues = libraryConnectorCues([
+      preset("slack", "Slack", "https://mcp.slack.com/mcp"),
+    ]);
+    const slack = cues.find((cue) => cue.id === "slack");
+    const google = cues.find((cue) => cue.id === "google-workspace");
+    const microsoft = cues.find((cue) => cue.id === "microsoft-365");
+
+    expect(slack && libraryConnectorIconUrls(slack)).toEqual([
+      "https://cdn.simpleicons.org/slack",
+      "https://www.google.com/s2/favicons?sz=64&domain=slack.com",
+    ]);
+    expect(google && libraryConnectorIconUrls(google)).toEqual([
+      "https://cdn.simpleicons.org/googleworkspace",
+      "https://www.google.com/s2/favicons?sz=64&domain=google.com",
+    ]);
+    expect(microsoft && libraryConnectorIconUrls(microsoft)).toEqual([
+      "https://cdn.simpleicons.org/microsoft365",
+      "https://www.google.com/s2/favicons?sz=64&domain=microsoft365.com",
     ]);
   });
 });
