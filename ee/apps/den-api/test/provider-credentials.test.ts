@@ -6,6 +6,7 @@ import {
   listConfiguredEnvKeys,
   readProviderEnvNames,
   resolveProviderCredential,
+  selectPrimaryCredentialEnvName,
 } from "../src/llm/provider-credentials.js"
 
 const AWS_ENV = [
@@ -19,6 +20,30 @@ describe("readProviderEnvNames", () => {
   test("reads the env string list, dropping blanks and non-strings", () => {
     expect(readProviderEnvNames({ env: ["A", " ", 3, "B"] })).toEqual(["A", "B"])
     expect(readProviderEnvNames({})).toEqual([])
+  })
+})
+
+describe("selectPrimaryCredentialEnvName", () => {
+  test("prefers Azure API key over resource name", () => {
+    expect(
+      selectPrimaryCredentialEnvName(
+        ["AZURE_RESOURCE_NAME", "AZURE_API_KEY"],
+        ["AZURE_RESOURCE_NAME", "AZURE_API_KEY"],
+      ),
+    ).toBe("AZURE_API_KEY")
+  })
+
+  test("does not treat Azure resource name alone as the credential", () => {
+    expect(
+      selectPrimaryCredentialEnvName(
+        ["AZURE_RESOURCE_NAME", "AZURE_API_KEY"],
+        ["AZURE_RESOURCE_NAME"],
+      ),
+    ).toBeNull()
+  })
+
+  test("keeps AWS access key as the primary credential", () => {
+    expect(selectPrimaryCredentialEnvName(AWS_ENV, ["AWS_ACCESS_KEY_ID", "AWS_REGION"])).toBe("AWS_ACCESS_KEY_ID")
   })
 })
 
