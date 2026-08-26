@@ -62,4 +62,5 @@ export type BrowserPanelTab = {
   status: "loading" | "ready";
   canGoBack: boolean;
   canGoForward: boolean;
+  siteToolCount: number;
 };
