@@ -1,6 +1,7 @@
 import { and, asc, eq, gt, inArray, lte } from "@openwork-ee/den-db/drizzle"
 import { RemoteSessionCommandTable } from "@openwork-ee/den-db/schema/remote-session-commands"
 import { createDenTypeId, normalizeDenTypeId, type DenTypeId } from "@openwork-ee/utils/typeid"
+import type { RemoteSessionCommandCompleteRequest } from "@openwork/types/automations"
 import { db } from "../db.js"
 import { automationUpdateChangedRows } from "../automations/update-result.js"
 
@@ -48,14 +49,9 @@ type ClaimInput = {
   now: number
 }
 
-type CompleteInput = {
+type CompleteInput = RemoteSessionCommandCompleteRequest & {
   commandId: string
   runnerId: string
-  status: "delivered" | "failed"
-  sessionId?: string
-  workspaceId?: string
-  resultSummary?: string
-  error?: { code: string; message: string } | null
 }
 
 export interface RemoteSessionCommandStore {

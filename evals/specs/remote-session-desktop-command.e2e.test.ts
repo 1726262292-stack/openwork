@@ -213,7 +213,34 @@ test.skipIf(missingRequirements.length > 0)(title, { timeout: 15 * 60_000 }, asy
     offline.isError && offline.payload.error === "desktop_offline",
   );
 
-  // Phase B: registration is the durable presence signal used by the capability gate.
+  // Phase B: ordinary Automation presence from an old runner must not open the
+  // remote-session capability gate.
+  const oldRunnerId = `eval-old-runner-${process.pid}-${Date.now().toString(36)}`;
+  const oldRunnerToken = await registerRunner(oldRunnerId, []);
+  const oldRunnerPresence = await eventually(
+    presence,
+    {
+      within: 30_000,
+      intervalMs: 500,
+      label: "old desktop runner presence becomes connected for Automations",
+      until: (result) => result.status === 200 && isRecord(result.body) && result.body.connected === true,
+    },
+  );
+  expect(isRecord(oldRunnerPresence.body) && oldRunnerPresence.body.connected).toBe(true);
+  const oldRunnerOffline = await callTool("execute_capability", {
+    name: "remote-session:create",
+    body: { target: "desktop", title: "Old runner must stay offline" },
+  });
+  expect(oldRunnerOffline.isError).toBe(true);
+  expect(oldRunnerOffline.payload.error).toBe("desktop_offline");
+  evidence.recordAssertionEvidence(
+    "Old runners do not open the remote-session dispatch gate",
+    `Runner ${oldRunnerId} registered without remote_session_v1 and counted as connected for Automations, while remote-session:create still returned ${oldRunnerOffline.text}.`,
+    isRecord(oldRunnerPresence.body) && oldRunnerPresence.body.connected === true
+      && oldRunnerOffline.isError && oldRunnerOffline.payload.error === "desktop_offline",
+  );
+
+  // Phase C: capability-aware registration is the durable presence signal used by the remote-session gate.
   const runnerId = `eval-runner-${process.pid}-${Date.now().toString(36)}`;
   const runnerToken = await registerRunner(runnerId, ["remote_session_v1"]);
   let firstPresence = await presence();
@@ -237,7 +264,7 @@ test.skipIf(missingRequirements.length > 0)(title, { timeout: 15 * 60_000 }, asy
     connectedPresence.status === 200 && isRecord(connectedPresence.body) && connectedPresence.body.connected === true,
   );
 
-  // Phase C: create persists a queued command, while an old runner never sees its work item.
+  // Phase D: create persists a queued command, while an old runner never sees its work item.
   const queued = await callTool("execute_capability", {
     name: "remote-session:create",
     body: { target: "desktop", title: "Desktop command", prompt: "Open the repo" },
@@ -254,7 +281,6 @@ test.skipIf(missingRequirements.length > 0)(title, { timeout: 15 * 60_000 }, asy
   const pending = pendingRows.find(isRecord);
   expect(pending).toMatchObject({ status: "pending", title: "Desktop command", prompt: "Open the repo" });
 
-  const oldRunnerToken = await registerRunner(`eval-old-runner-${process.pid}-${Date.now().toString(36)}`, []);
   const oldWork = await runnerRequest(oldRunnerToken, "/v1/automation-runner/work");
   const oldItems = isRecord(oldWork.body) && Array.isArray(oldWork.body.items)
     ? oldWork.body.items.filter(isRecord)
@@ -267,7 +293,7 @@ test.skipIf(missingRequirements.length > 0)(title, { timeout: 15 * 60_000 }, asy
     pending?.status === "pending" && !oldItems.some((item) => item.kind === "remote_session_create"),
   );
 
-  // Phase D: only one runner claim wins, and its assignment contains the requested input.
+  // Phase E: only one runner claim wins, and its assignment contains the requested input.
   const capableWork = await eventually(
     async () => runnerRequest(runnerToken, "/v1/automation-runner/work"),
     {
@@ -296,6 +322,26 @@ test.skipIf(missingRequirements.length > 0)(title, { timeout: 15 * 60_000 }, asy
     prompt: "Open the repo",
     model: null,
   });
+  const incompleteDelivery = await runnerRequest(
+    runnerToken,
+    `/v1/remote-session-commands/${commandId}/complete`,
+    { method: "POST", body: { status: "delivered" } },
+  );
+  expect(incompleteDelivery.status).toBe(400);
+  const contradictoryFailure = await runnerRequest(
+    runnerToken,
+    `/v1/remote-session-commands/${commandId}/complete`,
+    {
+      method: "POST",
+      body: {
+        status: "failed",
+        sessionId: "ses_must_not_exist",
+        workspaceId: "ws_must_not_exist",
+        error: { code: "execution_failed", message: "contradictory receipt" },
+      },
+    },
+  );
+  expect(contradictoryFailure.status).toBe(400);
   const duplicateClaim = await runnerRequest(
     runnerToken,
     `/v1/remote-session-commands/${commandId}/claim`,
@@ -305,11 +351,12 @@ test.skipIf(missingRequirements.length > 0)(title, { timeout: 15 * 60_000 }, asy
   expect(duplicateClaim.body).toEqual({ error: "command_claim_conflict" });
   evidence.recordAssertionEvidence(
     "Desktop command claiming is compare-and-set",
-    `The first claim returned the requested assignment; the second claim returned HTTP ${duplicateClaim.status} ${duplicateClaim.text}.`,
-    claim.status === 200 && duplicateClaim.status === 409,
+    `The first claim returned the requested assignment; incomplete/contradictory completions returned HTTP ${incompleteDelivery.status}/${contradictoryFailure.status}; the second claim returned HTTP ${duplicateClaim.status} ${duplicateClaim.text}.`,
+    claim.status === 200 && incompleteDelivery.status === 400
+      && contradictoryFailure.status === 400 && duplicateClaim.status === 409,
   );
 
-  // Phase E: completion becomes owner-readable through the command id.
+  // Phase F: completion becomes owner-readable through the command id.
   const complete = await runnerRequest(
     runnerToken,
     `/v1/remote-session-commands/${commandId}/complete`,

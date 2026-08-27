@@ -4,6 +4,7 @@ import { MemberTable, OrganizationTable } from "@openwork-ee/den-db/schema/org"
 import { createDenTypeId, normalizeDenTypeId, type DenTypeId } from "@openwork-ee/utils/typeid"
 import { z } from "zod"
 import { desktopRunnerConnected } from "@openwork/automations"
+import { REMOTE_SESSION_DESKTOP_RUNNER_CAPABILITY } from "@openwork/types/automations"
 import { db } from "../db.js"
 import { env } from "../env.js"
 // The automation repository is the presence source of truth. Importing the
@@ -49,7 +50,7 @@ const modelSchema = z.object({
 
 const createBodySchema = z.object({
   target: z.enum(["cloud", "desktop"]).optional(),
-  title: z.string().trim().min(1).max(200).optional(),
+  title: z.string().trim().min(1).max(120).optional(),
   prompt: z.string().min(1).max(100_000).optional(),
   model: modelSchema.optional(),
 })
@@ -107,7 +108,7 @@ const REMOTE_SESSION_DEFINITIONS: RemoteSessionDefinition[] = [
       type: "object",
       properties: {
         target: { type: "string", enum: ["cloud", "desktop"], description: "Execution target. Defaults to \"cloud\"." },
-        title: { type: "string", description: "Session title shown in OpenWork." },
+        title: { type: "string", maxLength: 120, description: "Session title shown in OpenWork." },
         prompt: { type: "string", description: "Optional first prompt. When present the session starts working immediately." },
         model: MODEL_ARGUMENT_SCHEMA,
       },
@@ -376,9 +377,10 @@ async function defaultDesktopPresence(scope: {
   )).limit(1)
   const ownerMemberId = members[0]?.id ?? null
   if (!ownerMemberId) return { connected: false, ownerMemberId: null }
-  const lastSeenAt = await automationRepository.desktopRunnerLastSeenAt({
+  const lastSeenAt = await automationRepository.desktopRunnerCapabilityLastSeenAt({
     organizationId: scope.organizationId,
     ownerMemberId,
+    capability: REMOTE_SESSION_DESKTOP_RUNNER_CAPABILITY,
   })
   return { connected: desktopRunnerConnected({ lastSeenAt, now: Date.now() }), ownerMemberId }
 }
