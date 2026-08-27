@@ -286,10 +286,6 @@ function serverArgs(paths: DaytonaK3sRuntimePaths, placementId: string): string[
   ];
 }
 
-function processCommandLine(command: string, args: readonly string[]): string {
-  return [command, ...args].join(" ");
-}
-
 function startServerScript(paths: DaytonaK3sRuntimePaths, placementId: string, privilege: PrivilegeMode): string {
   const args = serverArgs(paths, placementId);
   const launch = privilege === "root"
@@ -302,27 +298,11 @@ function startServerScript(paths: DaytonaK3sRuntimePaths, placementId: string, p
   ].join("\n");
 }
 
-function processAppearedScript(commandLine: string, logFile: string): string[] {
-  return [
-    "attempt=0",
-    "while 'test' \"$attempt\" '-lt' '25'; do",
-    `  if ${shellCommand("pgrep", ["-f", "-x", "--", commandLine])} >${shellQuote("/dev/null")}; then break; fi`,
-    `  ${shellCommand("sleep", ["0.2"])}`,
-    "  attempt=$((attempt + 1))",
-    "done",
-    `if ! ${shellCommand("pgrep", ["-f", "-x", "--", commandLine])} >${shellQuote("/dev/null")}; then ${shellCommand("tail", ["-n", "80", logFile])} >&2; ${shellCommand("exit", ["1"])}; fi`,
-  ];
-}
-
-function readinessScript(paths: DaytonaK3sRuntimePaths, placementId: string, privilege: PrivilegeMode): string {
-  const args = serverArgs(paths, placementId);
-  const marker = processCommandLine(paths.binary, args);
+function readinessScript(paths: DaytonaK3sRuntimePaths, privilege: PrivilegeMode): string {
   const kubectl = privilegedCommand(privilege, paths.binary, ["kubectl", "--kubeconfig", paths.kubeconfig, "get", "--raw=/readyz"]);
   return [
-    ...processAppearedScript(marker, paths.serverLog),
     "attempt=0",
-    "while 'test' \"$attempt\" '-lt' '60'; do",
-    `  if ! ${shellCommand("pgrep", ["-f", "-x", "--", marker])} >${shellQuote("/dev/null")}; then ${shellCommand("tail", ["-n", "80", paths.serverLog])} >&2; ${shellCommand("exit", ["1"])}; fi`,
+    "while 'test' \"$attempt\" '-lt' '120'; do",
     `  if ${kubectl} >${shellQuote("/dev/null")} 2>&1; then ${shellCommand("exit", ["0"])}; fi`,
     `  ${shellCommand("sleep", ["1"])}`,
     "  attempt=$((attempt + 1))",
@@ -410,7 +390,7 @@ export async function createDaytonaK3sCluster(input: CreateDaytonaK3sClusterInpu
     runtime.privilege = await selectPrivilege(exec, ownedSandboxId);
     await remoteExec(exec, ownedSandboxId, binaryInstallScript(paths, binary), `install pinned k3s ${binary.version}`, 180_000);
     await remoteExec(exec, ownedSandboxId, startServerScript(paths, input.placement.id, runtime.privilege), `start Daytona k3s placement ${input.placement.id}`, 30_000);
-    await remoteExec(exec, ownedSandboxId, readinessScript(paths, input.placement.id, runtime.privilege), `wait for Daytona k3s placement ${input.placement.id}`, 75_000);
+    await remoteExec(exec, ownedSandboxId, readinessScript(paths, runtime.privilege), `wait for Daytona k3s placement ${input.placement.id}`, 135_000);
     log(`Daytona k3s placement ${input.placement.id} is ready in exclusively owned sandbox ${ownedSandboxId}.`);
     return makeClusterHandle(input.placement, binary, runtime);
   } catch (error) {
@@ -452,14 +432,11 @@ function startPortForwardScript(runtime: ClusterRuntime, args: readonly string[]
   return `${shellCommand("nohup", launch)} >${shellQuote(logFile)} 2>&1 &`;
 }
 
-function waitForPortScript(paths: DaytonaK3sRuntimePaths, args: readonly string[], logFile: string, localPort: number): string {
-  const marker = processCommandLine(paths.binary, args);
+function waitForPortScript(logFile: string, localPort: number): string {
   const socket = `/dev/tcp/127.0.0.1/${localPort}`;
   return [
-    ...processAppearedScript(marker, logFile),
     "attempt=0",
     "while 'test' \"$attempt\" '-lt' '100'; do",
-    `  if ! ${shellCommand("pgrep", ["-f", "-x", "--", marker])} >${shellQuote("/dev/null")}; then ${shellCommand("tail", ["-n", "80", logFile])} >&2; ${shellCommand("exit", ["1"])}; fi`,
     `  if ('exec' 3<>${shellQuote(socket)}) 2>${shellQuote("/dev/null")}; then ${shellCommand("exit", ["0"])}; fi`,
     `  ${shellCommand("sleep", ["0.2"])}`,
     "  attempt=$((attempt + 1))",
@@ -488,7 +465,7 @@ export async function exposeK3sService(
   const logFile = `${runtime.paths.root}/port-forward-${localPort}.log`;
   try {
     await remoteExec(runtime.exec, runtime.ownedSandboxId, startPortForwardScript(runtime, args, logFile), `start Daytona k3s port-forward for ${namespace}/${service}`, 30_000);
-    await remoteExec(runtime.exec, runtime.ownedSandboxId, waitForPortScript(runtime.paths, args, logFile, localPort), `wait for Daytona k3s port ${localPort}`, 30_000);
+    await remoteExec(runtime.exec, runtime.ownedSandboxId, waitForPortScript(logFile, localPort), `wait for Daytona k3s port ${localPort}`, 30_000);
     const expiresAt = new Date(Date.now() + expiresInSeconds * 1_000).toISOString();
     const preview = await checkedExec(
       runtime.exec,

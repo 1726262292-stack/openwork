@@ -114,9 +114,8 @@ test("root lifecycle installs a checksummed pinned binary into placement paths a
   assert(start.includes("'--node-name' 'openwork-unit-cluster'"));
   assert(start.includes("'--snapshotter' 'native'"));
   const readiness = observed[3] ?? "";
-  const processProof = readiness.indexOf("'pgrep' '-f' '-x'");
-  const readyz = readiness.indexOf(`'${root}/bin/k3s' 'kubectl' '--kubeconfig' '${root}/kubeconfig.yaml' 'get' '--raw=/readyz'`);
-  assert(processProof >= 0 && readyz > processProof);
+  assert(readiness.includes(`'${root}/bin/k3s' 'kubectl' '--kubeconfig' '${root}/kubeconfig.yaml' 'get' '--raw=/readyz'`));
+  assert.doesNotMatch(readiness, /pgrep/);
   assert.deepEqual(cluster.paths, {
     root,
     binary: `${root}/bin/k3s`,
