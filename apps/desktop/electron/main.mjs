@@ -1081,8 +1081,13 @@ async function runDesktopTransfer(event, input, operation) {
   activeDesktopTransfers.set(key, controller);
   event.sender.once("destroyed", abort);
   try {
+    const [authorizedRoots, allowedUrlPrefixes] = await Promise.all([
+      workspaceStore.listAuthorizedWorkspaceRoots(),
+      workspaceStore.listRemoteWorkspaceUrlPrefixes(),
+    ]);
     return await operation(input, {
-      authorizedRoots: await workspaceStore.listAuthorizedWorkspaceRoots(),
+      authorizedRoots,
+      allowedUrlPrefixes,
       fetcher: electronNet.fetch,
       signal: controller.signal,
     });

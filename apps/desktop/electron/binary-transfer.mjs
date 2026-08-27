@@ -51,7 +51,20 @@ function boundedByteCount(value, label, { allowUndefined = false } = {}) {
   return value;
 }
 
-function remoteUrl(value) {
+function urlWithinPrefix(candidate, prefixValue) {
+  if (typeof prefixValue !== "string" || !prefixValue.trim()) return false;
+  let prefix;
+  try {
+    prefix = new URL(prefixValue.trim());
+  } catch {
+    return false;
+  }
+  if (prefix.protocol !== candidate.protocol || prefix.host !== candidate.host) return false;
+  const prefixPath = prefix.pathname.replace(/\/+$/, "");
+  return !prefixPath || candidate.pathname === prefixPath || candidate.pathname.startsWith(`${prefixPath}/`);
+}
+
+function remoteUrl(value, allowedUrlPrefixes) {
   const raw = boundedString(value, "URL", { required: true, maxLength: 8_192 });
   let parsed;
   try {
@@ -64,6 +77,12 @@ function remoteUrl(value) {
   }
   if (["127.0.0.1", "localhost", "[::1]"].includes(parsed.hostname)) {
     throw transferError("Dedicated file transfers are only available for remote destinations.", "loopback-url");
+  }
+  // The renderer never gets to pick an arbitrary destination: the URL must sit
+  // under a remote workspace endpoint the main process itself has on record.
+  const prefixes = Array.isArray(allowedUrlPrefixes) ? allowedUrlPrefixes : [];
+  if (!prefixes.some((prefixValue) => urlWithinPrefix(parsed, prefixValue))) {
+    throw transferError("URL does not belong to a connected remote workspace.", "unauthorized-url");
   }
   return parsed.toString();
 }
@@ -124,9 +143,28 @@ async function resolveAuthorizedPath(candidateValue, rootsValue, mode) {
         throw transferError("Destination path must not be a symbolic link.", "symlink-path");
       }
     }
-    return candidate;
+    return { path: candidate, rootRealPath };
   }
   throw transferError("Transfer path is outside every authorized workspace root.", "unauthorized-path");
+}
+
+// Path-based validation is inherently time-of-check/time-of-use racy: a parent
+// directory can be swapped for a symbolic link after validation. This binds the
+// transfer to the opened file handle instead: the handle's device and inode
+// must match the freshly resolved path, and that resolved path must still sit
+// inside the authorized root. All bytes then flow through the verified handle,
+// which no later path swap can redirect.
+async function verifyOpenFileWithinRoot(file, candidatePath, rootRealPath, label) {
+  const resolvedPath = await realpath(candidatePath).catch(() => null);
+  if (!resolvedPath || !isInside(rootRealPath, resolvedPath)) {
+    throw transferError(`${label} escapes the authorized workspace.`, "unauthorized-path");
+  }
+  const handleInfo = await file.stat();
+  const pathInfo = await lstat(resolvedPath).catch(() => null);
+  if (!pathInfo || pathInfo.dev !== handleInfo.dev || pathInfo.ino !== handleInfo.ino) {
+    throw transferError(`${label} changed while the transfer was starting.`, "path-changed");
+  }
+  return handleInfo;
 }
 
 async function responseText(response, maximumBytes = MAX_RESPONSE_TEXT_BYTES) {
@@ -187,9 +225,9 @@ async function readFileBytes(file, size, signal) {
 }
 
 export async function uploadMultipartFromPath(input, options) {
-  const url = remoteUrl(input?.url);
+  const url = remoteUrl(input?.url, options?.allowedUrlPrefixes);
   const expectedBytes = boundedByteCount(input?.size, "File size");
-  const filePath = await resolveAuthorizedPath(input?.filePath, options?.authorizedRoots, "read");
+  const source = await resolveAuthorizedPath(input?.filePath, options?.authorizedRoots, "read");
   const filename = boundedString(input?.filename, "Filename", { required: true });
   if (filename !== path.basename(filename) || /[\\/]/.test(filename)) {
     throw transferError("Filename must not contain a path.", "invalid-metadata");
@@ -200,9 +238,9 @@ export async function uploadMultipartFromPath(input, options) {
   const headers = boundedRecord(input?.headers, "Headers", MAX_HEADERS);
   const method = boundedString(input?.method ?? "POST", "Method", { required: true, maxLength: 16 });
   const signal = timeoutSignal(input?.timeoutMs, options?.signal);
-  const file = await open(filePath, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0));
+  const file = await open(source.path, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0));
   try {
-    const info = await file.stat();
+    const info = await verifyOpenFileWithinRoot(file, source.path, source.rootRealPath, "File path");
     if (!info.isFile()) throw transferError("Upload path is not a regular file.", "invalid-file");
     boundedByteCount(info.size, "File size");
     if (info.size !== expectedBytes) {
@@ -227,8 +265,9 @@ export async function uploadMultipartFromPath(input, options) {
 }
 
 export async function downloadBinaryToPath(input, options) {
-  const url = remoteUrl(input?.url);
-  const destinationPath = await resolveAuthorizedPath(input?.destinationPath, options?.authorizedRoots, "write");
+  const url = remoteUrl(input?.url, options?.allowedUrlPrefixes);
+  const destination = await resolveAuthorizedPath(input?.destinationPath, options?.authorizedRoots, "write");
+  const destinationPath = destination.path;
   const maxBytes = boundedByteCount(input?.maxBytes, "Maximum download size", { allowUndefined: true });
   const headers = boundedRecord(input?.headers, "Headers", MAX_HEADERS);
   const method = boundedString(input?.method ?? "GET", "Method", { required: true, maxLength: 16 });
@@ -252,7 +291,17 @@ export async function downloadBinaryToPath(input, options) {
     if (Number.isFinite(declaredLength) && declaredLength > maxBytes) {
       throw transferError(`Download exceeds the ${maxBytes}-byte limit.`, "file-too-large");
     }
+    // The fetch can take arbitrarily long, so the pre-fetch validation is
+    // stale by now. Revalidate before touching the filesystem, then bind all
+    // writes to a handle proven to live inside the authorized root.
+    await resolveAuthorizedPath(input?.destinationPath, options?.authorizedRoots, "write");
     temporaryFile = await open(temporaryPath, "wx");
+    const temporaryInfo = await verifyOpenFileWithinRoot(
+      temporaryFile,
+      temporaryPath,
+      destination.rootRealPath,
+      "Download destination",
+    );
     const reader = response.body?.getReader();
     let bytes = 0;
     if (reader) {
@@ -272,7 +321,20 @@ export async function downloadBinaryToPath(input, options) {
     await temporaryFile.sync();
     await temporaryFile.close();
     temporaryFile = undefined;
+    // Revalidate destination components immediately before the rename, then
+    // confirm without following links that the rename landed the verified
+    // inode at the destination path.
+    await resolveAuthorizedPath(input?.destinationPath, options?.authorizedRoots, "write");
     await rename(temporaryPath, destinationPath);
+    const finalInfo = await lstat(destinationPath).catch(() => null);
+    if (
+      !finalInfo
+      || finalInfo.isSymbolicLink()
+      || finalInfo.dev !== temporaryInfo.dev
+      || finalInfo.ino !== temporaryInfo.ino
+    ) {
+      throw transferError("Download destination changed while the file was being saved.", "path-changed");
+    }
     return { ...responseMetadata(response), path: destinationPath, bytes };
   } catch (error) {
     await temporaryFile?.close().catch(() => undefined);

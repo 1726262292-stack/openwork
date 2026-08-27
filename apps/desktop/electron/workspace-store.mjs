@@ -940,6 +940,18 @@ export function createWorkspaceStore({
     return [...roots];
   }
 
+  async function listRemoteWorkspaceUrlPrefixes() {
+    const prefixes = new Set();
+    for (const workspace of (await readWorkspaceState()).workspaces) {
+      if (workspace?.workspaceType !== "remote") continue;
+      for (const value of [workspace.baseUrl, workspace.openworkHostUrl]) {
+        const raw = typeof value === "string" ? value.trim() : "";
+        if (raw) prefixes.add(raw);
+      }
+    }
+    return [...prefixes];
+  }
+
   function workspacePathKey(workspace) {
     return normalizeWorkspacePathKey(workspace.path);
   }
@@ -1232,6 +1244,7 @@ export function createWorkspaceStore({
     importConfig,
     listAuthorizedWorkspaceRoots,
     listLocalWorkspacePaths,
+    listRemoteWorkspaceUrlPrefixes,
     migrateLegacyElectronWorkspaceStateIfNeeded,
     readDesktopBootstrapConfigSync,
     readWorkspaceOpenworkConfig,

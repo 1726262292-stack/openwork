@@ -10,6 +10,8 @@ import {
   uploadMultipartFromPath,
 } from "./binary-transfer.mjs";
 
+const allowedUrlPrefixes = ["https://worker.example.test"];
+
 async function withWorkspace(run) {
   const root = await mkdtemp(path.join(os.tmpdir(), "openwork-binary-transfer-"));
   try {
@@ -46,6 +48,7 @@ test("uploads exact original multipart bytes with spaces and Unicode in the file
       headers: { Authorization: "Bearer test" },
     }, {
       authorizedRoots: [root],
+      allowedUrlPrefixes,
       fetcher: async (url, init) => {
         const request = new Request(url, init);
         const form = await request.formData();
@@ -75,6 +78,7 @@ test("downloads high bytes exactly and atomically removes the temporary file", a
       destinationPath,
     }, {
       authorizedRoots: [root],
+      allowedUrlPrefixes,
       fetcher: async () => remoteResponse(original, {
         headers: { "content-type": "application/octet-stream" },
       }),
@@ -97,7 +101,7 @@ test("rejects zero-byte and oversized uploads with clear error codes", async () 
         filePath: emptyPath,
         filename: "empty.bin",
         size: 0,
-      }, { authorizedRoots: [root], fetcher: async () => Response.json({}) }),
+      }, { authorizedRoots: [root], allowedUrlPrefixes, fetcher: async () => Response.json({}) }),
       (error) => matchesError(error, "zero-byte-file", /greater than zero/i),
     );
 
@@ -109,7 +113,7 @@ test("rejects zero-byte and oversized uploads with clear error codes", async () 
         filePath,
         filename: "small.bin",
         size: DESKTOP_TRANSFER_MAX_BYTES + 1,
-      }, { authorizedRoots: [root], fetcher: async () => Response.json({}) }),
+      }, { authorizedRoots: [root], allowedUrlPrefixes, fetcher: async () => Response.json({}) }),
       (error) => matchesError(error, "file-too-large", /limit/i),
     );
   });
@@ -122,7 +126,7 @@ test("rejects zero-byte and oversized downloads without leaving partial files", 
       downloadBinaryToPath({
         url: "https://worker.example.test/file",
         destinationPath: zeroDestination,
-      }, { authorizedRoots: [root], fetcher: async () => remoteResponse(new Uint8Array()) }),
+      }, { authorizedRoots: [root], allowedUrlPrefixes, fetcher: async () => remoteResponse(new Uint8Array()) }),
       (error) => matchesError(error, "zero-byte-file", /empty/i),
     );
     await assert.rejects(readFile(zeroDestination), { code: "ENOENT" });
@@ -133,7 +137,7 @@ test("rejects zero-byte and oversized downloads without leaving partial files", 
         url: "https://worker.example.test/file",
         destinationPath: largeDestination,
         maxBytes: 3,
-      }, { authorizedRoots: [root], fetcher: async () => remoteResponse(Uint8Array.from([1, 2, 3, 4])) }),
+      }, { authorizedRoots: [root], allowedUrlPrefixes, fetcher: async () => remoteResponse(Uint8Array.from([1, 2, 3, 4])) }),
       (error) => matchesError(error, "file-too-large", /limit/i),
     );
     await assert.rejects(readFile(largeDestination), { code: "ENOENT" });
@@ -156,7 +160,7 @@ test("cancellation removes the incomplete download", async () => {
       downloadBinaryToPath({
         url: "https://worker.example.test/file",
         destinationPath,
-      }, { authorizedRoots: [root], fetcher: async () => response, signal: controller.signal }),
+      }, { authorizedRoots: [root], allowedUrlPrefixes, fetcher: async () => response, signal: controller.signal }),
       (error) => error instanceof Error && error.name === "AbortError",
     );
 
@@ -179,7 +183,7 @@ test("rejects unauthorized, traversal, and symlink upload paths", async () => {
       filename: "secret.bin",
       size: 6,
     };
-    const options = { authorizedRoots: [authorizedRoot], fetcher: async () => Response.json({}) };
+    const options = { authorizedRoots: [authorizedRoot], allowedUrlPrefixes, fetcher: async () => Response.json({}) };
 
     await assert.rejects(
       uploadMultipartFromPath({ ...input, filePath: outsidePath }, options),
@@ -207,6 +211,7 @@ test("rejects traversal and symlink download destinations", async () => {
     await mkdir(outsideRoot);
     const options = {
       authorizedRoots: [authorizedRoot],
+      allowedUrlPrefixes,
       fetcher: async () => remoteResponse(Uint8Array.from([1])),
     };
 
@@ -227,5 +232,87 @@ test("rejects traversal and symlink download destinations", async () => {
       }, options),
       (error) => matchesError(error, "symlink-path"),
     );
+  });
+});
+
+test("rejects transfer URLs outside connected remote workspace endpoints", async () => {
+  await withWorkspace(async (root) => {
+    const filePath = path.join(root, "leak.bin");
+    await writeFile(filePath, "data");
+    const upload = (url, prefixes) => uploadMultipartFromPath({
+      url,
+      filePath,
+      filename: "leak.bin",
+      size: 4,
+    }, {
+      authorizedRoots: [root],
+      allowedUrlPrefixes: prefixes,
+      fetcher: async () => Response.json({ ok: true }),
+    });
+
+    await assert.rejects(
+      upload("https://attacker.example.test/exfil", allowedUrlPrefixes),
+      (error) => matchesError(error, "unauthorized-url", /remote workspace/i),
+    );
+    await assert.rejects(
+      upload("https://worker.example.test/inbox", []),
+      (error) => matchesError(error, "unauthorized-url"),
+    );
+    await assert.rejects(
+      upload("https://worker.example.test/other/inbox", ["https://worker.example.test/workspace/team"]),
+      (error) => matchesError(error, "unauthorized-url"),
+    );
+    const scoped = await upload(
+      "https://worker.example.test/workspace/team/inbox",
+      ["https://worker.example.test/workspace/team"],
+    );
+    assert.equal(scoped.status, 200);
+
+    const destinationPath = path.join(root, "payload.bin");
+    await assert.rejects(
+      downloadBinaryToPath({
+        url: "https://attacker.example.test/payload",
+        destinationPath,
+      }, {
+        authorizedRoots: [root],
+        allowedUrlPrefixes,
+        fetcher: async () => remoteResponse(Uint8Array.from([1])),
+      }),
+      (error) => matchesError(error, "unauthorized-url"),
+    );
+    await assert.rejects(readFile(destinationPath), { code: "ENOENT" });
+  });
+});
+
+test("rejects a download whose destination parent is swapped for a symlink during the fetch", async () => {
+  await withWorkspace(async (root) => {
+    const authorizedRoot = path.join(root, "workspace");
+    const outsideRoot = path.join(root, "outside");
+    await mkdir(authorizedRoot);
+    await mkdir(outsideRoot);
+    const parent = path.join(authorizedRoot, "files");
+    await mkdir(parent);
+    const destinationPath = path.join(parent, "swapped.bin");
+
+    await assert.rejects(
+      downloadBinaryToPath({
+        url: "https://worker.example.test/file",
+        destinationPath,
+      }, {
+        authorizedRoots: [authorizedRoot],
+        allowedUrlPrefixes,
+        fetcher: async () => {
+          await rm(parent, { recursive: true, force: true });
+          await symlink(outsideRoot, parent, "dir");
+          return remoteResponse(Uint8Array.from([1, 2, 3]));
+        },
+      }),
+      (error) => matchesError(error, "symlink-path")
+        || matchesError(error, "unauthorized-path")
+        || matchesError(error, "path-changed"),
+    );
+
+    assert.deepEqual(await readdir(outsideRoot), []);
+    await assert.rejects(readFile(destinationPath), { code: "ENOENT" });
   });
 });

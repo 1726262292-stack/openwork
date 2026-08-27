@@ -21,15 +21,17 @@ test("Electron remote binary transfers preserve bytes, workspace boundaries, and
   expect(unit.stdout).toContain("cancellation removes the incomplete download");
   expect(unit.stdout).toContain("rejects unauthorized, traversal, and symlink upload paths");
   expect(unit.stdout).toContain("rejects traversal and symlink download destinations");
+  expect(unit.stdout).toContain("rejects transfer URLs outside connected remote workspace endpoints");
+  expect(unit.stdout).toContain("rejects a download whose destination parent is swapped for a symlink during the fetch");
   expect(unit.stdout).not.toContain("not ok");
-  expect(unit.stdout).toMatch(/# tests 7\b/);
-  expect(unit.stdout).toMatch(/# pass 7\b/);
+  expect(unit.stdout).toMatch(/# tests 9\b/);
+  expect(unit.stdout).toMatch(/# pass 9\b/);
   expect(unit.stdout).toMatch(/# fail 0\b/);
   expect(unit.stdout).toMatch(/# skipped 0\b/);
 
   evidence.recordAssertionEvidence(
-    "Main-process binary transfers are byte-exact, bounded, and workspace-confined",
-    "Multipart uploads reproduced the original bytes with Unicode filenames, downloads landed atomically with no partial files after oversize or cancellation, and unauthorized, traversal, and symlink paths were rejected on both directions.",
+    "Main-process binary transfers are byte-exact, bounded, workspace-confined, and endpoint-bound",
+    "Multipart uploads reproduced the original bytes with Unicode filenames, downloads landed atomically with no partial files after oversize or cancellation, unauthorized, traversal, and symlink paths were rejected on both directions, transfer URLs were confined to registered remote workspace endpoints, and a destination parent swapped for a symlink during the fetch was rejected without writing outside the workspace.",
     true,
   );
 });
