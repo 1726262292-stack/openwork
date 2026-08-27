@@ -92,6 +92,12 @@ const workerTokensResponseSchema = z.object({
   }).nullable(),
 }).meta({ ref: "WorkerTokensResponse" })
 
+const workerTokensRequestSchema = z.object({
+  // Legacy/published clients do not understand signed-preview expiry. They
+  // receive only stable tokens. New Web flows opt in and own refresh/polling.
+  includeExpiringOpenworkUrl: z.boolean().optional(),
+}).meta({ ref: "WorkerTokensRequest" })
+
 const organizationUnavailableSchema = z.object({
   error: z.literal("organization_unavailable"),
 }).meta({ ref: "OrganizationUnavailableError" })
@@ -456,7 +462,10 @@ export function registerWorkerCoreRoutes<T extends { Variables: WorkerRouteVaria
       return c.json({ error: "worker_not_found" }, 404)
     }
 
-    const resolved = await getWorkerTokensAndConnect(worker)
+    const requestBody = workerTokensRequestSchema.safeParse(await c.req.json().catch(() => ({})))
+    const resolved = await getWorkerTokensAndConnect(worker, {
+      includeExpiringOpenworkUrl: requestBody.success && requestBody.data.includeExpiringOpenworkUrl === true,
+    })
     if ("error" in resolved && resolved.error) {
       return new Response(JSON.stringify(resolved.error.body), {
         status: resolved.error.status,

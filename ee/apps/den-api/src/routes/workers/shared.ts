@@ -496,6 +496,7 @@ export async function requireCloudAccessOrPayment(input: {
 export async function getWorkerTokensAndConnect(worker: WorkerRow, options: {
   resolveCloudAccess?: ResolveCloudRuntimeAccess
   fetchImpl?: typeof fetch
+  includeExpiringOpenworkUrl?: boolean
 } = {}) {
   if (worker.destination === "cloud" && worker.sandbox_backend === CLOUD_INSTANCE_BACKEND) {
     const resolved = await (options.resolveCloudAccess ?? resolveCloudRuntimeAccess)({ organizationId: worker.org_id, workerId: worker.id })
@@ -510,10 +511,12 @@ export async function getWorkerTokensAndConnect(worker: WorkerRow, options: {
         },
       }
     }
-    const connect = await resolveConnectUrlFromWorker(resolved.url, resolved.clientToken, options.fetchImpl)
+    const connect = options.includeExpiringOpenworkUrl
+      ? await resolveConnectUrlFromWorker(resolved.url, resolved.clientToken, options.fetchImpl)
+      : null
     return {
       tokens: { owner: resolved.hostToken, host: resolved.hostToken, client: resolved.clientToken },
-      connect: connect ?? { openworkUrl: resolved.url, workspaceId: null },
+      connect,
     }
   }
 

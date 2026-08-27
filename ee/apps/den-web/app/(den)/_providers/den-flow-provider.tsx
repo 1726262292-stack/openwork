@@ -1671,7 +1671,7 @@ export function DenFlowProvider({ children }: { children: ReactNode }) {
       const { response, payload } = await requestJson(`/v1/workers/${encodeURIComponent(id)}/tokens`, {
         method: "POST",
         headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
-        body: JSON.stringify({})
+        body: JSON.stringify({ includeExpiringOpenworkUrl: true })
       });
 
       if (!response.ok) {

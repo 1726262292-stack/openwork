@@ -120,11 +120,26 @@ test("Daytona instance persistence and API responses never expose an expiring pr
   expect(shared.toInstanceResponse(render)?.url).toBe("https://durable.render.example.test")
 })
 
-test("cloud create defaults to cloud-instance and tokens resolve a usable fresh URL", async () => {
-  const sandboxBackend = shared.workerSandboxBackend({ destination: "cloud", sandboxBackend: undefined })
-  const runtimeWorker = { ...worker(), sandbox_backend: sandboxBackend }
+test("cloud worker tokens expose expiring URLs only by explicit opt-in", async () => {
+  const runtimeWorker = worker()
   const requested: string[] = []
+  const resolveCloudAccess = async () => ({
+    status: "ready" as const,
+    workerId: runtimeWorker.id,
+    url: "https://create-token.preview.example.test",
+    expiresAt: new Date("2026-08-27T12:00:00.000Z"),
+    clientToken: "client-token",
+    hostToken: "host-token",
+  })
+  const legacy = await shared.getWorkerTokensAndConnect(runtimeWorker, {
+    resolveCloudAccess,
+    fetchImpl: async (input) => {
+      requested.push(String(input))
+      return Response.json({ activeId: "created-workspace", items: [] })
+    },
+  })
   const resolved = await shared.getWorkerTokensAndConnect(runtimeWorker, {
+    includeExpiringOpenworkUrl: true,
     resolveCloudAccess: async () => ({
       status: "ready",
       workerId: runtimeWorker.id,
@@ -139,7 +154,10 @@ test("cloud create defaults to cloud-instance and tokens resolve a usable fresh 
     },
   })
 
-  expect(sandboxBackend).toBe("cloud-instance")
+  expect(legacy).toEqual({
+    tokens: { owner: "host-token", host: "host-token", client: "client-token" },
+    connect: null,
+  })
   expect(resolved).toEqual({
     tokens: { owner: "host-token", host: "host-token", client: "client-token" },
     connect: {
