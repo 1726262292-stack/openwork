@@ -25,6 +25,7 @@ import { withProvisionDeadline } from "../../workers/provision-deadline.js"
 import { customDomainForWorker } from "../../workers/vanity-domain.js"
 import { resolveCloudRuntimeAccess } from "../../workers/worker-access.js"
 import { CLOUD_INSTANCE_BACKEND } from "../../workers/cloud-constants.js"
+import { fetchPreviewNoRedirect } from "../../workers/preview-fetch.js"
 
 const logger = appLogger.child({ component: "worker_routes" })
 
@@ -67,6 +68,10 @@ type UserId = typeof AuthUserTable.$inferSelect.id
 type ProvisionWorker = typeof provisionWorker
 type ProvisionedWorker = Awaited<ReturnType<ProvisionWorker>>
 type ResolveCloudRuntimeAccess = typeof resolveCloudRuntimeAccess
+type LoadActiveWorkerTokens = (workerId: WorkerId) => Promise<Array<{
+  scope: typeof WorkerTokenTable.$inferSelect.scope
+  token: string
+}>>
 type CloudProvisioningStore = {
   updateWorkerStatus: (input: {
     workerId: WorkerId
@@ -182,7 +187,7 @@ async function resolveConnectUrlFromWorker(instanceUrl: string, clientToken: str
   }
 
   try {
-    const response = await fetchImpl(`${baseUrl}/workspaces`, {
+    const response = await fetchPreviewNoRedirect(fetchImpl, `${baseUrl}/workspaces`, {
       method: "GET",
       headers: {
         Accept: "application/json",
@@ -323,7 +328,7 @@ export async function fetchWorkerRuntimeJson(input: {
 
   for (const candidate of access.candidates) {
     try {
-      const response = await (options.fetchImpl ?? fetch)(`${normalizeUrl(candidate)}${input.path}`, {
+      const response = await fetchPreviewNoRedirect(options.fetchImpl ?? fetch, `${normalizeUrl(candidate)}${input.path}`, {
         method: input.method ?? "GET",
         headers: {
           Accept: "application/json",
@@ -371,6 +376,14 @@ export async function getLatestWorkerInstance(workerId: WorkerId) {
     .limit(1)
 
   return rows[0] ?? null
+}
+
+async function loadActiveWorkerTokens(workerId: WorkerId) {
+  return db
+    .select({ scope: WorkerTokenTable.scope, token: WorkerTokenTable.token })
+    .from(WorkerTokenTable)
+    .where(and(eq(WorkerTokenTable.worker_id, workerId), isNull(WorkerTokenTable.revoked_at)))
+    .orderBy(asc(WorkerTokenTable.created_at))
 }
 
 export function toInstanceResponse(instance: WorkerInstanceRow | null) {
@@ -503,37 +516,58 @@ export async function requireCloudAccessOrPayment(input: {
 
 export async function getWorkerTokensAndConnect(worker: WorkerRow, options: {
   resolveCloudAccess?: ResolveCloudRuntimeAccess
+  loadActiveTokens?: LoadActiveWorkerTokens
   fetchImpl?: typeof fetch
   includeExpiringOpenworkUrl?: boolean
   apiPublicUrl?: string
 } = {}) {
   if (worker.destination === "cloud" && worker.sandbox_backend === CLOUD_INSTANCE_BACKEND) {
-    const resolved = await (options.resolveCloudAccess ?? resolveCloudRuntimeAccess)({ organizationId: worker.org_id, workerId: worker.id })
-    if (resolved.status !== "ready") {
+    const tokenRows = await (options.loadActiveTokens ?? loadActiveWorkerTokens)(worker.id)
+    const hostToken = tokenRows.find((entry) => entry.scope === "host")?.token ?? null
+    const clientToken = tokenRows.find((entry) => entry.scope === "client")?.token ?? null
+    if (!hostToken || !clientToken) {
       return {
         error: {
           status: 409,
           body: {
-            error: "worker_runtime_unavailable",
-            message: "Worker runtime access is not ready yet. Wait for provisioning to finish and try again.",
+            error: "worker_tokens_unavailable",
+            message: "Worker tokens are missing for this worker. Launch a new worker and try again.",
           },
         },
       }
     }
-    const previewConnect = await resolveConnectUrlFromWorker(resolved.url, resolved.clientToken, options.fetchImpl)
+
+    const stableRootUrl = cloudWorkerCompatibilityUrl(worker.id, options.apiPublicUrl ?? env.apiPublicUrl)
+    if (!options.includeExpiringOpenworkUrl) {
+      return {
+        tokens: { owner: hostToken, host: hostToken, client: clientToken },
+        connect: stableRootUrl ? { openworkUrl: stableRootUrl, workspaceId: null } : null,
+      }
+    }
+
+    const resolved = await (options.resolveCloudAccess ?? resolveCloudRuntimeAccess)({ organizationId: worker.org_id, workerId: worker.id })
+      .catch(() => null)
+    const previewConnect = resolved?.status === "ready"
+      ? await resolveConnectUrlFromWorker(resolved.url, clientToken, options.fetchImpl)
+      : null
     const stableOpenworkUrl = cloudWorkerCompatibilityUrl(
       worker.id,
       options.apiPublicUrl ?? env.apiPublicUrl,
       previewConnect?.workspaceId,
     )
-    const connect = options.includeExpiringOpenworkUrl
-      ? previewConnect
-      : stableOpenworkUrl
-        ? { openworkUrl: stableOpenworkUrl, workspaceId: previewConnect?.workspaceId ?? null }
-        : null
     return {
-      tokens: { owner: resolved.hostToken, host: resolved.hostToken, client: resolved.clientToken },
-      connect,
+      tokens: { owner: hostToken, host: hostToken, client: clientToken },
+      connect: stableOpenworkUrl
+        ? { openworkUrl: stableOpenworkUrl, workspaceId: previewConnect?.workspaceId ?? null }
+        : null,
+      directPreview: resolved?.status === "ready" && previewConnect
+        ? {
+            version: 1 as const,
+            openworkUrl: previewConnect.openworkUrl,
+            workspaceId: previewConnect.workspaceId,
+            expiresAt: resolved.expiresAt.toISOString(),
+          }
+        : null,
     }
   }
 

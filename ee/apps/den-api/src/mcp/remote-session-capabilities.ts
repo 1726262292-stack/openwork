@@ -7,6 +7,7 @@ import { db } from "../db.js"
 import { env } from "../env.js"
 import { organizationCloudEnabled } from "../capability-sources/cloud-rollout.js"
 import { resolveCloudRuntimeAccess, type CloudWorkerAccess } from "../workers/worker-access.js"
+import { fetchPreviewNoRedirect, previewFetch } from "../workers/preview-fetch.js"
 import { scoreText, tokenize, type CapabilityMatch } from "./search.js"
 
 /**
@@ -244,7 +245,7 @@ export async function resolveRemoteSessionWorkspace(
   fetchImpl: typeof fetch = fetch,
 ) {
   try {
-    const response = await fetchImpl(`${access.url}/workspaces`, {
+    const response = await fetchPreviewNoRedirect(fetchImpl, `${access.url}/workspaces`, {
       headers: workerHeaders(access),
       signal: AbortSignal.timeout(WORKER_REQUEST_TIMEOUT_MS),
     })
@@ -339,6 +340,7 @@ function defaultCreateClient(runtime: RemoteSessionRuntime): RemoteSessionThread
     token: runtime.clientToken,
     hostToken: runtime.hostToken,
     requestTimeoutMs: WORKER_REQUEST_TIMEOUT_MS,
+    fetch: (url, init = {}) => fetchPreviewNoRedirect(previewFetch(), url, init),
   })
 }
 

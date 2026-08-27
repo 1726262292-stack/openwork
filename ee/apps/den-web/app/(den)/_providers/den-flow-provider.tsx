@@ -37,6 +37,9 @@ import {
   getToken,
   getUser,
   getWorker,
+  getWorkerConnectionTargets,
+  getWorkerConnectionTokens,
+  getWorkerConnectionRefreshDelay,
   getWorkerConnectionPollDelay,
   getWorkerRuntimeSnapshot,
   getWorkerStatusCopy,
@@ -55,6 +58,7 @@ import {
   resetPosthogUser,
   resolveOpenworkWorkspaceUrl,
   withWorkerConnection,
+  workerConnectionEquals,
   workerNeedsConnectionResolution,
   trackPosthogEvent
 } from "../_lib/den-flow";
@@ -308,19 +312,19 @@ export function DenFlowProvider({ children }: { children: ReactNode }) {
       : selectedWorker
         ? listItemToWorker(selectedWorker, worker)
         : worker;
-  const openworkConnectUrl = activeWorker?.openworkUrl ?? activeWorker?.instanceUrl ?? null;
-  const preferredOpenworkToken = activeWorker?.clientToken ?? activeWorker?.ownerToken ?? null;
+  const { desktopUrl: openworkConnectUrl, webUrl: previewConnectUrl } = getWorkerConnectionTargets(activeWorker);
+  const { desktopToken: desktopOpenworkToken, webToken: webOpenworkToken } = getWorkerConnectionTokens(activeWorker);
   const hasWorkspaceScopedUrl = Boolean(openworkConnectUrl && /\/w\/[^/?#]+/.test(openworkConnectUrl));
   const openworkDeepLink = buildOpenworkDeepLink(
     openworkConnectUrl,
-    preferredOpenworkToken,
+    desktopOpenworkToken,
     activeWorker?.workerId ?? null,
     activeWorker?.workerName ?? null
   );
   const openworkAppConnectUrl = buildOpenworkAppConnectUrl(
     runtimeConfig.openworkAppConnectUrl,
-    openworkConnectUrl,
-    preferredOpenworkToken,
+    previewConnectUrl,
+    webOpenworkToken,
     activeWorker?.workerId ?? null,
     activeWorker?.workerName ?? null,
     { autoConnect: true }
@@ -646,7 +650,7 @@ export function DenFlowProvider({ children }: { children: ReactNode }) {
   async function withResolvedOpenworkCredentials(candidate: WorkerLaunch, options: { quiet?: boolean } = {}) {
     const existingConnectUrl = candidate.openworkUrl?.trim() ?? "";
     const existingWorkspaceId = candidate.workspaceId?.trim() ?? "";
-    if (existingConnectUrl && existingWorkspaceId) {
+    if (existingConnectUrl && (existingWorkspaceId || existingConnectUrl.includes("/v1/cloud/workers/"))) {
       return {
         ...candidate,
         openworkUrl: existingConnectUrl,
@@ -1605,6 +1609,8 @@ export function DenFlowProvider({ children }: { children: ReactNode }) {
               provider: summary.provider,
               instanceUrl: summary.instanceUrl,
               openworkUrl: summary.instanceUrl,
+              previewOpenworkUrl: null,
+              previewExpiresAt: null,
               workspaceId: null,
               clientToken: null,
               ownerToken: null,
@@ -1702,6 +1708,8 @@ export function DenFlowProvider({ children }: { children: ReactNode }) {
               provider: null,
               instanceUrl: null,
               openworkUrl: tokens.openworkUrl,
+              previewOpenworkUrl: tokens.previewOpenworkUrl,
+              previewExpiresAt: tokens.previewExpiresAt,
               workspaceId: tokens.workspaceId,
               clientToken: tokens.clientToken,
               ownerToken: tokens.ownerToken,
@@ -1711,13 +1719,7 @@ export function DenFlowProvider({ children }: { children: ReactNode }) {
       const resolvedWorker = await withResolvedOpenworkCredentials(nextWorker, { quiet: true });
       setWorker((current) => {
         if (!current || current.workerId !== resolvedWorker.workerId) return resolvedWorker;
-        if (
-          current.openworkUrl === resolvedWorker.openworkUrl &&
-          current.workspaceId === resolvedWorker.workspaceId &&
-          current.clientToken === resolvedWorker.clientToken &&
-          current.ownerToken === resolvedWorker.ownerToken &&
-          current.hostToken === resolvedWorker.hostToken
-        ) return current;
+        if (workerConnectionEquals(current, resolvedWorker)) return current;
         return resolvedWorker;
       });
       setPendingRestoredWorkerId(null);
@@ -2042,7 +2044,11 @@ export function DenFlowProvider({ children }: { children: ReactNode }) {
 
       const restored: WorkerLaunch = {
         ...parsed,
-        openworkUrl: parsed.openworkUrl ?? parsed.instanceUrl,
+        openworkUrl: parsed.provider === "daytona" && parsed.openworkUrl && !parsed.openworkUrl.includes("/v1/cloud/workers/")
+          ? null
+          : parsed.openworkUrl ?? parsed.instanceUrl,
+        previewOpenworkUrl: null,
+        previewExpiresAt: null,
         workspaceId: parsed.workspaceId ?? parseWorkspaceIdFromUrl(parsed.instanceUrl ?? ""),
         clientToken: null,
         ownerToken: null,
@@ -2066,6 +2072,8 @@ export function DenFlowProvider({ children }: { children: ReactNode }) {
 
     const serializable: WorkerLaunch = {
       ...worker,
+      previewOpenworkUrl: null,
+      previewExpiresAt: null,
       clientToken: null,
       ownerToken: null,
       hostToken: null
@@ -2075,7 +2083,7 @@ export function DenFlowProvider({ children }: { children: ReactNode }) {
   }, [worker]);
 
   useEffect(() => {
-    if (!user || !worker || actionBusy !== null || launchBusy || pendingRestoredWorkerId === worker.workerId || !workerNeedsConnectionResolution(worker)) {
+    if (!user || !worker || actionBusy !== null || launchBusy || pendingRestoredWorkerId === worker.workerId) {
       return;
     }
 
@@ -2091,12 +2099,14 @@ export function DenFlowProvider({ children }: { children: ReactNode }) {
       timer = window.setTimeout(() => void poll(), delay);
     };
 
-    void poll();
+    const refreshDelay = getWorkerConnectionRefreshDelay(worker);
+    if (refreshDelay === null) return;
+    timer = window.setTimeout(() => void poll(), refreshDelay);
     return () => {
       cancelled = true;
       if (timer !== null) window.clearTimeout(timer);
     };
-  }, [actionBusy, launchBusy, pendingRestoredWorkerId, user?.id, worker?.workerId, worker?.status, worker?.clientToken, worker?.hostToken, worker?.openworkUrl]);
+  }, [actionBusy, launchBusy, pendingRestoredWorkerId, user?.id, worker?.workerId, worker?.status, worker?.clientToken, worker?.hostToken, worker?.openworkUrl, worker?.previewOpenworkUrl, worker?.previewExpiresAt]);
 
   const provisioningWorkerIds = workers
     .filter((item) => item.status === "provisioning")

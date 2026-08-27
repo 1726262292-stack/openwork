@@ -273,6 +273,7 @@ test("remote sessions route workspace discovery only to the signed preview", asy
   const requested: string[] = []
   const fetchImpl: typeof fetch = async (input, init) => {
     requested.push(String(input))
+    expect(init?.redirect).toBe("error")
     expect(new Headers(init?.headers).get("authorization")).toBe("Bearer client-token")
     expect(new Headers(init?.headers).get("x-openwork-host-token")).toBe("host-token")
     return Response.json({ activeId: "workspace-signed-preview" })
