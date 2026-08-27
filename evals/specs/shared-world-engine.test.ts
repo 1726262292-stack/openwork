@@ -12,6 +12,8 @@ test("shared world files are discovered, path-loadable, consent-gated, and detac
   const discovered = await discoverWorlds(WORLDS_DIRECTORY);
   assert.deepEqual(discovered.map((world) => world.name), [
     "azure-byok",
+    "cloud-model-infra-worker",
+    "cloud-model-infra",
     "cross-workspace-split-view",
     "den-split-origin-kind",
     "desktop-prod-live",
@@ -21,6 +23,8 @@ test("shared world files are discovered, path-loadable, consent-gated, and detac
   ]);
 
   const azureByok = await loadWorldFile(join(WORLDS_DIRECTORY, "azure-byok.ts"));
+  const cloudModelInfra = await loadWorldFile(join(WORLDS_DIRECTORY, "cloud-model-infra.ts"));
+  const cloudModelInfraWorker = await loadWorldFile(join(WORLDS_DIRECTORY, "cloud-model-infra-worker.ts"));
   const crossWorkspaceSplitView = await loadWorldFile(join(WORLDS_DIRECTORY, "cross-workspace-split-view.ts"));
   const denSplitOriginKind = await loadWorldFile(join(WORLDS_DIRECTORY, "den-split-origin-kind.ts"));
   const devHeadless = await loadWorldFile(join(WORLDS_DIRECTORY, "dev-headless.ts"));
@@ -30,6 +34,17 @@ test("shared world files are discovered, path-loadable, consent-gated, and detac
   assert.equal(azureByok.definition.adapter, "eval");
   assert.equal(azureByok.definition.detached, true);
   assert.equal(azureByok.definition.requiresSharedState, false);
+  assert.equal(cloudModelInfra.defaultName, "cloud-model-infra");
+  assert.equal(cloudModelInfra.definition.adapter, "eval");
+  assert.equal(cloudModelInfra.definition.detached, true);
+  assert.equal(cloudModelInfra.definition.requiresSharedState, false);
+  assert.equal(cloudModelInfraWorker.defaultName, "cloud-model-infra-worker");
+  assert.equal(cloudModelInfraWorker.definition.adapter, "headless-web");
+  assert.equal(cloudModelInfraWorker.definition.detached, true);
+  assert.equal(cloudModelInfraWorker.definition.requiresSharedState, false);
+  assert.deepEqual(cloudModelInfraWorker.definition.topology, {
+    surface: { kind: "headless-web", state: "isolated", workspace: "/tmp/openwork-cloud-model-infra-worker" },
+  });
   assert.equal(crossWorkspaceSplitView.defaultName, "cross-workspace-split-view");
   assert.equal(crossWorkspaceSplitView.definition.adapter, "eval");
   assert.equal(crossWorkspaceSplitView.definition.detached, true);
