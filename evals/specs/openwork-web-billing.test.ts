@@ -19,7 +19,7 @@ function seedAppLessDenEnvironment() {
 }
 
 briefTest(testBrief({
-  behavior: "OpenWork Web is a $50-per-joined-member monthly Stripe entitlement that fails closed across billing lifecycle changes.",
+  behavior: "OpenWork Web resolves paid or explicitly granted complimentary organization access behind one fail-closed deployment gate.",
   claims: {
     priceContract: claim("OpenWork Web has a dedicated recurring USD monthly price contract", {
       never: "reuse the generic seat product or silently drift from $50 per user each month",
@@ -32,6 +32,9 @@ briefTest(testBrief({
     }),
     lifecycleContract: claim("only active and trialing OpenWork Web subscriptions are eligible", {
       never: "unlock for payment failure, cancellation, expiry, incomplete checkout, unpaid, or paused states",
+    }),
+    complimentaryContract: claim("platform admins can explicitly grant and revoke audited complimentary Web access", {
+      never: "infer free access from an email, organization role, plan, capability, or a deployment where Web is disabled, or overlap an ongoing paid Web subscription",
     }),
     checkoutContract: claim("Checkout, return sync, and webhooks bind one subscription to the intended organization", {
       never: "open duplicate subscriptions or grant access from an unrelated or unconfirmed Checkout session",
@@ -55,6 +58,11 @@ briefTest(testBrief({
     openWorkWebPaymentStatus,
   } = await import("../../ee/apps/den-api/src/stripe-billing");
   const { openWorkWebDeploymentAvailable } = await import("../../ee/apps/den-api/src/openwork-web-availability");
+  const {
+    hasOpenWorkWebComplimentaryAccess,
+    resolveOpenWorkWebAccess,
+    setOpenWorkWebComplimentaryAccess,
+  } = await import("../../ee/apps/den-api/src/openwork-web-access");
   const [
     environmentSource,
     availabilitySource,
@@ -69,6 +77,10 @@ briefTest(testBrief({
     billingPageSource,
     helmValuesSource,
     helmConfigMapSource,
+    webAccessSource,
+    adminRoutesSource,
+    adminPanelSource,
+    auditEventsSource,
   ] = await Promise.all([
     readFile(join(repoRoot, "ee", "apps", "den-api", "src", "env.ts"), "utf8"),
     readFile(join(repoRoot, "ee", "apps", "den-api", "src", "openwork-web-availability.ts"), "utf8"),
@@ -83,6 +95,10 @@ briefTest(testBrief({
     readFile(join(repoRoot, "ee", "apps", "den-web", "app", "(den)", "dashboard", "_components", "billing-dashboard-screen.tsx"), "utf8"),
     readFile(join(repoRoot, "packaging", "helm", "openwork-ee", "values.yaml"), "utf8"),
     readFile(join(repoRoot, "packaging", "helm", "openwork-ee", "templates", "configmap.yaml"), "utf8"),
+    readFile(join(repoRoot, "ee", "apps", "den-api", "src", "openwork-web-access.ts"), "utf8"),
+    readFile(join(repoRoot, "ee", "apps", "den-api", "src", "routes", "admin", "index.ts"), "utf8"),
+    readFile(join(repoRoot, "ee", "apps", "den-web", "components", "den-admin-panel.tsx"), "utf8"),
+    readFile(join(repoRoot, "ee", "apps", "den-api", "src", "audit-events.ts"), "utf8"),
   ]);
 
   expect(subscriptionSchemaSource).toMatch(/OrgSubscriptionType\s*=\s*\[[^\]]*"web"/s);
@@ -169,6 +185,51 @@ briefTest(testBrief({
     "Eligibility accepted only active and trialing with a matching Web price, rejected all seven non-eligible lifecycle states plus no status, and an active row with persisted payment_failed remains locked.",
   );
 
+  const preservedMetadata = setOpenWorkWebComplimentaryAccess({
+    brandAppName: "OpenWork Internal",
+    capabilities: { cloud: true },
+  }, true);
+  expect(hasOpenWorkWebComplimentaryAccess(preservedMetadata)).toBe(true);
+  expect(preservedMetadata).toMatchObject({
+    brandAppName: "OpenWork Internal",
+    capabilities: { cloud: true },
+    complimentaryAccess: { openworkWeb: true },
+  });
+  expect(resolveOpenWorkWebAccess({
+    deploymentAvailable: false,
+    hasEligibleSubscription: false,
+    complimentaryAccess: true,
+  })).toEqual({ hasAccess: false, accessSource: null, complimentaryAccess: true });
+  expect(resolveOpenWorkWebAccess({
+    deploymentAvailable: true,
+    hasEligibleSubscription: false,
+    complimentaryAccess: true,
+  })).toEqual({ hasAccess: true, accessSource: "complimentary", complimentaryAccess: true });
+  expect(resolveOpenWorkWebAccess({
+    deploymentAvailable: true,
+    hasEligibleSubscription: true,
+    complimentaryAccess: true,
+  })).toEqual({ hasAccess: true, accessSource: "subscription", complimentaryAccess: true });
+  expect(webAccessSource).not.toContain("email");
+  expect(webAccessSource).not.toContain("role");
+  expect(webAccessSource).not.toContain("plan");
+  expect(adminRoutesSource).toContain('"/v1/admin/organizations/:organizationId/openwork-web-access"');
+  expect(adminRoutesSource).toMatch(/openwork-web-access"[\s\S]{0,120}adminRoute\(\)/);
+  expect(adminRoutesSource).toContain("organizationHasOngoingOpenWorkWebSubscription");
+  expect(adminRoutesSource).toContain("isOngoingOpenWorkWebSubscriptionStatus");
+  expect(adminRoutesSource).toContain("buildOrganizationAuditEvent");
+  expect(adminRoutesSource).toContain("reason: body.data.reason");
+  expect(auditEventsSource).toContain("organization.openwork_web.complimentary_access_granted");
+  expect(auditEventsSource).toContain("organization.openwork_web.complimentary_access_revoked");
+  expect(billingRoutesSource).toContain("openwork_web_complimentary_access_exists");
+  expect(adminPanelSource).toContain("OpenWork Web billing access");
+  expect(adminPanelSource).toContain("Grant complimentary access");
+  expect(adminPanelSource).toContain("Reason for audit log");
+  prove.complimentaryContract(
+    true,
+    "The explicit metadata grant preserved unrelated organization settings; the deployment-off matrix remained locked; paid access won if both sources existed; the platform-admin route required an audit reason, rejected ongoing subscriptions twice around the transaction, and Checkout refused a complimentary organization.",
+  );
+
   expect(openWorkWebCheckoutIdempotencyKey({
     organizationId: "org_acme",
     quantity: 3,
@@ -221,6 +282,9 @@ briefTest(testBrief({
           quantity: 3,
           expectedMonthlyTotal: 15_000,
           hasEligibleSubscription: true,
+          hasAccess: true,
+          accessSource: "subscription",
+          complimentaryAccess: false,
           subscription: {
             status: "active",
             quantity: 3,
@@ -238,6 +302,9 @@ briefTest(testBrief({
     quantity: 3,
     expectedMonthlyTotal: 15_000,
     hasEligibleSubscription: true,
+    hasAccess: true,
+    accessSource: "subscription",
+    complimentaryAccess: false,
     subscription: {
       status: "active",
       currentPeriodEnd: "2026-09-01T00:00:00.000Z",
@@ -256,6 +323,9 @@ briefTest(testBrief({
           quantity: 3,
           expectedMonthlyTotal: 15_000,
           hasEligibleSubscription: false,
+          hasAccess: false,
+          accessSource: null,
+          complimentaryAccess: false,
           subscription: {
             status: "active",
             quantity: 3,
@@ -269,10 +339,39 @@ briefTest(testBrief({
     },
   })).toMatchObject({
     hasEligibleSubscription: false,
+    hasAccess: false,
+    accessSource: null,
     subscription: { status: "active", paymentStatus: "payment_failed" },
   });
+  expect(parseStripeWebBilling({
+    billing: {
+      stripe: {
+        web: {
+          configured: false,
+          unitAmount: 5_000,
+          currency: "usd",
+          interval: "month",
+          quantityDefinition: "joined_non_removed_members",
+          quantity: 3,
+          expectedMonthlyTotal: 15_000,
+          hasEligibleSubscription: false,
+          hasAccess: true,
+          accessSource: "complimentary",
+          complimentaryAccess: true,
+          subscription: null,
+        },
+      },
+    },
+  })).toMatchObject({
+    configured: false,
+    hasAccess: true,
+    accessSource: "complimentary",
+    complimentaryAccess: true,
+    subscription: null,
+  });
   expect(webPageSource).toContain("Purchase OpenWork Web — $50 per member/month");
-  expect(webPageSource).toContain("hasEligibleSubscription");
+  expect(webPageSource).toContain("billing.hasAccess");
+  expect(webPageSource).toContain('billing.accessSource === "complimentary"');
   expect(webPageSource).toContain("Confirming your OpenWork Web subscription");
   expect(webPageSource).toContain('data-testid="openwork-web-purchase"');
   expect(webPageSource).toContain('data-testid="openwork-web-eligible"');
@@ -281,22 +380,25 @@ briefTest(testBrief({
   expect(webPageSource).toContain("Manage the existing subscription from Billing");
   expect(webPageSource).toContain("Access opens as soon as your payment is confirmed.");
   expect(webPageSource).not.toContain("Stripe will show");
-  expect(webPageSource).toContain("isExistingWebSubscriptionResponse");
+  expect(webPageSource).toContain("isExistingWebAccessResponse");
   expect(webPageSource).toContain("const webAvailable = runtimeConfigLoaded");
   expect(stripeReturnSource).toContain("?stripe_checkout=web&session_id=");
   expect(stripeReturnSource).toContain('if (returnTarget === "web")');
   expect(billingPageSource).toContain("OpenWork Web");
   expect(billingPageSource).toContain('data-testid="billing-openwork-web-card"');
   expect(billingPageSource).toContain('data-testid="billing-openwork-web-lifecycle"');
-  expect(billingPageSource).toContain('label="Unit price"');
-  expect(billingPageSource).toContain("Members billed");
+  expect(billingPageSource).toContain('label={webComplimentary ? "Access" : "Unit price"}');
+  expect(billingPageSource).toContain('label={webComplimentary ? "Members covered" : "Members billed"}');
   expect(billingPageSource).toContain("Expected monthly total");
   expect(billingPageSource).toContain('label={webCancelling ? "Access ends" : "Next renewal"}');
   expect(billingPageSource).toMatch(/Payment|payment/);
   expect(billingPageSource).toContain('webPaymentStatus === "payment_failed"');
   expect(billingPageSource).toContain("Manage or cancel");
+  expect(billingPageSource).toContain('webAccessSource === "complimentary"');
+  expect(billingPageSource).toContain("Members covered");
+  expect(billingPageSource).toContain("without a Stripe subscription or per-member charge");
   prove.surfaceContract(
     true,
-    "The paywall uses the deployment Web offer, waits for confirmed subscription state, and offers the exact $50/user/month purchase; Billing parses and labels plan, users, unit price, total, payment status, renewal/end date, and Stripe management.",
+    "The paywall uses the deployment Web offer, waits for server-resolved access, renders complimentary access without a purchase action or charge, and otherwise offers the exact $50/user/month purchase; Billing keeps paid lifecycle management while labeling complimentary members as covered rather than billed.",
   );
 });
