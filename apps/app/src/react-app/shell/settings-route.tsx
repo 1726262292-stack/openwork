@@ -2863,6 +2863,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
           mcpAuthNeedsReload: connectionsSnapshot.mcpAuthNeedsReload,
         }}
         onCloseMcpAuthModal={() => connectionsStore.closeMcpAuthModal()}
+        onMcpAuthenticated={(name) => connectionsStore.recordMcpAuthenticated(name)}
         onCompleteMcpAuthModal={() => connectionsStore.completeMcpAuthModal()}
       />
       <ModelPickerModal
