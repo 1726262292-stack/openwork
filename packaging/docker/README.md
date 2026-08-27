@@ -13,9 +13,9 @@ printf 'OPENWORK_AUTH_SECRET=%s\nOPENWORK_DB_ENCRYPTION_KEY=%s\n' \
 docker compose -f docker-compose.eval.yml up -d --wait
 ```
 
-Open `http://localhost:3005` and create an account. See the [evaluation guide](../../packages/docs/self-host/evaluate-with-docker-compose.mdx) for configuration, LAN access, limitations, and cleanup.
+Open `http://localhost:3005` and create an account. See the [evaluation guide](../../packages/docs/self-host/evaluate-with-docker-compose.mdx) for configuration, secure remote access, limitations, and cleanup.
 
-This stack is for evaluation only. It enables public signup, uses development credentials and HTTP, and does not provide production workers, sandboxes, or email delivery.
+This stack is for evaluation only. Its HTTP ports bind to loopback, but it still enables public signup, uses development credentials, and does not provide production workers, sandboxes, or email delivery.
 
 ## Den local stack (Docker)
 

@@ -6,7 +6,7 @@ description: "Run the OpenWork control plane from published images without cloni
 Use the pull-only Docker Compose stack to evaluate Den web, Den API, and organization management on one machine. The stack downloads published OpenWork images and MySQL, runs database migrations, and starts the browser experience at `http://localhost:3005`.
 
 <Warning>
-  This stack is for evaluation only. It enables public signup by default, uses development credentials and plain HTTP, keeps MySQL on one local Docker volume, and uses a stub worker provisioner. Do not expose it to the public internet or use it for production data.
+  This stack is for evaluation only. Its HTTP ports bind to loopback, but it enables public signup by default, uses development credentials, keeps MySQL on one local Docker volume, and uses a stub worker provisioner. Do not change the port bindings to expose it on a network or use it for production data.
 </Warning>
 
 ## Before you start
@@ -33,7 +33,7 @@ Install Docker Engine or Docker Desktop with Docker Compose v2. The machine must
 
 3. Open [http://localhost:3005](http://localhost:3005) and create an account.
 
-The stack exposes Den web on port `3005` and Den API on port `8788`. MySQL is reachable only inside the Compose network.
+The stack exposes Den web on `127.0.0.1:3005` and Den API on `127.0.0.1:8788`. MySQL is reachable only inside the Compose network.
 
 ## Configure the evaluation
 
@@ -41,7 +41,6 @@ Set variables in your shell before running `docker compose`, or save them in a `
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `OPENWORK_HOST` | `localhost` | Host name or IP that browsers use to reach this machine. Do not include a scheme or port. |
 | `OPENWORK_WEB_PORT` | `3005` | Host port for Den web. |
 | `OPENWORK_API_PORT` | `8788` | Host port for Den API. |
 | `OPENWORK_AUTH_SECRET` | Required | Better Auth signing secret of at least 32 random characters. |
@@ -61,14 +60,18 @@ printf 'OPENWORK_AUTH_SECRET=%s\nOPENWORK_DB_ENCRYPTION_KEY=%s\n' \
   "$(openssl rand -hex 32)" "$(openssl rand -hex 32)" > .env
 ```
 
-To open the evaluation from another device on your local network, set `OPENWORK_HOST` to the Docker host's reachable name or IP before starting the stack. For example:
+## Connect from another machine
+
+Keep the Compose ports bound to loopback. To evaluate a stack running on a remote host, create an encrypted SSH tunnel from your local machine:
 
 ```bash
-OPENWORK_HOST=192.168.1.20 \
-  docker compose -f docker-compose.eval.yml up -d --wait
+ssh -N \
+  -L 3005:127.0.0.1:3005 \
+  -L 8788:127.0.0.1:8788 \
+  user@docker-host
 ```
 
-Then open `http://192.168.1.20:3005`. Allow inbound TCP ports `3005` and `8788` only from the network you trust.
+Then open [http://localhost:3005](http://localhost:3005). Authentication and API traffic travel through the SSH tunnel rather than across the network as plaintext HTTP.
 
 ## Inspect or stop the stack
 
