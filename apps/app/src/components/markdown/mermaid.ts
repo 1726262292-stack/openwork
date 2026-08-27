@@ -32,7 +32,7 @@ export type MermaidRenderResult =
   | { status: "rendered"; svg: string }
   | { status: "source"; reason: "size" | "complexity" | "unsafe" | "invalid" | "timeout" | "unavailable" };
 
-const MERMAID_ARROW_PATTERN = /(?:-->|---|-.->|==>|~~~|<-->|<==>)/g;
+const MERMAID_ARROW_PATTERN = /(?:--!?>|---|-.->|==>|~~~|<--!?>|<==>)/g;
 const MERMAID_NODE_DECLARATION_PATTERN = /\b([A-Za-z_][\w-]{0,63})\s*(?=\[|\(\(|\(\[|\{|>)/g;
 const MERMAID_PARTICIPANT_PATTERN = /^\s*(?:participant|actor|class|entity|state)\s+([A-Za-z_][\w-]{0,63})\b/gm;
 const MERMAID_URL_ATTRIBUTES = new Set([
