@@ -94,6 +94,7 @@ test("Daytona v0.173 argv keeps the complete quoted bash command in one post-sep
   ]);
   assert.throws(() => daytonaK3sPreviewArgv("owned-sandbox-1", 8080, 86_401), /between 1 and 86400/);
   assert.equal(parseDaytonaK3sPreviewUrl("Preview URL: https://preview.example.test/path?token=abc\n"), "https://preview.example.test/path?token=abc");
+  assert.equal(parseDaytonaK3sPreviewUrl(`Preview URL: https://preview.example.test/path${",".repeat(10_000)}`), "https://preview.example.test/path");
 });
 
 test("root lifecycle installs a checksummed pinned binary into placement paths and deletes its sandbox idempotently", async () => {

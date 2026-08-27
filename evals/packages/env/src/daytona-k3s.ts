@@ -215,7 +215,9 @@ export function daytonaK3sPreviewArgv(ownedSandboxId: string, port: number, expi
 
 export function parseDaytonaK3sPreviewUrl(stdout: string): string {
   for (const match of stdout.matchAll(/https:\/\/[^\s"'<>]+/g)) {
-    const candidate = match[0].replace(/[.,;:]+$/, "");
+    let end = match[0].length;
+    while (end > 0 && ".,;:".includes(match[0][end - 1] ?? "")) end -= 1;
+    const candidate = match[0].slice(0, end);
     try {
       const parsed = new URL(candidate);
       if (parsed.protocol === "https:" && parsed.hostname) return candidate;
