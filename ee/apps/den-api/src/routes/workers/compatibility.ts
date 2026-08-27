@@ -20,14 +20,8 @@ function unauthorizedResponse() {
   })
 }
 
-export function registerCloudWorkerCompatibilityRoutes<T extends { Variables: WorkerRouteVariables }>(
-  app: Hono<T>,
-  options: CloudWorkerCompatibilityOptions = {},
-) {
-  // Worker credentials are explicit bearer values rather than ambient browser
-  // credentials, so reflecting the caller lets published desktop WebViews keep
-  // streaming after the Daytona preview origin rotates.
-  app.use("/v1/cloud/workers/*", cors({
+function cloudWorkerCompatibilityCors() {
+  return cors({
     origin: (origin) => origin,
     allowHeaders: [
       "Accept",
@@ -41,7 +35,23 @@ export function registerCloudWorkerCompatibilityRoutes<T extends { Variables: Wo
     ],
     allowMethods: ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     maxAge: 600,
-  }))
+  })
+}
+
+export function registerCloudWorkerCompatibilityPreflightRoute<T extends { Variables: WorkerRouteVariables }>(
+  app: Hono<T>,
+) {
+  app.options("/v1/cloud/workers/*", cloudWorkerCompatibilityCors())
+}
+
+export function registerCloudWorkerCompatibilityRoutes<T extends { Variables: WorkerRouteVariables }>(
+  app: Hono<T>,
+  options: CloudWorkerCompatibilityOptions = {},
+) {
+  // Worker credentials are explicit bearer values rather than ambient browser
+  // credentials, so reflecting the caller lets published desktop WebViews keep
+  // streaming after the Daytona preview origin rotates.
+  app.use("/v1/cloud/workers/*", cloudWorkerCompatibilityCors())
 
   app.all("/v1/cloud/workers/:workerId/*", tokenRoute, async (c) => {
     let workerId: WorkerId

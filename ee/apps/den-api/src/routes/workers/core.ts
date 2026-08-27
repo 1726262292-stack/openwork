@@ -90,6 +90,12 @@ const workerTokensResponseSchema = z.object({
     openworkUrl: z.string().nullable(),
     workspaceId: z.string().nullable(),
   }).nullable(),
+  directPreview: z.object({
+    version: z.literal(1),
+    openworkUrl: z.string(),
+    workspaceId: z.string().nullable(),
+    expiresAt: z.string().datetime(),
+  }).nullable().optional(),
 }).meta({ ref: "WorkerTokensResponse" })
 
 const workerTokensRequestSchema = z.object({

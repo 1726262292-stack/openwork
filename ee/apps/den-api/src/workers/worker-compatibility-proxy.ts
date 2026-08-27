@@ -22,7 +22,11 @@ export type CloudWorkerCompatibilityOptions = {
   authenticate?: AuthenticateWorkerRequest
   resolveCloudAccess?: ResolveCloudAccess
   fetchImpl?: typeof fetch
+  maxActiveRequestsPerWorker?: number
 }
+
+const DEFAULT_MAX_ACTIVE_REQUESTS_PER_WORKER = 16
+const activeRequestsByWorker = new Map<WorkerId, number>()
 
 const HOP_BY_HOP_HEADERS = new Set([
   "connection",
@@ -144,12 +148,58 @@ function downstreamResponseHeaders(upstream: Response) {
   return headers
 }
 
-function jsonError(status: 401 | 502 | 503, error: "unauthorized" | "worker_runtime_proxy_failed" | "worker_runtime_unavailable") {
+function jsonError(
+  status: 401 | 429 | 502 | 503,
+  error: "too_many_requests" | "unauthorized" | "worker_runtime_proxy_failed" | "worker_runtime_unavailable",
+  headers: HeadersInit = {},
+) {
   return Response.json({ error }, {
     status,
     headers: {
       "Cache-Control": "no-store",
       Pragma: "no-cache",
+      ...headers,
+    },
+  })
+}
+
+function acquireWorkerRequest(workerId: WorkerId, maximum: number) {
+  const active = activeRequestsByWorker.get(workerId) ?? 0
+  if (active >= maximum) return null
+  activeRequestsByWorker.set(workerId, active + 1)
+  let released = false
+  return () => {
+    if (released) return
+    released = true
+    const remaining = (activeRequestsByWorker.get(workerId) ?? 1) - 1
+    if (remaining > 0) activeRequestsByWorker.set(workerId, remaining)
+    else activeRequestsByWorker.delete(workerId)
+  }
+}
+
+function releaseOnStreamCompletion(body: ReadableStream<Uint8Array>, release: () => void) {
+  const reader = body.getReader()
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        const chunk = await reader.read()
+        if (chunk.done) {
+          release()
+          controller.close()
+          return
+        }
+        controller.enqueue(chunk.value)
+      } catch (error) {
+        release()
+        controller.error(error)
+      }
+    },
+    async cancel(reason) {
+      try {
+        await reader.cancel(reason)
+      } finally {
+        release()
+      }
     },
   })
 }
@@ -196,47 +246,60 @@ export async function proxyCloudWorkerCompatibilityRequest(input: {
     return jsonError(401, "unauthorized")
   }
 
-  let access: Awaited<ReturnType<ResolveCloudAccess>>
+  const maximum = Math.max(1, options.maxActiveRequestsPerWorker ?? DEFAULT_MAX_ACTIVE_REQUESTS_PER_WORKER)
+  const release = acquireWorkerRequest(input.workerId, maximum)
+  if (!release) return jsonError(429, "too_many_requests", { "Retry-After": "1" })
+
+  let releaseWithResponseBody = false
   try {
-    access = await (options.resolveCloudAccess ?? resolveCloudRuntimeAccess)({
-      organizationId: authorization.organizationId,
-      workerId: input.workerId,
+    const method = input.request.method.toUpperCase()
+
+    let access: Awaited<ReturnType<ResolveCloudAccess>>
+    try {
+      access = await (options.resolveCloudAccess ?? resolveCloudRuntimeAccess)({
+        organizationId: authorization.organizationId,
+        workerId: input.workerId,
+      })
+    } catch {
+      return jsonError(503, "worker_runtime_unavailable")
+    }
+    if (access.status !== "ready") return jsonError(503, "worker_runtime_unavailable")
+
+    const target = upstreamUrl(access.url, input.request, input.workerId)
+    if (!target) return jsonError(502, "worker_runtime_proxy_failed")
+
+    let upstream: Response
+    try {
+      const requestBody = isReadMethod(method) ? null : input.request.body
+      const baseInit: RequestInit = {
+        method,
+        headers: upstreamRequestHeaders(input.request, authorization, access),
+        cache: "no-store",
+        redirect: "error",
+        signal: input.request.signal,
+      }
+      const requestInit: RequestInit | (RequestInit & { duplex: "half" }) = requestBody
+        ? { ...baseInit, body: requestBody, duplex: "half" }
+        : baseInit
+      upstream = await (options.fetchImpl ?? fetch)(target, requestInit)
+    } catch {
+      return jsonError(502, "worker_runtime_proxy_failed")
+    }
+    if (upstream.status >= 300 && upstream.status < 400) {
+      await upstream.body?.cancel().catch(() => undefined)
+      return jsonError(502, "worker_runtime_proxy_failed")
+    }
+
+    const responseBody = method === "HEAD" || NO_BODY_STATUSES.has(upstream.status) ? null : upstream.body
+    if (!responseBody) await upstream.body?.cancel().catch(() => undefined)
+    const downstreamBody = responseBody ? releaseOnStreamCompletion(responseBody, release) : null
+    releaseWithResponseBody = downstreamBody !== null
+    return new Response(downstreamBody, {
+      status: upstream.status,
+      statusText: upstream.statusText,
+      headers: downstreamResponseHeaders(upstream),
     })
-  } catch {
-    return jsonError(503, "worker_runtime_unavailable")
+  } finally {
+    if (!releaseWithResponseBody) release()
   }
-  if (access.status !== "ready") return jsonError(503, "worker_runtime_unavailable")
-
-  const target = upstreamUrl(access.url, input.request, input.workerId)
-  if (!target) return jsonError(502, "worker_runtime_proxy_failed")
-
-  const method = input.request.method.toUpperCase()
-  const requestBody = isReadMethod(method)
-    ? undefined
-    : await input.request.arrayBuffer().then((body) => body.byteLength > 0 ? body : undefined)
-
-  let upstream: Response
-  try {
-    upstream = await (options.fetchImpl ?? fetch)(target, {
-      method,
-      headers: upstreamRequestHeaders(input.request, authorization, access),
-      body: requestBody,
-      cache: "no-store",
-      redirect: "error",
-      signal: input.request.signal,
-    })
-  } catch {
-    return jsonError(502, "worker_runtime_proxy_failed")
-  }
-  if (upstream.status >= 300 && upstream.status < 400) {
-    await upstream.body?.cancel().catch(() => undefined)
-    return jsonError(502, "worker_runtime_proxy_failed")
-  }
-
-  const responseBody = method === "HEAD" || NO_BODY_STATUSES.has(upstream.status) ? null : upstream.body
-  return new Response(responseBody, {
-    status: upstream.status,
-    statusText: upstream.statusText,
-    headers: downstreamResponseHeaders(upstream),
-  })
 }
