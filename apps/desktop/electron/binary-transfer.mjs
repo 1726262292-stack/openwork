@@ -1,7 +1,6 @@
 import { constants as fsConstants } from "node:fs";
-import { lstat, mkdir, open, realpath, rename, rm } from "node:fs/promises";
+import { lstat, open, realpath, rm } from "node:fs/promises";
 import path from "node:path";
-import { randomUUID } from "node:crypto";
 
 export const DESKTOP_TRANSFER_MAX_BYTES = 250_000_000;
 const MAX_HEADERS = 64;
@@ -272,10 +271,8 @@ export async function downloadBinaryToPath(input, options) {
   const headers = boundedRecord(input?.headers, "Headers", MAX_HEADERS);
   const method = boundedString(input?.method ?? "GET", "Method", { required: true, maxLength: 16 });
   const signal = timeoutSignal(input?.timeoutMs, options?.signal);
-  const parent = path.dirname(destinationPath);
-  await mkdir(parent, { recursive: true });
-  const temporaryPath = path.join(parent, `.${path.basename(destinationPath)}.${randomUUID()}.part`);
-  let temporaryFile;
+  let destinationFile;
+  let createdDestination = false;
   try {
     const response = await options.fetcher(url, {
       method,
@@ -292,16 +289,24 @@ export async function downloadBinaryToPath(input, options) {
       throw transferError(`Download exceeds the ${maxBytes}-byte limit.`, "file-too-large");
     }
     // The fetch can take arbitrarily long, so the pre-fetch validation is
-    // stale by now. Revalidate before touching the filesystem, then bind all
-    // writes to a handle proven to live inside the authorized root.
+    // stale by now. Revalidate, then bind the download to a destination
+    // handle proven by device and inode to live inside the authorized root.
+    // There is deliberately no temporary file and no rename: every byte flows
+    // through the verified handle and no path-based filesystem operation
+    // happens after verification, so a concurrent parent symlink swap has
+    // nothing left to redirect.
     await resolveAuthorizedPath(input?.destinationPath, options?.authorizedRoots, "write");
-    temporaryFile = await open(temporaryPath, "wx");
-    const temporaryInfo = await verifyOpenFileWithinRoot(
-      temporaryFile,
-      temporaryPath,
-      destination.rootRealPath,
-      "Download destination",
-    );
+    await rm(destinationPath, { force: true });
+    try {
+      destinationFile = await open(destinationPath, "wx");
+    } catch (error) {
+      if (error?.code === "EEXIST") {
+        throw transferError("Download destination was created concurrently.", "destination-exists");
+      }
+      throw error;
+    }
+    createdDestination = true;
+    await verifyOpenFileWithinRoot(destinationFile, destinationPath, destination.rootRealPath, "Download destination");
     const reader = response.body?.getReader();
     let bytes = 0;
     if (reader) {
@@ -314,32 +319,24 @@ export async function downloadBinaryToPath(input, options) {
           await reader.cancel();
           throw transferError(`Download exceeds the ${maxBytes}-byte limit.`, "file-too-large");
         }
-        await writeAll(temporaryFile, value);
+        await writeAll(destinationFile, value);
       }
     }
     if (bytes === 0) throw transferError("Download response was empty.", "zero-byte-file");
-    await temporaryFile.sync();
-    await temporaryFile.close();
-    temporaryFile = undefined;
-    // Revalidate destination components immediately before the rename, then
-    // confirm without following links that the rename landed the verified
-    // inode at the destination path.
-    await resolveAuthorizedPath(input?.destinationPath, options?.authorizedRoots, "write");
-    await rename(temporaryPath, destinationPath);
-    const finalInfo = await lstat(destinationPath).catch(() => null);
-    if (
-      !finalInfo
-      || finalInfo.isSymbolicLink()
-      || finalInfo.dev !== temporaryInfo.dev
-      || finalInfo.ino !== temporaryInfo.ino
-    ) {
-      throw transferError("Download destination changed while the file was being saved.", "path-changed");
-    }
+    await destinationFile.sync();
+    await destinationFile.close();
+    destinationFile = undefined;
     return { ...responseMetadata(response), path: destinationPath, bytes };
   } catch (error) {
-    await temporaryFile?.close().catch(() => undefined);
+    // Failure cleanup goes through the still-open verified handle first, so
+    // no partial content survives even if the path-based unlink is redirected.
+    if (destinationFile && createdDestination) {
+      await destinationFile.truncate(0).catch(() => undefined);
+    }
+    await destinationFile?.close().catch(() => undefined);
+    if (createdDestination) {
+      await rm(destinationPath, { force: true }).catch(() => undefined);
+    }
     throw error;
-  } finally {
-    await rm(temporaryPath, { force: true }).catch(() => undefined);
   }
 }

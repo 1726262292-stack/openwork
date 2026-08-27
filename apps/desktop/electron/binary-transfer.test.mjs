@@ -67,10 +67,11 @@ test("uploads exact original multipart bytes with spaces and Unicode in the file
   });
 });
 
-test("downloads high bytes exactly and atomically removes the temporary file", async () => {
+test("downloads high bytes exactly through a verified destination handle with no stray files", async () => {
   await withWorkspace(async (root) => {
     const destinationPath = path.join(root, "saved files", "資料 high bytes.bin");
     await mkdir(path.dirname(destinationPath), { recursive: true });
+    await writeFile(destinationPath, "stale content to overwrite");
     const original = Uint8Array.from([255, 254, 253, 0, 128, 129, 200, 10]);
 
     const result = await downloadBinaryToPath({

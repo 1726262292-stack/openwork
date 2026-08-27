@@ -15,7 +15,7 @@ test("Electron remote binary transfers preserve bytes, workspace boundaries, and
   ], { encoding: "utf8" });
   expect(unit.status, unit.stderr || unit.stdout).toBe(0);
   expect(unit.stdout).toContain("uploads exact original multipart bytes with spaces and Unicode in the filename");
-  expect(unit.stdout).toContain("downloads high bytes exactly and atomically removes the temporary file");
+  expect(unit.stdout).toContain("downloads high bytes exactly through a verified destination handle with no stray files");
   expect(unit.stdout).toContain("rejects zero-byte and oversized uploads with clear error codes");
   expect(unit.stdout).toContain("rejects zero-byte and oversized downloads without leaving partial files");
   expect(unit.stdout).toContain("cancellation removes the incomplete download");
@@ -31,7 +31,7 @@ test("Electron remote binary transfers preserve bytes, workspace boundaries, and
 
   evidence.recordAssertionEvidence(
     "Main-process binary transfers are byte-exact, bounded, workspace-confined, and endpoint-bound",
-    "Multipart uploads reproduced the original bytes with Unicode filenames, downloads landed atomically with no partial files after oversize or cancellation, unauthorized, traversal, and symlink paths were rejected on both directions, transfer URLs were confined to registered remote workspace endpoints, and a destination parent swapped for a symlink during the fetch was rejected without writing outside the workspace.",
+    "Multipart uploads reproduced the original bytes with Unicode filenames, downloads flowed through inode-verified destination handles and left no partial files after oversize or cancellation, unauthorized, traversal, and symlink paths were rejected on both directions, transfer URLs were confined to registered remote workspace endpoints, and a destination parent swapped for a symlink during the fetch was rejected without writing outside the workspace.",
     true,
   );
 });
