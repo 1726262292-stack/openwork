@@ -33,6 +33,7 @@ describe("cloud provisioning image version", () => {
       async insertWorkerInstance(input) {
         inserts.push(input)
       },
+      async touchProvisioningWorker() {},
     }
     const workerId = createDenTypeId("worker")
     const materializedUrls: string[] = []

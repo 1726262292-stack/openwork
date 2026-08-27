@@ -59,7 +59,14 @@ function makeToken(workerId: TestWorker["id"], scope: TestWorkerToken["scope"]):
 function makeStore(input: { workers: TestWorker[]; tokens?: TestWorkerToken[] }) {
   const updates: StatusUpdate[] = []
   const tokens = input.tokens ?? []
+  let touches = 0
   const store: Store = {
+    async touchProvisioningWorker(workerId) {
+      const worker = input.workers.find((entry) => entry.id === workerId)
+      if (!worker || worker.status !== "provisioning") return
+      worker.updated_at = new Date()
+      touches += 1
+    },
     async getWorker(workerId) {
       return input.workers.find((worker) => worker.id === workerId) ?? null
     },
@@ -99,7 +106,13 @@ function makeStore(input: { workers: TestWorker[]; tokens?: TestWorkerToken[] })
     },
   }
 
-  return { store, updates }
+  return {
+    store,
+    updates,
+    get touches() {
+      return touches
+    },
+  }
 }
 
 function makeDaytonaWakeRuntime(input: {

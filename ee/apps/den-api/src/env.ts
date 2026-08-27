@@ -768,7 +768,10 @@ export const env = {
   initialAdminBootstrapCode,
   provisionerMode: parsed.PROVISIONER_MODE ?? "stub",
   workerProvisioningReconcileIntervalMs: Number(parsed.WORKER_PROVISIONING_RECONCILE_INTERVAL_MS ?? "60000"),
-  workerProvisioningReconcileStaleMs: Number(parsed.WORKER_PROVISIONING_RECONCILE_STALE_MS ?? "1200000"),
+  // Live provisioning owners heartbeat `updated_at` every 30 seconds, so this
+  // staleness only fires after several missed beats. Keep it several multiples
+  // of `provisioningHeartbeatIntervalMs`.
+  workerProvisioningReconcileStaleMs: Number(parsed.WORKER_PROVISIONING_RECONCILE_STALE_MS ?? "180000"),
   workerProvisioningReconcileBatchSize: Number(parsed.WORKER_PROVISIONING_RECONCILE_BATCH_SIZE ?? "10"),
   cloudProvisionDeadlineMs: Number(parsed.CLOUD_PROVISION_DEADLINE_MS ?? "900000"),
   cloudMaterializationFailureCooldownMs: Number(parsed.CLOUD_MATERIALIZATION_FAILURE_COOLDOWN_MS ?? "120000"),
