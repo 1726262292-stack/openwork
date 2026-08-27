@@ -89,7 +89,18 @@ function requestAddress(headers: Headers) {
 }
 
 export function automationRunnerRejectionLimitKey(rejection: AutomationRunnerRejection, headers: Headers) {
-  const material = `${rejection.claims.runnerId ?? "unknown"}\u0000${requestAddress(headers)}`
+  const untrustedIdentity = [
+    "missing_authorization",
+    "malformed_authorization",
+    "malformed_token",
+    "malformed_payload",
+    "bad_signature",
+  ].includes(rejection.reason)
+  const runnerId = untrustedIdentity ? undefined : rejection.claims.runnerId
+  const address = requestAddress(headers)
+  const material = runnerId === undefined
+    ? `address\u0000${address}`
+    : `runner\u0000${runnerId}\u0000address\u0000${address}`
   return createHash("sha256").update(material).digest("base64url")
 }
 

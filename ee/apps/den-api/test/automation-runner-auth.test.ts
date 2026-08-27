@@ -179,6 +179,54 @@ describe("Automation runner credentials", () => {
     expect(changedTrustedHop).not.toBe(first)
   })
 
+  test("untrusted claimed runner IDs cannot churn rejection limiter buckets", () => {
+    const secret = "runner-auth-untrusted-id-secret".repeat(3)
+    const auth = new AutomationRunnerAuth(secret)
+    const limiter = new AutomationRunnerRejectionLimiter({
+      maxFailures: 1,
+      windowMs: 60_000,
+      maxEntries: 4_096,
+      now: () => 10_000,
+    })
+    let limited = 0
+    let shouldLog = 0
+    for (let index = 0; index < 4_097; index += 1) {
+      const payload = Buffer.from(JSON.stringify({
+        v: 2,
+        o: `fake-org-${String(index)}`,
+        m: `fake-member-${String(index)}`,
+        r: `fake-runner-${String(index)}`,
+        c: [],
+        a: "https://den.example.com",
+        e: Date.now() + 60_000,
+      })).toString("base64url")
+      const result = auth.authenticate(`Bearer ${payload}.invalid-signature`, "https://den.example.com")
+      if (result.ok) throw new Error("expected bad-signature rejection")
+      const key = automationRunnerRejectionLimitKey(result.rejection, new Headers({
+        "x-forwarded-for": `attacker-${String(index)}, 203.0.113.9`,
+      }))
+      const rateLimit = limiter.record(key)
+      if (rateLimit.limited) limited += 1
+      if (rateLimit.shouldLog) shouldLog += 1
+    }
+
+    expect(limiter.size).toBe(1)
+    expect(limited).toBe(4_096)
+    expect(shouldLog).toBe(2)
+
+    const expiredAt = Date.now() - 1
+    const signedA = auth.authenticate(`Bearer ${signedToken(secret, {
+      v: 2, o: "org", m: "member", r: "signed-runner-a", c: [], a: "https://den.example.com", e: expiredAt,
+    })}`, "https://den.example.com")
+    const signedB = auth.authenticate(`Bearer ${signedToken(secret, {
+      v: 2, o: "org", m: "member", r: "signed-runner-b", c: [], a: "https://den.example.com", e: expiredAt,
+    })}`, "https://den.example.com")
+    if (signedA.ok || signedB.ok) throw new Error("expected signed expired rejections")
+    const headers = new Headers({ "x-forwarded-for": "203.0.113.9" })
+    expect(automationRunnerRejectionLimitKey(signedA.rejection, headers))
+      .not.toBe(automationRunnerRejectionLimitKey(signedB.rejection, headers))
+  })
+
   test("binds a runner credential to the API base that minted it", () => {
     expect(automationRunnerAudienceFromRequestUrl(
       "https://den.example.com/api/den/v1/automation-runners/token?ignored=true",

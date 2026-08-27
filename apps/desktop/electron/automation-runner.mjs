@@ -56,6 +56,11 @@ function responseRetryAfterSeconds(response) {
   return Number.isSafeInteger(seconds) ? seconds : null
 }
 
+export function isAutomationRunnerCredentialRejection(error) {
+  return [401, 403].includes(error?.status)
+    || (error?.status === 429 && error?.code === "runner_unauthorized")
+}
+
 async function requestJson(fetchImpl, baseUrl, token, requestPath, options = {}) {
   const response = await fetchImpl(`${baseUrl.replace(/\/+$/, "")}${requestPath}`, {
     method: options.method ?? "GET",
@@ -296,9 +301,6 @@ export function createDesktopAutomationRunner(options) {
     }
   }
 
-  const isCredentialRejection = (error) => [401, 403].includes(error?.status)
-    || (error?.status === 429 && error?.code === "runner_unauthorized")
-
   const runnerRequest = async (state, requestPath, request = {}) => {
     if (!isCurrent(state)) {
       throw state.controller.signal.reason ?? new Error("Automation runner generation retired")
@@ -317,7 +319,7 @@ export function createDesktopAutomationRunner(options) {
         },
       )
     } catch (error) {
-      if (isCredentialRejection(error)) rejectCredential(state, error.status)
+      if (isAutomationRunnerCredentialRejection(error)) rejectCredential(state, error.status)
       throw error
     }
   }
@@ -444,7 +446,7 @@ export function createDesktopAutomationRunner(options) {
         await waitBeforeReconnect(RUNNER_WORK_POLL_MS, state.controller.signal)
       } catch (error) {
         if (!isCurrent(state)) return
-        if (isCredentialRejection(error)) return
+        if (isAutomationRunnerCredentialRejection(error)) return
         options.log?.(`runner polling failed: ${error instanceof Error ? error.message : String(error)}`)
         const backoff = Math.min(30_000, 500 * (2 ** reconnectAttempt++))
         try {

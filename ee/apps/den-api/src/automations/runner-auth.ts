@@ -3,7 +3,6 @@ import {
   AUTOMATION_MODEL_ATTENTION_CAPABILITY,
   type AutomationDesktopRunnerCapability,
 } from "@openwork/types/automations"
-import { env } from "../env.js"
 import { firstForwardedValue, publicRequestUrl, trustedForwardedOrigin } from "../request-url.js"
 
 const TOKEN_TTL_MS = 12 * 60 * 60_000
@@ -166,7 +165,7 @@ export function automationRunnerAudienceFromRequest(
 }
 
 export class AutomationRunnerAuth {
-  constructor(private readonly secret = env.betterAuthSecret) {}
+  constructor(private readonly secret: string) {}
 
   private sign(payload: string) {
     return createHmac("sha256", this.secret)
@@ -252,5 +251,3 @@ export class AutomationRunnerAuth {
   }
 
 }
-
-export const automationRunnerAuth = new AutomationRunnerAuth()

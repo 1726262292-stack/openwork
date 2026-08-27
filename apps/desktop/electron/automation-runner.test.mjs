@@ -5,6 +5,7 @@ import {
   classifyAutomationExecutionError,
   createDesktopAutomationRunner,
   executeDesktopAutomation,
+  isAutomationRunnerCredentialRejection,
   normalizeRunnerBaseUrl,
   runnerTokenAudience,
 } from "./automation-runner.mjs"
@@ -264,6 +265,14 @@ test("runner credentials retain their signed Den audience", () => {
   assert.equal(runnerTokenAudience(runnerTokenFor("https://den.example.com/api/den")), "https://den.example.com/api/den")
   assert.equal(runnerTokenAudience("not-a-runner-token"), null)
   assert.equal(runnerTokenAudience(runnerTokenFor("http://attacker.example.com")), null)
+})
+
+test("runner credential rejection classification distinguishes auth throttles", () => {
+  assert.equal(isAutomationRunnerCredentialRejection({ status: 401 }), true)
+  assert.equal(isAutomationRunnerCredentialRejection({ status: 403 }), true)
+  assert.equal(isAutomationRunnerCredentialRejection({ status: 429, code: "runner_unauthorized" }), true)
+  assert.equal(isAutomationRunnerCredentialRejection({ status: 429, code: "rate_limited" }), false)
+  assert.equal(isAutomationRunnerCredentialRejection({ status: 429 }), false)
 })
 
 test("a renderer-supplied non-https base URL never receives the runner token", async () => {

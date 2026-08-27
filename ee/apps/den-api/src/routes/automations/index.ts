@@ -32,7 +32,7 @@ import {
 } from "../../middleware/index.js"
 import { invalidRequestSchema, jsonResponse, notFoundSchema, unauthorizedSchema } from "../../openapi.js"
 import { automationService, type AutomationService } from "../../automations/service.js"
-import { automationRunnerAudienceFromRequest, automationRunnerAuth } from "../../automations/runner-auth.js"
+import { AutomationRunnerAuth, automationRunnerAudienceFromRequest } from "../../automations/runner-auth.js"
 import {
   AutomationRunnerRejectionLimiter,
   AutomationRunnerRequestAuthenticator,
@@ -124,6 +124,7 @@ export function registerAutomationRoutes<T extends { Variables: RouteVariables }
 ) {
   if (options.enabled === false) return
   const service = options.service ?? automationService
+  const automationRunnerAuth = new AutomationRunnerAuth(env.betterAuthSecret)
 
   app.post(
     "/v1/automation-runners/token",
