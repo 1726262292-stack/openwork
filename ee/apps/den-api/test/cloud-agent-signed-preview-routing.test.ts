@@ -106,6 +106,7 @@ test("Cloud Automations discover their workspace through the signed preview", as
   const requested: string[] = []
   const fetchImpl: typeof fetch = async (input, init) => {
     requested.push(String(input))
+    expect(init?.redirect).toBe("error")
     expect(new Headers(init?.headers).get("authorization")).toBe("Bearer client-token")
     expect(new Headers(init?.headers).get("x-openwork-host-token")).toBe("host-token")
     return Response.json({ activeId: "workspace-automation" })

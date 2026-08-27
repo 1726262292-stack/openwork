@@ -190,7 +190,7 @@ export interface HeadlessThreadClient {
  */
 export type HeadlessFetch = (
   input: string,
-  init?: { method?: string; headers?: Record<string, string>; body?: string; signal?: AbortSignal },
+  init?: { method?: string; headers?: Record<string, string>; body?: string; redirect?: RequestRedirect; signal?: AbortSignal },
 ) => Promise<Response>;
 
 export interface HeadlessThreadClientOptions {

@@ -10,6 +10,7 @@ import { resolveCloudRuntimeAccess, type CloudWorkerAccess } from "../workers/wo
 import { organizationCloudEnabled } from "../capability-sources/cloud-rollout.js"
 import { CLOUD_INSTANCE_BACKEND } from "../workers/cloud-constants.js"
 import { wakeCloudWorker } from "../workers/cloud-lifecycle.js"
+import { fetchPreviewNoRedirect, previewFetch } from "../workers/preview-fetch.js"
 import { resolveAutomationModelAccess } from "./authority.js"
 
 const WORKER_READY_TIMEOUT_MS = 120_000
@@ -174,7 +175,7 @@ export async function resolveCloudAgentWorkspace(
   fetchImpl: typeof fetch = fetch,
 ) {
   try {
-    const response = await fetchImpl(`${access.url}/workspaces`, {
+    const response = await fetchPreviewNoRedirect(fetchImpl, `${access.url}/workspaces`, {
       headers: workerHeaders(access),
       signal: AbortSignal.any([signal, AbortSignal.timeout(WORKER_REQUEST_TIMEOUT_MS)]),
     })
@@ -301,7 +302,7 @@ async function connectHealth(input: {
     probe: "true",
   })
   const request = async (method: "GET" | "POST", path: string, body?: unknown) => {
-    const response = await fetch(`${input.baseUrl}${path}`, {
+    const response = await fetchPreviewNoRedirect(previewFetch(), `${input.baseUrl}${path}`, {
       method,
       headers: {
         ...workerHeaders(input.access),
@@ -466,6 +467,7 @@ export async function executeCloudAgent(input: CloudAgentExecutorInput): Promise
       token: runtime.access.clientToken,
       hostToken: runtime.access.hostToken,
       requestTimeoutMs: WORKER_REQUEST_TIMEOUT_MS,
+      fetch: (url, init = {}) => fetchPreviewNoRedirect(previewFetch(), url, init),
       defaultModel: {
         providerId: input.action.model.providerId,
         modelId: input.action.model.modelId,

@@ -37,7 +37,7 @@ test("Cloud runtime access refreshes signed previews behind stable legacy routin
     { probeCloudRuntimeSignedPreview, resolveCloudRuntimeAccess },
     { getWorkerTokensAndConnect, persistedWorkerInstanceUrl },
     { proxyCloudWorkerCompatibilityRequest },
-    { getWorker, getWorkerTokens, withWorkerConnection, workerNeedsConnectionResolution },
+    { getWorker, getWorkerConnectionTokens, getWorkerTokens, withWorkerConnection, workerConnectionEquals, workerNeedsConnectionResolution },
   ] = await Promise.all([
     import("../../ee/apps/den-api/src/workers/worker-access.js"),
     import("../../ee/apps/den-api/src/routes/workers/shared.js"),
@@ -118,33 +118,45 @@ test("Cloud runtime access refreshes signed previews behind stable legacy routin
     updated_at: new Date("2026-08-27T09:00:00.000Z"),
   } satisfies Parameters<typeof getWorkerTokensAndConnect>[0];
   const resolveTokenAccess = async () => result;
+  const loadActiveTokens = async () => [
+    { scope: "host" as const, token: "host-token" },
+    { scope: "client" as const, token: "client-token" },
+  ];
   const legacyTokens = await getWorkerTokensAndConnect(legacyWorker, {
     apiPublicUrl: "https://api.example.test/api/den",
     resolveCloudAccess: resolveTokenAccess,
+    loadActiveTokens,
     fetchImpl: async () => Response.json({ activeId: "workspace", items: [] }),
   });
   const webTokens = await getWorkerTokensAndConnect(legacyWorker, {
     apiPublicUrl: "https://api.example.test/api/den",
     includeExpiringOpenworkUrl: true,
     resolveCloudAccess: resolveTokenAccess,
+    loadActiveTokens,
     fetchImpl: async () => Response.json({ activeId: "workspace", items: [] }),
   });
   if (!("connect" in legacyTokens) || !legacyTokens.connect) throw new Error("legacy worker tokens did not include a stable route");
-  if (!("connect" in webTokens) || !webTokens.connect) throw new Error("Web worker tokens did not include a preview route");
-  expect(legacyTokens.connect.openworkUrl).toBe(`https://api.example.test/api/den/v1/cloud/workers/${runtimeWorker.id}/w/workspace`);
+  if (!("connect" in webTokens) || !webTokens.connect || !("directPreview" in webTokens) || !webTokens.directPreview) throw new Error("Web worker tokens did not separate stable and preview routes");
+  expect(legacyTokens.connect.openworkUrl).toBe(`https://api.example.test/api/den/v1/cloud/workers/${runtimeWorker.id}`);
   expect(legacyTokens.connect.openworkUrl).not.toContain("preview.example.test");
-  expect(webTokens.connect.openworkUrl).toBe("https://fresh.preview.example.test/w/workspace");
-  const legacyStableRoot = legacyTokens.connect.openworkUrl.replace(/\/w\/[^/]+$/, "");
+  expect(webTokens.connect.openworkUrl).toBe(`https://api.example.test/api/den/v1/cloud/workers/${runtimeWorker.id}/w/workspace`);
+  expect(webTokens.directPreview.openworkUrl).toBe("https://fresh.preview.example.test/w/workspace");
+  expect(webTokens.directPreview.expiresAt).toBe("2026-08-27T12:00:00.000Z");
+  const legacyStableRoot = legacyTokens.connect.openworkUrl;
   const legacyProxyTargets: string[] = [];
+  const authenticateStableRequest = async ({ request, workerId }: { request: Request; workerId: typeof runtimeWorker.id }) => {
+    if (workerId !== runtimeWorker.id) return null;
+    if (request.headers.get("authorization") === "Bearer host-token") return { organizationId: legacyWorker.org_id, scope: "host" as const };
+    if (request.headers.get("authorization") === "Bearer client-token") return { organizationId: legacyWorker.org_id, scope: "client" as const };
+    return null;
+  };
   const legacyProxyResponse = await proxyCloudWorkerCompatibilityRequest({
     request: new Request(`${legacyStableRoot}/workspaces?published=1`, {
       headers: { Authorization: "Bearer client-token" },
     }),
     workerId: runtimeWorker.id,
   }, {
-    authenticate: async ({ request, workerId }) => request.headers.get("authorization") === "Bearer client-token" && workerId === runtimeWorker.id
-      ? { organizationId: legacyWorker.org_id, scope: "client" }
-      : null,
+    authenticate: authenticateStableRequest,
     resolveCloudAccess: async () => ({
       ...result,
       status: "ready",
@@ -157,6 +169,41 @@ test("Cloud runtime access refreshes signed previews behind stable legacy routin
   });
   expect(legacyProxyResponse.status).toBe(200);
   expect(legacyProxyTargets).toEqual(["https://refreshed-after-token.preview.example.test/workspaces?published=1"]);
+  await legacyProxyResponse.body?.cancel();
+  const clientWrite = await proxyCloudWorkerCompatibilityRequest({
+    request: new Request(`${legacyStableRoot}/workspace/workspace/files/raw`, {
+      method: "POST",
+      headers: { Authorization: "Bearer client-token", "Content-Type": "application/json" },
+      body: "{}",
+    }),
+    workerId: runtimeWorker.id,
+  }, { authenticate: authenticateStableRequest, resolveCloudAccess: resolveTokenAccess });
+  expect(clientWrite.status).toBe(401);
+  const handoffWriteRequests: RequestInit[] = [];
+  const handoffWriteBodies: string[] = [];
+  const desktopWrite = await proxyCloudWorkerCompatibilityRequest({
+    request: new Request(`${legacyStableRoot}/workspace/workspace/files/raw`, {
+      method: "POST",
+      headers: { Authorization: "Bearer host-token", "Content-Type": "application/json" },
+      body: JSON.stringify({ path: "handoff.txt", dataBase64: "aGk=" }),
+    }),
+    workerId: runtimeWorker.id,
+  }, {
+    authenticate: authenticateStableRequest,
+    resolveCloudAccess: resolveTokenAccess,
+    fetchImpl: async (_url, init = {}) => {
+      handoffWriteRequests.push(init);
+      expect("duplex" in init && init.duplex).toBe("half");
+      handoffWriteBodies.push(await new Response(init.body).text());
+      return Response.json({ ok: true });
+    },
+  });
+  expect(desktopWrite.status).toBe(200);
+  const desktopWriteHeaders = new Headers(handoffWriteRequests[0]?.headers);
+  expect(desktopWriteHeaders.get("authorization")).toBe("Bearer client-token");
+  expect(desktopWriteHeaders.get("x-openwork-host-token")).toBe("host-token");
+  expect(handoffWriteBodies).toEqual([JSON.stringify({ path: "handoff.txt", dataBase64: "aGk=" })]);
+  await desktopWrite.body?.cancel();
   const created = getWorker({
     worker: { id: runtimeWorker.id, name: runtimeWorker.name, status: "provisioning" },
     instance: null,
@@ -167,8 +214,11 @@ test("Cloud runtime access refreshes signed previews behind stable legacy routin
   const lateTokens = getWorkerTokens(webTokens);
   if (!lateTokens) throw new Error("late worker token payload did not parse");
   const webWorker = withWorkerConnection(created, lateTokens);
-  expect(webWorker.openworkUrl).toBe("https://fresh.preview.example.test/w/workspace");
-  expect(workerNeedsConnectionResolution(webWorker)).toBe(false);
+  expect(webWorker.openworkUrl).toBe(`https://api.example.test/api/den/v1/cloud/workers/${runtimeWorker.id}/w/workspace`);
+  expect(webWorker.previewOpenworkUrl).toBe("https://fresh.preview.example.test/w/workspace");
+  expect(workerNeedsConnectionResolution(webWorker, new Date("2026-08-27T10:00:00.000Z").getTime())).toBe(false);
+  expect(getWorkerConnectionTokens(webWorker)).toEqual({ desktopToken: "host-token", webToken: "client-token" });
+  expect(workerConnectionEquals(webWorker, { ...webWorker, previewExpiresAt: "2026-08-27T14:00:00.000Z" })).toBe(false);
 
   let redirectedTargetHit = false;
   const target = createServer((_request, response) => {
@@ -193,7 +243,7 @@ test("Cloud runtime access refreshes signed previews behind stable legacy routin
   }
   evidence.recordAssertionEvidence(
     "Published desktops keep a stable worker URL while Daytona previews refresh",
-    "A legacy empty token request received a non-null configured Den API worker route with its workspace mount and no preview hostname; the existing client token reached a separately refreshed preview through that stable route. Web opt-in still received the direct fresh preview, the removed standalone worker host was never used, persistence kept only a lifecycle URL, and a sandbox-controlled redirect was rejected.",
+    "The legacy token response returned tokens and the configured Den API worker root without consulting a preview; Web retained a workspace-scoped stable route and received the expiring preview separately with its expiry. Desktop selected the host token and successfully streamed a write while client-only compatibility writes were denied; Web selected the client token and expiry-only preview refreshes were observable. The removed standalone worker host was never used, persistence kept only a lifecycle URL, and a sandbox-controlled redirect was rejected.",
     true,
   );
 });
