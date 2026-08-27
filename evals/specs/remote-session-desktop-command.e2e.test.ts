@@ -369,9 +369,16 @@ test.skipIf(missingRequirements.length > 0)(title, { timeout: 15 * 60_000 }, asy
   });
   expect(unknown.isError).toBe(true);
   expect(unknown.payload).toEqual({ error: "unknown_command" });
+  const malformed = await callTool("execute_capability", {
+    name: "remote-session:read",
+    body: { commandId: "not-a-command-id" },
+  });
+  expect(malformed.isError).toBe(true);
+  expect(malformed.payload).toEqual({ error: "unknown_command" });
   evidence.recordAssertionEvidence(
-    "Unknown command ids do not disclose another result",
-    `Reading a different valid rsc id returned ${unknown.text}.`,
-    unknown.isError && unknown.payload.error === "unknown_command",
+    "Unknown and malformed command ids do not disclose another result",
+    `Reading a different valid rsc id returned ${unknown.text}; a malformed id returned ${malformed.text} instead of an internal error.`,
+    unknown.isError && unknown.payload.error === "unknown_command"
+      && malformed.isError && malformed.payload.error === "unknown_command",
   );
 });

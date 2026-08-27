@@ -73,6 +73,19 @@ export interface RemoteSessionCommandStore {
 
 type CommandRow = typeof RemoteSessionCommandTable.$inferSelect
 
+/**
+ * Command ids arrive from route params and MCP arguments, so a malformed
+ * value is an ordinary caller mistake: it means "no such command", never an
+ * internal error.
+ */
+function commandIdOrNull(value: string): string | null {
+  try {
+    return normalizeDenTypeId("remoteSessionCommand", value)
+  } catch {
+    return null
+  }
+}
+
 function mapCommand(row: CommandRow): RemoteSessionCommand {
   return {
     id: row.id,
@@ -131,6 +144,8 @@ export const databaseRemoteSessionCommandStore: RemoteSessionCommandStore = {
   },
 
   async claim(input) {
+    const commandId = commandIdOrNull(input.commandId)
+    if (!commandId) return null
     const now = new Date(input.now)
     const result = await db.update(RemoteSessionCommandTable).set({
       status: "claimed",
@@ -138,7 +153,7 @@ export const databaseRemoteSessionCommandStore: RemoteSessionCommandStore = {
       claimed_at: now,
       updated_at: now,
     }).where(and(
-      eq(RemoteSessionCommandTable.id, normalizeDenTypeId("remoteSessionCommand", input.commandId)),
+      eq(RemoteSessionCommandTable.id, commandId),
       eq(RemoteSessionCommandTable.org_id, normalizeDenTypeId("organization", input.organizationId)),
       eq(RemoteSessionCommandTable.owner_member_id, normalizeDenTypeId("member", input.ownerMemberId)),
       eq(RemoteSessionCommandTable.status, "pending"),
@@ -149,6 +164,8 @@ export const databaseRemoteSessionCommandStore: RemoteSessionCommandStore = {
   },
 
   async complete(input) {
+    const commandId = commandIdOrNull(input.commandId)
+    if (!commandId) return null
     const now = new Date()
     const result = await db.update(RemoteSessionCommandTable).set({
       status: input.status,
@@ -159,7 +176,7 @@ export const databaseRemoteSessionCommandStore: RemoteSessionCommandStore = {
       error_message: input.error?.message ?? null,
       updated_at: now,
     }).where(and(
-      eq(RemoteSessionCommandTable.id, normalizeDenTypeId("remoteSessionCommand", input.commandId)),
+      eq(RemoteSessionCommandTable.id, commandId),
       eq(RemoteSessionCommandTable.claimed_by_runner_id, input.runnerId),
       eq(RemoteSessionCommandTable.status, "claimed"),
     ))
@@ -168,7 +185,8 @@ export const databaseRemoteSessionCommandStore: RemoteSessionCommandStore = {
   },
 
   async get(input) {
-    const commandId = normalizeDenTypeId("remoteSessionCommand", input.commandId)
+    const commandId = commandIdOrNull(input.commandId)
+    if (!commandId) return null
     const organizationId = normalizeDenTypeId("organization", input.organizationId)
     const createdByUserId = normalizeDenTypeId("user", input.createdByUserId)
     const rows = await db.select().from(RemoteSessionCommandTable).where(and(

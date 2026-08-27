@@ -217,7 +217,10 @@ export const automationRunnerNotificationSchema = z.object({
 export type AutomationRunnerNotification = z.infer<typeof automationRunnerNotificationSchema>
 
 export const automationRunnerWorkItemSchema = z.union([
-  z.object({ runId: idSchema }),
+  // The automation-run item shape predates remote-session commands and is
+  // consumed by released desktop runners: it must keep every field it has
+  // always carried.
+  z.object({ runId: idSchema, executionTarget: z.literal("desktop") }),
   z.object({ kind: z.literal("remote_session_create"), commandId: idSchema }),
 ])
 export const automationRunnerWorkResponseSchema = z.object({

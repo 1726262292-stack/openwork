@@ -232,9 +232,14 @@ export function registerAutomationRoutes<T extends { Variables: RouteVariables }
   app.get("/v1/automation-runner/work", async (c) => {
     const identity = await authenticateRunner(c)
     if (!identity) return c.json({ error: "runner_unauthorized" }, 401)
+    // Automation run items keep their long-standing wire shape untouched;
+    // remote-session command items are only appended for runners that
+    // registered the remote_session_v1 capability, so released runners never
+    // see the new item kind.
     const automationItems = await service.discoverDesktopRunnerWork(identity)
-    const items: Array<{ runId: string } | { kind: "remote_session_create"; commandId: string }> =
-      automationItems.map((item) => ({ runId: item.runId }))
+    const items: Array<
+      (typeof automationItems)[number] | { kind: "remote_session_create"; commandId: string }
+    > = [...automationItems]
     if (identity.capabilities.includes(REMOTE_SESSION_DESKTOP_RUNNER_CAPABILITY)) {
       const commands = await databaseRemoteSessionCommandStore.listPendingForRunner({
         organizationId: identity.organizationId,
