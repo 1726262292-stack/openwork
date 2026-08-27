@@ -1,6 +1,6 @@
 import { createHeadlessThreadClient, toTranscript, type HeadlessThreadClient, type HeadlessThreadModel } from "@openwork/headless-threads"
 import { and, eq, isNull } from "@openwork-ee/den-db/drizzle"
-import { MemberTable, OrganizationTable } from "@openwork-ee/den-db/schema"
+import { MemberTable, OrganizationTable } from "@openwork-ee/den-db/schema/org"
 import { createDenTypeId, normalizeDenTypeId, type DenTypeId } from "@openwork-ee/utils/typeid"
 import { z } from "zod"
 import { db } from "../db.js"

@@ -1,5 +1,5 @@
 import { and, asc, eq, gt, inArray, lte } from "@openwork-ee/den-db/drizzle"
-import { RemoteSessionCommandTable } from "@openwork-ee/den-db/schema"
+import { RemoteSessionCommandTable } from "@openwork-ee/den-db/schema/remote-session-commands"
 import { createDenTypeId, normalizeDenTypeId } from "@openwork-ee/utils/typeid"
 import { db } from "../db.js"
 import { automationUpdateChangedRows } from "../automations/update-result.js"
