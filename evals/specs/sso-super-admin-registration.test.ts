@@ -5,11 +5,9 @@ import { inviteMember, localMysqlIsRunning, server, test } from "@openwork/testk
 
 const localPlacement = process.env.OPENWORK_EVAL_DAYTONA !== "1" && !process.env.OPENWORK_EVAL_DEN_API_URL?.trim();
 const mysqlOpen = await localMysqlIsRunning();
-const title = !localPlacement
-  ? "super-admin SSO registration skipped — needs local placement without OPENWORK_EVAL_DEN_API_URL"
-  : !mysqlOpen
-    ? "super-admin SSO registration skipped — needs MySQL on 127.0.0.1:3306"
-    : "a workspace super-admin can register SAML SSO without an internal authorization error";
+const title = localPlacement && !mysqlOpen
+  ? "super-admin SSO registration skipped — needs MySQL on 127.0.0.1:3306"
+  : "a workspace super-admin can register SAML SSO without an internal authorization error";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -47,7 +45,7 @@ async function memberIdByEmail(admin: DenSession, orgId: string, email: string):
   return id;
 }
 
-test.skipIf(!localPlacement || !mysqlOpen)(title, { timeout: 300_000 }, async ({ evidence, place }) => {
+test.skipIf(localPlacement && !mysqlOpen)(title, { timeout: 300_000 }, async ({ evidence, place }) => {
   const runId = `${Date.now().toString(36)}${process.pid.toString(36)}`;
   const organizationName = `Super-admin SSO ${runId}`;
   const password = "OpenWorkEval123!";
