@@ -91,25 +91,12 @@ function isInside(root, target) {
   return relative === "" || (!relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative));
 }
 
-async function rejectSymlinkComponents(root, target) {
-  const relative = path.relative(root, target);
-  const components = relative ? relative.split(path.sep) : [];
-  const count = Math.max(components.length - 1, 0);
-  let current = root;
-  const rootInfo = await lstat(root).catch(() => null);
-  if (!rootInfo?.isDirectory() || rootInfo.isSymbolicLink()) {
-    throw transferError("Authorized workspace root is unavailable or symbolic.", "unauthorized-path");
-  }
-  for (let index = 0; index < count; index += 1) {
-    current = path.join(current, components[index]);
-    const info = await lstat(current).catch(() => null);
-    if (!info) throw transferError("Transfer path does not exist.", "missing-path");
-    if (info.isSymbolicLink()) {
-      throw transferError("Transfer paths must not contain symbolic links.", "symlink-path");
-    }
-  }
-}
-
+// A download destination must sit directly inside an authorized workspace
+// root. The root itself is app-owned state that a workspace-content writer
+// cannot rename, and exclusive creation never follows a final symlink, so no
+// attacker-controllable directory component exists between this validation
+// and the exclusive open: there is no parent that could be swapped for a
+// symbolic link to redirect creation outside the workspace.
 async function resolveAuthorizedPath(candidateValue, rootsValue) {
   const candidateRaw = boundedString(candidateValue, "Destination path", {
     required: true,
@@ -120,22 +107,32 @@ async function resolveAuthorizedPath(candidateValue, rootsValue) {
   }
   const candidate = path.resolve(candidateRaw);
   const roots = Array.isArray(rootsValue) ? rootsValue : [];
+  let insideNestedOnly = false;
   for (const rootValue of roots) {
     if (typeof rootValue !== "string" || !path.isAbsolute(rootValue)) continue;
     const root = path.resolve(rootValue);
     if (!isInside(root, candidate)) continue;
-    await rejectSymlinkComponents(root, candidate);
+    if (candidate === root || path.dirname(candidate) !== root) {
+      insideNestedOnly = true;
+      continue;
+    }
+    const rootInfo = await lstat(root).catch(() => null);
+    if (!rootInfo?.isDirectory() || rootInfo.isSymbolicLink()) {
+      throw transferError("Authorized workspace root is unavailable or symbolic.", "unauthorized-path");
+    }
     const rootRealPath = await realpath(root).catch(() => null);
     if (!rootRealPath) continue;
-    const parentRealPath = await realpath(path.dirname(candidate)).catch(() => null);
-    if (!parentRealPath || !isInside(rootRealPath, parentRealPath)) {
-      throw transferError("Destination path escapes the authorized workspace.", "unauthorized-path");
-    }
     const existing = await lstat(candidate).catch(() => null);
     if (existing?.isSymbolicLink()) {
       throw transferError("Destination path must not be a symbolic link.", "symlink-path");
     }
     return { path: candidate, rootRealPath };
+  }
+  if (insideNestedOnly) {
+    throw transferError(
+      "Download destinations must sit directly inside an authorized workspace root.",
+      "nested-destination",
+    );
   }
   throw transferError("Transfer path is outside every authorized workspace root.", "unauthorized-path");
 }

@@ -70,8 +70,7 @@ test("uploads exact original multipart bytes with spaces and Unicode in the file
 
 test("downloads high bytes exactly through a verified destination handle with no stray files", async () => {
   await withWorkspace(async (root, stagingDir) => {
-    const destinationPath = path.join(root, "saved files", "資料 high bytes.bin");
-    await mkdir(path.dirname(destinationPath), { recursive: true });
+    const destinationPath = path.join(root, "資料 high bytes.bin");
     const original = Uint8Array.from([255, 254, 253, 0, 128, 129, 200, 10]);
     const options = {
       authorizedRoots: [root],
@@ -194,7 +193,7 @@ test("cancellation removes the incomplete download", async () => {
   });
 });
 
-test("rejects traversal and symlink download destinations", async () => {
+test("rejects traversal, nested, and symlink download destinations", async () => {
   await withWorkspace(async (root, stagingDir) => {
     const authorizedRoot = path.join(root, "workspace");
     const outsideRoot = path.join(root, "outside");
@@ -215,6 +214,16 @@ test("rejects traversal and symlink download destinations", async () => {
       (error) => matchesError(error, "unauthorized-path"),
     );
 
+    const nestedDirectory = path.join(authorizedRoot, "nested");
+    await mkdir(nestedDirectory);
+    await assert.rejects(
+      downloadBinaryToPath({
+        url: "https://worker.example.test/file",
+        destinationPath: path.join(nestedDirectory, "escape.bin"),
+      }, options),
+      (error) => matchesError(error, "nested-destination", /directly inside/i),
+    );
+
     const linkedDirectory = path.join(authorizedRoot, "linked");
     await symlink(outsideRoot, linkedDirectory, "dir");
     await assert.rejects(
@@ -222,8 +231,20 @@ test("rejects traversal and symlink download destinations", async () => {
         url: "https://worker.example.test/file",
         destinationPath: path.join(linkedDirectory, "escape.bin"),
       }, options),
+      (error) => matchesError(error, "nested-destination"),
+    );
+
+    const symlinkDestination = path.join(authorizedRoot, "link.bin");
+    await symlink(path.join(outsideRoot, "target.bin"), symlinkDestination);
+    await assert.rejects(
+      downloadBinaryToPath({
+        url: "https://worker.example.test/file",
+        destinationPath: symlinkDestination,
+      }, options),
       (error) => matchesError(error, "symlink-path"),
     );
+
+    assert.deepEqual(await readdir(outsideRoot), []);
   });
 });
 
@@ -274,15 +295,13 @@ test("rejects transfer URLs outside connected remote workspace endpoints", async
   });
 });
 
-test("rejects a download whose destination parent is swapped for a symlink during the fetch", async () => {
+test("rejects a download whose workspace root is swapped for a symlink during the fetch", async () => {
   await withWorkspace(async (root, stagingDir) => {
     const authorizedRoot = path.join(root, "workspace");
     const outsideRoot = path.join(root, "outside");
     await mkdir(authorizedRoot);
     await mkdir(outsideRoot);
-    const parent = path.join(authorizedRoot, "files");
-    await mkdir(parent);
-    const destinationPath = path.join(parent, "swapped.bin");
+    const destinationPath = path.join(authorizedRoot, "swapped.bin");
 
     await assert.rejects(
       downloadBinaryToPath({
@@ -293,8 +312,8 @@ test("rejects a download whose destination parent is swapped for a symlink durin
         allowedUrlPrefixes,
         stagingDir,
         fetcher: async () => {
-          await rm(parent, { recursive: true, force: true });
-          await symlink(outsideRoot, parent, "dir");
+          await rm(authorizedRoot, { recursive: true, force: true });
+          await symlink(outsideRoot, authorizedRoot, "dir");
           return remoteResponse(Uint8Array.from([1, 2, 3]));
         },
       }),
@@ -305,6 +324,5 @@ test("rejects a download whose destination parent is swapped for a symlink durin
 
     assert.deepEqual(await readdir(outsideRoot), []);
     assert.deepEqual(await readdir(stagingDir), []);
-    await assert.rejects(readFile(destinationPath), { code: "ENOENT" });
   });
 });
