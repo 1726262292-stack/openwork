@@ -176,7 +176,7 @@ async function safelyMarkWorkerFailed(store: CloudLifecycleStore, workerId: Work
   }
 }
 
-async function runWakeCloudWorker(workerId: WorkerId, options: WakeCloudWorkerOptions) {
+async function runClaimedCloudWorkerRecovery(workerId: WorkerId, options: WakeCloudWorkerOptions) {
   const store = options.store ?? databaseCloudLifecycleStore
   const wakeWorker = options.wakeWorker ?? wakeWorkerOnDaytona
   const provisionWorker = options.provisionWorker ?? provisionWorkerOnDaytona
@@ -187,16 +187,14 @@ async function runWakeCloudWorker(workerId: WorkerId, options: WakeCloudWorkerOp
     const worker = await store.getWorker(workerId)
 
     if (!worker) {
-      logger.error("worker wake failed", { worker_id: workerId, reason: "worker_not_found" })
+      logger.error("claimed worker recovery failed", { worker_id: workerId, reason: "worker_not_found" })
       return
     }
 
-    // Another replica may already be waking or stopping this worker. Its
-    // durable status is the cross-replica mutex; callers poll until the
-    // transition resolves instead of issuing a competing provider action.
-    if (worker.status !== "stopped") return
-
-    if (!await store.reserveWake(workerId)) return
+    // The caller atomically moved the worker to provisioning before entering
+    // this primitive. Only that claimant invokes the provider action; other
+    // replicas observe provisioning and poll instead.
+    if (worker.status !== "provisioning") return
 
     const tokens = await store.getActiveTokens(workerId)
     const hostToken = tokenByScope(tokens, "host")
@@ -258,21 +256,42 @@ async function runWakeCloudWorker(workerId: WorkerId, options: WakeCloudWorkerOp
   }
 }
 
-export async function wakeCloudWorker(workerId: WorkerId, options: WakeCloudWorkerOptions = {}) {
-  const existing = wakeInFlight.get(workerId)
-  if (existing) {
-    return existing
+async function runWakeCloudWorker(workerId: WorkerId, options: WakeCloudWorkerOptions) {
+  const store = options.store ?? databaseCloudLifecycleStore
+  try {
+    const worker = await store.getWorker(workerId)
+    if (!worker) {
+      logger.error("worker wake failed", { worker_id: workerId, reason: "worker_not_found" })
+      return
+    }
+
+    // The durable status transition is the cross-replica claim. Only its
+    // winner enters the explicit claimed-recovery primitive below.
+    if (worker.status !== "stopped" || !await store.reserveWake(workerId)) return
+    await runClaimedCloudWorkerRecovery(workerId, { ...options, store })
+  } catch (error) {
+    logger.error("worker wake claim failed", { worker_id: workerId, error })
   }
+}
 
-  const promise = runWakeCloudWorker(workerId, options)
-    .finally(() => {
-      if (wakeInFlight.get(workerId) === promise) {
-        wakeInFlight.delete(workerId)
-      }
-    })
+function runWorkerRecoveryOnce(workerId: WorkerId, operation: () => Promise<void>) {
+  const existing = wakeInFlight.get(workerId)
+  if (existing) return existing
+
+  const promise = operation().finally(() => {
+    if (wakeInFlight.get(workerId) === promise) wakeInFlight.delete(workerId)
+  })
   wakeInFlight.set(workerId, promise)
-
   return promise
+}
+
+export async function wakeCloudWorker(workerId: WorkerId, options: WakeCloudWorkerOptions = {}) {
+  return runWorkerRecoveryOnce(workerId, () => runWakeCloudWorker(workerId, options))
+}
+
+/** Run provider recovery after the caller atomically claimed provisioning. */
+export async function recoverClaimedCloudWorker(workerId: WorkerId, options: WakeCloudWorkerOptions = {}) {
+  return runWorkerRecoveryOnce(workerId, () => runClaimedCloudWorkerRecovery(workerId, options))
 }
 
 function stopResultAllowsStoppedStatus(result: StopWorkerOnDaytonaResult) {

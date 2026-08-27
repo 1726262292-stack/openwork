@@ -25,6 +25,7 @@ import {
   token,
   updateWorkerSchema,
   workerIdParamSchema,
+  workerSandboxBackend,
 } from "./shared.js"
 
 const workerInstanceSchema = z.object({
@@ -90,6 +91,12 @@ const workerTokensResponseSchema = z.object({
     workspaceId: z.string().nullable(),
   }).nullable(),
 }).meta({ ref: "WorkerTokensResponse" })
+
+const workerTokensRequestSchema = z.object({
+  // Legacy/published clients do not understand signed-preview expiry. They
+  // receive only stable tokens. New Web flows opt in and own refresh/polling.
+  includeExpiringOpenworkUrl: z.boolean().optional(),
+}).meta({ ref: "WorkerTokensRequest" })
 
 const organizationUnavailableSchema = z.object({
   error: z.literal("organization_unavailable"),
@@ -232,6 +239,7 @@ export function registerWorkerCoreRoutes<T extends { Variables: WorkerRouteVaria
 
     const workerId = createDenTypeId("worker")
     const workerStatus = input.destination === "cloud" ? "provisioning" : "healthy"
+    const sandboxBackend = workerSandboxBackend(input)
 
     await db.insert(WorkerTable).values({
       id: workerId,
@@ -243,7 +251,7 @@ export function registerWorkerCoreRoutes<T extends { Variables: WorkerRouteVaria
       status: workerStatus,
       image_version: input.imageVersion,
       workspace_path: input.workspacePath,
-      sandbox_backend: input.sandboxBackend,
+      sandbox_backend: sandboxBackend,
     })
 
     const hostToken = token()
@@ -293,7 +301,7 @@ export function registerWorkerCoreRoutes<T extends { Variables: WorkerRouteVaria
           status: workerStatus,
           image_version: input.imageVersion ?? null,
           workspace_path: input.workspacePath ?? null,
-          sandbox_backend: input.sandboxBackend ?? null,
+          sandbox_backend: sandboxBackend,
           last_heartbeat_at: null,
           last_active_at: null,
           created_at: new Date(),
@@ -454,7 +462,10 @@ export function registerWorkerCoreRoutes<T extends { Variables: WorkerRouteVaria
       return c.json({ error: "worker_not_found" }, 404)
     }
 
-    const resolved = await getWorkerTokensAndConnect(worker)
+    const requestBody = workerTokensRequestSchema.safeParse(await c.req.json().catch(() => ({})))
+    const resolved = await getWorkerTokensAndConnect(worker, {
+      includeExpiringOpenworkUrl: requestBody.success && requestBody.data.includeExpiringOpenworkUrl === true,
+    })
     if ("error" in resolved && resolved.error) {
       return new Response(JSON.stringify(resolved.error.body), {
         status: resolved.error.status,

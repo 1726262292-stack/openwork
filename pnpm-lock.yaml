@@ -818,40 +818,6 @@ importers:
         specifier: 5.4.5
         version: 5.4.5
 
-  ee/apps/den-worker-proxy:
-    dependencies:
-      '@daytonaio/sdk':
-        specifier: ^0.201.0
-        version: 0.201.0
-      '@hono/node-server':
-        specifier: 2.0.12
-        version: 2.0.12(hono@4.12.34)
-      '@openwork-ee/den-db':
-        specifier: workspace:*
-        version: link:../../packages/den-db
-      '@openwork-ee/utils':
-        specifier: workspace:*
-        version: link:../../packages/utils
-      dotenv:
-        specifier: ^16.4.5
-        version: 16.6.1
-      hono:
-        specifier: 4.12.34
-        version: 4.12.34
-      zod:
-        specifier: ^4.3.6
-        version: 4.3.6
-    devDependencies:
-      '@types/node':
-        specifier: ^20.11.30
-        version: 20.12.12
-      tsx:
-        specifier: ^4.23.1
-        version: 4.23.1
-      typescript:
-        specifier: ^5.5.4
-        version: 5.9.3
-
   ee/apps/diagnostics:
     dependencies:
       '@openwork/types':

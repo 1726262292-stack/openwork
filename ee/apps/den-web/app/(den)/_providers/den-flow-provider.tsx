@@ -37,6 +37,7 @@ import {
   getToken,
   getUser,
   getWorker,
+  getWorkerConnectionPollDelay,
   getWorkerRuntimeSnapshot,
   getWorkerStatusCopy,
   getWorkerStatusMeta,
@@ -53,6 +54,8 @@ import {
   requestJson,
   resetPosthogUser,
   resolveOpenworkWorkspaceUrl,
+  withWorkerConnection,
+  workerNeedsConnectionResolution,
   trackPosthogEvent
 } from "../_lib/den-flow";
 import { EMPTY_RUNTIME_CONFIG, getRuntimeConfig, type DenWebRuntimeConfig } from "../_lib/runtime-config";
@@ -281,7 +284,6 @@ export function DenFlowProvider({ children }: { children: ReactNode }) {
   const [launchError, setLaunchError] = useState<string | null>(null);
   const [events, setEvents] = useState<LaunchEvent[]>([]);
   const [copiedField, setCopiedField] = useState<string | null>(null);
-  const [tokenFetchedForWorkerId, setTokenFetchedForWorkerId] = useState<string | null>(null);
   const [deleteBusyWorkerId, setDeleteBusyWorkerId] = useState<string | null>(null);
   const [redeployBusyWorkerId, setRedeployBusyWorkerId] = useState<string | null>(null);
   const [renameBusyWorkerId, setRenameBusyWorkerId] = useState<string | null>(null);
@@ -743,7 +745,6 @@ export function DenFlowProvider({ children }: { children: ReactNode }) {
 
       if (!nextSelectedId) {
         setWorker(null);
-        setTokenFetchedForWorkerId(null);
         setPendingRestoredWorkerId(null);
         setLaunchStatus("Choose a worker name and launch.");
         if (typeof window !== "undefined") {
@@ -1370,7 +1371,6 @@ export function DenFlowProvider({ children }: { children: ReactNode }) {
     setOrgLimitError(null);
     setBillingBusy(false);
     setBillingLoadedOnce(false);
-    setTokenFetchedForWorkerId(null);
     setDeleteBusyWorkerId(null);
     setActionBusy(null);
     setLaunchBusy(false);
@@ -1648,53 +1648,53 @@ export function DenFlowProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  async function generateWorkerToken() {
+  async function generateWorkerToken(options: { background?: boolean; workerId?: string } = {}) {
+    const background = options.background === true;
     if (!user) {
-      setLaunchError("Sign in before fetching a worker access token.");
-      return;
+      if (!background) setLaunchError("Sign in before fetching a worker access token.");
+      return false;
     }
 
-    const id = workerLookupId.trim() || worker?.workerId || workers[0]?.workerId || "";
+    const id = (options.workerId ?? workerLookupId.trim()) || worker?.workerId || workers[0]?.workerId || "";
     if (!id) {
-      setLaunchError("No worker selected yet. Launch one first, then fetch a token.");
-      return;
+      if (!background) setLaunchError("No worker selected yet. Launch one first, then fetch a token.");
+      return false;
     }
 
-    setWorkerLookupId(id);
-    setActionBusy("token");
-    setLaunchError(null);
+    if (!background) {
+      setWorkerLookupId(id);
+      setActionBusy("token");
+      setLaunchError(null);
+    }
 
     try {
       const { response, payload } = await requestJson(`/v1/workers/${encodeURIComponent(id)}/tokens`, {
         method: "POST",
         headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
-        body: JSON.stringify({})
+        body: JSON.stringify({ includeExpiringOpenworkUrl: true })
       });
 
       if (!response.ok) {
-        const message = getErrorMessage(payload, `Token fetch failed with ${response.status}.`);
-        setLaunchError(message);
-        appendEvent("error", "Token fetch failed", message);
-        return;
+        if (!background) {
+          const message = getErrorMessage(payload, `Token fetch failed with ${response.status}.`);
+          setLaunchError(message);
+          appendEvent("error", "Token fetch failed", message);
+        }
+        return false;
       }
 
       const tokens = getWorkerTokens(payload);
       if (!tokens) {
-        setLaunchError("Token response returned no token values.");
-        appendEvent("error", "Token fetch failed", "Missing token payload");
-        return;
+        if (!background) {
+          setLaunchError("Token response returned no token values.");
+          appendEvent("error", "Token fetch failed", "Missing token payload");
+        }
+        return false;
       }
 
       const nextWorker: WorkerLaunch =
         worker && worker.workerId === id
-          ? {
-              ...worker,
-              openworkUrl: tokens.openworkUrl ?? worker.openworkUrl,
-              workspaceId: tokens.workspaceId ?? worker.workspaceId,
-              clientToken: tokens.clientToken,
-              ownerToken: tokens.ownerToken,
-              hostToken: tokens.hostToken
-            }
+          ? withWorkerConnection(worker, tokens)
           : {
               workerId: id,
               workerName: "Existing worker",
@@ -1709,16 +1709,32 @@ export function DenFlowProvider({ children }: { children: ReactNode }) {
             };
 
       const resolvedWorker = await withResolvedOpenworkCredentials(nextWorker, { quiet: true });
-      setWorker(resolvedWorker);
+      setWorker((current) => {
+        if (!current || current.workerId !== resolvedWorker.workerId) return resolvedWorker;
+        if (
+          current.openworkUrl === resolvedWorker.openworkUrl &&
+          current.workspaceId === resolvedWorker.workspaceId &&
+          current.clientToken === resolvedWorker.clientToken &&
+          current.ownerToken === resolvedWorker.ownerToken &&
+          current.hostToken === resolvedWorker.hostToken
+        ) return current;
+        return resolvedWorker;
+      });
       setPendingRestoredWorkerId(null);
-      setLaunchStatus("Worker is ready to connect.");
-      appendEvent("success", "Owner token ready", `Worker ID ${id}`);
+      if (!background) {
+        setLaunchStatus("Worker is ready to connect.");
+        appendEvent("success", "Owner token ready", `Worker ID ${id}`);
+      }
+      return !workerNeedsConnectionResolution(resolvedWorker);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unknown network error";
-      setLaunchError(message);
-      appendEvent("error", "Token fetch failed", message);
+      if (!background) {
+        const message = error instanceof Error ? error.message : "Unknown network error";
+        setLaunchError(message);
+        appendEvent("error", "Token fetch failed", message);
+      }
+      return false;
     } finally {
-      setActionBusy(null);
+      if (!background) setActionBusy(null);
     }
   }
 
@@ -2059,25 +2075,28 @@ export function DenFlowProvider({ children }: { children: ReactNode }) {
   }, [worker]);
 
   useEffect(() => {
-    if (!user || !worker) {
-      return;
-    }
-    if (pendingRestoredWorkerId === worker.workerId) {
-      return;
-    }
-    if (worker.ownerToken || worker.clientToken) {
-      return;
-    }
-    if (actionBusy !== null || launchBusy) {
-      return;
-    }
-    if (tokenFetchedForWorkerId === worker.workerId) {
+    if (!user || !worker || actionBusy !== null || launchBusy || pendingRestoredWorkerId === worker.workerId || !workerNeedsConnectionResolution(worker)) {
       return;
     }
 
-    setTokenFetchedForWorkerId(worker.workerId);
-    void generateWorkerToken();
-  }, [actionBusy, launchBusy, pendingRestoredWorkerId, tokenFetchedForWorkerId, user, worker]);
+    let cancelled = false;
+    let timer: number | null = null;
+    let attempts = 0;
+    const poll = async () => {
+      if (cancelled) return;
+      const ready = await generateWorkerToken({ background: true, workerId: worker.workerId });
+      if (cancelled || ready) return;
+      attempts += 1;
+      const delay = getWorkerConnectionPollDelay(attempts);
+      timer = window.setTimeout(() => void poll(), delay);
+    };
+
+    void poll();
+    return () => {
+      cancelled = true;
+      if (timer !== null) window.clearTimeout(timer);
+    };
+  }, [actionBusy, launchBusy, pendingRestoredWorkerId, user?.id, worker?.workerId, worker?.status, worker?.clientToken, worker?.hostToken, worker?.openworkUrl]);
 
   const provisioningWorkerIds = workers
     .filter((item) => item.status === "provisioning")
@@ -2281,7 +2300,9 @@ export function DenFlowProvider({ children }: { children: ReactNode }) {
     refreshWorkers,
     launchWorker,
     checkWorkerStatus,
-    generateWorkerToken,
+    generateWorkerToken: async () => {
+      await generateWorkerToken();
+    },
     renameWorker,
     deleteWorker,
     redeployWorker,

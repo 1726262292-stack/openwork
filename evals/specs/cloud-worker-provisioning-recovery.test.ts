@@ -23,7 +23,6 @@ function seedRequiredEnv() {
   process.env.CORS_ORIGINS ??= "http://127.0.0.1:8790";
   process.env.PROVISIONER_MODE = "stub";
   process.env.DAYTONA_API_KEY = "daytona-test-key";
-  process.env.DAYTONA_WORKER_PROXY_BASE_URL = "https://workers.example.test";
   process.env.DAYTONA_SNAPSHOT = "openwork-test-snapshot";
 }
 
@@ -197,6 +196,8 @@ test("cloud provisioning remains single-owner and survives Daytona read-after-wr
   });
 
   expect(provisioned.status).toBe("healthy");
+  expect(provisioned.url).toBe("https://late-visible.preview.example.test");
+  expect(provisioned.url).not.toContain("workers.example.test");
   expect(lateVisible.createCount).toBe(1);
   expect(lateVisible.lookupCount).toBe(7);
   expect(lateVisibleWaitMs).toBe(10_000);

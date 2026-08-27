@@ -1,14 +1,12 @@
 import { createHeadlessThreadClient, toTranscript, type HeadlessThreadClient, type HeadlessThreadModel } from "@openwork/headless-threads"
-import { and, asc, eq } from "@openwork-ee/den-db/drizzle"
-import { OrganizationTable, WorkerTable } from "@openwork-ee/den-db/schema"
+import { eq } from "@openwork-ee/den-db/drizzle"
+import { OrganizationTable } from "@openwork-ee/den-db/schema"
 import { normalizeDenTypeId, type DenTypeId } from "@openwork-ee/utils/typeid"
 import { z } from "zod"
 import { db } from "../db.js"
 import { env } from "../env.js"
 import { organizationCloudEnabled } from "../capability-sources/cloud-rollout.js"
-import { CLOUD_INSTANCE_BACKEND } from "../workers/cloud-constants.js"
-import { wakeCloudWorker } from "../workers/cloud-lifecycle.js"
-import { loadCloudWorkerAccess, type CloudWorkerAccess } from "../workers/worker-access.js"
+import { resolveCloudRuntimeAccess, type CloudWorkerAccess } from "../workers/worker-access.js"
 import { scoreText, tokenize, type CapabilityMatch } from "./search.js"
 
 /**
@@ -180,7 +178,7 @@ export type RemoteSessionRuntimeResult =
   | { ok: true; runtime: RemoteSessionRuntime }
   | {
       ok: false
-      error: "cloud_not_available" | "needs_cloud_setup" | "cloud_runtime_failed" | "cloud_runtime_waking"
+      error: "cloud_not_available" | "needs_cloud_setup" | "cloud_runtime_failed" | "cloud_runtime_waking" | "cloud_runtime_unreachable"
       message: string
       retryable: boolean
     }
@@ -241,38 +239,24 @@ function workerHeaders(access: CloudWorkerAccess) {
   }
 }
 
-async function readWorkspace(access: CloudWorkerAccess) {
-  for (const baseUrl of access.candidates) {
-    try {
-      const response = await fetch(`${baseUrl}/workspaces`, {
-        headers: workerHeaders(access),
-        signal: AbortSignal.timeout(WORKER_REQUEST_TIMEOUT_MS),
-      })
-      if (!response.ok) continue
-      const payload: unknown = await response.json()
-      if (isRecord(payload) && typeof payload.activeId === "string" && payload.activeId) {
-        return { baseUrl, workspaceId: payload.activeId }
-      }
-    } catch {
-      // Try the next candidate URL; readiness is re-polled by the caller.
+export async function resolveRemoteSessionWorkspace(
+  access: CloudWorkerAccess,
+  fetchImpl: typeof fetch = fetch,
+) {
+  try {
+    const response = await fetchImpl(`${access.url}/workspaces`, {
+      headers: workerHeaders(access),
+      signal: AbortSignal.timeout(WORKER_REQUEST_TIMEOUT_MS),
+    })
+    if (!response.ok) return null
+    const payload: unknown = await response.json()
+    if (isRecord(payload) && typeof payload.activeId === "string" && payload.activeId) {
+      return { baseUrl: access.url, workspaceId: payload.activeId }
     }
+  } catch {
+    return null
   }
   return null
-}
-
-async function ownerCloudWorker(scope: { organizationId: DenTypeId<"organization">; userId: string }) {
-  const workers = await db
-    .select({ id: WorkerTable.id, status: WorkerTable.status })
-    .from(WorkerTable)
-    .where(and(
-      eq(WorkerTable.org_id, scope.organizationId),
-      eq(WorkerTable.created_by_user_id, normalizeDenTypeId("user", scope.userId)),
-      eq(WorkerTable.destination, "cloud"),
-      eq(WorkerTable.sandbox_backend, CLOUD_INSTANCE_BACKEND),
-    ))
-    .orderBy(asc(WorkerTable.created_at), asc(WorkerTable.id))
-    .limit(1)
-  return workers[0] ?? null
 }
 
 async function defaultResolveRuntime(
@@ -290,30 +274,38 @@ async function defaultResolveRuntime(
     return { ok: false, error: "cloud_not_available", message: CLOUD_NOT_AVAILABLE_MESSAGE, retryable: false }
   }
 
-  const worker = await ownerCloudWorker(scope)
-  if (!worker) {
-    return { ok: false, error: "needs_cloud_setup", message: NEEDS_SETUP_MESSAGE, retryable: false }
-  }
-  if (worker.status === "failed") {
-    return {
-      ok: false,
-      error: "cloud_runtime_failed",
-      message: "Your OpenWork Cloud workspace needs repair before remote sessions can run. Open OpenWork Cloud in the browser to let it recover, then retry.",
-      retryable: false,
-    }
-  }
-
   const deadline = Date.now() + READY_BUDGET_MS
-  let wakeKicked = false
   for (;;) {
-    const access = await loadCloudWorkerAccess({ organizationId: scope.organizationId, workerId: worker.id })
-    if (access) {
-      const workspace = await readWorkspace(access)
+    const access = await resolveCloudRuntimeAccess({
+      organizationId: scope.organizationId,
+      userId: normalizeDenTypeId("user", scope.userId),
+    })
+    if (access.status === "missing") {
+      return { ok: false, error: "needs_cloud_setup", message: NEEDS_SETUP_MESSAGE, retryable: false }
+    }
+    if (access.status !== "ready" && access.reason === "unreachable") {
+      return {
+        ok: false,
+        error: "cloud_runtime_unreachable",
+        message: "Your OpenWork Cloud workspace is running but cannot be reached right now. Retry after the network path recovers.",
+        retryable: true,
+      }
+    }
+    if (access.status === "failed") {
+      return {
+        ok: false,
+        error: "cloud_runtime_failed",
+        message: "Your OpenWork Cloud workspace needs repair before remote sessions can run. Open OpenWork Cloud in the browser to let it recover, then retry.",
+        retryable: false,
+      }
+    }
+    if (access.status === "ready") {
+      const workspace = await resolveRemoteSessionWorkspace(access)
       if (workspace) {
         return {
           ok: true,
           runtime: {
-            workerId: worker.id,
+            workerId: access.workerId,
             baseUrl: workspace.baseUrl,
             workspaceId: workspace.workspaceId,
             clientToken: access.clientToken,
@@ -321,11 +313,12 @@ async function defaultResolveRuntime(
           },
         }
       }
-    } else if (!wakeKicked) {
-      // Stopped or provisioning worker: kick the shared wake path once.
-      // `wakeCloudWorker` dedupes in-flight wakes per worker.
-      wakeKicked = true
-      void wakeCloudWorker(worker.id).catch(() => undefined)
+      return {
+        ok: false,
+        error: "cloud_runtime_unreachable",
+        message: "Your OpenWork Cloud workspace is healthy but its session API cannot be reached right now. Retry after the network path recovers.",
+        retryable: true,
+      }
     }
     if (Date.now() >= deadline) break
     await sleep(READY_POLL_MS)
