@@ -1,5 +1,6 @@
 import { createDenTypeId } from "@openwork-ee/utils/typeid"
 import { beforeAll, describe, expect, test } from "bun:test"
+import { createServer, type Server } from "node:http"
 import type {
   CloudRuntimeStore,
   CloudRuntimeWorker,
@@ -82,6 +83,23 @@ function options(input: {
     startWake: () => {},
     now: () => new Date("2026-08-27T10:00:00.000Z").getTime(),
   }
+}
+
+function listen(server: Server): Promise<void> {
+  return new Promise((resolve, reject) => {
+    server.once("error", reject)
+    server.listen(0, "127.0.0.1", () => {
+      server.off("error", reject)
+      resolve()
+    })
+  })
+}
+
+function close(server: Server): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (!server.listening) return resolve()
+    server.close((error) => error ? reject(error) : resolve())
+  })
 }
 
 describe("Cloud runtime access resolver", () => {
@@ -301,6 +319,32 @@ describe("Cloud runtime access resolver", () => {
     }))
 
     expect(result).toEqual({ status: "failed", workerId: runtimeWorker.id, reason: "missing_tokens" })
+  })
+
+  test("signed preview health probe refuses sandbox-controlled redirects", async () => {
+    let redirectedTargetHit = false
+    const target = createServer((_request, response) => {
+      redirectedTargetHit = true
+      response.writeHead(200, { "content-type": "application/json" })
+      response.end(JSON.stringify({ ok: true }))
+    })
+    const sandbox = createServer((_request, response) => {
+      const address = target.address()
+      if (!address || typeof address === "string") throw new Error("target server did not bind")
+      response.writeHead(302, { location: `http://127.0.0.1:${address.port}/internal-health` })
+      response.end()
+    })
+
+    await Promise.all([listen(target), listen(sandbox)])
+    try {
+      const address = sandbox.address()
+      if (!address || typeof address === "string") throw new Error("sandbox server did not bind")
+      const healthy = await runtimeAccess.probeCloudRuntimeSignedPreview(`http://127.0.0.1:${address.port}`)
+      expect(healthy).toBe(false)
+      expect(redirectedTargetHit).toBe(false)
+    } finally {
+      await Promise.all([close(target), close(sandbox)])
+    }
   })
 
   test("passes ownership to the loader and reports missing for a different organization", async () => {

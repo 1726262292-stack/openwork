@@ -1,3 +1,4 @@
+import { createServer, type Server } from "node:http";
 import { test } from "@openwork/testkit";
 import { expect } from "vitest";
 import { createDenTypeId } from "../../ee/packages/utils/src/typeid.js";
@@ -13,10 +14,27 @@ function seedRequiredEnv() {
   process.env.DAYTONA_SNAPSHOT = "openwork-test-snapshot";
 }
 
+function listen(server: Server): Promise<void> {
+  return new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      server.off("error", reject);
+      resolve();
+    });
+  });
+}
+
+function close(server: Server): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (!server.listening) return resolve();
+    server.close((error) => error ? reject(error) : resolve());
+  });
+}
+
 test("Cloud runtime access refreshes signed previews without old proxy routing", async ({ evidence }) => {
   seedRequiredEnv();
   const [
-    { resolveCloudRuntimeAccess },
+    { probeCloudRuntimeSignedPreview, resolveCloudRuntimeAccess },
     { persistedWorkerInstanceUrl },
     { getWorker, getWorkerTokens, withWorkerConnection, workerNeedsConnectionResolution },
   ] = await Promise.all([
@@ -96,9 +114,31 @@ test("Cloud runtime access refreshes signed previews without old proxy routing",
   const webWorker = withWorkerConnection(created, lateTokens);
   expect(webWorker.openworkUrl).toBe("https://fresh.preview.example.test/w/workspace");
   expect(workerNeedsConnectionResolution(webWorker)).toBe(false);
+
+  let redirectedTargetHit = false;
+  const target = createServer((_request, response) => {
+    redirectedTargetHit = true;
+    response.writeHead(200, { "content-type": "application/json" });
+    response.end(JSON.stringify({ ok: true }));
+  });
+  const sandbox = createServer((_request, response) => {
+    const address = target.address();
+    if (!address || typeof address === "string") throw new Error("redirect target did not bind");
+    response.writeHead(302, { location: `http://127.0.0.1:${address.port}/internal-health` });
+    response.end();
+  });
+  await Promise.all([listen(target), listen(sandbox)]);
+  try {
+    const address = sandbox.address();
+    if (!address || typeof address === "string") throw new Error("sandbox server did not bind");
+    expect(await probeCloudRuntimeSignedPreview(`http://127.0.0.1:${address.port}`)).toBe(false);
+    expect(redirectedTargetHit).toBe(false);
+  } finally {
+    await Promise.all([close(target), close(sandbox)]);
+  }
   evidence.recordAssertionEvidence(
     "Expired Daytona access resolves through a fresh signed preview only",
-    "The resolver refreshed the expired preview, probed only the fresh URL, returned both runtime credentials, made no request to the removed proxy, persisted only a lifecycle URL, and the Web state adopted the late resolver URL after create returned tokens first.",
+    "The resolver refreshed the expired preview, probed only the fresh URL, returned both runtime credentials, made no request to the removed proxy, persisted only a lifecycle URL, the Web state adopted the late resolver URL after create returned tokens first, and a sandbox-controlled health redirect was rejected without reaching the redirect target.",
     true,
   );
 });

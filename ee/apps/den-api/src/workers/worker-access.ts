@@ -188,7 +188,11 @@ export async function probeCloudRuntimeSignedPreview(signedPreviewUrl: string) {
     const response = await fetchWithConnectRetry({
       fetchImpl: previewFetch(),
       url: healthUrlForPreview(signedPreviewUrl),
-      init: { method: "GET", signal: AbortSignal.timeout(signedPreviewProbeTimeoutMs) },
+      init: {
+        method: "GET",
+        redirect: "error",
+        signal: AbortSignal.timeout(signedPreviewProbeTimeoutMs),
+      },
     })
     return response.ok
   } catch {
