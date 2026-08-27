@@ -316,7 +316,7 @@ export type DesktopFetchResult = {
 export type DesktopMultipartUploadInput = {
   transferId: string;
   url: string;
-  filePath: string;
+  bytes: ArrayBuffer;
   filename: string;
   size: number;
   contentType?: string;

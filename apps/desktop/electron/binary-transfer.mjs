@@ -1,4 +1,3 @@
-import { constants as fsConstants } from "node:fs";
 import { lstat, mkdir, open, realpath, rm } from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
@@ -92,10 +91,10 @@ function isInside(root, target) {
   return relative === "" || (!relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative));
 }
 
-async function rejectSymlinkComponents(root, target, includeTarget) {
+async function rejectSymlinkComponents(root, target) {
   const relative = path.relative(root, target);
   const components = relative ? relative.split(path.sep) : [];
-  const count = includeTarget ? components.length : Math.max(components.length - 1, 0);
+  const count = Math.max(components.length - 1, 0);
   let current = root;
   const rootInfo = await lstat(root).catch(() => null);
   if (!rootInfo?.isDirectory() || rootInfo.isSymbolicLink()) {
@@ -111,8 +110,8 @@ async function rejectSymlinkComponents(root, target, includeTarget) {
   }
 }
 
-async function resolveAuthorizedPath(candidateValue, rootsValue, mode) {
-  const candidateRaw = boundedString(candidateValue, mode === "read" ? "File path" : "Destination path", {
+async function resolveAuthorizedPath(candidateValue, rootsValue) {
+  const candidateRaw = boundedString(candidateValue, "Destination path", {
     required: true,
     maxLength: 32_768,
   });
@@ -125,23 +124,16 @@ async function resolveAuthorizedPath(candidateValue, rootsValue, mode) {
     if (typeof rootValue !== "string" || !path.isAbsolute(rootValue)) continue;
     const root = path.resolve(rootValue);
     if (!isInside(root, candidate)) continue;
-    await rejectSymlinkComponents(root, candidate, mode === "read");
+    await rejectSymlinkComponents(root, candidate);
     const rootRealPath = await realpath(root).catch(() => null);
     if (!rootRealPath) continue;
-    if (mode === "read") {
-      const candidateRealPath = await realpath(candidate).catch(() => null);
-      if (!candidateRealPath || !isInside(rootRealPath, candidateRealPath)) {
-        throw transferError("File path escapes the authorized workspace.", "unauthorized-path");
-      }
-    } else {
-      const parentRealPath = await realpath(path.dirname(candidate)).catch(() => null);
-      if (!parentRealPath || !isInside(rootRealPath, parentRealPath)) {
-        throw transferError("Destination path escapes the authorized workspace.", "unauthorized-path");
-      }
-      const existing = await lstat(candidate).catch(() => null);
-      if (existing?.isSymbolicLink()) {
-        throw transferError("Destination path must not be a symbolic link.", "symlink-path");
-      }
+    const parentRealPath = await realpath(path.dirname(candidate)).catch(() => null);
+    if (!parentRealPath || !isInside(rootRealPath, parentRealPath)) {
+      throw transferError("Destination path escapes the authorized workspace.", "unauthorized-path");
+    }
+    const existing = await lstat(candidate).catch(() => null);
+    if (existing?.isSymbolicLink()) {
+      throw transferError("Destination path must not be a symbolic link.", "symlink-path");
     }
     return { path: candidate, rootRealPath };
   }
@@ -210,24 +202,30 @@ async function writeAll(file, value) {
   }
 }
 
-async function readFileBytes(file, size, signal) {
-  const result = Buffer.allocUnsafe(size);
-  let offset = 0;
-  while (offset < size) {
-    signal?.throwIfAborted();
-    const length = Math.min(size - offset, 1024 * 1024);
-    const { bytesRead } = await file.read(result, offset, length);
-    if (bytesRead === 0) throw transferError("File size changed while it was being read.", "size-mismatch");
-    offset += bytesRead;
-  }
-  signal?.throwIfAborted();
-  return result;
-}
-
-export async function uploadMultipartFromPath(input, options) {
+// Uploads deliberately take bytes, not a path. The renderer only ever holds
+// bytes it was already allowed to read (a user-selected File), so the main
+// process gains no filesystem read authority on the renderer's behalf and no
+// configuration value can widen what an upload may exfiltrate.
+export async function uploadMultipartFromBytes(input, options) {
   const url = remoteUrl(input?.url, options?.allowedUrlPrefixes);
   const expectedBytes = boundedByteCount(input?.size, "File size");
-  const source = await resolveAuthorizedPath(input?.filePath, options?.authorizedRoots, "read");
+  const bytes = input?.bytes;
+  let data = null;
+  if (bytes instanceof ArrayBuffer) {
+    data = new Uint8Array(bytes);
+  } else if (ArrayBuffer.isView(bytes)) {
+    // Copy into an owned buffer so the payload is an immutable snapshot.
+    data = new Uint8Array(bytes.byteLength);
+    data.set(new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength));
+  }
+  if (!data) throw transferError("Upload bytes are required.", "invalid-file");
+  boundedByteCount(data.byteLength, "File size");
+  if (data.byteLength !== expectedBytes) {
+    throw transferError(
+      `File size changed: expected ${expectedBytes} bytes but received ${data.byteLength}.`,
+      "size-mismatch",
+    );
+  }
   const filename = boundedString(input?.filename, "Filename", { required: true });
   if (filename !== path.basename(filename) || /[\\/]/.test(filename)) {
     throw transferError("Filename must not contain a path.", "invalid-metadata");
@@ -238,33 +236,21 @@ export async function uploadMultipartFromPath(input, options) {
   const headers = boundedRecord(input?.headers, "Headers", MAX_HEADERS);
   const method = boundedString(input?.method ?? "POST", "Method", { required: true, maxLength: 16 });
   const signal = timeoutSignal(input?.timeoutMs, options?.signal);
-  const file = await open(source.path, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0));
-  try {
-    const info = await verifyOpenFileWithinRoot(file, source.path, source.rootRealPath, "File path");
-    if (!info.isFile()) throw transferError("Upload path is not a regular file.", "invalid-file");
-    boundedByteCount(info.size, "File size");
-    if (info.size !== expectedBytes) {
-      throw transferError(`File size changed: expected ${expectedBytes} bytes but found ${info.size}.`, "size-mismatch");
-    }
-    const data = await readFileBytes(file, expectedBytes, signal);
-    const form = new FormData();
-    form.append(fieldName, new Blob([data], contentType ? { type: contentType } : undefined), filename);
-    for (const [name, value] of Object.entries(fields)) form.append(name, value);
-    const response = await options.fetcher(url, {
-      method,
-      headers,
-      body: form,
-      credentials: "omit",
-      cache: "no-store",
-      // The endpoint allowlist covers only the initial URL, so a redirect
-      // must never be followed to an unvalidated destination.
-      redirect: "error",
-      signal,
-    });
-    return { ...responseMetadata(response), body: await responseText(response) };
-  } finally {
-    await file.close();
-  }
+  const form = new FormData();
+  form.append(fieldName, new Blob([data], contentType ? { type: contentType } : undefined), filename);
+  for (const [name, value] of Object.entries(fields)) form.append(name, value);
+  const response = await options.fetcher(url, {
+    method,
+    headers,
+    body: form,
+    credentials: "omit",
+    cache: "no-store",
+    // The endpoint allowlist covers only the initial URL, so a redirect
+    // must never be followed to an unvalidated destination.
+    redirect: "error",
+    signal,
+  });
+  return { ...responseMetadata(response), body: await responseText(response) };
 }
 
 // Downloads stream into a private staging file inside an app-owned directory
@@ -277,7 +263,7 @@ export async function uploadMultipartFromPath(input, options) {
 // truncates through the handle instead.
 export async function downloadBinaryToPath(input, options) {
   const url = remoteUrl(input?.url, options?.allowedUrlPrefixes);
-  const destination = await resolveAuthorizedPath(input?.destinationPath, options?.authorizedRoots, "write");
+  const destination = await resolveAuthorizedPath(input?.destinationPath, options?.authorizedRoots);
   const destinationPath = destination.path;
   const maxBytes = boundedByteCount(input?.maxBytes, "Maximum download size", { allowUndefined: true });
   const headers = boundedRecord(input?.headers, "Headers", MAX_HEADERS);
@@ -331,7 +317,7 @@ export async function downloadBinaryToPath(input, options) {
     // destination, create it exclusively ("wx" never follows a final
     // symlink), and prove by device and inode that the created file resides
     // inside the authorized root before a single byte is written to it.
-    await resolveAuthorizedPath(input?.destinationPath, options?.authorizedRoots, "write");
+    await resolveAuthorizedPath(input?.destinationPath, options?.authorizedRoots);
     try {
       destinationFile = await open(destinationPath, "wx");
     } catch (error) {

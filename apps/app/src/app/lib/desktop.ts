@@ -343,25 +343,18 @@ export function electronLocalPathForFile(file: File): string | null {
   }
 }
 
-export function electronPathForFile(file: File): string {
-  if (!window.__OPENWORK_ELECTRON__?.fileSystem?.getPathForFile) {
-    throw new Error("Electron file path access is unavailable.");
-  }
-  const filePath = electronLocalPathForFile(file);
-  if (!filePath) throw new Error("This file does not have a local path and cannot be uploaded remotely.");
-  return filePath;
-}
-
 export async function desktopUploadMultipart(
   file: File,
-  input: Omit<DesktopMultipartUploadInput, "transferId" | "filePath" | "filename" | "size" | "contentType">,
+  input: Omit<DesktopMultipartUploadInput, "transferId" | "bytes" | "filename" | "size" | "contentType">,
   signal?: AbortSignal,
 ): Promise<DesktopFetchResult> {
   const transferId = desktopTransferId();
+  // The renderer hands over the bytes it already holds for this File; the
+  // main process never reads renderer-chosen paths for uploads.
   const payload: DesktopMultipartUploadInput = {
     ...input,
     transferId,
-    filePath: electronPathForFile(file),
+    bytes: await file.arrayBuffer(),
     filename: file.name,
     size: file.size,
     contentType: file.type || undefined,

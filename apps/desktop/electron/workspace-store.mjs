@@ -928,18 +928,9 @@ export function createWorkspaceStore({
       .filter(Boolean);
   }
 
-  async function listAuthorizedWorkspaceRoots() {
-    const workspacePaths = await listLocalWorkspacePaths();
-    const roots = new Set(workspacePaths);
-    for (const workspacePath of workspacePaths) {
-      const config = await readWorkspaceOpenworkConfig(workspacePath).catch(() => null);
-      for (const root of config?.authorizedRoots ?? []) {
-        if (typeof root === "string" && root.trim()) roots.add(root.trim());
-      }
-    }
-    return [...roots];
-  }
-
+  // Binary transfers must derive authority only from app-owned state in
+  // userData, never from workspace-writable configuration, so this list is
+  // intentionally not exposed to that surface (see listLocalWorkspacePaths).
   async function listRemoteWorkspaceUrlPrefixes() {
     const prefixes = new Set();
     for (const workspace of (await readWorkspaceState()).workspaces) {
@@ -1242,7 +1233,6 @@ export function createWorkspaceStore({
     forgetWorkspace,
     getDesktopBootstrapConfig,
     importConfig,
-    listAuthorizedWorkspaceRoots,
     listLocalWorkspacePaths,
     listRemoteWorkspaceUrlPrefixes,
     migrateLegacyElectronWorkspaceStateIfNeeded,

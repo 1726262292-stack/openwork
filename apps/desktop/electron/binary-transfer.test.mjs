@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, readdir, rm, symlink } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -7,7 +7,7 @@ import test from "node:test";
 import {
   DESKTOP_TRANSFER_MAX_BYTES,
   downloadBinaryToPath,
-  uploadMultipartFromPath,
+  uploadMultipartFromBytes,
 } from "./binary-transfer.mjs";
 
 const allowedUrlPrefixes = ["https://worker.example.test"];
@@ -35,22 +35,19 @@ function matchesError(error, code, messagePattern) {
 }
 
 test("uploads exact original multipart bytes with spaces and Unicode in the filename", async () => {
-  await withWorkspace(async (root) => {
+  await withWorkspace(async () => {
     const filename = "résumé image 你好.bin";
-    const filePath = path.join(root, filename);
     const original = Uint8Array.from([0, 1, 2, 127, 128, 200, 254, 255]);
-    await writeFile(filePath, original);
 
-    const result = await uploadMultipartFromPath({
+    const result = await uploadMultipartFromBytes({
       url: "https://worker.example.test/inbox",
-      filePath,
+      bytes: original.slice().buffer,
       filename,
       size: original.byteLength,
       contentType: "application/octet-stream",
       fields: { path: `uploads/${filename}` },
       headers: { Authorization: "Bearer test" },
     }, {
-      authorizedRoots: [root],
       allowedUrlPrefixes,
       fetcher: async (url, init) => {
         assert.equal(init.redirect, "error");
@@ -110,30 +107,37 @@ test("downloads high bytes exactly through a verified destination handle with no
   });
 });
 
-test("rejects zero-byte and oversized uploads with clear error codes", async () => {
-  await withWorkspace(async (root) => {
-    const emptyPath = path.join(root, "empty.bin");
-    await writeFile(emptyPath, "");
+test("rejects zero-byte, oversized, and size-mismatched uploads with clear error codes", async () => {
+  await withWorkspace(async () => {
+    const options = { allowedUrlPrefixes, fetcher: async () => Response.json({}) };
     await assert.rejects(
-      uploadMultipartFromPath({
+      uploadMultipartFromBytes({
         url: "https://worker.example.test/inbox",
-        filePath: emptyPath,
+        bytes: new ArrayBuffer(0),
         filename: "empty.bin",
         size: 0,
-      }, { authorizedRoots: [root], allowedUrlPrefixes, fetcher: async () => Response.json({}) }),
+      }, options),
       (error) => matchesError(error, "zero-byte-file", /greater than zero/i),
     );
 
-    const filePath = path.join(root, "small.bin");
-    await writeFile(filePath, "x");
     await assert.rejects(
-      uploadMultipartFromPath({
+      uploadMultipartFromBytes({
         url: "https://worker.example.test/inbox",
-        filePath,
+        bytes: Uint8Array.from([1]).buffer,
         filename: "small.bin",
         size: DESKTOP_TRANSFER_MAX_BYTES + 1,
-      }, { authorizedRoots: [root], allowedUrlPrefixes, fetcher: async () => Response.json({}) }),
+      }, options),
       (error) => matchesError(error, "file-too-large", /limit/i),
+    );
+
+    await assert.rejects(
+      uploadMultipartFromBytes({
+        url: "https://worker.example.test/inbox",
+        bytes: Uint8Array.from([1, 2, 3]).buffer,
+        filename: "short.bin",
+        size: 4,
+      }, options),
+      (error) => matchesError(error, "size-mismatch", /expected 4 bytes/i),
     );
   });
 });
@@ -190,40 +194,6 @@ test("cancellation removes the incomplete download", async () => {
   });
 });
 
-test("rejects unauthorized, traversal, and symlink upload paths", async () => {
-  await withWorkspace(async (root) => {
-    const authorizedRoot = path.join(root, "workspace");
-    const outsideRoot = path.join(root, "outside");
-    await mkdir(authorizedRoot);
-    await mkdir(outsideRoot);
-    const outsidePath = path.join(outsideRoot, "secret.bin");
-    await writeFile(outsidePath, "secret");
-
-    const input = {
-      url: "https://worker.example.test/inbox",
-      filename: "secret.bin",
-      size: 6,
-    };
-    const options = { authorizedRoots: [authorizedRoot], allowedUrlPrefixes, fetcher: async () => Response.json({}) };
-
-    await assert.rejects(
-      uploadMultipartFromPath({ ...input, filePath: outsidePath }, options),
-      (error) => matchesError(error, "unauthorized-path"),
-    );
-    await assert.rejects(
-      uploadMultipartFromPath({ ...input, filePath: path.join(authorizedRoot, "..", "outside", "secret.bin") }, options),
-      (error) => matchesError(error, "unauthorized-path"),
-    );
-
-    const symlinkPath = path.join(authorizedRoot, "linked.bin");
-    await symlink(outsidePath, symlinkPath);
-    await assert.rejects(
-      uploadMultipartFromPath({ ...input, filePath: symlinkPath }, options),
-      (error) => matchesError(error, "symlink-path"),
-    );
-  });
-});
-
 test("rejects traversal and symlink download destinations", async () => {
   await withWorkspace(async (root, stagingDir) => {
     const authorizedRoot = path.join(root, "workspace");
@@ -259,15 +229,12 @@ test("rejects traversal and symlink download destinations", async () => {
 
 test("rejects transfer URLs outside connected remote workspace endpoints", async () => {
   await withWorkspace(async (root, stagingDir) => {
-    const filePath = path.join(root, "leak.bin");
-    await writeFile(filePath, "data");
-    const upload = (url, prefixes) => uploadMultipartFromPath({
+    const upload = (url, prefixes) => uploadMultipartFromBytes({
       url,
-      filePath,
+      bytes: Uint8Array.from([100, 97, 116, 97]).buffer,
       filename: "leak.bin",
       size: 4,
     }, {
-      authorizedRoots: [root],
       allowedUrlPrefixes: prefixes,
       fetcher: async () => Response.json({ ok: true }),
     });

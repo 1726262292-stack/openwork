@@ -53,7 +53,7 @@ import { resolveConnectLinkPublicKeys } from "./connect-link-keys.mjs";
 import { openExternalUrl } from "./open-external.mjs";
 import { resolveAppIdentifier, resolveUserDataPath } from "./dev-profile.mjs";
 import { fetchAgentContextDiagnosticsResponse } from "./agent-context-diagnostics-fetch.mjs";
-import { downloadBinaryToPath, uploadMultipartFromPath } from "./binary-transfer.mjs";
+import { downloadBinaryToPath, uploadMultipartFromBytes } from "./binary-transfer.mjs";
 import {
   createLinuxDesktopIntegration,
 } from "./linux-desktop-integration.mjs";
@@ -1081,8 +1081,10 @@ async function runDesktopTransfer(event, input, operation) {
   activeDesktopTransfers.set(key, controller);
   event.sender.once("destroyed", abort);
   try {
+    // Both authorities come from app-owned state in userData; workspace-
+    // writable configuration must never widen where a transfer may write.
     const [authorizedRoots, allowedUrlPrefixes] = await Promise.all([
-      workspaceStore.listAuthorizedWorkspaceRoots(),
+      workspaceStore.listLocalWorkspacePaths(),
       workspaceStore.listRemoteWorkspaceUrlPrefixes(),
     ]);
     return await operation(input, {
@@ -2314,7 +2316,7 @@ const desktopCommandHandlers = {
       };
   },
   "__uploadMultipart": async (event, ...args) => {
-      return runDesktopTransfer(event, args[0] ?? {}, uploadMultipartFromPath);
+      return runDesktopTransfer(event, args[0] ?? {}, uploadMultipartFromBytes);
   },
   "__downloadBinary": async (event, ...args) => {
       return runDesktopTransfer(event, args[0] ?? {}, downloadBinaryToPath);
