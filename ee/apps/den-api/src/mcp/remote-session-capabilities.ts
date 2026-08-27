@@ -3,9 +3,14 @@ import { and, eq, isNull } from "@openwork-ee/den-db/drizzle"
 import { MemberTable, OrganizationTable } from "@openwork-ee/den-db/schema/org"
 import { createDenTypeId, normalizeDenTypeId, type DenTypeId } from "@openwork-ee/utils/typeid"
 import { z } from "zod"
+import { desktopRunnerConnected } from "@openwork/automations"
 import { db } from "../db.js"
 import { env } from "../env.js"
-import { automationService } from "../automations/service.js"
+// The automation repository is the presence source of truth. Importing the
+// automation service instead would pull the codemode execution graph (and
+// its `effect` dependency) into every spec that imports this module, which
+// the evals layer rules forbid.
+import { automationRepository } from "../automations/repository.js"
 import { organizationCloudEnabled } from "../capability-sources/cloud-rollout.js"
 import {
   databaseRemoteSessionCommandStore,
@@ -371,11 +376,11 @@ async function defaultDesktopPresence(scope: {
   )).limit(1)
   const ownerMemberId = members[0]?.id ?? null
   if (!ownerMemberId) return { connected: false, ownerMemberId: null }
-  const presence = await automationService.desktopRunnerPresence({
+  const lastSeenAt = await automationRepository.desktopRunnerLastSeenAt({
     organizationId: scope.organizationId,
     ownerMemberId,
   })
-  return { connected: presence.connected, ownerMemberId }
+  return { connected: desktopRunnerConnected({ lastSeenAt, now: Date.now() }), ownerMemberId }
 }
 
 export const DEFAULT_REMOTE_SESSION_DEPS: RemoteSessionExecuteDeps = {
