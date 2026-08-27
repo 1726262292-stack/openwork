@@ -21,6 +21,7 @@ import {
   syncMarkdownImagePreviews,
 } from "./markdown-primitive";
 import { LinkActionMenu } from "./link-action-menu";
+import { useMermaidEnhancer } from "./mermaid";
 import { useSelectionStableValue } from "./selection-stability";
 
 export { renderHighlightedMarkdownHtml, renderMarkdownHtml } from "./markdown-primitive";
@@ -185,6 +186,7 @@ function MarkdownBlockInner({
   const candidateHtml = !streaming && highlightedHtml?.text === text ? highlightedHtml.html : syncHtml;
   const html = useSelectionStableValue(rootRef, candidateHtml);
   const stableInnerHtml = useMemo(() => ({ __html: html }), [html]);
+  useMermaidEnhancer(rootRef, html, !streaming);
 
   // Keep the innerHTML prop referentially stable too: a fresh wrapper object
   // can make an unrelated React render replace selected text nodes even when
