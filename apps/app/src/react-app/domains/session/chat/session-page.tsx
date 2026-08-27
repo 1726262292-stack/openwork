@@ -1547,7 +1547,7 @@ export function SessionPage(props: SessionPageProps) {
                   ) : null}
                   <DropdownMenuItem onClick={openArtifactRailPane}>
                     <FileText className="size-4" />
-                    Artifacts{artifactTargetCount > 0 ? ` (${artifactTargetCount})` : ""}
+                    Files{artifactTargetCount > 0 ? ` (${artifactTargetCount})` : ""}
                   </DropdownMenuItem>
                   {voiceExtensionEnabled ? (
                     <DropdownMenuItem onClick={openVoiceRailPane}>
@@ -1968,8 +1968,8 @@ export function SessionPage(props: SessionPageProps) {
                 panelRailActive && "bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary",
               )}
               onClick={openArtifactRailPane}
-              title={`Artifacts (${artifactTargetCount})`}
-              aria-label={`Artifacts (${artifactTargetCount})`}
+              title={`Files (${artifactTargetCount})`}
+              aria-label={`Files (${artifactTargetCount})`}
               aria-pressed={panelRailActive}
             >
               <FileText size={15} />
