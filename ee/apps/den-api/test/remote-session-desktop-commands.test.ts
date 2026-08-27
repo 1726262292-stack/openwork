@@ -1,6 +1,7 @@
 import { beforeAll, expect, test } from "bun:test"
 
 import { createDenTypeId } from "@openwork-ee/utils/typeid"
+import { remoteSessionCommandCompleteRequestSchema } from "@openwork/types/automations"
 import type {
   RemoteSessionExecuteDeps,
   RemoteSessionRuntime,
@@ -134,6 +135,32 @@ test("desktop create reports desktop_offline when no runner is present", async (
     error: "desktop_offline",
     message: "No desktop is connected for your account. Open the OpenWork desktop app and try again.",
   })
+})
+
+test("desktop command completions require a status-consistent receipt", () => {
+  expect(remoteSessionCommandCompleteRequestSchema.safeParse({
+    status: "delivered",
+    sessionId: "session-1",
+    workspaceId: "workspace-1",
+  }).success).toBe(true)
+  expect(remoteSessionCommandCompleteRequestSchema.safeParse({
+    status: "delivered",
+    sessionId: "session-1",
+    workspaceId: "workspace-1",
+    error: { code: "execution_failed", message: "contradiction" },
+  }).success).toBe(false)
+  expect(remoteSessionCommandCompleteRequestSchema.safeParse({ status: "delivered" }).success).toBe(false)
+  expect(remoteSessionCommandCompleteRequestSchema.safeParse({
+    status: "failed",
+    error: { code: "execution_failed", message: "failed" },
+  }).success).toBe(true)
+  expect(remoteSessionCommandCompleteRequestSchema.safeParse({
+    status: "failed",
+    sessionId: "session-1",
+    workspaceId: "workspace-1",
+    error: { code: "execution_failed", message: "failed" },
+  }).success).toBe(false)
+  expect(remoteSessionCommandCompleteRequestSchema.safeParse({ status: "failed" }).success).toBe(false)
 })
 
 test("desktop create queues a ten-minute command for the connected member", async () => {

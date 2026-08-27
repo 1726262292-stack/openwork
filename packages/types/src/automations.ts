@@ -243,16 +243,27 @@ export const remoteSessionCommandAssignmentSchema = z.object({
 export const remoteSessionCommandClaimResponseSchema = z.object({
   assignment: remoteSessionCommandAssignmentSchema,
 })
-export const remoteSessionCommandCompleteRequestSchema = z.object({
-  status: z.enum(["delivered", "failed"]),
-  sessionId: z.string().trim().min(1).max(240).optional(),
-  workspaceId: z.string().trim().min(1).max(240).optional(),
-  resultSummary: z.string().max(4096).optional(),
-  error: z.object({
-    code: z.string().trim().min(1).max(60),
-    message: z.string().trim().min(1).max(2000),
-  }).nullable().optional(),
+const remoteSessionCommandResultSummarySchema = z.string().max(4096).optional()
+const remoteSessionCommandErrorSchema = z.object({
+  code: z.string().trim().min(1).max(60),
+  message: z.string().trim().min(1).max(2000),
 })
+export const remoteSessionCommandCompleteRequestSchema = z.discriminatedUnion("status", [
+  z.object({
+    status: z.literal("delivered"),
+    sessionId: z.string().trim().min(1).max(240),
+    workspaceId: z.string().trim().min(1).max(240),
+    resultSummary: remoteSessionCommandResultSummarySchema,
+    error: z.never().optional(),
+  }),
+  z.object({
+    status: z.literal("failed"),
+    sessionId: z.never().optional(),
+    workspaceId: z.never().optional(),
+    resultSummary: remoteSessionCommandResultSummarySchema,
+    error: remoteSessionCommandErrorSchema,
+  }),
+])
 export type RemoteSessionCommandCompleteRequest = z.infer<typeof remoteSessionCommandCompleteRequestSchema>
 export const remoteSessionCommandCompleteResponseSchema = z.object({
   command: z.object({
