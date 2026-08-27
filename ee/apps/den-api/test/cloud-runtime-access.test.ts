@@ -269,6 +269,7 @@ describe("Cloud runtime access resolver", () => {
         if (input.onlyWhenStatus && runtimeWorker.status !== input.onlyWhenStatus) return
         runtimeWorker.status = input.status
       },
+      async touchProvisioningWorker() {},
     }
     const runtimeStore: CloudRuntimeStore = {
       async claimFailedWorker() {

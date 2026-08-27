@@ -22,6 +22,7 @@ import type { AuthContextVariables } from "../../session.js"
 import { materializeCloudWorkerProviders } from "../../llm/cloud-provider-materialization.js"
 import { deprovisionWorker, provisionWorker } from "../../workers/provisioner.js"
 import { withProvisionDeadline } from "../../workers/provision-deadline.js"
+import { touchProvisioningWorker, withProvisioningHeartbeat } from "../../workers/provisioning-heartbeat.js"
 import { customDomainForWorker } from "../../workers/vanity-domain.js"
 import { resolveCloudRuntimeAccess } from "../../workers/worker-access.js"
 import { CLOUD_INSTANCE_BACKEND } from "../../workers/cloud-constants.js"
@@ -81,12 +82,14 @@ type CloudProvisioningStore = {
     onlyWhenStatusIn?: WorkerStatus[]
   }) => Promise<void>
   insertWorkerInstance: (input: { workerId: WorkerId; provisioned: ProvisionedWorker }) => Promise<void>
+  touchProvisioningWorker: (workerId: WorkerId) => Promise<void>
 }
 type ContinueCloudProvisioningOptions = {
   provisionWorker?: ProvisionWorker
   store?: CloudProvisioningStore
   materializeProviders?: typeof materializeCloudWorkerProviders
   deadlineMs?: number
+  heartbeatIntervalMs?: number
 }
 
 export const token = () => randomBytes(32).toString("hex")
@@ -122,6 +125,7 @@ const databaseCloudProvisioningStore: CloudProvisioningStore = {
       status: input.provisioned.status,
     })
   },
+  touchProvisioningWorker,
 }
 
 export function persistedWorkerInstanceUrl(provisioned: Pick<ProvisionedWorker, "provider" | "url">) {
@@ -435,44 +439,51 @@ async function runCloudProvisioning(input: {
   const deadlineMs = options.deadlineMs ?? env.cloudProvisionDeadlineMs
 
   try {
-    const provisioned = await withProvisionDeadline({
-      promise: provision({
-        workerId: input.workerId,
-        name: input.name,
-        hostToken: input.hostToken,
-        clientToken: input.clientToken,
-        activityToken: input.activityToken,
-      }),
-      deadlineMs,
-      label: `cloud provisioning for ${input.workerId}`,
-    })
-
-    if (provisioned.status === "healthy" && input.orgId) {
-      try {
-        await materializeProviders({
-          organizationId: input.orgId,
-          workerId: input.workerId,
-          instanceUrl: provisioned.url,
-          hostToken: input.hostToken,
-          clientToken: input.clientToken,
-          force: true,
-        })
-      } catch (error) {
-        logger.warn("worker provisioning provider materialization warning", {
-          worker_id: input.workerId,
-          message: error instanceof Error ? error.message : "provider_materialization_failed",
-        })
-      }
-    }
-
-    await store.updateWorkerStatus({
+    await withProvisioningHeartbeat({
       workerId: input.workerId,
-      status: provisioned.status,
-      imageVersion: provisioned.imageVersion,
-      onlyWhenStatusIn: provisioningSuccessWritableStatuses,
-    })
+      touch: store.touchProvisioningWorker,
+      intervalMs: options.heartbeatIntervalMs,
+      run: async () => {
+        const provisioned = await withProvisionDeadline({
+          promise: provision({
+            workerId: input.workerId,
+            name: input.name,
+            hostToken: input.hostToken,
+            clientToken: input.clientToken,
+            activityToken: input.activityToken,
+          }),
+          deadlineMs,
+          label: `cloud provisioning for ${input.workerId}`,
+        })
 
-    await store.insertWorkerInstance({ workerId: input.workerId, provisioned })
+        if (provisioned.status === "healthy" && input.orgId) {
+          try {
+            await materializeProviders({
+              organizationId: input.orgId,
+              workerId: input.workerId,
+              instanceUrl: provisioned.url,
+              hostToken: input.hostToken,
+              clientToken: input.clientToken,
+              force: true,
+            })
+          } catch (error) {
+            logger.warn("worker provisioning provider materialization warning", {
+              worker_id: input.workerId,
+              message: error instanceof Error ? error.message : "provider_materialization_failed",
+            })
+          }
+        }
+
+        await store.updateWorkerStatus({
+          workerId: input.workerId,
+          status: provisioned.status,
+          imageVersion: provisioned.imageVersion,
+          onlyWhenStatusIn: provisioningSuccessWritableStatuses,
+        })
+
+        await store.insertWorkerInstance({ workerId: input.workerId, provisioned })
+      },
+    })
   } catch (error) {
     await store.updateWorkerStatus({ workerId: input.workerId, status: "failed", onlyWhenStatus: "provisioning" })
 
