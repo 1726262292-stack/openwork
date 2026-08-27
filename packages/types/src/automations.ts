@@ -176,7 +176,7 @@ export const automationExecutionTargetSchema = z.enum(["desktop", "cloud"])
 export type AutomationExecutionTarget = z.infer<typeof automationExecutionTargetSchema>
 
 export const AUTOMATION_MODEL_ATTENTION_CAPABILITY = "model_attention_v1" as const
-export const REMOTE_SESSION_DESKTOP_RUNNER_CAPABILITY = "remote_session_v1" as const
+export const REMOTE_SESSION_DESKTOP_RUNNER_CAPABILITY = "remote_session_v1"
 export const AUTOMATION_MODEL_ATTENTION_CAPABILITY_HEADER = "x-openwork-automation-model-attention" as const
 export const automationDesktopRunnerCapabilitySchema = z.enum([
   AUTOMATION_MODEL_ATTENTION_CAPABILITY,
