@@ -3,14 +3,13 @@ import test from "node:test";
 import type { DaytonaExec } from "@openwork/hosts";
 import {
   createDaytonaK3sCluster,
-  daytonaK3sExecArgv,
-  daytonaK3sPreviewArgv,
   exposeK3sService,
   installK3sHelmRelease,
   parseDaytonaK3sPreviewUrl,
+  provisionDaytonaK3sSandbox,
 } from "../src/daytona-k3s.ts";
 import { createPlacement } from "../src/network-world.ts";
-import type { K3sBinaryDescriptor } from "../src/daytona-k3s.ts";
+import type { DaytonaK3sClusterHandle, DaytonaK3sSandboxOwnership } from "../src/daytona-k3s.ts";
 import type { Placement } from "../src/network-world.ts";
 
 interface ExecCall {
@@ -21,14 +20,21 @@ interface ExecCall {
 interface FakeOptions {
   uid?: string;
   sudoFails?: boolean;
-  failAt?: "install" | "start" | "readiness" | "preview";
+  failAt?: "sandbox-create" | "sandbox-readiness" | "install" | "start" | "readiness" | "preview";
   helmMissing?: boolean;
 }
+
+const SANDBOX = "owned-sandbox-1";
+const OFFICIAL_VERSION = "v1.31.6+k3s1";
+const OFFICIAL_URL = "https://github.com/k3s-io/k3s/releases/download/v1.31.6%2Bk3s1/k3s";
+const OFFICIAL_SHA256 = "9f82f06b4cf318fcf4eeda3f4fedaa10c0cebc418b1a047e72b104f5ea7874c5";
+const placement = createPlacement({ id: "unit-cluster", provider: "daytona-k3s" });
+const root = "/tmp/openwork-world-k3s/unit-cluster";
 
 function remoteScript(call: ExecCall): string {
   if (call.args[0] !== "exec") return "";
   assert.equal(call.args.length, 4);
-  assert.deepEqual(call.args.slice(0, 3), ["exec", "owned-sandbox-1", "--"]);
+  assert.deepEqual(call.args.slice(0, 3), ["exec", SANDBOX, "--"]);
   const wrapped = call.args[3] ?? "";
   const prefix = "bash -lc '";
   assert(wrapped.startsWith(prefix) && wrapped.endsWith("'"), `Unexpected Daytona exec transport: ${wrapped}`);
@@ -40,12 +46,20 @@ function createFake(options: FakeOptions = {}): { exec: DaytonaExec; calls: Exec
   const exec: DaytonaExec = async (args, opts) => {
     const call = { args: [...args], opts };
     calls.push(call);
+    if (args[0] === "create") {
+      if (options.failAt === "sandbox-create") return { stdout: "", stderr: "creation failed\n", code: 1 };
+      return { stdout: "created\n", stderr: "", code: 0 };
+    }
     if (args[0] === "delete") return { stdout: "deleted\n", stderr: "", code: 0 };
     if (args[0] === "preview-url") {
       if (options.failAt === "preview") return { stdout: "", stderr: "preview failed\n", code: 1 };
       return { stdout: "Preview URL: https://30443.preview.example.test/signed?token=unit\n", stderr: "", code: 0 };
     }
     const script = remoteScript(call);
+    if (script === "'true'") {
+      if (options.failAt === "sandbox-readiness") return { stdout: "", stderr: "not ready\n", code: 1 };
+      return { stdout: "", stderr: "", code: 0 };
+    }
     if (script === "'id' '-u'") return { stdout: `${options.uid ?? "0"}\n`, stderr: "", code: 0 };
     if (script === "'sudo' '-n' 'true'" && options.sudoFails) {
       return { stdout: "", stderr: "sudo: a password is required\n", code: 1 };
@@ -69,13 +83,14 @@ function createFake(options: FakeOptions = {}): { exec: DaytonaExec; calls: Exec
   return { exec, calls };
 }
 
-const placement = createPlacement({ id: "unit-cluster", provider: "daytona-k3s" });
-const binary: K3sBinaryDescriptor = {
-  version: "v1.31.6+k3s1",
-  url: "https://github.com/k3s-io/k3s/releases/download/v1.31.6%2Bk3s1/k3s",
-  sha256: "a".repeat(64),
-};
-const root = "/tmp/openwork-world-k3s/unit-cluster";
+async function provision(fake: { exec: DaytonaExec }): Promise<DaytonaK3sSandboxOwnership> {
+  return provisionDaytonaK3sSandbox({ name: SANDBOX, exec: fake.exec });
+}
+
+async function createCluster(fake: { exec: DaytonaExec }): Promise<DaytonaK3sClusterHandle> {
+  const ownership = await provision(fake);
+  return createDaytonaK3sCluster({ placement, ownership });
+}
 
 function scripts(calls: ExecCall[]): string[] {
   return calls.filter((call) => call.args[0] === "exec").map(remoteScript);
@@ -85,37 +100,89 @@ function deletionCalls(calls: ExecCall[]): ExecCall[] {
   return calls.filter((call) => call.args[0] === "delete");
 }
 
-test("Daytona v0.173 argv keeps the complete quoted bash command in one post-separator argument", () => {
-  assert.deepEqual(daytonaK3sExecArgv("owned-sandbox-1", "id -u"), [
-    "exec", "owned-sandbox-1", "--", "bash -lc 'id -u'",
-  ]);
-  assert.deepEqual(daytonaK3sPreviewArgv("owned-sandbox-1", 8080, 86_400), [
-    "preview-url", "owned-sandbox-1", "-p", "8080", "--expires", "86400",
-  ]);
-  assert.throws(() => daytonaK3sPreviewArgv("owned-sandbox-1", 8080, 86_401), /between 1 and 86400/);
+test("provisioning uses a safe private Daytona sandbox and v0.173 one-argument bash transport", async () => {
+  const fake = createFake();
+  const ownership = await provision(fake);
+  assert.deepEqual(fake.calls[0], {
+    args: ["create", "--name", SANDBOX, "--snapshot", "daytona-large", "--auto-delete", "0", "--target", "us"],
+    opts: { timeoutMs: 300_000 },
+  });
+  assert.equal(fake.calls[0]?.args.includes("--public"), false);
+  assert.deepEqual(fake.calls[1], {
+    args: ["exec", SANDBOX, "--", "bash -lc ''\"'\"'true'\"'\"''"],
+    opts: { timeoutMs: 60_000 },
+  });
+
+  const cluster = await createDaytonaK3sCluster({ placement, ownership });
+  await cluster.stop();
   assert.equal(parseDaytonaK3sPreviewUrl("Preview URL: https://preview.example.test/path?token=abc\n"), "https://preview.example.test/path?token=abc");
   assert.equal(parseDaytonaK3sPreviewUrl(`Preview URL: https://preview.example.test/path${",".repeat(10_000)}`), "https://preview.example.test/path");
 });
 
-test("root lifecycle installs a checksummed pinned binary into placement paths and deletes its sandbox idempotently", async () => {
+test("provisioning rejects unsafe names and non-allowlisted snapshots before execution", async () => {
   const fake = createFake();
-  const cluster = await createDaytonaK3sCluster({ placement, ownedSandboxId: "owned-sandbox-1", binary, exec: fake.exec });
+  await assert.rejects(provisionDaytonaK3sSandbox({ name: "unsafe sandbox", exec: fake.exec }), /sandbox name/);
+  await assert.rejects(provisionDaytonaK3sSandbox({
+    name: SANDBOX,
+    // @ts-expect-error Verify the runtime boundary as well as the typed snapshot allowlist.
+    snapshot: "moving-snapshot",
+    exec: fake.exec,
+  }), /not allowlisted/);
+  assert.equal(fake.calls.length, 0);
+});
+
+test("partial sandbox creation and exec-readiness failures delete the whole sandbox", async () => {
+  const failures: readonly ("sandbox-create" | "sandbox-readiness")[] = ["sandbox-create", "sandbox-readiness"];
+  for (const failAt of failures) {
+    const fake = createFake({ failAt });
+    await assert.rejects(provision(fake));
+    assert.equal(deletionCalls(fake.calls).length, 1, `expected sandbox deletion after ${failAt}`);
+    assert.equal(scripts(fake.calls).some((script) => /\b(?:kill|pkill)\b|\.pid|PID/.test(script)), false);
+  }
+});
+
+test("a forged ownership receipt is rejected before cluster exec or deletion", async () => {
+  const fake = createFake();
+  const ownership = await provision(fake);
+  const forgedOwnership = structuredClone(ownership);
+  const before = fake.calls.length;
+  await assert.rejects(
+    createDaytonaK3sCluster({ placement, ownership: forgedOwnership }),
+    /ownership receipt returned by provisionDaytonaK3sSandbox/,
+  );
+  assert.equal(fake.calls.length, before);
+  assert.equal(deletionCalls(fake.calls).length, 0);
+
+  const cluster = await createDaytonaK3sCluster({ placement, ownership });
+  const afterClaim = fake.calls.length;
+  await assert.rejects(createDaytonaK3sCluster({ placement, ownership }), /unused ownership receipt/);
+  assert.equal(fake.calls.length, afterClaim);
+  await cluster.stop();
+});
+
+test("root lifecycle downloads only the hardcoded official binary and deletes its sandbox idempotently", async () => {
+  const fake = createFake();
+  const cluster = await createCluster(fake);
   const observed = scripts(fake.calls);
 
-  assert.equal(observed[0], "'id' '-u'");
-  const install = observed[1] ?? "";
-  assert.match(install, new RegExp(`'curl'.*'${binary.url.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}'`));
-  assert(install.includes(`'printf' '%s\\n' '${binary.sha256}  ${root}/download/k3s' | 'sha256sum' '--check' '--status' '-'`));
+  assert(observed.includes("'id' '-u'"));
+  const downloads = observed.filter((script) => script.includes("'curl' '--fail'"));
+  assert.equal(downloads.length, 1);
+  const install = downloads[0] ?? "";
+  assert(install.includes(`'curl' '--fail' '--silent' '--show-error' '--location' '${OFFICIAL_URL}' '--output' '${root}/download/k3s'`));
+  assert(install.includes(`'printf' '%s\\n' '${OFFICIAL_SHA256}  ${root}/download/k3s' | 'sha256sum' '--check' '--status' '-'`));
   assert(install.includes(`'mv' '-f' '${root}/download/k3s' '${root}/bin/k3s'`));
   assert.doesNotMatch(install, /get\.k3s\.io|systemctl|openrc|rc-service/);
 
-  const start = observed[2] ?? "";
-  assert(start.includes(`'nohup' '${root}/bin/k3s' 'server' '--data-dir' '${root}/data' '--write-kubeconfig' '${root}/kubeconfig.yaml'`));
+  const start = observed.find((script) => script.includes("'server'")) ?? "";
+  assert(start.includes(`'nohup' '${root}/bin/k3s' 'server' '--data-dir' '${root}/data' '--write-kubeconfig' '${root}/kubeconfig.yaml' '--write-kubeconfig-mode' '0600'`));
+  assert.doesNotMatch(start, /'--write-kubeconfig-mode' '0644'/);
   assert(start.includes("'--node-name' 'openwork-unit-cluster'"));
   assert(start.includes("'--snapshotter' 'native'"));
-  const readiness = observed[3] ?? "";
+  const readiness = observed.find((script) => script.includes("'--raw=/readyz'")) ?? "";
   assert(readiness.includes(`'${root}/bin/k3s' 'kubectl' '--kubeconfig' '${root}/kubeconfig.yaml' 'get' '--raw=/readyz'`));
   assert.doesNotMatch(readiness, /pgrep/);
+  assert.equal(cluster.version, OFFICIAL_VERSION);
   assert.deepEqual(cluster.paths, {
     root,
     binary: `${root}/bin/k3s`,
@@ -130,32 +197,31 @@ test("root lifecycle installs a checksummed pinned binary into placement paths a
   await cluster[Symbol.asyncDispose]();
   assert.equal(deletionCalls(fake.calls).length, 1);
   assert.deepEqual(deletionCalls(fake.calls)[0], {
-    args: ["delete", "owned-sandbox-1"],
+    args: ["delete", SANDBOX],
     opts: { timeoutMs: 60_000, input: "y\n" },
   });
   assert(scripts(fake.calls).every((script) => !/\b(?:kill|pkill)\b|\.pid|PID/.test(script)));
 });
 
-test("non-root lifecycle requires passwordless sudo and uses it for the placement binary", async () => {
+test("non-root lifecycle requires passwordless sudo for k3s, kubectl, and Helm kubeconfig access", async () => {
   const fake = createFake({ uid: "1000" });
-  const cluster = await createDaytonaK3sCluster({ placement, ownedSandboxId: "owned-sandbox-1", binary, exec: fake.exec });
+  const cluster = await createCluster(fake);
   const observed = scripts(fake.calls);
 
-  assert.equal(observed[0], "'id' '-u'");
-  assert.equal(observed[1], "'sudo' '-n' 'true'");
-  assert(observed[3]?.includes(`'nohup' 'sudo' '-n' '${root}/bin/k3s' 'server'`));
-  assert(observed[4]?.includes(`'sudo' '-n' '${root}/bin/k3s' 'kubectl' '--kubeconfig' '${root}/kubeconfig.yaml'`));
+  assert(observed.includes("'id' '-u'"));
+  assert(observed.includes("'sudo' '-n' 'true'"));
+  assert(observed.some((script) => script.includes(`'nohup' 'sudo' '-n' '${root}/bin/k3s' 'server'`)));
+  assert(observed.some((script) => script.includes(`'sudo' '-n' '${root}/bin/k3s' 'kubectl' '--kubeconfig' '${root}/kubeconfig.yaml'`)));
   await cluster.kubectl(["get", "pods"]);
   assert.equal(scripts(fake.calls).at(-1), `'sudo' '-n' '${root}/bin/k3s' 'kubectl' '--kubeconfig' '${root}/kubeconfig.yaml' 'get' 'pods'`);
+  await cluster.helm(["list", "--all-namespaces"]);
+  assert.equal(scripts(fake.calls).at(-1), `'sudo' '-n' 'helm' '--kubeconfig' '${root}/kubeconfig.yaml' 'list' '--all-namespaces'`);
   await cluster.stop();
 });
 
 test("lack of root and passwordless sudo fails before start and deletes the owned sandbox", async () => {
   const fake = createFake({ uid: "1000", sudoFails: true });
-  await assert.rejects(
-    createDaytonaK3sCluster({ placement, ownedSandboxId: "owned-sandbox-1", binary, exec: fake.exec }),
-    /passwordless sudo.*failed|password is required/s,
-  );
+  await assert.rejects(createCluster(fake), /passwordless sudo.*failed|password is required/s);
   assert(scripts(fake.calls).every((script) => !script.includes("'server'")));
   assert.equal(deletionCalls(fake.calls).length, 1);
 });
@@ -164,17 +230,15 @@ test("every install, ambiguous start, and readiness failure deletes the entire o
   const failures: readonly NonNullable<FakeOptions["failAt"]>[] = ["install", "start", "readiness"];
   for (const failAt of failures) {
     const fake = createFake({ failAt });
-    await assert.rejects(
-      createDaytonaK3sCluster({ placement, ownedSandboxId: "owned-sandbox-1", binary, exec: fake.exec }),
-    );
+    await assert.rejects(createCluster(fake));
     assert.equal(deletionCalls(fake.calls).length, 1, `expected owned sandbox deletion after ${failAt}`);
     assert(scripts(fake.calls).every((script) => !/\b(?:kill|pkill)\b|\.pid|PID/.test(script)));
   }
 });
 
-test("Helm uses the placement kubeconfig and missing Helm fails without curl-pipe installation", async () => {
+test("Helm uses the root-selected privilege and missing Helm fails without curl-pipe installation", async () => {
   const fake = createFake({ helmMissing: true });
-  const cluster = await createDaytonaK3sCluster({ placement, ownedSandboxId: "owned-sandbox-1", binary, exec: fake.exec });
+  const cluster = await createCluster(fake);
   const before = fake.calls.length;
   await assert.rejects(
     installK3sHelmRelease(cluster, { release: "demo", namespace: "demo-ns", chart: "oci://registry.example.test/team/chart" }),
@@ -190,7 +254,7 @@ test("Helm uses the placement kubeconfig and missing Helm fails without curl-pip
 
 test("cluster-owned exposure reserves ports, accepts the maximum expiry, and has no independent cleanup", async () => {
   const fake = createFake();
-  const cluster = await createDaytonaK3sCluster({ placement, ownedSandboxId: "owned-sandbox-1", binary, exec: fake.exec });
+  const cluster = await createCluster(fake);
   const exposure = await exposeK3sService(cluster, {
     namespace: "demo-ns",
     service: "demo-api",
@@ -202,9 +266,9 @@ test("cluster-owned exposure reserves ports, accepts the maximum expiry, and has
   assert.equal(exposure.ephemeral, true);
   assert.equal(exposure.persistableInDesktopConfig, false);
   assert.equal(exposure.validUntil, "cluster-disposal-or-expiry");
-  assert.equal(exposure.ownedSandboxId, "owned-sandbox-1");
+  assert.equal(exposure.ownedSandboxId, SANDBOX);
   assert.deepEqual(fake.calls.find((call) => call.args[0] === "preview-url")?.args, [
-    "preview-url", "owned-sandbox-1", "-p", "30443", "--expires", "86400",
+    "preview-url", SANDBOX, "-p", "30443", "--expires", "86400",
   ]);
   const portStart = scripts(fake.calls).find((script) => script.includes("'port-forward'"));
   assert(portStart?.includes(`'${root}/bin/k3s' 'kubectl' '--kubeconfig' '${root}/kubeconfig.yaml' 'port-forward'`));
@@ -233,7 +297,7 @@ test("cluster-owned exposure reserves ports, accepts the maximum expiry, and has
 
 test("an ambiguous exposure failure deletes the cluster sandbox instead of process cleanup", async () => {
   const fake = createFake({ failAt: "preview" });
-  const cluster = await createDaytonaK3sCluster({ placement, ownedSandboxId: "owned-sandbox-1", binary, exec: fake.exec });
+  const cluster = await createCluster(fake);
   await assert.rejects(exposeK3sService(cluster, {
     namespace: "demo",
     service: "demo-api",
@@ -245,23 +309,24 @@ test("an ambiguous exposure failure deletes the cluster sandbox instead of proce
   assert(scripts(fake.calls).every((script) => !/\b(?:kill|pkill)\b|\.pid|PID/.test(script)));
 });
 
-test("malformed placement, binary, sandbox, Helm, and exposure inputs fail before execution", async () => {
+test("malformed placement, version, Helm, and exposure inputs fail before cluster execution", async () => {
   const fake = createFake();
+  const ownership = await provision(fake);
   const local = createPlacement({ id: "local-unit", provider: "local" });
   const missingCapability: Placement = { ...placement, capabilities: ["command:bash", "port:daytona-preview"] };
-  await assert.rejects(createDaytonaK3sCluster({ placement: local, ownedSandboxId: "owned-sandbox-1", binary, exec: fake.exec }), /requires placement provider/);
-  await assert.rejects(createDaytonaK3sCluster({ placement, ownedSandboxId: "unsafe sandbox", binary, exec: fake.exec }), /ownedSandboxId/);
-  await assert.rejects(createDaytonaK3sCluster({ placement: missingCapability, ownedSandboxId: "owned-sandbox-1", binary, exec: fake.exec }), /missing capability/);
+  const before = fake.calls.length;
+  await assert.rejects(createDaytonaK3sCluster({ placement: local, ownership }), /requires placement provider/);
+  await assert.rejects(createDaytonaK3sCluster({ placement: missingCapability, ownership }), /missing capability/);
   await assert.rejects(createDaytonaK3sCluster({
     placement,
-    ownedSandboxId: "owned-sandbox-1",
-    binary: { ...binary, sha256: "moving" },
-    exec: fake.exec,
-  }), /sha256/);
-  assert.equal(fake.calls.length, 0);
+    ownership,
+    // @ts-expect-error Verify the runtime boundary as well as the typed version allowlist.
+    version: "v1.99.0+k3s1",
+  }), /not supported/);
+  assert.equal(fake.calls.length, before);
 
-  const cluster = await createDaytonaK3sCluster({ placement, ownedSandboxId: "owned-sandbox-1", binary, exec: fake.exec });
-  const before = fake.calls.length;
+  const cluster = await createDaytonaK3sCluster({ placement, ownership });
+  const beforeInvalidTools = fake.calls.length;
   assert.throws(() => installK3sHelmRelease(cluster, { release: "Bad Release", namespace: "demo", chart: "repo/chart" }), /Helm release/);
   assert.throws(() => installK3sHelmRelease(cluster, { release: "demo", namespace: "Bad_Namespace", chart: "repo/chart" }), /Helm namespace/);
   assert.throws(() => installK3sHelmRelease(cluster, { release: "demo", namespace: "demo", chart: "--set" }), /Helm chart/);
@@ -287,6 +352,6 @@ test("malformed placement, binary, sandbox, Helm, and exposure inputs fail befor
     expiresInSeconds: 300,
   }), /service port/);
   await assert.rejects(cluster.kubectl(["get\npods"]), /control characters/);
-  assert.equal(fake.calls.length, before);
+  assert.equal(fake.calls.length, beforeInvalidTools);
   await cluster.stop();
 });

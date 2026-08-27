@@ -4,35 +4,49 @@ import { placementHasCapability } from "./network-world.ts";
 import type { Placement } from "./network-world.ts";
 
 const PLACEMENT_ID = /^[a-z][a-z0-9-]{0,62}$/;
-const SANDBOX_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+const SANDBOX_NAME = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 const KUBERNETES_NAME = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 const HELM_RELEASE = /^[a-z0-9](?:[a-z0-9-]{0,51}[a-z0-9])?$/;
-const K3S_VERSION = /^v[0-9]+\.[0-9]+\.[0-9]+\+k3s[0-9]+$/;
-const SHA256 = /^[a-f0-9]{64}$/;
 const RUNTIME_BASE = "/tmp/openwork-world-k3s";
 const MAX_PREVIEW_EXPIRY_SECONDS = 86_400;
 const TOOL_TIMEOUT_MS = 120_000;
+const DEFAULT_DAYTONA_K3S_SNAPSHOT: DaytonaK3sSnapshot = "daytona-large";
+const DEFAULT_DAYTONA_K3S_VERSION: SupportedDaytonaK3sVersion = "v1.31.6+k3s1";
+const ownershipBrand = Symbol("DaytonaK3sSandboxOwnership");
 
-export interface K3sBinaryDescriptor {
-  /** Immutable official k3s release version, for example v1.31.6+k3s1. */
-  version: string;
-  /** HTTPS URL for the exact architecture-specific release binary. */
-  url: string;
-  /** Required lowercase SHA-256 digest for the bytes at url. */
-  sha256: string;
+export type DaytonaK3sSnapshot = "daytona-large";
+export type SupportedDaytonaK3sVersion = "v1.31.6+k3s1";
+
+interface K3sBinaryDescriptor {
+  readonly version: SupportedDaytonaK3sVersion;
+  readonly url: "https://github.com/k3s-io/k3s/releases/download/v1.31.6%2Bk3s1/k3s";
+  readonly sha256: "9f82f06b4cf318fcf4eeda3f4fedaa10c0cebc418b1a047e72b104f5ea7874c5";
+}
+
+const K3S_BINARIES: Readonly<Record<SupportedDaytonaK3sVersion, K3sBinaryDescriptor>> = {
+  "v1.31.6+k3s1": {
+    version: "v1.31.6+k3s1",
+    url: "https://github.com/k3s-io/k3s/releases/download/v1.31.6%2Bk3s1/k3s",
+    sha256: "9f82f06b4cf318fcf4eeda3f4fedaa10c0cebc418b1a047e72b104f5ea7874c5",
+  },
+};
+
+/** Opaque proof that this module provisioned and exclusively owns a sandbox. */
+export interface DaytonaK3sSandboxOwnership {
+  readonly [ownershipBrand]: true;
+}
+
+export interface ProvisionDaytonaK3sSandboxInput {
+  name: string;
+  snapshot?: DaytonaK3sSnapshot;
+  exec?: DaytonaExec;
+  log?: (message: string) => void;
 }
 
 export interface CreateDaytonaK3sClusterInput {
   placement: Placement;
-  /**
-   * An already-created, dedicated sandbox whose ownership is transferred to
-   * this cluster. It WILL BE DELETED on stop/dispose and every partial startup
-   * failure. It must not contain any other workload or reusable state.
-   */
-  ownedSandboxId: string;
-  binary: K3sBinaryDescriptor;
-  exec?: DaytonaExec;
-  log?: (message: string) => void;
+  ownership: DaytonaK3sSandboxOwnership;
+  version?: SupportedDaytonaK3sVersion;
 }
 
 export interface DaytonaK3sRuntimePaths {
@@ -48,7 +62,7 @@ export interface DaytonaK3sRuntimePaths {
 export interface DaytonaK3sClusterHandle extends AsyncDisposable {
   readonly placement: Placement;
   readonly ownedSandboxId: string;
-  readonly binary: K3sBinaryDescriptor;
+  readonly version: SupportedDaytonaK3sVersion;
   readonly paths: DaytonaK3sRuntimePaths;
   /** Deletes the entire dedicated sandbox, including every listener and preview. */
   stop(): Promise<void>;
@@ -99,6 +113,11 @@ interface ClusterRuntime {
 }
 
 const clusterRuntimes = new WeakMap<DaytonaK3sClusterHandle, ClusterRuntime>();
+const sandboxOwnership = new WeakMap<DaytonaK3sSandboxOwnership, {
+  ownedSandboxId: string;
+  exec: DaytonaExec;
+  log: (message: string) => void;
+}>();
 
 function shellQuote(value: string): string {
   return `'${value.replaceAll("'", `'"'"'`)}'`;
@@ -126,31 +145,27 @@ function requirePlacement(placement: Placement): void {
   }
 }
 
-function requireOwnedSandboxId(value: string): string {
-  if (!SANDBOX_ID.test(value)) {
-    throw new Error(`Daytona ownedSandboxId ${JSON.stringify(value)} must match ${SANDBOX_ID.source}.`);
+function requireSandboxName(value: string): string {
+  if (!SANDBOX_NAME.test(value)) {
+    throw new Error(`Daytona k3s sandbox name ${JSON.stringify(value)} must match ${SANDBOX_NAME.source}.`);
   }
   return value;
 }
 
-function requireBinaryDescriptor(input: K3sBinaryDescriptor): K3sBinaryDescriptor {
-  if (!K3S_VERSION.test(input.version)) {
-    throw new Error(`k3s binary version ${JSON.stringify(input.version)} must be an immutable vMAJOR.MINOR.PATCH+k3sN release.`);
+function requireSnapshot(value: DaytonaK3sSnapshot | undefined): DaytonaK3sSnapshot {
+  const snapshot = value ?? DEFAULT_DAYTONA_K3S_SNAPSHOT;
+  if (snapshot !== "daytona-large") {
+    throw new Error(`Daytona k3s snapshot ${JSON.stringify(snapshot)} is not allowlisted.`);
   }
-  if (!SHA256.test(input.sha256)) {
-    throw new Error("k3s binary sha256 must contain exactly 64 lowercase hexadecimal characters.");
+  return snapshot;
+}
+
+function requireBinary(version: SupportedDaytonaK3sVersion | undefined): K3sBinaryDescriptor {
+  const selected = version ?? DEFAULT_DAYTONA_K3S_VERSION;
+  if (selected !== "v1.31.6+k3s1") {
+    throw new Error(`Daytona k3s version ${JSON.stringify(selected)} is not supported.`);
   }
-  if (input.url.trim() !== input.url) throw new Error("k3s binary url must not have surrounding whitespace.");
-  let url: URL;
-  try {
-    url = new URL(input.url);
-  } catch {
-    throw new Error("k3s binary url must be a valid HTTPS URL.");
-  }
-  if (url.protocol !== "https:" || !url.hostname || url.username || url.password || url.hash) {
-    throw new Error("k3s binary url must be an HTTPS URL without credentials or a fragment.");
-  }
-  return { version: input.version, url: input.url, sha256: input.sha256 };
+  return K3S_BINARIES[selected];
 }
 
 function requireKubernetesName(kind: string, value: string): string {
@@ -196,16 +211,16 @@ function requireToolArguments(tool: string, args: readonly string[]): string[] {
 }
 
 /** Daytona CLI v0.173 joins post-`--` tokens, so bash and its script are one argument. */
-export function daytonaK3sExecArgv(ownedSandboxId: string, script: string): string[] {
-  const sandbox = requireOwnedSandboxId(ownedSandboxId);
+function daytonaK3sExecArgv(ownedSandboxId: string, script: string): string[] {
+  const sandbox = requireSandboxName(ownedSandboxId);
   if (!script.trim() || /\u0000/.test(script)) throw new Error("Daytona k3s shell script must be non-empty and contain no NUL bytes.");
   return ["exec", sandbox, "--", `bash -lc ${shellQuote(script)}`];
 }
 
-export function daytonaK3sPreviewArgv(ownedSandboxId: string, port: number, expiresInSeconds: number): string[] {
+function daytonaK3sPreviewArgv(ownedSandboxId: string, port: number, expiresInSeconds: number): string[] {
   return [
     "preview-url",
-    requireOwnedSandboxId(ownedSandboxId),
+    requireSandboxName(ownedSandboxId),
     "-p",
     String(requirePort("Daytona preview port", port)),
     "--expires",
@@ -250,6 +265,65 @@ async function remoteExec(
   return checkedExec(exec, daytonaK3sExecArgv(ownedSandboxId, script), context, { timeoutMs });
 }
 
+async function deleteProvisioningFailure(
+  ownedSandboxId: string,
+  exec: DaytonaExec,
+  log: (message: string) => void,
+  error: unknown,
+): Promise<never> {
+  try {
+    await deleteSandboxes([ownedSandboxId], { exec, log });
+  } catch (cleanupError) {
+    throw new AggregateError([error, cleanupError], "Daytona k3s sandbox provisioning failed and its sandbox could not be deleted.");
+  }
+  throw error;
+}
+
+/** Creates the dedicated sandbox whose whole-sandbox deletion owns all cleanup. */
+export async function provisionDaytonaK3sSandbox(
+  input: ProvisionDaytonaK3sSandboxInput,
+): Promise<DaytonaK3sSandboxOwnership> {
+  const ownedSandboxId = requireSandboxName(input.name);
+  const snapshot = requireSnapshot(input.snapshot);
+  const exec = input.exec ?? defaultDaytonaExec;
+  const log = input.log ?? (() => undefined);
+  try {
+    await checkedExec(
+      exec,
+      [
+        "create",
+        "--name", ownedSandboxId,
+        "--snapshot", snapshot,
+        "--auto-delete", "0",
+        "--target", "us",
+      ],
+      `create dedicated Daytona k3s sandbox ${ownedSandboxId}`,
+      { timeoutMs: 300_000 },
+    );
+    await remoteExec(exec, ownedSandboxId, shellCommand("true", []), `wait for Daytona k3s sandbox ${ownedSandboxId} exec readiness`, 60_000);
+  } catch (error) {
+    return deleteProvisioningFailure(ownedSandboxId, exec, log, error);
+  }
+
+  const ownership: DaytonaK3sSandboxOwnership = { [ownershipBrand]: true };
+  sandboxOwnership.set(ownership, { ownedSandboxId, exec, log });
+  log(`Daytona k3s sandbox ${ownedSandboxId} is exec-ready and exclusively owned.`);
+  return ownership;
+}
+
+function claimSandboxOwnership(ownership: DaytonaK3sSandboxOwnership): {
+  ownedSandboxId: string;
+  exec: DaytonaExec;
+  log: (message: string) => void;
+} {
+  const owned = sandboxOwnership.get(ownership);
+  if (!owned) {
+    throw new Error("createDaytonaK3sCluster requires an unused ownership receipt returned by provisionDaytonaK3sSandbox.");
+  }
+  sandboxOwnership.delete(ownership);
+  return owned;
+}
+
 function binaryInstallScript(paths: DaytonaK3sRuntimePaths, binary: K3sBinaryDescriptor): string {
   const installedChecksum = `${binary.sha256}  ${paths.binary}`;
   const downloadChecksum = `${binary.sha256}  ${paths.download}`;
@@ -280,7 +354,7 @@ function serverArgs(paths: DaytonaK3sRuntimePaths, placementId: string): string[
     "server",
     "--data-dir", paths.dataDir,
     "--write-kubeconfig", paths.kubeconfig,
-    "--write-kubeconfig-mode", "0644",
+    "--write-kubeconfig-mode", "0600",
     "--node-name", `openwork-${placementId}`,
     "--snapshotter", "native",
   ];
@@ -357,13 +431,13 @@ function makeClusterHandle(
     const normalized = requireToolArguments(tool, args);
     const command = tool === "kubectl"
       ? privilegedCommand(runtime.privilege, runtime.paths.binary, ["kubectl", "--kubeconfig", runtime.paths.kubeconfig, ...normalized])
-      : shellCommand("helm", ["--kubeconfig", runtime.paths.kubeconfig, ...normalized]);
+      : privilegedCommand(runtime.privilege, "helm", ["--kubeconfig", runtime.paths.kubeconfig, ...normalized]);
     return remoteExec(runtime.exec, runtime.ownedSandboxId, command, `run ${tool} in Daytona k3s placement ${placement.id}`, TOOL_TIMEOUT_MS);
   };
   const handle: DaytonaK3sClusterHandle = {
     placement,
     ownedSandboxId: runtime.ownedSandboxId,
-    binary,
+    version: binary.version,
     paths: runtime.paths,
     stop: runtime.dispose,
     kubectl: (args) => runTool("kubectl", args),
@@ -374,16 +448,11 @@ function makeClusterHandle(
   return handle;
 }
 
-/**
- * Takes exclusive ownership of `ownedSandboxId`. A successful handle deletes
- * that sandbox on stop/dispose; every failure after validation also deletes it.
- */
+/** Consumes a genuine provisioning receipt and deletes its sandbox on every cleanup path. */
 export async function createDaytonaK3sCluster(input: CreateDaytonaK3sClusterInput): Promise<DaytonaK3sClusterHandle> {
   requirePlacement(input.placement);
-  const ownedSandboxId = requireOwnedSandboxId(input.ownedSandboxId);
-  const binary = requireBinaryDescriptor(input.binary);
-  const exec = input.exec ?? defaultDaytonaExec;
-  const log = input.log ?? (() => undefined);
+  const binary = requireBinary(input.version);
+  const { ownedSandboxId, exec, log } = claimSandboxOwnership(input.ownership);
   const paths = runtimePaths(input.placement.id);
   const runtime = createRuntime({ exec, ownedSandboxId, paths, log });
   try {
