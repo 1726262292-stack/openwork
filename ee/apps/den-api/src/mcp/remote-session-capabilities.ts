@@ -1,23 +1,25 @@
 import { createHeadlessThreadClient, toTranscript, type HeadlessThreadClient, type HeadlessThreadModel } from "@openwork/headless-threads"
-import { eq } from "@openwork-ee/den-db/drizzle"
-import { OrganizationTable } from "@openwork-ee/den-db/schema"
-import { normalizeDenTypeId, type DenTypeId } from "@openwork-ee/utils/typeid"
+import { and, eq, isNull } from "@openwork-ee/den-db/drizzle"
+import { MemberTable, OrganizationTable } from "@openwork-ee/den-db/schema"
+import { createDenTypeId, normalizeDenTypeId, type DenTypeId } from "@openwork-ee/utils/typeid"
 import { z } from "zod"
 import { db } from "../db.js"
 import { env } from "../env.js"
+import { automationService } from "../automations/service.js"
 import { organizationCloudEnabled } from "../capability-sources/cloud-rollout.js"
+import {
+  databaseRemoteSessionCommandStore,
+  DEFAULT_TTL_MS,
+  type RemoteSessionCommandStore,
+} from "../remote-sessions/commands.js"
 import { resolveCloudRuntimeAccess, type CloudWorkerAccess } from "../workers/worker-access.js"
 import { fetchPreviewNoRedirect, previewFetch } from "../workers/preview-fetch.js"
 import { scoreText, tokenize, type CapabilityMatch } from "./search.js"
 
 /**
  * Remote sessions over the capability gateway: create and drive a native
- * OpenWork session on the member's own OpenWork Cloud worker — the same
- * session store OpenWork Web renders — from any MCP client.
- *
- * v1 supports `target: "cloud"` only. The desktop target rides the runner
- * dispatch seam and is intentionally not wired here yet
- * (docs/remote-chat-over-mcp-architecture.md).
+ * OpenWork session on the member's OpenWork Cloud worker or connected
+ * desktop — from any MCP client.
  */
 
 export const REMOTE_SESSION_CAPABILITY_PREFIX = "remote-session:"
@@ -54,8 +56,16 @@ const sendBodySchema = z.object({
 })
 
 const readBodySchema = z.object({
-  sessionId: z.string().trim().min(1),
+  sessionId: z.string().trim().min(1).optional(),
+  commandId: z.string().trim().min(1).optional(),
   limit: z.number().int().min(1).max(100).optional(),
+}).superRefine((body, context) => {
+  if (Number(body.sessionId !== undefined) + Number(body.commandId !== undefined) !== 1) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Exactly one of sessionId or commandId is required.",
+    })
+  }
 })
 
 const BODY_SCHEMAS: Record<RemoteSessionAction, z.ZodTypeAny> = {
@@ -85,14 +95,14 @@ const REMOTE_SESSION_DEFINITIONS: RemoteSessionDefinition[] = [
   {
     action: "create",
     summary:
-      "Create a chat session on your OpenWork Cloud workspace. The session appears live in OpenWork Web. Optionally start it with a first prompt.",
+      "Create a chat session on your OpenWork Cloud workspace or queue one for your connected OpenWork desktop. Optionally start it with a first prompt.",
     searchExtraTokens:
-      "remote session sessions chat thread cloud web create start new handoff continue browser workspace",
+      "remote session sessions chat thread cloud web desktop create start new handoff continue browser workspace",
     argumentsSchema: {
       type: "object",
       properties: {
-        target: { type: "string", enum: ["cloud"], description: "Execution target. Only \"cloud\" is supported today." },
-        title: { type: "string", description: "Session title shown in OpenWork Web." },
+        target: { type: "string", enum: ["cloud", "desktop"], description: "Execution target. Defaults to \"cloud\"." },
+        title: { type: "string", description: "Session title shown in OpenWork." },
         prompt: { type: "string", description: "Optional first prompt. When present the session starts working immediately." },
         model: MODEL_ARGUMENT_SCHEMA,
       },
@@ -117,16 +127,17 @@ const REMOTE_SESSION_DEFINITIONS: RemoteSessionDefinition[] = [
   {
     action: "read",
     summary:
-      "Read the status and recent transcript of a remote session on your OpenWork Cloud workspace.",
+      "Read the status of a queued desktop command or the recent transcript of a remote session on your OpenWork Cloud workspace.",
     searchExtraTokens:
       "remote session sessions chat thread cloud web read transcript status reply answer poll result",
     argumentsSchema: {
       type: "object",
       properties: {
         sessionId: { type: "string", description: "Session id returned by remote-session:create." },
+        commandId: { type: "string", description: "Desktop command id returned by remote-session:create." },
         limit: { type: "number", description: "Maximum number of recent messages to return. Defaults to 20, max 100." },
       },
-      required: ["sessionId"],
+      oneOf: [{ required: ["sessionId"] }, { required: ["commandId"] }],
     },
   },
 ]
@@ -189,6 +200,11 @@ export type RemoteSessionThreadClient = Pick<HeadlessThreadClient, "createThread
 export type RemoteSessionExecuteDeps = {
   resolveRuntime: (scope: { organizationId: DenTypeId<"organization">; userId: string }) => Promise<RemoteSessionRuntimeResult>
   createClient: (runtime: RemoteSessionRuntime) => RemoteSessionThreadClient
+  commandStore: RemoteSessionCommandStore
+  desktopPresence: (scope: {
+    organizationId: DenTypeId<"organization">
+    userId: string
+  }) => Promise<{ connected: boolean; ownerMemberId: string | null }>
 }
 
 export type RemoteSessionToolResult = {
@@ -344,9 +360,29 @@ function defaultCreateClient(runtime: RemoteSessionRuntime): RemoteSessionThread
   })
 }
 
+async function defaultDesktopPresence(scope: {
+  organizationId: DenTypeId<"organization">
+  userId: string
+}): Promise<{ connected: boolean; ownerMemberId: string | null }> {
+  const members = await db.select({ id: MemberTable.id }).from(MemberTable).where(and(
+    eq(MemberTable.organizationId, scope.organizationId),
+    eq(MemberTable.userId, normalizeDenTypeId("user", scope.userId)),
+    isNull(MemberTable.removedAt),
+  )).limit(1)
+  const ownerMemberId = members[0]?.id ?? null
+  if (!ownerMemberId) return { connected: false, ownerMemberId: null }
+  const presence = await automationService.desktopRunnerPresence({
+    organizationId: scope.organizationId,
+    ownerMemberId,
+  })
+  return { connected: presence.connected, ownerMemberId }
+}
+
 export const DEFAULT_REMOTE_SESSION_DEPS: RemoteSessionExecuteDeps = {
   resolveRuntime: defaultResolveRuntime,
   createClient: defaultCreateClient,
+  commandStore: databaseRemoteSessionCommandStore,
+  desktopPresence: defaultDesktopPresence,
 }
 
 function jsonResult(payload: Record<string, unknown>, isError = false): RemoteSessionToolResult {
@@ -428,10 +464,50 @@ export async function executeRemoteSessionCapability(
   if (input.action === "create") {
     const body = createBodySchema.parse(parsedBody.data)
     if (body.target === "desktop") {
-      return errorResult({
-        error: "unsupported_target",
-        message: "target \"desktop\" is not available yet. Only target \"cloud\" is supported; omit target or pass \"cloud\".",
-        retryable: false,
+      const presence = await deps.desktopPresence({ organizationId: input.organizationId, userId: input.userId })
+      if (!presence.connected || !presence.ownerMemberId) {
+        return errorResult({
+          error: "desktop_offline",
+          message: "No desktop is connected for your account. Open the OpenWork desktop app and try again.",
+        })
+      }
+      const command = await deps.commandStore.enqueue({
+        organizationId: input.organizationId,
+        ownerMemberId: presence.ownerMemberId,
+        createdByUserId: input.userId,
+        title: body.title ?? "Remote session",
+        ...(body.prompt === undefined ? {} : { prompt: body.prompt }),
+        ...(body.model === undefined ? {} : { model: body.model }),
+        ttlMs: DEFAULT_TTL_MS,
+        idempotencyKey: createDenTypeId("remoteSessionCommand"),
+      })
+      return jsonResult({
+        target: "desktop",
+        state: "queued",
+        commandId: command.id,
+        expiresAt: command.expiresAt,
+      })
+    }
+  }
+
+  if (input.action === "read") {
+    const body = readBodySchema.parse(parsedBody.data)
+    if (body.commandId) {
+      const command = await deps.commandStore.get({
+        commandId: body.commandId,
+        organizationId: input.organizationId,
+        createdByUserId: input.userId,
+      })
+      if (!command) return errorResult({ error: "unknown_command" })
+      return jsonResult({
+        commandId: command.id,
+        target: "desktop",
+        state: command.status,
+        sessionId: command.sessionId,
+        workspaceId: command.workspaceId,
+        resultSummary: command.resultSummary,
+        error: command.error,
+        expiresAt: command.expiresAt,
       })
     }
   }
@@ -490,6 +566,7 @@ export async function executeRemoteSessionCapability(
   }
 
   const body = readBodySchema.parse(parsedBody.data)
+  if (!body.sessionId) throw new Error("remote_session_read_body_invariant")
   try {
     const snapshot = await client.getThreadSnapshot(body.sessionId)
     const transcript = toTranscript(snapshot)
