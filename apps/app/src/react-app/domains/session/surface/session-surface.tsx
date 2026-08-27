@@ -9,6 +9,7 @@ import { toast } from "@/components/ui/sonner";
 import { captureAnalyticsEvent } from "@/app/lib/analytics";
 import { createClient, unwrap } from "@/app/lib/opencode";
 import { abortSessionSafe } from "@/app/lib/opencode-session";
+import { setThemeMode } from "@/app/theme";
 import { t } from "@/i18n";
 import type { ComposerSettingsSection } from "@/react-app/domains/settings/library";
 import { type CloudImportedPlugin } from "@/app/cloud/import-state";
@@ -99,6 +100,7 @@ import type {
   ChatToolReconnectResult,
 } from "@/components/tools/error-attribution";
 import { useChatMcpReconnectStore } from "@/components/tools/mcp-reconnect-state";
+import { MERMAID_LIMITS } from "@/components/markdown/mermaid";
 import {
   isChatMcpReconnectScopeCurrent,
   waitForFreshMcpAuthorization,
@@ -133,6 +135,11 @@ This shared renderer keeps **bold proof text**, inline \`renderMarkdownHtml\`, a
 \`\`\`ts
 const pipeline = "shared markdown primitive";
 console.log(pipeline);
+\`\`\`
+
+\`\`\`mermaid
+flowchart LR
+  InlineStart[Inline Mermaid Start] --> InlineFinish[Inline Mermaid Finish]
 \`\`\`
 
 Search token: markdown-primitive-highlight.`;
@@ -170,6 +177,25 @@ type SessionError = {
 function createMarkdownPrimitiveEvalMessages(sessionId: string) {
   const userMessageId = `${sessionId}:eval-markdown-user`;
   const assistantMessageId = `${sessionId}:eval-markdown-assistant`;
+  const guardedDiagram = [
+    "flowchart TD",
+    ...Array.from({ length: MERMAID_LIMITS.maxNodes + 1 }, (_, index) => `Guard${index}[Guard node ${index}]`),
+  ].join("\n");
+  const proofText = `${MARKDOWN_PRIMITIVE_EVAL_TEXT}
+
+\`\`\`mermaid
+flowchart LR
+  Remote[No remote resources] --> Safe[Sanitized SVG]
+  click Remote "https://example.com/redirect"
+\`\`\`
+
+\`\`\`mermaid
+not-a-mermaid-diagram
+\`\`\`
+
+\`\`\`mermaid
+${guardedDiagram}
+\`\`\``;
   const messages: UIMessage[] = [
     {
       id: userMessageId,
@@ -180,7 +206,7 @@ function createMarkdownPrimitiveEvalMessages(sessionId: string) {
     {
       id: assistantMessageId,
       role: "assistant",
-      parts: [{ type: "text", text: MARKDOWN_PRIMITIVE_EVAL_TEXT }],
+      parts: [{ type: "text", text: proofText }],
       metadata: { opencode: { created: Date.now() + 1 } },
     },
   ];
@@ -1118,6 +1144,24 @@ export function SessionSurface(props: SessionSurfaceProps) {
     };
   }, [props.sessionId]);
   useControlAction(props.isControlTarget ? seedMarkdownPrimitiveControlAction : null);
+  const setMermaidEvalThemeControlAction = useMemo<OpenworkControlAction | null>(() => {
+    if (!import.meta.env.DEV) return null;
+
+    return {
+      id: "eval.mermaid.set_theme",
+      label: "Set the Mermaid eval theme",
+      description: "Dev-only eval hook that changes the app theme through the production theme API.",
+      sideEffect: "mutation",
+      disabled: !props.sessionId,
+      execute: (args) => {
+        const mode = args && typeof args === "object" && "mode" in args ? args.mode : null;
+        if (mode !== "light" && mode !== "dark") throw new Error("Mermaid eval theme must be light or dark.");
+        setThemeMode(mode);
+        return { ok: true, mode };
+      },
+    };
+  }, [props.sessionId]);
+  useControlAction(props.isControlTarget ? setMermaidEvalThemeControlAction : null);
   const seedMarkdownMathControlAction = useMemo<OpenworkControlAction | null>(() => {
     if (!import.meta.env.DEV) return null;
 
