@@ -1,5 +1,5 @@
 /** @jsxImportSource react */
-import { useCallback, useEffect, useEffectEvent, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useEffectEvent, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { UIMessage } from "ai";
 import { useQuery } from "@tanstack/react-query";
 import type { SessionStatus } from "@opencode-ai/sdk/v2/client";
@@ -51,6 +51,14 @@ import { desktopBridge, openDesktopUrl } from "@/app/lib/desktop";
 import { parseSlashCommandInvocation } from "./composer/slash-command";
 import { connectSkillPrompt, parseConnectSkillToken } from "./composer/connect-skill-token";
 import { createPastedTextChip, resolvePastedTextPlaceholders } from "./composer/pasted-text";
+import {
+  canAdmitNextQueuedItem,
+  claimQueuedSend,
+  dispatchQueuedDrain,
+  getQueuedDrainState,
+  nextObservationProbeAt,
+  subscribeQueuedDrain,
+} from "./queued-drain-machine";
 import { DevProfiler } from "@/react-app/shell/dev-profiler";
 import { PaperGrainGradient } from "@openwork/ui/react";
 import { useShellConfig } from "@/react-app/shell/shell-config";
@@ -948,7 +956,16 @@ export function SessionSurface(props: SessionSurfaceProps) {
   const cloudQueueBlockedRef = useRef(false);
   // Shared with promote-to-send so a manual send-now cannot race the idle drain.
   const drainingQueueRef = useRef(false);
-  const awaitingQueueBusyRef = useRef(false);
+  // Admission-aware drain state. It lives in a module-level per-session store
+  // (not a ref) so an in-flight admission survives navigating away and back.
+  const subscribeDrainState = useCallback(
+    (listener: () => void) => subscribeQueuedDrain(props.sessionId, listener),
+    [props.sessionId],
+  );
+  const readDrainState = useCallback(() => getQueuedDrainState(props.sessionId), [props.sessionId]);
+  const queuedDrainState = useSyncExternalStore(subscribeDrainState, readDrainState);
+  const lastObservationProbeAtRef = useRef<number | null>(null);
+  const [observationProbeVersion, setObservationProbeVersion] = useState(0);
   const composerShellRef = useRef<HTMLDivElement>(null);
   const hydratedKeyRef = useRef<string | null>(null);
   const autoOpenedTargetRef = useRef<string | null>(null);
@@ -983,7 +1000,18 @@ export function SessionSurface(props: SessionSurfaceProps) {
 
   const currentSnapshot = snapshotQuery.data?.session.id === props.sessionId ? snapshotQuery.data : null;
   const transcriptState = useSharedQueryState<UIMessage[]>(transcriptQueryKey, EMPTY_TRANSCRIPT);
-  const statusState = useSharedQueryState(statusQueryKey, currentSnapshot?.status ?? IDLE_STATUS);
+  const statusQuery = useQuery<SessionStatus, Error, SessionStatus, readonly unknown[]>({
+    queryKey: statusQueryKey,
+    queryFn: async () => currentSnapshot?.status ?? IDLE_STATUS,
+    enabled: false,
+  });
+  const statusState = statusQuery.data ?? currentSnapshot?.status ?? IDLE_STATUS;
+  // The shared status entry is written only by the session-status stream and
+  // its reconnect-time level reconciliation, so its presence marks the value
+  // as a real observed level instead of a render fallback. Queue-drain
+  // completion must never trust a fallback idle (a remount briefly renders
+  // idle before any status has been observed).
+  const statusIsObservedLevel = statusQuery.data !== undefined;
 
   useEffect(() => {
     if (!currentSnapshot) return;
@@ -1607,8 +1635,9 @@ export function SessionSurface(props: SessionSurfaceProps) {
       return;
     }
     cloudQueueBlockedRef.current = false;
+    dispatchQueuedDrain(props.sessionId, { type: "user_retry" });
     setCloudQueueRetryVersion((version) => version + 1);
-  }, [attachments.length, draft, handleSend]);
+  }, [attachments.length, draft, handleSend, props.sessionId]);
 
   // Queue: hold the draft locally and clear the composer. The drain effect
   // sends it once the session reports idle.
@@ -1673,6 +1702,7 @@ export function SessionSurface(props: SessionSurfaceProps) {
     // lands and the session reports idle (#2014).
     queuedItems.forEach((item) => item.draft.attachments.forEach(revokeAttachmentPreview));
     clearQueuedDrafts(props.sessionId);
+    dispatchQueuedDrain(props.sessionId, { type: "queue_cleared" });
     // The prompt was sent through a directory-scoped client (session-route
     // passes the workspace root), so the abort must target the same scope —
     // without it the server resolves the default project, finds no live run,
@@ -1701,61 +1731,114 @@ export function SessionSurface(props: SessionSurfaceProps) {
   }, [props.sessionId, props.workspaceId]);
 
   // Drain one queued follow-up each time the session goes idle, so prompts
-  // run as separate turns instead of one merged message. The busy-wait is
-  // grounded in the engine's own run status (liveStatus), not chatStreaming:
-  // the client-side `sending` pulse would release the wait before the engine
+  // run as separate turns instead of one merged message. Progress is grounded
+  // in the engine's own run status (liveStatus), not chatStreaming: the
+  // client-side `sending` pulse would release the wait before the engine
   // actually went busy and the next idle render could steer the following
-  // item into the still-starting turn.
+  // item into the still-starting turn. Feed status levels into the
+  // admission-aware machine: a busy level attaches the current admission to a
+  // running run, and an idle level completes an admission that was already
+  // observed running. An admission that never shows busy is released only by
+  // the authoritative probe below — never by a stale idle render.
   useEffect(() => {
     if (liveStatus.type !== "idle") {
-      awaitingQueueBusyRef.current = false;
+      dispatchQueuedDrain(props.sessionId, { type: "busy_observed" });
+      return;
     }
-  }, [liveStatus.type]);
+    if (!statusIsObservedLevel) return;
+    if (getQueuedDrainState(props.sessionId).phase.kind === "running") {
+      dispatchQueuedDrain(props.sessionId, { type: "idle_reconciled", observedAt: Date.now() });
+    }
+  }, [liveStatus.type, props.sessionId, statusIsObservedLevel]);
+
+  // Admission observation probe: when an admitted send has produced no busy
+  // observation within its window (dropped event, upstream dispatch failure
+  // after admission, or an event-stream reconnect), reconcile against an
+  // authoritative snapshot fetch instead of waiting on the missing edge
+  // forever. The probe's start time orders the observed level against the
+  // admission time inside the machine, so a stale idle can never release it.
+  useEffect(() => {
+    const probeAt = nextObservationProbeAt(queuedDrainState, lastObservationProbeAtRef.current);
+    if (probeAt === null) return;
+    const timer = window.setTimeout(() => {
+      const startedAt = Date.now();
+      lastObservationProbeAtRef.current = startedAt;
+      void (async () => {
+        try {
+          const result = await snapshotQuery.refetch();
+          const probed = result.data?.session.id === props.sessionId ? result.data.status : null;
+          if (!probed) return;
+          if (probed.type === "idle") {
+            dispatchQueuedDrain(props.sessionId, { type: "idle_reconciled", observedAt: startedAt });
+          } else {
+            dispatchQueuedDrain(props.sessionId, { type: "busy_observed" });
+          }
+        } catch {
+          // Probe failed (for example the local server was briefly
+          // unreachable); the version bump below re-arms a spaced retry.
+        } finally {
+          setObservationProbeVersion((version) => version + 1);
+        }
+      })();
+    }, Math.max(0, probeAt - Date.now()));
+    return () => window.clearTimeout(timer);
+  }, [observationProbeVersion, props.sessionId, queuedDrainState, snapshotQuery.refetch]);
 
   useEffect(() => {
     if (drainingQueueRef.current || sendingQueued) return;
     if (cloudQueueBlockedRef.current) return;
-    if (awaitingQueueBusyRef.current) return;
     if (queuedItems.length === 0) return;
     if (chatStreaming || liveStatus.type !== "idle") return;
+    if (!canAdmitNextQueuedItem(queuedDrainState)) return;
     const nextItem = queuedItems[0];
     if (!nextItem) return;
     const nextDraft = withoutRevertTarget(nextItem.draft);
     if (!nextDraft) return;
+    // Claim the send slot atomically BEFORE the send can resolve: the
+    // engine's busy status can render before the send promise's continuation
+    // runs, and claiming late would erase that observation. The claim is
+    // per-session (not per-surface), so a split view of this session cannot
+    // deliver the same queued item twice.
+    if (!claimQueuedSend(props.sessionId, nextItem.id)) return;
     drainingQueueRef.current = true;
     removeQueuedDraftFromStore(props.sessionId, nextItem.id);
-    // Arm the busy-wait BEFORE the send can resolve: the engine's busy status
-    // can render before the send promise's continuation runs, and arming late
-    // would erase that observation — the next idle would then never drain the
-    // following item. Failure paths below disarm so retries stay possible.
-    awaitingQueueBusyRef.current = true;
     void (async () => {
       try {
         const result = await sendDraft(nextDraft);
+        dispatchQueuedDrain(props.sessionId, {
+          type: "send_result",
+          itemId: nextItem.id,
+          outcome: result.outcome,
+          at: Date.now(),
+        });
         if (result.outcome === "blocked") {
           cloudQueueBlockedRef.current = true;
-          awaitingQueueBusyRef.current = false;
           prependQueuedDrafts(props.sessionId, [{ id: nextItem.id, draft: nextDraft }]);
         } else if (result.outcome === "cancelled") {
-          awaitingQueueBusyRef.current = false;
           prependQueuedDrafts(props.sessionId, [{ id: nextItem.id, draft: nextDraft }]);
         } else {
           nextDraft.attachments.forEach(revokeAttachmentPreview);
         }
       } catch {
-        awaitingQueueBusyRef.current = false;
+        dispatchQueuedDrain(props.sessionId, { type: "send_error", itemId: nextItem.id });
         prependQueuedDrafts(props.sessionId, [{ id: nextItem.id, draft: nextDraft }]);
       } finally {
         drainingQueueRef.current = false;
       }
     })();
-  }, [chatStreaming, cloudQueueRetryVersion, liveStatus.type, prependQueuedDrafts, props.sessionId, queuedItems, removeQueuedDraftFromStore, sendDraft, sendingQueued]);
+  }, [chatStreaming, cloudQueueRetryVersion, liveStatus.type, prependQueuedDrafts, props.sessionId, queuedDrainState, queuedItems, removeQueuedDraftFromStore, sendDraft, sendingQueued]);
 
   useEffect(() => {
     if (props.cloudMcpSubmissionState.status !== "failed") {
       cloudQueueBlockedRef.current = false;
+      // A cleared submission gate releases a drain halted on needs_input; a
+      // terminal_failure halt stays until the user explicitly retries.
+      const drain = getQueuedDrainState(props.sessionId);
+      if (drain.phase.kind === "halted" && drain.phase.reason === "needs_input") {
+        dispatchQueuedDrain(props.sessionId, { type: "user_retry" });
+      }
     }
-  }, [props.cloudMcpSubmissionState.status]);
+  }, [props.cloudMcpSubmissionState.status, props.sessionId]);
 
   useEffect(() => {
     const nextDraft = buildDraft(draft, attachments);
