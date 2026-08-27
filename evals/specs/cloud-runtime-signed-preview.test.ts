@@ -31,15 +31,17 @@ function close(server: Server): Promise<void> {
   });
 }
 
-test("Cloud runtime access refreshes signed previews without old proxy routing", async ({ evidence }) => {
+test("Cloud runtime access refreshes signed previews behind stable legacy routing", async ({ evidence }) => {
   seedRequiredEnv();
   const [
     { probeCloudRuntimeSignedPreview, resolveCloudRuntimeAccess },
-    { persistedWorkerInstanceUrl },
+    { getWorkerTokensAndConnect, persistedWorkerInstanceUrl },
+    { proxyCloudWorkerCompatibilityRequest },
     { getWorker, getWorkerTokens, withWorkerConnection, workerNeedsConnectionResolution },
   ] = await Promise.all([
     import("../../ee/apps/den-api/src/workers/worker-access.js"),
     import("../../ee/apps/den-api/src/routes/workers/shared.js"),
+    import("../../ee/apps/den-api/src/workers/worker-compatibility-proxy.js"),
     import("../../ee/apps/den-web/app/(den)/_lib/den-flow.js"),
   ]);
   const runtimeWorker: CloudRuntimeWorker = {
@@ -99,6 +101,62 @@ test("Cloud runtime access refreshes signed previews without old proxy routing",
   const persistedUrl = persistedWorkerInstanceUrl({ provider: "daytona", url: result.url });
   expect(persistedUrl).toMatch(/\/v1\/cloud\/instance$/);
   expect(persistedUrl).not.toBe(result.url);
+  const legacyWorker = {
+    id: runtimeWorker.id,
+    org_id: createDenTypeId("organization"),
+    created_by_user_id: createDenTypeId("user"),
+    name: runtimeWorker.name,
+    description: null,
+    destination: "cloud",
+    status: "healthy",
+    image_version: runtimeWorker.image_version ?? null,
+    workspace_path: null,
+    sandbox_backend: "cloud-instance",
+    last_heartbeat_at: null,
+    last_active_at: null,
+    created_at: new Date("2026-08-27T08:00:00.000Z"),
+    updated_at: new Date("2026-08-27T09:00:00.000Z"),
+  } satisfies Parameters<typeof getWorkerTokensAndConnect>[0];
+  const resolveTokenAccess = async () => result;
+  const legacyTokens = await getWorkerTokensAndConnect(legacyWorker, {
+    apiPublicUrl: "https://api.example.test/api/den",
+    resolveCloudAccess: resolveTokenAccess,
+    fetchImpl: async () => Response.json({ activeId: "workspace", items: [] }),
+  });
+  const webTokens = await getWorkerTokensAndConnect(legacyWorker, {
+    apiPublicUrl: "https://api.example.test/api/den",
+    includeExpiringOpenworkUrl: true,
+    resolveCloudAccess: resolveTokenAccess,
+    fetchImpl: async () => Response.json({ activeId: "workspace", items: [] }),
+  });
+  if (!("connect" in legacyTokens) || !legacyTokens.connect) throw new Error("legacy worker tokens did not include a stable route");
+  if (!("connect" in webTokens) || !webTokens.connect) throw new Error("Web worker tokens did not include a preview route");
+  expect(legacyTokens.connect.openworkUrl).toBe(`https://api.example.test/api/den/v1/cloud/workers/${runtimeWorker.id}/w/workspace`);
+  expect(legacyTokens.connect.openworkUrl).not.toContain("preview.example.test");
+  expect(webTokens.connect.openworkUrl).toBe("https://fresh.preview.example.test/w/workspace");
+  const legacyStableRoot = legacyTokens.connect.openworkUrl.replace(/\/w\/[^/]+$/, "");
+  const legacyProxyTargets: string[] = [];
+  const legacyProxyResponse = await proxyCloudWorkerCompatibilityRequest({
+    request: new Request(`${legacyStableRoot}/workspaces?published=1`, {
+      headers: { Authorization: "Bearer client-token" },
+    }),
+    workerId: runtimeWorker.id,
+  }, {
+    authenticate: async ({ request, workerId }) => request.headers.get("authorization") === "Bearer client-token" && workerId === runtimeWorker.id
+      ? { organizationId: legacyWorker.org_id, scope: "client" }
+      : null,
+    resolveCloudAccess: async () => ({
+      ...result,
+      status: "ready",
+      url: "https://refreshed-after-token.preview.example.test",
+    }),
+    fetchImpl: async (url) => {
+      legacyProxyTargets.push(String(url));
+      return Response.json({ activeId: "workspace", items: [] });
+    },
+  });
+  expect(legacyProxyResponse.status).toBe(200);
+  expect(legacyProxyTargets).toEqual(["https://refreshed-after-token.preview.example.test/workspaces?published=1"]);
   const created = getWorker({
     worker: { id: runtimeWorker.id, name: runtimeWorker.name, status: "provisioning" },
     instance: null,
@@ -106,10 +164,7 @@ test("Cloud runtime access refreshes signed previews without old proxy routing",
   });
   if (!created) throw new Error("create worker payload did not parse");
   expect(workerNeedsConnectionResolution(created)).toBe(true);
-  const lateTokens = getWorkerTokens({
-    tokens: { client: "client-token", owner: "host-token", host: "host-token" },
-    connect: { openworkUrl: `${result.url}/w/workspace`, workspaceId: "workspace" },
-  });
+  const lateTokens = getWorkerTokens(webTokens);
   if (!lateTokens) throw new Error("late worker token payload did not parse");
   const webWorker = withWorkerConnection(created, lateTokens);
   expect(webWorker.openworkUrl).toBe("https://fresh.preview.example.test/w/workspace");
@@ -137,8 +192,8 @@ test("Cloud runtime access refreshes signed previews without old proxy routing",
     await Promise.all([close(target), close(sandbox)]);
   }
   evidence.recordAssertionEvidence(
-    "Expired Daytona access resolves through a fresh signed preview only",
-    "The resolver refreshed the expired preview, probed only the fresh URL, returned both runtime credentials, made no request to the removed proxy, persisted only a lifecycle URL, the Web state adopted the late resolver URL after create returned tokens first, and a sandbox-controlled health redirect was rejected without reaching the redirect target.",
+    "Published desktops keep a stable worker URL while Daytona previews refresh",
+    "A legacy empty token request received a non-null configured Den API worker route with its workspace mount and no preview hostname; the existing client token reached a separately refreshed preview through that stable route. Web opt-in still received the direct fresh preview, the removed standalone worker host was never used, persistence kept only a lifecycle URL, and a sandbox-controlled redirect was rejected.",
     true,
   );
 });

@@ -152,13 +152,13 @@ function parseWorkspaceSelection(payload: unknown): { workspaceId: string; openw
     return null
   }
 
-  const activeId = typeof payload.activeId === "string" ? payload.activeId : null
+  const activeId = typeof payload.activeId === "string" && payload.activeId.trim() ? payload.activeId.trim() : null
   let workspaceId = activeId
 
   if (!workspaceId) {
     for (const item of payload.items) {
       if (isRecord(item) && typeof item.id === "string" && item.id.trim()) {
-        workspaceId = item.id
+        workspaceId = item.id.trim()
         break
       }
     }
@@ -229,6 +229,14 @@ export function readBearerToken(value: string | undefined) {
   }
   const tokenValue = trimmed.slice(7).trim()
   return tokenValue ? tokenValue : null
+}
+
+export function cloudWorkerCompatibilityUrl(workerId: WorkerId, apiPublicUrl: string | undefined, workspaceId?: string | null) {
+  if (!apiPublicUrl) return null
+  const base = apiPublicUrl.replace(/\/+$/, "")
+  const route = `${base}/v1/cloud/workers/${encodeURIComponent(workerId)}`
+  const workspace = workspaceId?.trim()
+  return workspace ? `${route}/w/${encodeURIComponent(workspace)}` : route
 }
 
 export function parseHeartbeatTimestamp(value: string | null | undefined) {
@@ -497,6 +505,7 @@ export async function getWorkerTokensAndConnect(worker: WorkerRow, options: {
   resolveCloudAccess?: ResolveCloudRuntimeAccess
   fetchImpl?: typeof fetch
   includeExpiringOpenworkUrl?: boolean
+  apiPublicUrl?: string
 } = {}) {
   if (worker.destination === "cloud" && worker.sandbox_backend === CLOUD_INSTANCE_BACKEND) {
     const resolved = await (options.resolveCloudAccess ?? resolveCloudRuntimeAccess)({ organizationId: worker.org_id, workerId: worker.id })
@@ -511,9 +520,17 @@ export async function getWorkerTokensAndConnect(worker: WorkerRow, options: {
         },
       }
     }
+    const previewConnect = await resolveConnectUrlFromWorker(resolved.url, resolved.clientToken, options.fetchImpl)
+    const stableOpenworkUrl = cloudWorkerCompatibilityUrl(
+      worker.id,
+      options.apiPublicUrl ?? env.apiPublicUrl,
+      previewConnect?.workspaceId,
+    )
     const connect = options.includeExpiringOpenworkUrl
-      ? await resolveConnectUrlFromWorker(resolved.url, resolved.clientToken, options.fetchImpl)
-      : null
+      ? previewConnect
+      : stableOpenworkUrl
+        ? { openworkUrl: stableOpenworkUrl, workspaceId: previewConnect?.workspaceId ?? null }
+        : null
     return {
       tokens: { owner: resolved.hostToken, host: resolved.hostToken, client: resolved.clientToken },
       connect,
