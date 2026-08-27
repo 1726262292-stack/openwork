@@ -106,6 +106,7 @@ const EnvSchema = z.object({
   WORKER_ACTIVITY_BASE_URL: z.string().optional(),
   DEN_AUTOMATIONS_ENABLED: z.string().optional(),
   DEN_DASHBOARDS_ENABLED: z.string().optional(),
+  DEN_OPENWORK_WEB_ENABLED: z.string().optional(),
   DEN_AUTOMATIONS_RUNTIME_ENABLED: z.string().optional(),
   DEN_AUTOMATIONS_POLL_INTERVAL_MS: z.string().optional(),
   DEN_AUTOMATIONS_BATCH_SIZE: z.string().optional(),
@@ -185,6 +186,7 @@ const EnvSchema = z.object({
   STRIPE_WEBHOOK_SECRET: z.string().optional(),
   STRIPE_INFERENCE_PRICE_ID: z.string().optional(),
   STRIPE_SEAT_PRICE_ID: z.string().optional(),
+  STRIPE_OPENWORK_WEB_PRICE_ID: z.string().optional(),
   STRIPE_BILLING_SUCCESS_URL: z.string().optional(),
   STRIPE_BILLING_CANCEL_URL: z.string().optional(),
 }).superRefine((value, ctx) => {
@@ -535,6 +537,7 @@ const automationsRuntimeEnabled = parseBooleanFlag(
 const automationsEnabled = automationsRuntimeEnabled
   && parseBooleanFlag(parsed.DEN_AUTOMATIONS_ENABLED ?? "false")
 const dashboardsEnabled = parseBooleanFlag(parsed.DEN_DASHBOARDS_ENABLED ?? "false")
+const openworkWebEnabled = parseBooleanFlag(parsed.DEN_OPENWORK_WEB_ENABLED ?? "false")
 
 const devMode = (parsed.OPENWORK_DEV_MODE ?? "0").trim() === "1"
 const port = Number(parsed.PORT ?? "8790")
@@ -798,6 +801,7 @@ export const env = {
     runnerClaimDeadlineMs: automationTuning(parsed.DEN_AUTOMATIONS_RUNNER_CLAIM_DEADLINE_MS, 900_000),
   },
   dashboardsEnabled,
+  openworkWebEnabled,
   inferenceProxyBaseUrl: optionalString(parsed.INFERENCE_PROXY_BASE_URL) ?? "http://127.0.0.1:8791",
   openRouterManagementApiKey: optionalString(parsed.OPENROUTER_MANAGEMENT_API_KEY),
   openRouterWorkspaceId: optionalString(parsed.OPENROUTER_WORKSPACE_ID),
@@ -806,6 +810,7 @@ export const env = {
     webhookSecret: optionalString(parsed.STRIPE_WEBHOOK_SECRET),
     inferencePriceId: optionalString(parsed.STRIPE_INFERENCE_PRICE_ID),
     seatPriceId: optionalString(parsed.STRIPE_SEAT_PRICE_ID),
+    openworkWebPriceId: optionalString(parsed.STRIPE_OPENWORK_WEB_PRICE_ID),
     billingSuccessUrl: optionalString(parsed.STRIPE_BILLING_SUCCESS_URL),
     billingCancelUrl: optionalString(parsed.STRIPE_BILLING_CANCEL_URL),
   },
