@@ -112,6 +112,7 @@ test("root lifecycle installs a checksummed pinned binary into placement paths a
   const start = observed[2] ?? "";
   assert(start.includes(`'nohup' '${root}/bin/k3s' 'server' '--data-dir' '${root}/data' '--write-kubeconfig' '${root}/kubeconfig.yaml'`));
   assert(start.includes("'--node-name' 'openwork-unit-cluster'"));
+  assert(start.includes("'--snapshotter' 'native'"));
   const readiness = observed[3] ?? "";
   const processProof = readiness.indexOf("'pgrep' '-f' '-x'");
   const readyz = readiness.indexOf(`'${root}/bin/k3s' 'kubectl' '--kubeconfig' '${root}/kubeconfig.yaml' 'get' '--raw=/readyz'`);

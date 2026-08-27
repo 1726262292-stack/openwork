@@ -282,6 +282,7 @@ function serverArgs(paths: DaytonaK3sRuntimePaths, placementId: string): string[
     "--write-kubeconfig", paths.kubeconfig,
     "--write-kubeconfig-mode", "0644",
     "--node-name", `openwork-${placementId}`,
+    "--snapshotter", "native",
   ];
 }
 
