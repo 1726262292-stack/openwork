@@ -77,7 +77,7 @@ test("Cloud runtime access refreshes signed previews without old proxy routing",
   expect(result.hostToken).toBe("host-token");
   expect(requested).toEqual(["https://fresh.preview.example.test/health"]);
   expect(requested).not.toContain(oldProxyUrl);
-  expect(requested.every((url) => !url.startsWith("https://workers.example.test"))).toBe(true);
+  expect(requested.every((url) => new URL(url).hostname !== "workers.example.test")).toBe(true);
   const persistedUrl = persistedWorkerInstanceUrl({ provider: "daytona", url: result.url });
   expect(persistedUrl).toMatch(/\/v1\/cloud\/instance$/);
   expect(persistedUrl).not.toBe(result.url);
