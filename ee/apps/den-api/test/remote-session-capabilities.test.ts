@@ -8,6 +8,7 @@ import type {
   RemoteSessionThreadClient,
   RemoteSessionToolResult,
 } from "../src/mcp/remote-session-capabilities.js"
+import type { CloudWorkerAccess } from "../src/workers/worker-access.js"
 
 function seedRequiredEnv() {
   process.env.DATABASE_URL = process.env.DATABASE_URL ?? "mysql://root:password@127.0.0.1:3306/openwork_test"
@@ -15,6 +16,7 @@ function seedRequiredEnv() {
   process.env.BETTER_AUTH_SECRET = process.env.BETTER_AUTH_SECRET ?? "y".repeat(32)
   process.env.BETTER_AUTH_URL = process.env.BETTER_AUTH_URL ?? "http://127.0.0.1:8790"
   process.env.DEN_API_PUBLIC_URL = process.env.DEN_API_PUBLIC_URL ?? "http://127.0.0.1:8790"
+  process.env.DAYTONA_SNAPSHOT = "openwork-0.18.8"
 }
 
 type RemoteSessionModule = typeof import("../src/mcp/remote-session-capabilities.js")
@@ -23,6 +25,7 @@ let executeRemoteSessionCapability: RemoteSessionModule["executeRemoteSessionCap
 let parseRemoteSessionCapabilityName: RemoteSessionModule["parseRemoteSessionCapabilityName"]
 let searchRemoteSessionCapabilities: RemoteSessionModule["searchRemoteSessionCapabilities"]
 let remoteSessionCapabilityName: RemoteSessionModule["remoteSessionCapabilityName"]
+let resolveRemoteSessionWorkspace: RemoteSessionModule["resolveRemoteSessionWorkspace"]
 
 beforeAll(async () => {
   seedRequiredEnv()
@@ -31,6 +34,7 @@ beforeAll(async () => {
   parseRemoteSessionCapabilityName = module.parseRemoteSessionCapabilityName
   searchRemoteSessionCapabilities = module.searchRemoteSessionCapabilities
   remoteSessionCapabilityName = module.remoteSessionCapabilityName
+  resolveRemoteSessionWorkspace = module.resolveRemoteSessionWorkspace
 })
 
 const RUNTIME: RemoteSessionRuntime = {
@@ -256,6 +260,52 @@ test("a waking runtime is reported as retryable without touching the client", as
   const body = payload(result)
   expect(body.error).toBe("cloud_runtime_waking")
   expect(body.retryable).toBe(true)
+})
+
+test("remote sessions route workspace discovery only to the signed preview", async () => {
+  const access: CloudWorkerAccess = {
+    workerId: createDenTypeId("worker"),
+    url: "https://fresh.preview.example.test",
+    expiresAt: new Date("2026-08-27T12:00:00.000Z"),
+    clientToken: "client-token",
+    hostToken: "host-token",
+  }
+  const requested: string[] = []
+  const fetchImpl: typeof fetch = async (input, init) => {
+    requested.push(String(input))
+    expect(new Headers(init?.headers).get("authorization")).toBe("Bearer client-token")
+    expect(new Headers(init?.headers).get("x-openwork-host-token")).toBe("host-token")
+    return Response.json({ activeId: "workspace-signed-preview" })
+  }
+
+  const workspace = await resolveRemoteSessionWorkspace(access, fetchImpl)
+
+  expect(workspace).toEqual({
+    baseUrl: "https://fresh.preview.example.test",
+    workspaceId: "workspace-signed-preview",
+  })
+  expect(requested).toEqual(["https://fresh.preview.example.test/workspaces"])
+})
+
+test("an unreachable healthy runtime is retryable and is not mislabeled as waking", async () => {
+  const result = await executeRemoteSessionCapability(
+    executeInput("create", {}),
+    {
+      resolveRuntime: async () => ({
+        ok: false,
+        error: "cloud_runtime_unreachable",
+        message: "The healthy runtime transport is unreachable.",
+        retryable: true,
+      }),
+      createClient: () => {
+        throw new Error("createClient must not be called when transport is unreachable")
+      },
+    },
+  )
+
+  expect(result.isError).toBe(true)
+  expect(payload(result)).toMatchObject({ error: "cloud_runtime_unreachable", retryable: true })
+  expect(payload(result).error).not.toBe("cloud_runtime_waking")
 })
 
 test("a member without a cloud workspace gets the needs-setup action", async () => {

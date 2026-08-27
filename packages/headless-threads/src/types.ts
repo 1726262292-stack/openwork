@@ -199,7 +199,7 @@ export interface HeadlessThreadClientOptions {
   workspaceId: string;
   /** A collaborator-scoped OpenWork client token. */
   token: string;
-  /** Host credential for server-to-server execution through the Cloud worker proxy. */
+  /** Host credential for server-to-server execution against the resolved Cloud runtime. */
   hostToken?: string;
   /** Model used when a call does not name one. */
   defaultModel?: HeadlessThreadModel;

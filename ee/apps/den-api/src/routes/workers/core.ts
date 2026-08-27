@@ -25,6 +25,7 @@ import {
   token,
   updateWorkerSchema,
   workerIdParamSchema,
+  workerSandboxBackend,
 } from "./shared.js"
 
 const workerInstanceSchema = z.object({
@@ -232,6 +233,7 @@ export function registerWorkerCoreRoutes<T extends { Variables: WorkerRouteVaria
 
     const workerId = createDenTypeId("worker")
     const workerStatus = input.destination === "cloud" ? "provisioning" : "healthy"
+    const sandboxBackend = workerSandboxBackend(input)
 
     await db.insert(WorkerTable).values({
       id: workerId,
@@ -243,7 +245,7 @@ export function registerWorkerCoreRoutes<T extends { Variables: WorkerRouteVaria
       status: workerStatus,
       image_version: input.imageVersion,
       workspace_path: input.workspacePath,
-      sandbox_backend: input.sandboxBackend,
+      sandbox_backend: sandboxBackend,
     })
 
     const hostToken = token()
@@ -293,7 +295,7 @@ export function registerWorkerCoreRoutes<T extends { Variables: WorkerRouteVaria
           status: workerStatus,
           image_version: input.imageVersion ?? null,
           workspace_path: input.workspacePath ?? null,
-          sandbox_backend: input.sandboxBackend ?? null,
+          sandbox_backend: sandboxBackend,
           last_heartbeat_at: null,
           last_active_at: null,
           created_at: new Date(),

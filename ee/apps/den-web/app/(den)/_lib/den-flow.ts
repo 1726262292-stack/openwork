@@ -227,6 +227,10 @@ export const AUTH_TOKEN_STORAGE_KEY = "openwork:web:auth-token";
 export const ONBOARDING_INTENT_STORAGE_KEY = "openwork:web:onboarding-intent";
 export const PENDING_AUTH_INTENT_STORAGE_KEY = "openwork:web:pending-auth-intent";
 export const WORKER_STATUS_POLL_MS = DEN_WORKER_POLL_INTERVAL_MS;
+
+export function getWorkerConnectionPollDelay(attempt: number): number {
+  return Math.min(WORKER_STATUS_POLL_MS * 2 ** Math.min(Math.max(0, attempt - 1), 2), 5_000);
+}
 export const DEFAULT_AUTH_NAME = "OpenWork User";
 export const DEFAULT_WORKER_NAME = "My Worker";
 export const WORKSPACE_REAUTH_SECURITY_MESSAGE = "For security, confirm it's you before changing workspace settings.";
@@ -551,6 +555,11 @@ export function getToken(payload: unknown): string | null {
   return typeof payload.token === "string" ? payload.token : null;
 }
 
+function getDurableWorkerInstanceUrl(instance: Record<string, unknown> | null) {
+  if (!instance || instance.provider === "daytona") return null;
+  return typeof instance.url === "string" ? instance.url : null;
+}
+
 export function getWorker(payload: unknown): WorkerLaunch | null {
   if (!isRecord(payload) || !isRecord(payload.worker)) {
     return null;
@@ -569,8 +578,8 @@ export function getWorker(payload: unknown): WorkerLaunch | null {
     workerName: worker.name,
     status: getEffectiveWorkerStatus(worker.status, instance),
     provider: instance && typeof instance.provider === "string" ? instance.provider : null,
-    instanceUrl: instance && typeof instance.url === "string" ? instance.url : null,
-    openworkUrl: instance && typeof instance.url === "string" ? instance.url : null,
+    instanceUrl: getDurableWorkerInstanceUrl(instance),
+    openworkUrl: getDurableWorkerInstanceUrl(instance),
     workspaceId: null,
     clientToken: tokens && typeof tokens.client === "string" ? tokens.client : null,
     ownerToken: tokens && typeof tokens.owner === "string"
@@ -598,7 +607,7 @@ export function getWorkerSummary(payload: unknown): WorkerSummary | null {
     workerId: worker.id,
     workerName: worker.name,
     status: getEffectiveWorkerStatus(worker.status, instance),
-    instanceUrl: instance && typeof instance.url === "string" ? instance.url : null,
+    instanceUrl: getDurableWorkerInstanceUrl(instance),
     provider: instance && typeof instance.provider === "string" ? instance.provider : null,
     isMine: worker.isMine === true
   };
@@ -626,6 +635,23 @@ export function getWorkerTokens(payload: unknown): WorkerTokens | null {
   }
 
   return { clientToken, ownerToken, hostToken, openworkUrl, workspaceId };
+}
+
+export function withWorkerConnection(worker: WorkerLaunch, tokens: WorkerTokens): WorkerLaunch {
+  return {
+    ...worker,
+    openworkUrl: tokens.openworkUrl,
+    workspaceId: tokens.workspaceId,
+    clientToken: tokens.clientToken,
+    ownerToken: tokens.ownerToken,
+    hostToken: tokens.hostToken,
+  };
+}
+
+export function workerNeedsConnectionResolution(worker: WorkerLaunch): boolean {
+  if (worker.status.trim().toLowerCase() === "failed") return false;
+  const hasRequiredTokens = Boolean(worker.clientToken?.trim() && (worker.hostToken?.trim() || worker.ownerToken?.trim()));
+  return !hasRequiredTokens || !worker.openworkUrl?.trim();
 }
 
 export function getWorkerRuntimeSnapshot(payload: unknown): WorkerRuntimeSnapshot | null {
@@ -777,7 +803,7 @@ function parseWorkerListItem(value: unknown): WorkerListItem | null {
     workerId,
     workerName,
     status: getEffectiveWorkerStatus(value.status, instance),
-    instanceUrl: instance && typeof instance.url === "string" ? instance.url : null,
+    instanceUrl: getDurableWorkerInstanceUrl(instance),
     provider: instance && typeof instance.provider === "string" ? instance.provider : null,
     isMine: value.isMine === true,
     createdAt

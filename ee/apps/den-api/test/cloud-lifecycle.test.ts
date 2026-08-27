@@ -331,6 +331,69 @@ describe("cloud lifecycle wake", () => {
     expect(updates.some((update) => update.status === "failed")).toBe(false)
   })
 
+  test("materializes providers against the fresh signed preview returned by wake", async () => {
+    const worker = {
+      ...makeWorker({ status: "stopped" }),
+      org_id: createDenTypeId("organization"),
+    }
+    const { store } = makeStore({
+      workers: [worker],
+      tokens: [
+        makeToken(worker.id, "host"),
+        makeToken(worker.id, "client"),
+        makeToken(worker.id, "activity"),
+      ],
+    })
+    const materializedUrls: string[] = []
+
+    await lifecycle.wakeCloudWorker(worker.id, {
+      store,
+      wakeWorker: async () => ({
+        provider: "daytona",
+        url: "https://wake.preview.example.test",
+        status: "healthy",
+      }),
+      materializeProviders: async (input) => {
+        materializedUrls.push(input.instanceUrl)
+        return { ok: true, status: "noop", fingerprint: "owp:v1:test", providers: 0 }
+      },
+    })
+
+    expect(materializedUrls).toEqual(["https://wake.preview.example.test"])
+  })
+
+  test("runs one provider action for an explicitly claimed recovery", async () => {
+    const worker = makeWorker({ status: "provisioning" })
+    const { store } = makeStore({
+      workers: [worker],
+      tokens: [
+        makeToken(worker.id, "host"),
+        makeToken(worker.id, "client"),
+        makeToken(worker.id, "activity"),
+      ],
+    })
+    const hold = deferred()
+    let providerActions = 0
+    const recover = () => lifecycle.recoverClaimedCloudWorker(worker.id, {
+      store,
+      wakeWorker: async () => {
+        providerActions += 1
+        await hold.promise
+        return { provider: "daytona", url: "https://recovery.preview.example.test", status: "healthy" }
+      },
+    })
+
+    const first = recover()
+    const second = recover()
+    await flushMicrotasks()
+    expect(providerActions).toBe(1)
+    hold.resolve()
+    await Promise.all([first, second])
+
+    expect(worker.status).toBe("healthy")
+    expect(providerActions).toBe(1)
+  })
+
   test("marks the worker failed when a wake token is missing", async () => {
     const worker = makeWorker({ status: "stopped" })
     const { store, updates } = makeStore({

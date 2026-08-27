@@ -93,7 +93,6 @@ const EnvSchema = z.object({
   DEN_BOOTSTRAP_ADMIN_EMAILS: z.string().optional(),
   DEN_INITIAL_ADMIN_BOOTSTRAP_CODE: z.string().optional(),
   DEN_INITIAL_ADMIN_BOOTSTRAP_CODE_FILE: z.string().optional(),
-  WORKER_PROXY_PORT: z.string().optional(),
   WORKER_PROVISIONING_RECONCILE_INTERVAL_MS: z.string().optional(),
   WORKER_PROVISIONING_RECONCILE_STALE_MS: z.string().optional(),
   WORKER_PROVISIONING_RECONCILE_BATCH_SIZE: z.string().optional(),
@@ -163,7 +162,6 @@ const EnvSchema = z.object({
   DAYTONA_SANDBOX_AUTO_ARCHIVE_INTERVAL: z.string().optional(),
   DAYTONA_SANDBOX_AUTO_DELETE_INTERVAL: z.string().optional(),
   DAYTONA_SIGNED_PREVIEW_EXPIRES_SECONDS: z.string().optional(),
-  DAYTONA_WORKER_PROXY_BASE_URL: z.string().optional(),
   DAYTONA_SANDBOX_NAME_PREFIX: z.string().optional(),
   DAYTONA_SHARED_VOLUME_NAME: z.string().optional(),
   DAYTONA_VOLUME_NAME_PREFIX: z.string().optional(),
@@ -221,7 +219,7 @@ const EnvSchema = z.object({
   }
 
   if (value.PROVISIONER_MODE === "daytona") {
-    for (const key of ["DAYTONA_API_KEY", "DAYTONA_WORKER_PROXY_BASE_URL"] as const) {
+    for (const key of ["DAYTONA_API_KEY"] as const) {
       if (!value[key]) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
@@ -735,7 +733,6 @@ export const env = {
       .map((email) => email.toLowerCase()),
   },
   port,
-  workerProxyPort: Number(parsed.WORKER_PROXY_PORT ?? "8789"),
   corsOrigins,
   apiPublicUrl,
   serviceVersion: resolveDenServiceVersion({
@@ -872,8 +869,6 @@ export const env = {
     signedPreviewExpiresSeconds: Number(
       parsed.DAYTONA_SIGNED_PREVIEW_EXPIRES_SECONDS ?? "86400",
     ),
-    workerProxyBaseUrl:
-      optionalString(parsed.DAYTONA_WORKER_PROXY_BASE_URL) ?? "http://workers.local",
     sandboxNamePrefix:
       optionalString(parsed.DAYTONA_SANDBOX_NAME_PREFIX) ?? "den-daytona-worker",
     sharedVolumeName:
