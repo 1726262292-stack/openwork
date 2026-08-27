@@ -928,6 +928,18 @@ export function createWorkspaceStore({
       .filter(Boolean);
   }
 
+  async function listAuthorizedWorkspaceRoots() {
+    const workspacePaths = await listLocalWorkspacePaths();
+    const roots = new Set(workspacePaths);
+    for (const workspacePath of workspacePaths) {
+      const config = await readWorkspaceOpenworkConfig(workspacePath).catch(() => null);
+      for (const root of config?.authorizedRoots ?? []) {
+        if (typeof root === "string" && root.trim()) roots.add(root.trim());
+      }
+    }
+    return [...roots];
+  }
+
   function workspacePathKey(workspace) {
     return normalizeWorkspacePathKey(workspace.path);
   }
@@ -1218,6 +1230,7 @@ export function createWorkspaceStore({
     forgetWorkspace,
     getDesktopBootstrapConfig,
     importConfig,
+    listAuthorizedWorkspaceRoots,
     listLocalWorkspacePaths,
     migrateLegacyElectronWorkspaceStateIfNeeded,
     readDesktopBootstrapConfigSync,
