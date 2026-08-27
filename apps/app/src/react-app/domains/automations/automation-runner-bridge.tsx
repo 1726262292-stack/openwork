@@ -61,8 +61,8 @@ export function AutomationRunnerBridge() {
           let runnerId = desktopRunnerId()
           const build = await window.__OPENWORK_ELECTRON__?.invokeDesktop?.("appBuildInfo")
           if (!isCurrent()) return
-           const agent = navigator.userAgent
-           const platform = /Mac/i.test(agent) ? "darwin" : /Win/i.test(agent) ? "win32" : "linux"
+          const agent = navigator.userAgent
+          const platform = /Mac/i.test(agent) ? "darwin" : /Win/i.test(agent) ? "win32" : "linux"
           const mintRunner = async (id: string) => {
             const registration = (
               capabilities: AutomationDesktopRunnerCapability[],
@@ -91,17 +91,17 @@ export function AutomationRunnerBridge() {
               )
             }
           }
-           let runner: Awaited<ReturnType<typeof client.mintAutomationRunnerToken>>
-           try {
+          let runner: Awaited<ReturnType<typeof client.mintAutomationRunnerToken>>
+          try {
             runner = await mintRunner(runnerId)
-           } catch (error) {
+          } catch (error) {
             if (!(error instanceof DenApiError) || error.status !== 409 || error.code !== "automation_runner_identity_conflict") {
               throw error
-             }
-             if (!isCurrent()) return
-             runnerId = resetDesktopRunnerId()
+            }
+            if (!isCurrent()) return
+            runnerId = resetDesktopRunnerId()
             runner = await mintRunner(runnerId)
-           }
+          }
           if (!isCurrent()) return
           await window.__OPENWORK_ELECTRON__?.invokeDesktop?.("automationRunnerConfigure", {
             baseUrl: client.baseUrls.apiBaseUrl,
