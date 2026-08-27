@@ -9,6 +9,7 @@ import type {
   RemoteSessionToolResult,
 } from "../src/mcp/remote-session-capabilities.js"
 import type { CloudWorkerAccess } from "../src/workers/worker-access.js"
+import type { RemoteSessionCommandStore } from "../src/remote-sessions/commands.js"
 
 function seedRequiredEnv() {
   process.env.DATABASE_URL = process.env.DATABASE_URL ?? "mysql://root:password@127.0.0.1:3306/openwork_test"
@@ -45,11 +46,25 @@ const RUNTIME: RemoteSessionRuntime = {
   hostToken: "host-token",
 }
 
+const unavailableCommandStore: RemoteSessionCommandStore = {
+  enqueue: async () => { throw new Error("command store not stubbed for this test") },
+  claim: async () => { throw new Error("command store not stubbed for this test") },
+  complete: async () => { throw new Error("command store not stubbed for this test") },
+  get: async () => { throw new Error("command store not stubbed for this test") },
+  listPendingForRunner: async () => { throw new Error("command store not stubbed for this test") },
+}
+
+const inactiveDesktopDeps = {
+  commandStore: unavailableCommandStore,
+  desktopPresence: async () => ({ connected: false, ownerMemberId: null }),
+}
+
 function readyDeps(client: Partial<RemoteSessionThreadClient>): RemoteSessionExecuteDeps {
   const failing = () => {
     throw new Error("client method not stubbed for this test")
   }
   return {
+    ...inactiveDesktopDeps,
     resolveRuntime: async () => ({ ok: true, runtime: RUNTIME }),
     createClient: () => ({
       createThread: client.createThread ?? failing,
@@ -127,13 +142,13 @@ test("create returns the native session identifiers", async () => {
   expect(body.started).toBe(true)
 })
 
-test("create rejects the desktop target with an actionable error", async () => {
+test("create reports an offline desktop target with an actionable error", async () => {
   const result = await executeRemoteSessionCapability(
     executeInput("create", { target: "desktop" }),
     readyDeps({}),
   )
   expect(result.isError).toBe(true)
-  expect(payload(result).error).toBe("unsupported_target")
+  expect(payload(result).error).toBe("desktop_offline")
 })
 
 test("create and send require the write scope; read does not", async () => {
@@ -245,6 +260,7 @@ test("a waking runtime is reported as retryable without touching the client", as
   const result = await executeRemoteSessionCapability(
     executeInput("create", {}),
     {
+      ...inactiveDesktopDeps,
       resolveRuntime: async () => ({
         ok: false,
         error: "cloud_runtime_waking",
@@ -292,6 +308,7 @@ test("an unreachable healthy runtime is retryable and is not mislabeled as wakin
   const result = await executeRemoteSessionCapability(
     executeInput("create", {}),
     {
+      ...inactiveDesktopDeps,
       resolveRuntime: async () => ({
         ok: false,
         error: "cloud_runtime_unreachable",
@@ -313,6 +330,7 @@ test("a member without a cloud workspace gets the needs-setup action", async () 
   const result = await executeRemoteSessionCapability(
     executeInput("create", {}),
     {
+      ...inactiveDesktopDeps,
       resolveRuntime: async () => ({
         ok: false,
         error: "needs_cloud_setup",
