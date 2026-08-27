@@ -1,6 +1,9 @@
 /** @jsxImportSource react */
 import { useEffect } from "react"
-import { AUTOMATION_MODEL_ATTENTION_CAPABILITY } from "@openwork/types/automations"
+import {
+  AUTOMATION_MODEL_ATTENTION_CAPABILITY,
+  REMOTE_SESSION_DESKTOP_RUNNER_CAPABILITY,
+} from "@openwork/types/automations"
 
 import { createDenClient, DenApiError, readDenSettings } from "@/app/lib/den"
 import { denSettingsChangedEvent } from "@/app/lib/den-session-events"
@@ -62,7 +65,7 @@ export function AutomationRunnerBridge() {
               runnerId,
               protocolVersion: 1,
               supportedExecutionTargets: ["desktop"],
-              capabilities: [AUTOMATION_MODEL_ATTENTION_CAPABILITY],
+              capabilities: [AUTOMATION_MODEL_ATTENTION_CAPABILITY, REMOTE_SESSION_DESKTOP_RUNNER_CAPABILITY],
               appVersion: String(build?.version ?? "unknown"),
               platform,
               concurrency: 1,
@@ -77,7 +80,7 @@ export function AutomationRunnerBridge() {
               runnerId,
               protocolVersion: 1,
               supportedExecutionTargets: ["desktop"],
-              capabilities: [AUTOMATION_MODEL_ATTENTION_CAPABILITY],
+              capabilities: [AUTOMATION_MODEL_ATTENTION_CAPABILITY, REMOTE_SESSION_DESKTOP_RUNNER_CAPABILITY],
               appVersion: String(build?.version ?? "unknown"),
               platform,
               concurrency: 1,
