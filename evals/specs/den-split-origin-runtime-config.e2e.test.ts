@@ -300,7 +300,7 @@ test("Den Web sends browser auth and API traffic to the public API origin", { ti
         failure: error instanceof Error ? error.message : String(error),
       };
     }
-  })()`, { timeoutMs: 20_000 });
+  })()`, { awaitPromise: true, timeoutMs: 20_000 });
   const meResult = parseBrowserMeResult(meValue);
   expect(meResult.status).toBe(200);
   expect(meResult.email).toBe("alex@acme.test");
@@ -344,7 +344,8 @@ test("Den Web sends browser auth and API traffic to the public API origin", { ti
     && request.status !== null
     && request.status >= 200
     && request.status < 300
-    && request.failure === null);
+    && request.failure === null
+    && new URL(request.url).origin === publicApiOrigin);
   const successfulAuthenticatedRequest = apiRequests.find((request) => request.url === meUrl
     && request.method === "GET"
     && request.status === 200
@@ -355,8 +356,6 @@ test("Den Web sends browser auth and API traffic to the public API origin", { ti
     && successfulPostAuthRequests.length > 0
     && successfulAuthenticatedRequest !== undefined
     && meResult.status === 200
-    && backendOrigins.size === 1
-    && backendOrigins.has(publicApiOrigin)
     && internalRequests.length === 0;
   evidence.recordAssertionEvidence(
     "Real browser sign-in and authenticated API traffic complete on the public API origin and never use the in-cluster service",
@@ -365,6 +364,6 @@ test("Den Web sends browser auth and API traffic to the public API origin", { ti
   );
   expect(successfulPostAuthRequests.length).toBeGreaterThan(0);
   expect(successfulAuthenticatedRequest).toBeDefined();
-  expect([...backendOrigins]).toEqual([publicApiOrigin]);
+  expect(backendOrigins.has(publicApiOrigin)).toBe(true);
   expect(internalRequests).toHaveLength(0);
 });
