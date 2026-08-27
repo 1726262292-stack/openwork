@@ -13,11 +13,14 @@ import {
 const allowedUrlPrefixes = ["https://worker.example.test"];
 
 async function withWorkspace(run) {
-  const root = await mkdtemp(path.join(os.tmpdir(), "openwork-binary-transfer-"));
+  const base = await mkdtemp(path.join(os.tmpdir(), "openwork-binary-transfer-"));
+  const root = path.join(base, "root");
+  const stagingDir = path.join(base, "staging");
+  await mkdir(root, { recursive: true });
   try {
-    await run(root);
+    await run(root, stagingDir);
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await rm(base, { recursive: true, force: true });
   }
 }
 
@@ -50,6 +53,7 @@ test("uploads exact original multipart bytes with spaces and Unicode in the file
       authorizedRoots: [root],
       allowedUrlPrefixes,
       fetcher: async (url, init) => {
+        assert.equal(init.redirect, "error");
         const request = new Request(url, init);
         const form = await request.formData();
         const file = form.get("file");
@@ -68,27 +72,41 @@ test("uploads exact original multipart bytes with spaces and Unicode in the file
 });
 
 test("downloads high bytes exactly through a verified destination handle with no stray files", async () => {
-  await withWorkspace(async (root) => {
+  await withWorkspace(async (root, stagingDir) => {
     const destinationPath = path.join(root, "saved files", "資料 high bytes.bin");
     await mkdir(path.dirname(destinationPath), { recursive: true });
-    await writeFile(destinationPath, "stale content to overwrite");
     const original = Uint8Array.from([255, 254, 253, 0, 128, 129, 200, 10]);
+    const options = {
+      authorizedRoots: [root],
+      allowedUrlPrefixes,
+      stagingDir,
+      fetcher: async (url, init) => {
+        assert.equal(init.redirect, "error");
+        return remoteResponse(original, {
+          headers: { "content-type": "application/octet-stream" },
+        });
+      },
+    };
 
     const result = await downloadBinaryToPath({
       url: "https://worker.example.test/files/raw",
       destinationPath,
-    }, {
-      authorizedRoots: [root],
-      allowedUrlPrefixes,
-      fetcher: async () => remoteResponse(original, {
-        headers: { "content-type": "application/octet-stream" },
-      }),
-    });
+    }, options);
 
     assert.equal(result.path, destinationPath);
     assert.equal(result.bytes, original.byteLength);
     assert.deepEqual(new Uint8Array(await readFile(destinationPath)), original);
     assert.deepEqual(await readdir(path.dirname(destinationPath)), [path.basename(destinationPath)]);
+    assert.deepEqual(await readdir(stagingDir), []);
+
+    await assert.rejects(
+      downloadBinaryToPath({
+        url: "https://worker.example.test/files/raw",
+        destinationPath,
+      }, options),
+      (error) => matchesError(error, "destination-exists", /already exists/i),
+    );
+    assert.deepEqual(new Uint8Array(await readFile(destinationPath)), original);
   });
 });
 
@@ -121,13 +139,13 @@ test("rejects zero-byte and oversized uploads with clear error codes", async () 
 });
 
 test("rejects zero-byte and oversized downloads without leaving partial files", async () => {
-  await withWorkspace(async (root) => {
+  await withWorkspace(async (root, stagingDir) => {
     const zeroDestination = path.join(root, "zero.bin");
     await assert.rejects(
       downloadBinaryToPath({
         url: "https://worker.example.test/file",
         destinationPath: zeroDestination,
-      }, { authorizedRoots: [root], allowedUrlPrefixes, fetcher: async () => remoteResponse(new Uint8Array()) }),
+      }, { authorizedRoots: [root], allowedUrlPrefixes, stagingDir, fetcher: async () => remoteResponse(new Uint8Array()) }),
       (error) => matchesError(error, "zero-byte-file", /empty/i),
     );
     await assert.rejects(readFile(zeroDestination), { code: "ENOENT" });
@@ -138,16 +156,17 @@ test("rejects zero-byte and oversized downloads without leaving partial files", 
         url: "https://worker.example.test/file",
         destinationPath: largeDestination,
         maxBytes: 3,
-      }, { authorizedRoots: [root], allowedUrlPrefixes, fetcher: async () => remoteResponse(Uint8Array.from([1, 2, 3, 4])) }),
+      }, { authorizedRoots: [root], allowedUrlPrefixes, stagingDir, fetcher: async () => remoteResponse(Uint8Array.from([1, 2, 3, 4])) }),
       (error) => matchesError(error, "file-too-large", /limit/i),
     );
     await assert.rejects(readFile(largeDestination), { code: "ENOENT" });
     assert.deepEqual(await readdir(root), []);
+    assert.deepEqual(await readdir(stagingDir), []);
   });
 });
 
 test("cancellation removes the incomplete download", async () => {
-  await withWorkspace(async (root) => {
+  await withWorkspace(async (root, stagingDir) => {
     const destinationPath = path.join(root, "cancelled.bin");
     const controller = new AbortController();
     const response = new Response(new ReadableStream({
@@ -161,12 +180,13 @@ test("cancellation removes the incomplete download", async () => {
       downloadBinaryToPath({
         url: "https://worker.example.test/file",
         destinationPath,
-      }, { authorizedRoots: [root], allowedUrlPrefixes, fetcher: async () => response, signal: controller.signal }),
+      }, { authorizedRoots: [root], allowedUrlPrefixes, stagingDir, fetcher: async () => response, signal: controller.signal }),
       (error) => error instanceof Error && error.name === "AbortError",
     );
 
     await assert.rejects(readFile(destinationPath), { code: "ENOENT" });
     assert.deepEqual(await readdir(root), []);
+    assert.deepEqual(await readdir(stagingDir), []);
   });
 });
 
@@ -205,7 +225,7 @@ test("rejects unauthorized, traversal, and symlink upload paths", async () => {
 });
 
 test("rejects traversal and symlink download destinations", async () => {
-  await withWorkspace(async (root) => {
+  await withWorkspace(async (root, stagingDir) => {
     const authorizedRoot = path.join(root, "workspace");
     const outsideRoot = path.join(root, "outside");
     await mkdir(authorizedRoot);
@@ -213,6 +233,7 @@ test("rejects traversal and symlink download destinations", async () => {
     const options = {
       authorizedRoots: [authorizedRoot],
       allowedUrlPrefixes,
+      stagingDir,
       fetcher: async () => remoteResponse(Uint8Array.from([1])),
     };
 
@@ -237,7 +258,7 @@ test("rejects traversal and symlink download destinations", async () => {
 });
 
 test("rejects transfer URLs outside connected remote workspace endpoints", async () => {
-  await withWorkspace(async (root) => {
+  await withWorkspace(async (root, stagingDir) => {
     const filePath = path.join(root, "leak.bin");
     await writeFile(filePath, "data");
     const upload = (url, prefixes) => uploadMultipartFromPath({
@@ -277,6 +298,7 @@ test("rejects transfer URLs outside connected remote workspace endpoints", async
       }, {
         authorizedRoots: [root],
         allowedUrlPrefixes,
+        stagingDir,
         fetcher: async () => remoteResponse(Uint8Array.from([1])),
       }),
       (error) => matchesError(error, "unauthorized-url"),
@@ -286,7 +308,7 @@ test("rejects transfer URLs outside connected remote workspace endpoints", async
 });
 
 test("rejects a download whose destination parent is swapped for a symlink during the fetch", async () => {
-  await withWorkspace(async (root) => {
+  await withWorkspace(async (root, stagingDir) => {
     const authorizedRoot = path.join(root, "workspace");
     const outsideRoot = path.join(root, "outside");
     await mkdir(authorizedRoot);
@@ -302,6 +324,7 @@ test("rejects a download whose destination parent is swapped for a symlink durin
       }, {
         authorizedRoots: [authorizedRoot],
         allowedUrlPrefixes,
+        stagingDir,
         fetcher: async () => {
           await rm(parent, { recursive: true, force: true });
           await symlink(outsideRoot, parent, "dir");
@@ -314,6 +337,7 @@ test("rejects a download whose destination parent is swapped for a symlink durin
     );
 
     assert.deepEqual(await readdir(outsideRoot), []);
+    assert.deepEqual(await readdir(stagingDir), []);
     await assert.rejects(readFile(destinationPath), { code: "ENOENT" });
   });
 });

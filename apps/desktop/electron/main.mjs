@@ -1088,6 +1088,9 @@ async function runDesktopTransfer(event, input, operation) {
     return await operation(input, {
       authorizedRoots,
       allowedUrlPrefixes,
+      // App-owned staging keeps in-flight downloads outside every authorized
+      // workspace root until they complete.
+      stagingDir: path.join(app.getPath("userData"), "binary-transfers"),
       fetcher: electronNet.fetch,
       signal: controller.signal,
     });
