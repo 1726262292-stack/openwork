@@ -1,6 +1,6 @@
 import { and, asc, eq, gt, inArray, lte } from "@openwork-ee/den-db/drizzle"
 import { RemoteSessionCommandTable } from "@openwork-ee/den-db/schema/remote-session-commands"
-import { createDenTypeId, normalizeDenTypeId } from "@openwork-ee/utils/typeid"
+import { createDenTypeId, normalizeDenTypeId, type DenTypeId } from "@openwork-ee/utils/typeid"
 import { db } from "../db.js"
 import { automationUpdateChangedRows } from "../automations/update-result.js"
 
@@ -78,7 +78,7 @@ type CommandRow = typeof RemoteSessionCommandTable.$inferSelect
  * value is an ordinary caller mistake: it means "no such command", never an
  * internal error.
  */
-function commandIdOrNull(value: string): string | null {
+function commandIdOrNull(value: string): DenTypeId<"remoteSessionCommand"> | null {
   try {
     return normalizeDenTypeId("remoteSessionCommand", value)
   } catch {
