@@ -1,5 +1,8 @@
-# OpenWork evaluation stack — pull-only, one command:
+# OpenWork evaluation stack — pull-only, no repository clone or build:
 #
+#   umask 077
+#   printf 'OPENWORK_AUTH_SECRET=%s\nOPENWORK_DB_ENCRYPTION_KEY=%s\n' \
+#     "$(openssl rand -hex 32)" "$(openssl rand -hex 32)" > .env
 #   docker compose -f docker-compose.eval.yml up -d --wait
 #
 # Then open http://localhost:3005 and sign up.
@@ -8,19 +11,22 @@
 # NOT a production posture: dev-grade MySQL credentials, stub worker provisioner,
 # no cloud sandboxes, no email delivery, public signup enabled by default.
 #
-# Knobs (all optional):
+# Required secrets:
+#   OPENWORK_AUTH_SECRET       Better Auth secret (at least 32 random characters)
+#   OPENWORK_DB_ENCRYPTION_KEY Den DB encryption key (at least 32 random characters)
+#
+# Optional knobs:
 #   OPENWORK_HOST          host/IP people will use in the browser   (default: localhost)
 #   OPENWORK_WEB_PORT      host port for the web app                (default: 3005)
 #   OPENWORK_API_PORT      host port for the Den API                (default: 8788)
-#   OPENWORK_AUTH_SECRET   Better Auth secret                       (default: eval-only value — change it)
 #   OPENWORK_ALLOW_SIGNUP  allow public signup for evaluation       (default: true)
-#   OPENWORK_VERSION       image tag                                (default: 0.18.37)
+#   OPENWORK_ORG_NAME      single organization name                 (default: OpenWork Evaluation)
 
 name: openwork-eval
 
 services:
   mysql:
-    image: mysql:8.4
+    image: mysql:8.4@sha256:b3b90af2a6552ae30c266fdb7d5dd55f3afb72404bb78d37fe8a23eb857fd3fb
     command:
       - --performance_schema=OFF
       - --innodb-buffer-pool-size=128M
@@ -38,7 +44,7 @@ services:
     # intentionally no host port: MySQL stays internal to the compose network
 
   den-migrate:
-    image: ghcr.io/different-ai/openwork-den-api:${OPENWORK_VERSION:-0.18.37}
+    image: ghcr.io/different-ai/openwork-den-api:0.18.37@sha256:5ae1fab94ae2badd49ae74649cfb38ca679a7afc7e9ae8926c927553a34caabd
     depends_on:
       mysql:
         condition: service_healthy
@@ -47,10 +53,10 @@ services:
     command: ["cd /app/ee/packages/den-db && (node ./dist/scripts/bootstrap.js || node --import tsx ./dist/scripts/bootstrap.js)"]
     environment:
       DATABASE_URL: mysql://root:password@mysql:3306/openwork_den
-      DEN_DB_ENCRYPTION_KEY: ${OPENWORK_DB_ENCRYPTION_KEY:-eval-only-den-db-encryption-key-0123456789}
+      DEN_DB_ENCRYPTION_KEY: ${OPENWORK_DB_ENCRYPTION_KEY:?Set OPENWORK_DB_ENCRYPTION_KEY to at least 32 random characters}
 
   den:
-    image: ghcr.io/different-ai/openwork-den-api:${OPENWORK_VERSION:-0.18.37}
+    image: ghcr.io/different-ai/openwork-den-api:0.18.37@sha256:5ae1fab94ae2badd49ae74649cfb38ca679a7afc7e9ae8926c927553a34caabd
     restart: unless-stopped
     depends_on:
       mysql:
@@ -68,8 +74,8 @@ services:
     environment:
       PORT: "8788"
       DATABASE_URL: mysql://root:password@mysql:3306/openwork_den
-      BETTER_AUTH_SECRET: ${OPENWORK_AUTH_SECRET:-eval-only-auth-secret-0123456789abcdef}
-      DEN_DB_ENCRYPTION_KEY: ${OPENWORK_DB_ENCRYPTION_KEY:-eval-only-den-db-encryption-key-0123456789}
+      BETTER_AUTH_SECRET: ${OPENWORK_AUTH_SECRET:?Set OPENWORK_AUTH_SECRET to at least 32 random characters}
+      DEN_DB_ENCRYPTION_KEY: ${OPENWORK_DB_ENCRYPTION_KEY:?Set OPENWORK_DB_ENCRYPTION_KEY to at least 32 random characters}
       BETTER_AUTH_URL: http://${OPENWORK_HOST:-localhost}:${OPENWORK_WEB_PORT:-3005}
       DEN_ORG_MODE: single_org
       DEN_SINGLE_ORG_NAME: ${OPENWORK_ORG_NAME:-OpenWork Evaluation}
@@ -84,7 +90,7 @@ services:
       WORKER_URL_TEMPLATE: https://workers.local/{workerId}
 
   web:
-    image: ghcr.io/different-ai/openwork-den-web:${OPENWORK_VERSION:-0.18.37}
+    image: ghcr.io/different-ai/openwork-den-web:0.18.37@sha256:9ca96fb73bc3512852409f1508876e418cd56f6d5187ff4e0c683f5b69a2dda3
     restart: unless-stopped
     depends_on:
       den:

@@ -73,7 +73,8 @@
           {
             "group": "Overview",
             "pages": [
-              "start-here/self-host"
+              "start-here/self-host",
+              "self-host/evaluate-with-docker-compose"
             ]
           },
           {
