@@ -214,7 +214,7 @@ describe("createThread", () => {
     expect(thread.started).toBe(false);
   });
 
-  test("preserves wrapper validation and normalization for initial title and prompt", async () => {
+  test("preserves client validation and normalization for initial title and prompt", async () => {
     const double = createOpenworkDouble();
     const client = createClient(double);
 

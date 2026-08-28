@@ -253,24 +253,32 @@ test.skipIf(missingRequirements.length > 0)(title, { timeout: 15 * 60_000 }, asy
   );
 
   const sessionsResponse = await fetch(
-    `${manifest.openworkUrl}/workspace/${encodeURIComponent(workspaceId)}/sessions`,
+    `${manifest.openworkUrl}/workspace/${encodeURIComponent(workspaceId)}/opencode/session`,
     { headers: localHeaders, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) },
   );
   expect(sessionsResponse.ok).toBe(true);
   const sessionsBody: unknown = await sessionsResponse.json();
-  const sessions = isRecord(sessionsBody) && Array.isArray(sessionsBody.items)
-    ? sessionsBody.items.filter(isRecord)
+  const sessions = Array.isArray(sessionsBody)
+    ? sessionsBody.filter(isRecord)
     : [];
   const localSession = sessions.find((item) => item.id === sessionId);
   expect(localSession).toMatchObject({ id: sessionId, title: sessionTitle });
-  const snapshotResponse = await fetch(
-    `${manifest.openworkUrl}/workspace/${encodeURIComponent(workspaceId)}/sessions/${encodeURIComponent(sessionId)}/snapshot`,
-    { headers: localHeaders, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) },
+  const sessionBase = `${manifest.openworkUrl}/workspace/${encodeURIComponent(workspaceId)}/opencode/session`;
+  const encodedSessionId = encodeURIComponent(sessionId);
+  const snapshotResponses = await Promise.all([
+    fetch(`${sessionBase}/${encodedSessionId}`, { headers: localHeaders, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) }),
+    fetch(`${sessionBase}/${encodedSessionId}/message`, { headers: localHeaders, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) }),
+    fetch(`${sessionBase}/${encodedSessionId}/todo`, { headers: localHeaders, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) }),
+    fetch(`${sessionBase}/status`, { headers: localHeaders, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) }),
+  ]);
+  expect(snapshotResponses.every((response) => response.ok)).toBe(true);
+  const [snapshotSession, snapshotMessages, snapshotTodos, snapshotStatuses]: unknown[] = await Promise.all(
+    snapshotResponses.map((response) => response.json()),
   );
-  expect(snapshotResponse.ok).toBe(true);
-  const snapshotBody: unknown = await snapshotResponse.json();
-  const snapshot = isRecord(snapshotBody) && isRecord(snapshotBody.item) ? snapshotBody.item : {};
-  const status = isRecord(snapshot.status) ? snapshot.status : {};
+  const status = isRecord(snapshotStatuses) && isRecord(snapshotStatuses[sessionId])
+    ? snapshotStatuses[sessionId]
+    : { type: "idle" };
+  const snapshot = { session: snapshotSession, messages: snapshotMessages, todos: snapshotTodos, status };
   expect(status.type).toBe("idle");
   expect(Array.isArray(snapshot.messages) ? snapshot.messages : []).toEqual([]);
   evidence.recordAssertionEvidence(
