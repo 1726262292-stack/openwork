@@ -217,6 +217,15 @@ export function registerOrgBillingRoutes<T extends { Variables: OrgRouteVariable
       if (subscriptionType === "web" && !isOpenWorkWebAvailable()) {
         return c.json(openWorkWebUnavailableResponse(), 404)
       }
+      if (subscriptionType === "web") {
+        const webBilling = await getOpenWorkWebBillingSummary(payload.organization.id)
+        if (webBilling.complimentaryAccess) {
+          return c.json({
+            error: "openwork_web_complimentary_access_exists",
+            message: "OpenWork Web is already included for this organization without a Stripe subscription.",
+          }, 409)
+        }
+      }
       const createCheckoutSession = subscriptionType === "seat"
         ? createSeatCheckoutSession
         : subscriptionType === "web"

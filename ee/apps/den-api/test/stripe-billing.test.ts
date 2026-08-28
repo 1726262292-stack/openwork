@@ -320,7 +320,7 @@ test("member-readable Web billing summary omits Stripe identifiers and portal ac
     cancel_at_period_end: false,
     canceled_at: null,
     ended_at: null,
-  }], [{ count: 2 }])
+  }], [{ count: 2 }], [{ metadata: {} }])
 
   const summary = await getOpenWorkWebBillingSummary("org_test")
 
@@ -330,6 +330,9 @@ test("member-readable Web billing summary omits Stripe identifiers and portal ac
     quantity: 2,
     expectedMonthlyTotal: 10000,
     hasEligibleSubscription: true,
+    hasAccess: true,
+    accessSource: "subscription",
+    complimentaryAccess: false,
     subscription: {
       status: "active",
       paymentStatus: "paid",
@@ -345,12 +348,37 @@ test("member-readable Web billing summary omits Stripe identifiers and portal ac
 
 test("the Web flag controls availability while Stripe readiness controls purchasing", async () => {
   env.stripe.secretKey = ""
-  selectResults.push([], [{ count: 2 }])
+  selectResults.push([], [{ count: 2 }], [{ metadata: {} }])
 
   const summary = await getOpenWorkWebBillingSummary("org_test")
 
   expect(openWorkWebDeploymentAvailable(env.openworkWebEnabled)).toBe(true)
   expect(summary.configured).toBe(false)
+  expect(summary.hasAccess).toBe(false)
+})
+
+test("complimentary Web access works without Stripe configuration but remains behind the deployment flag", async () => {
+  env.stripe.secretKey = ""
+  selectResults.push([], [{ count: 2 }], [{ metadata: { complimentaryAccess: { openworkWeb: true } } }])
+
+  const enabledSummary = await getOpenWorkWebBillingSummary("org_test")
+
+  expect(enabledSummary).toMatchObject({
+    configured: false,
+    hasEligibleSubscription: false,
+    hasAccess: true,
+    accessSource: "complimentary",
+    complimentaryAccess: true,
+  })
+
+  env.openworkWebEnabled = false
+  selectResults.push([], [{ count: 2 }], [{ metadata: { complimentaryAccess: { openworkWeb: true } } }])
+  const disabledSummary = await getOpenWorkWebBillingSummary("org_test")
+  expect(disabledSummary).toMatchObject({
+    hasAccess: false,
+    accessSource: null,
+    complimentaryAccess: true,
+  })
 })
 
 test("an active Web subscription with a failed payment remains locked", async () => {
@@ -365,11 +393,12 @@ test("an active Web subscription with a failed payment remains locked", async ()
     payment_failed: true,
     canceled_at: null,
     ended_at: null,
-  }], [{ count: 2 }])
+  }], [{ count: 2 }], [{ metadata: {} }])
 
   const summary = await getOpenWorkWebBillingSummary("org_test")
 
   expect(summary.hasEligibleSubscription).toBe(false)
+  expect(summary.hasAccess).toBe(false)
   expect(summary.subscription?.status).toBe("active")
   expect(summary.subscription?.paymentStatus).toBe("payment_failed")
 })
