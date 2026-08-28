@@ -163,6 +163,28 @@ function updateRecord(
   };
 }
 
+// Message roles are only consulted while a run is active to decide whether a
+// streaming part belongs to an assistant message. Without a cap the dict grows
+// by one entry per message for a session's whole lifetime, so keep only the
+// most recently marked messages.
+export const MAX_TRACKED_MESSAGE_ROLES = 200;
+
+function withMessageRole(
+  roles: Record<string, SessionMessageRole>,
+  messageId: string,
+  role: SessionMessageRole,
+): Record<string, SessionMessageRole> {
+  if (roles[messageId] === role) return roles;
+  const next: Record<string, SessionMessageRole> = { ...roles, [messageId]: role };
+  const ids = Object.keys(next);
+  const overflow = ids.length - MAX_TRACKED_MESSAGE_ROLES;
+  if (overflow <= 0) return next;
+  for (const id of ids.slice(0, overflow)) {
+    delete next[id];
+  }
+  return next;
+}
+
 function removeValue(values: string[], value: string) {
   return values.filter((item) => item !== value);
 }
@@ -277,10 +299,7 @@ export const useSessionActivityStore = create<SessionActivityStore>((set, get) =
     if (!workspace || !session || !message) return;
     set((state) => updateRecord(state, workspace, session, (record) => ({
       ...record,
-      messageRoles: {
-        ...record.messageRoles,
-        [message]: role,
-      },
+      messageRoles: withMessageRole(record.messageRoles, message, role),
     })));
   },
   markAssistantOutput: (workspaceId, sessionId, messageId, options) => {
