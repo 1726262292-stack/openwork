@@ -14,7 +14,7 @@ const session = (workspaceId: string, sessionId: string, updatedAt: number): Sea
   updatedAt,
 });
 
-test("session search keeps one fresh result per workspace session", () => {
+test("session search keeps one fresh result per workspace session", ({ evidence }) => {
   const stale = session("workspace-a", "session-1", 10);
   const fresh = session("workspace-a", "session-1", 20);
   const otherWorkspace = session("workspace-b", "session-1", 15);
@@ -27,4 +27,10 @@ test("session search keeps one fresh result per workspace session", () => {
     "workspace-b\u0000session-1",
   ]);
   expect(new Set(unique.map(searchableSessionKey)).size).toBe(unique.length);
+
+  evidence.recordAssertionEvidence(
+    "Session search renders one result per workspace session identity",
+    "Duplicate entries collapsed to the freshest record while an identical session id in another workspace remained distinct.",
+    true,
+  );
 });
