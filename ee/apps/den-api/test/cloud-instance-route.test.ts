@@ -339,6 +339,8 @@ describe("Cloud instance route gate", () => {
 })
 
 describe("Cloud gateway resolve route", () => {
+  const grantedOpenWorkWebAccess = async () => ({ hasAccess: true })
+
   test("returns 404 when the gateway key is not configured", async () => {
     const app = new Hono<{ Variables: OrgRouteVariables }>()
     routes.registerCloudRoutes(app, {
@@ -409,6 +411,34 @@ describe("Cloud gateway resolve route", () => {
     await expect(response.json()).resolves.toEqual({ error: "cloud_not_found" })
   })
 
+  test("denies Web gateway resolution before provisioning when Den has not granted access", async () => {
+    const app = new Hono<{ Variables: OrgRouteVariables }>()
+    let ensureCalls = 0
+    routes.registerCloudRoutes(app, {
+      memberRoute: contextMiddleware(organizationContext(JSON.stringify({ capabilities: { cloud: true } }))),
+      orgMode: "multi_org",
+      provisionerMode: "daytona",
+      daytonaApiKey: "daytona-test-key",
+      gatewayKey: "gateway-secret",
+      getOpenWorkWebAccess: async () => ({ hasAccess: false }),
+      ensureCloudWorker: async () => {
+        ensureCalls += 1
+        return fakeWorker("provisioning")
+      },
+    })
+
+    const response = await app.request("http://den.local/v1/cloud/gateway/resolve", {
+      headers: { "X-OpenWork-Gateway-Key": "gateway-secret" },
+    })
+
+    expect(response.status).toBe(403)
+    await expect(response.json()).resolves.toEqual({
+      error: "openwork_web_access_required",
+      message: "OpenWork Web access is not active for this organization.",
+    })
+    expect(ensureCalls).toBe(0)
+  })
+
   test("returns the gateway tokens only when the instance is ready", async () => {
     const provisioningWorker = fakeWorker("provisioning")
     const provisioningApp = new Hono<{ Variables: OrgRouteVariables }>()
@@ -418,6 +448,7 @@ describe("Cloud gateway resolve route", () => {
       provisionerMode: "daytona",
       daytonaApiKey: "daytona-test-key",
       gatewayKey: "gateway-secret",
+      getOpenWorkWebAccess: grantedOpenWorkWebAccess,
       ensureCloudWorker: async () => provisioningWorker,
       getSandboxRecord: async () => null,
     })
@@ -438,6 +469,7 @@ describe("Cloud gateway resolve route", () => {
       provisionerMode: "daytona",
       daytonaApiKey: "daytona-test-key",
       gatewayKey: "gateway-secret",
+      getOpenWorkWebAccess: grantedOpenWorkWebAccess,
       ensureCloudWorker: async () => readyWorker,
       cloudWorkerStore: store.store,
       getSandboxRecord: async () => fakeSandbox(),
@@ -495,6 +527,7 @@ describe("Cloud gateway resolve route", () => {
       provisionerMode: "daytona",
       daytonaApiKey: "daytona-test-key",
       gatewayKey: "gateway-secret",
+      getOpenWorkWebAccess: grantedOpenWorkWebAccess,
       ensureCloudWorker: async () => readyWorker,
       cloudWorkerStore: store.store,
       getSandboxRecord: async () => fakeSandboxWithId("den-daytona-worker-cloud-test"),
@@ -528,6 +561,7 @@ describe("Cloud gateway resolve route", () => {
       provisionerMode: "daytona",
       daytonaApiKey: "daytona-test-key",
       gatewayKey: "gateway-secret",
+      getOpenWorkWebAccess: grantedOpenWorkWebAccess,
       ensureCloudWorker: async () => readyWorker,
       cloudWorkerStore: store.store,
       getSandboxRecord: async () => fakeSandbox(),
@@ -571,6 +605,7 @@ describe("Cloud gateway resolve route", () => {
       provisionerMode: "daytona",
       daytonaApiKey: "daytona-test-key",
       gatewayKey: "gateway-secret",
+      getOpenWorkWebAccess: grantedOpenWorkWebAccess,
       ensureCloudWorker: async () => readyWorker,
       cloudWorkerStore: store.store,
       getSandboxRecord: async () => fakeSandbox(),
@@ -1070,6 +1105,48 @@ describe("Cloud instance per-user workers", () => {
 })
 
 describe("Cloud instance failed self-heal", () => {
+  test("returns the durable safe diagnostic while recovery starts", async () => {
+    const occurredAt = new Date("2026-08-28T12:00:00.000Z")
+    const worker = {
+      ...storedWorker({ status: "failed" }),
+      cloud_failure_code: "runtime_health_timeout",
+      cloud_failure_stage: "recovery",
+      cloud_failure_reference: "cwf_route-test",
+      cloud_failure_at: occurredAt,
+    } satisfies StoredCloudWorker
+    const store = makeCloudWorkerStore({
+      initialWorkers: [worker],
+      tokens: [makeToken(worker.id, "host"), makeToken(worker.id, "client"), makeToken(worker.id, "activity")],
+    })
+    const app = new Hono<{ Variables: OrgRouteVariables }>()
+
+    routes.registerCloudRoutes(app, {
+      memberRoute: contextMiddleware(organizationContext(JSON.stringify({ capabilities: { cloud: true } }))),
+      orgMode: "multi_org",
+      provisionerMode: "daytona",
+      daytonaApiKey: "daytona-test-key",
+      ensureCloudWorker: async () => worker,
+      cloudWorkerStore: store.store,
+      getSandboxRecord: async () => null,
+      continueProvisioning: async () => undefined,
+    })
+
+    const response = await app.request("http://den.local/v1/cloud/instance")
+    const payload = await response.json()
+
+    expect(response.status).toBe(200)
+    expect(payload).toEqual({
+      ...expectedCloudInstance({ status: "provisioning", url: null }),
+      failure: {
+        code: "runtime_health_timeout",
+        stage: "recovery",
+        reference: "cwf_route-test",
+        occurredAt: occurredAt.toISOString(),
+      },
+    })
+    expect(JSON.stringify(payload)).not.toContain("token")
+  })
+
   test("adopts an existing stopped sandbox for a failed worker instead of provisioning a duplicate", async () => {
     const worker = storedWorker({ status: "failed" })
     const store = makeCloudWorkerStore({
@@ -1113,7 +1190,7 @@ describe("Cloud instance failed self-heal", () => {
       .resolves.toEqual(expectedCloudInstance({ status: "ready", url: "https://preview.example.test" }))
   })
 
-  test("claims a failed worker, kicks provisioning, then throttles another failed GET for 60 seconds", async () => {
+  test("lets one explicit retry bypass passive cooldown but rate-limits repeated retries", async () => {
     const worker = storedWorker({ status: "failed" })
     const store = makeCloudWorkerStore({
       initialWorkers: [worker],
@@ -1152,6 +1229,29 @@ describe("Cloud instance failed self-heal", () => {
     await flushMicrotasks()
     expect(store.claimAttempts).toBe(1)
     expect(provisionCalls).toBe(1)
+
+    const retry = await app.request("http://den.local/v1/cloud/instance/retry", { method: "POST" })
+    expect(retry.status).toBe(200)
+    await expect(retry.json()).resolves.toEqual(expectedCloudInstance({ status: "provisioning", url: null }))
+    await flushMicrotasks()
+    expect(store.claimAttempts).toBe(2)
+    expect(provisionCalls).toBe(2)
+
+    worker.status = "failed"
+    const repeatedRetry = await app.request("http://den.local/v1/cloud/instance/retry", { method: "POST" })
+    expect(repeatedRetry.status).toBe(200)
+    await expect(repeatedRetry.json()).resolves.toEqual(expectedCloudInstance({ status: "failed", url: null }))
+    await flushMicrotasks()
+    expect(store.claimAttempts).toBe(2)
+    expect(provisionCalls).toBe(2)
+
+    now += 60_000
+    const cooledRetry = await app.request("http://den.local/v1/cloud/instance/retry", { method: "POST" })
+    expect(cooledRetry.status).toBe(200)
+    await expect(cooledRetry.json()).resolves.toEqual(expectedCloudInstance({ status: "provisioning", url: null }))
+    await flushMicrotasks()
+    expect(store.claimAttempts).toBe(3)
+    expect(provisionCalls).toBe(3)
   })
 
   test("two concurrent failed GETs start exactly one heal", async () => {

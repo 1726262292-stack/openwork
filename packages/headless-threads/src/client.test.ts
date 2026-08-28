@@ -457,6 +457,43 @@ describe("waitForThread", () => {
     expect(result.polls).toBe(0);
   });
 
+  test("aborting mid-wait stops polling after the in-flight beat and never calls abortThread implicitly", async () => {
+    const controller = new AbortController();
+    const clock = createClock();
+    // The turn never settles: every beat reports a busy engine.
+    const double = createOpenworkDouble({
+      beats: [{ status: { type: "busy" }, messages: [reply("msg_1", "user")] }],
+    });
+    // Abort while the wait sleeps between polls — mid-stream, not before the call.
+    const sleep = async (ms: number) => {
+      await clock.sleep(ms);
+      controller.abort();
+    };
+    const client = createHeadlessThreadClient({
+      baseUrl: BASE_URL,
+      workspaceId: "ws_1",
+      token: "owt_test",
+      fetch: double.fetchImpl,
+      now: clock.now,
+      sleep,
+    });
+
+    const result = await client.waitForThread(SESSION_ID, {
+      timeoutMs: 10_000,
+      pollIntervalMs: 100,
+      signal: controller.signal,
+    });
+
+    expect(result.outcome).toBe("aborted");
+    expect(result.observedRunning).toBe(true);
+    // Exactly one live poll happened before the abort; the final snapshot read
+    // documents state at abort time instead of counting as a poll.
+    expect(result.polls).toBe(1);
+    expect(double.snapshotReads()).toBe(2);
+    // Cancelling a wait must never cancel the engine turn on the caller's behalf.
+    expect(double.requests.some((request) => request.path.endsWith("/abort"))).toBe(false);
+  });
+
   test("matches the assistant response to the stable user message", async () => {
     const double = createOpenworkDouble({
       beats: [{
@@ -544,6 +581,56 @@ describe("failures", () => {
     expect(error.method).toBe("GET");
     expect(error.path).toBe("/workspace/ws_1/opencode/session/ses_1");
     expect(error.status).toBeNull();
+  });
+
+  test("defaults individual request timeouts to 15 seconds", async () => {
+    const originalTimeout = AbortSignal.timeout;
+    const timeoutDescriptor = Object.getOwnPropertyDescriptor(AbortSignal, "timeout");
+    if (!timeoutDescriptor) throw new Error("AbortSignal.timeout is unavailable");
+    const requested: number[] = [];
+    Object.defineProperty(AbortSignal, "timeout", {
+      configurable: true,
+      value: (milliseconds: number) => {
+        requested.push(milliseconds);
+        return originalTimeout(milliseconds);
+      },
+    });
+    try {
+      await createClient(createOpenworkDouble()).createThread({ title: "Default timeout" });
+      expect(requested).toEqual([15_000]);
+    } finally {
+      Object.defineProperty(AbortSignal, "timeout", timeoutDescriptor);
+    }
+  });
+
+  test("disables request timeouts when configured with zero", async () => {
+    const originalTimeout = AbortSignal.timeout;
+    const timeoutDescriptor = Object.getOwnPropertyDescriptor(AbortSignal, "timeout");
+    if (!timeoutDescriptor) throw new Error("AbortSignal.timeout is unavailable");
+    const requested: number[] = [];
+    Object.defineProperty(AbortSignal, "timeout", {
+      configurable: true,
+      value: (milliseconds: number) => {
+        requested.push(milliseconds);
+        return originalTimeout(milliseconds);
+      },
+    });
+    const double = createOpenworkDouble();
+    const client = createHeadlessThreadClient({
+      baseUrl: BASE_URL,
+      workspaceId: "ws_1",
+      token: "owt_test",
+      fetch: double.fetchImpl,
+      requestTimeoutMs: 0,
+    });
+
+    try {
+      await client.createThread({ title: "No timeout" });
+      expect(requested).toEqual([]);
+      expect(double.requests[0]?.signal?.aborted).toBe(false);
+    } finally {
+      Object.defineProperty(AbortSignal, "timeout", timeoutDescriptor);
+    }
   });
 
   test("merges the client-wide and per-call signals into SDK requests", async () => {

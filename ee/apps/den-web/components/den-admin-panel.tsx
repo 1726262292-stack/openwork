@@ -2780,9 +2780,7 @@ export function DenAdminPanel() {
                           {org.openworkWebAccess.hasOngoingSubscription
                             ? `A ${org.openworkWebAccess.subscriptionStatus ?? "current"} Stripe subscription controls access and billing.`
                             : org.openworkWebAccess.complimentaryAccess
-                              ? org.openworkWebAccess.hasAccess
-                                ? "All joined members can use OpenWork Web without a Stripe subscription or per-member charge."
-                                : "The complimentary grant is stored, but this deployment has not enabled OpenWork Web."
+                              ? "All joined members can use OpenWork Web without a Stripe subscription or per-member charge, even when deployment-wide availability is off."
                               : "No complimentary grant or ongoing paid OpenWork Web subscription."}
                         </p>
                       </div>
@@ -3127,7 +3125,7 @@ export function DenAdminPanel() {
             </h2>
             <p className="mt-2 text-sm leading-6 text-slate-600">
               {openworkWebAccessDialog.enabled
-                ? `${openworkWebAccessDialog.org.name} will receive OpenWork Web for every joined member without a Stripe subscription or per-member charge.`
+                ? `${openworkWebAccessDialog.org.name} will receive OpenWork Web for every joined member without a Stripe subscription or per-member charge, even when deployment-wide availability is off.`
                 : `${openworkWebAccessDialog.org.name} will lose complimentary access immediately unless an independently eligible paid subscription exists.`}
             </p>
 

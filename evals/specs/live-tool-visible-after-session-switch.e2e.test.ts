@@ -202,8 +202,8 @@ async function readSessionFacts(appSurface: App, workspaceId: string, sessionId:
       fetch(base + "/status", options),
     ]);
     if (responses.some((response) => !response.ok)) return { sessionId: "", text: "", tools: [] };
-    const [session, messages, todos, statuses] = await Promise.all(responses.map((response) => response.json()));
-    const item = { session, messages, todos, status: statuses?.[session?.id] ?? { type: "idle" } };
+    const [session, messageWires, todos, statuses] = await Promise.all(responses.map((response) => response.json()));
+    const item = { session, messages: messageWires, todos, status: statuses?.[session?.id] ?? { type: "idle" } };
     const messages = Array.isArray(item.messages) ? item.messages : [];
     const parts = messages.flatMap((message) => Array.isArray(message?.parts) ? message.parts : []);
     return {
