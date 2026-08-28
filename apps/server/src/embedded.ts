@@ -33,7 +33,6 @@ import {
 import { ensureLocalWorkspaceFiles } from "./workspace-init.js";
 import { findManagedEngineWorkspace } from "./workspaces.js";
 import { keepOpenworkRuntimeConfigFileFresh, writeOpenworkRuntimeConfigFile } from "./openwork-runtime-config.js";
-import { sweepLegacyOpenCodeConfig } from "./legacy-config-sweep.js";
 import { resolveOpencodeModelsUrl } from "./opencode-models-url.js";
 import type { ServeResult } from "./serve-node.js";
 import type { LocalManagedMcpVaultKeyProvider, ServerConfig } from "./types.js";
@@ -199,7 +198,6 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
         || process.env.OPENWORK_MANAGED_OPENCODE_CWD?.trim()
         || workspace.path;
       await duringStartup(() => mkdir(cwd, { recursive: true }));
-      await sweepLegacyOpenCodeConfig(config).catch(() => undefined);
       const opencodeModelsUrl = await duringStartup(() => resolveOpencodeModelsUrl());
 
       const opencodeBin = options.opencodeBin || process.env.OPENWORK_OPENCODE_BIN;
