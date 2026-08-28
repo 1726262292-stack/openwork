@@ -101,19 +101,6 @@ const sessionInfoSchema = z.object({
   time: sessionTimeSchema.optional(),
 }).passthrough();
 
-const sessionListEnvelopeSchema = z.object({
-  items: z.array(sessionInfoSchema),
-}).passthrough();
-
-const sessionEnvelopeSchema = z.object({
-  item: sessionInfoSchema,
-}).passthrough();
-
-const createdSessionEnvelopeSchema = z.object({
-  item: sessionInfoSchema,
-  started: z.boolean(),
-}).passthrough();
-
 const sessionPartSchema = z.object({
   type: z.string().optional(),
   text: z.string().optional(),
@@ -128,10 +115,6 @@ const sessionMessageSchema = z.object({
     time: sessionTimeSchema.optional(),
   }).passthrough(),
   parts: z.array(sessionPartSchema),
-}).passthrough();
-
-const sessionMessagesEnvelopeSchema = z.object({
-  items: z.array(sessionMessageSchema),
 }).passthrough();
 
 const OPENWORK_AGENT_SURFACE_INSTRUCTION =
@@ -633,22 +616,22 @@ function filterWorkspaces(workspaces: OpenWorkWorkspace[], workspaceId?: string)
 
 async function listWorkspaceSessions(workspace: OpenWorkWorkspace, limit: number): Promise<SessionInfo[]> {
   const query = new URLSearchParams({ roots: "true", limit: String(limit) });
-  return sessionListEnvelopeSchema.parse(
-    await serverGet(`/workspace/${encodeURIComponent(workspace.id)}/sessions?${query.toString()}`),
-  ).items;
+  return z.array(sessionInfoSchema).parse(
+    await serverGet(`/workspace/${encodeURIComponent(workspace.id)}/opencode/session?${query.toString()}`),
+  );
 }
 
 async function readWorkspaceSession(workspace: OpenWorkWorkspace, sessionId: string): Promise<SessionInfo> {
-  return sessionEnvelopeSchema.parse(
-    await serverGet(`/workspace/${encodeURIComponent(workspace.id)}/sessions/${encodeURIComponent(sessionId)}`),
-  ).item;
+  return sessionInfoSchema.parse(
+    await serverGet(`/workspace/${encodeURIComponent(workspace.id)}/opencode/session/${encodeURIComponent(sessionId)}`),
+  );
 }
 
 async function readSessionMessages(workspace: OpenWorkWorkspace, sessionId: string, limit: number): Promise<SessionMessage[]> {
   const query = new URLSearchParams({ limit: String(limit) });
-  return sessionMessagesEnvelopeSchema.parse(
-    await serverGet(`/workspace/${encodeURIComponent(workspace.id)}/sessions/${encodeURIComponent(sessionId)}/messages?${query.toString()}`),
-  ).items;
+  return z.array(sessionMessageSchema).parse(
+    await serverGet(`/workspace/${encodeURIComponent(workspace.id)}/opencode/session/${encodeURIComponent(sessionId)}/message?${query.toString()}`),
+  );
 }
 
 async function forEachWithConcurrency<T>(items: T[], concurrency: number, run: (item: T) => Promise<void>): Promise<void> {
@@ -838,16 +821,20 @@ async function createOpenWorkSessions(rawArgs: unknown, context: OpenCodeContext
   const workspace = await resolveContextWorkspace(args.workspaceId, context);
   const results = await Promise.all(args.sessions.map(async (session): Promise<CreatedOpenWorkSessionResult | FailedOpenWorkSessionResult> => {
     try {
-      const payload = createdSessionEnvelopeSchema.parse(await postJson(
-        `/workspace/${encodeURIComponent(workspace.id)}/sessions`,
-        session,
+      const payload = sessionInfoSchema.parse(await postJson(
+        `/workspace/${encodeURIComponent(workspace.id)}/opencode/session`,
+        { title: session.title },
       ));
+      await postJson(
+        `/workspace/${encodeURIComponent(workspace.id)}/opencode/session/${encodeURIComponent(payload.id)}/prompt_async`,
+        { parts: [{ type: "text", text: session.prompt }] },
+      );
       return {
         ok: true,
-        sessionId: payload.item.id,
-        title: payload.item.title?.trim() || session.title,
-        started: payload.started,
-        route: `/workspace/${encodeURIComponent(workspace.id)}/session/${encodeURIComponent(payload.item.id)}`,
+        sessionId: payload.id,
+        title: payload.title?.trim() || session.title,
+        started: true,
+        route: `/workspace/${encodeURIComponent(workspace.id)}/session/${encodeURIComponent(payload.id)}`,
       };
     } catch (error) {
       return {
