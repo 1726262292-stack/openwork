@@ -65,13 +65,10 @@ test(title, { timeout: 300_000 }, async () => {
     { timeoutMs: 60_000, label: "Library page" },
   );
 
-  // Positive half: the Library page still reads opencode.json at least once.
-  await waitFor(app, `window.__opencodeConfigReads >= 1`, {
-    timeoutMs: 30_000,
-    label: "initial opencode-config read",
-  });
-
   // Let the initial mount (project + global scopes, workspace settling) finish.
+  // The mount read may predate the instrumentation when the settings surface
+  // was pre-warmed, so the positive half is proven by an explicit remount
+  // below instead of waiting on this initial read.
   await new Promise((resolve) => setTimeout(resolve, 5_000));
   const settled = await evalIn(app, `window.__opencodeConfigReads`);
   expect(typeof settled).toBe("number");
@@ -94,4 +91,30 @@ test(title, { timeout: 300_000 }, async () => {
     `window.location.hash.includes("/settings/extensions")`,
   );
   expect(stillOnLibrary).toBe(true);
+
+  // Positive half: a genuine remount still reads opencode.json — the budget
+  // above is not satisfied by the config read being broken outright, and the
+  // counter seam demonstrably observes reads.
+  await evalIn(app, `(() => {
+    window.location.hash = "#/settings/general";
+    return true;
+  })()`);
+  await waitFor(app, `window.location.hash.includes("/settings/general")`, {
+    timeoutMs: 30_000,
+    label: "settings general page",
+  });
+  await evalIn(app, `(() => {
+    window.location.hash = "#/settings/extensions";
+    return true;
+  })()`);
+  await waitFor(
+    app,
+    `window.location.hash.includes("/settings/extensions")
+      && [...document.querySelectorAll("h1, h2")].some((heading) => heading.textContent?.trim() === "Library")`,
+    { timeoutMs: 60_000, label: "Library page after remount" },
+  );
+  await waitFor(app, `window.__opencodeConfigReads > ${Number(afterIdle)}`, {
+    timeoutMs: 30_000,
+    label: "opencode-config read after Library remount",
+  });
 });
