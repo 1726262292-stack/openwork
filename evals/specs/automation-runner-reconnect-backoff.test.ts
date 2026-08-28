@@ -18,6 +18,15 @@ function requestBudget(delays: number[], windowMs: number): number {
 }
 
 test("desktop Automation runner retires rejected credentials without changing transient backoff", async ({ evidence }) => {
+  // automation-runner.mjs resolves @openwork/headless-threads through its
+  // published "default" export (dist/index.js) when run under plain node,
+  // so the package must be built before the unit test can load.
+  const build = spawnSync("pnpm", ["--filter", "@openwork/headless-threads", "build"], {
+    cwd: repoRoot,
+    encoding: "utf8",
+  });
+  expect(build.status, build.stderr || build.stdout).toBe(0);
+
   const unit = spawnSync(process.execPath, [
     "--test",
     "--test-reporter=tap",

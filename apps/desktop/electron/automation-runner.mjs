@@ -1,4 +1,4 @@
-import { createOpencodeClient } from "@opencode-ai/sdk/v2/client"
+import { createHeadlessThreadClient } from "@openwork/headless-threads"
 
 const EMPTY_USAGE = { inputTokens: null, outputTokens: null, costMicros: null }
 const RUNNER_WORK_POLL_MS = 60_000
@@ -68,43 +68,19 @@ async function requestJson(fetchImpl, baseUrl, token, requestPath, options = {})
   return payload
 }
 
-function opencodeFetch(fetchImpl) {
-  return async (input, init = {}) => {
-    const request = input instanceof Request ? input : new Request(input, init)
-    const body = ["GET", "HEAD"].includes(request.method) ? undefined : await request.text()
-    return fetchImpl(request.url, {
-      method: request.method,
-      headers: request.headers,
-      body: body || undefined,
-      signal: request.signal,
-    })
-  }
-}
-
-function unwrapOpencodeResult(result, operation) {
-  if (result?.data != null) return result.data
-  if (result?.error === undefined && result?.response?.ok) return null
-  const error = new Error(
-    result?.error === undefined
-      ? `OpenCode returned an empty response for ${operation}`
-      : serializedError(result.error),
-  )
-  const status = result?.response?.status ?? result?.error?.cause?.status
-  if (status !== undefined) Object.defineProperty(error, "status", { value: status })
-  throw error
-}
-
-function createWorkspaceOpencodeClient(local, workspaceId, fetchImpl) {
-  return createOpencodeClient({
-    baseUrl: `${local.baseUrl.replace(/\/+$/, "")}/workspace/${encodeURIComponent(workspaceId)}/opencode`,
-    headers: { Authorization: `Bearer ${local.token}` },
-    fetch: opencodeFetch(fetchImpl),
+function createWorkspaceSessionClient(local, workspaceId, fetchImpl) {
+  return createHeadlessThreadClient({
+    baseUrl: local.baseUrl,
+    workspaceId,
+    token: local.token,
+    fetch: fetchImpl,
+    requestTimeoutMs: 0,
   })
 }
 
 function assistantResult(snapshot) {
   const assistants = Array.isArray(snapshot?.messages)
-    ? snapshot.messages.filter((message) => message?.info?.role === "assistant")
+    ? snapshot.messages.filter((message) => message?.role === "assistant")
     : []
   let resultSummary = null
   let inputTokens = 0
@@ -113,14 +89,14 @@ function assistantResult(snapshot) {
   let sawOutput = false
   let sawCompletedTool = false
   for (const message of assistants) {
-    const tokens = message?.info?.tokens
-    if (Number.isFinite(tokens?.input)) { inputTokens += Number(tokens.input); sawInput = true }
-    if (Number.isFinite(tokens?.output)) { outputTokens += Number(tokens.output); sawOutput = true }
+    const usage = message?.usage
+    if (Number.isFinite(usage?.inputTokens)) { inputTokens += Number(usage.inputTokens); sawInput = true }
+    if (Number.isFinite(usage?.outputTokens)) { outputTokens += Number(usage.outputTokens); sawOutput = true }
     for (const part of Array.isArray(message?.parts) ? message.parts : []) {
       if (part?.type === "text" && typeof part.text === "string" && part.text.trim()) {
         resultSummary = part.text.trim().slice(0, 20_000)
       }
-      if (part?.type === "tool" && (part?.toolStatus === "completed" || part?.state?.status === "completed")) {
+      if (part?.type === "tool" && part?.toolStatus === "completed") {
         sawCompletedTool = true
       }
     }
@@ -140,8 +116,8 @@ function assistantFailure(snapshot) {
   const messages = Array.isArray(snapshot?.messages) ? snapshot.messages : []
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index]
-    if (message?.info?.role !== "assistant" || !message.info.error) continue
-    return classifyAutomationExecutionError(message.info.error)
+    if (message?.role !== "assistant" || !message.error) continue
+    return classifyAutomationExecutionError(message.error)
   }
   return null
 }
@@ -162,56 +138,23 @@ export async function executeDesktopAutomation(assignment, options) {
   const workspace = workspaces.find((item) => item?.id === listed?.activeId) ?? workspaces[0]
   if (!workspace?.id) throw new Error("No local workspace is available")
   const workspaceId = String(workspace.id)
-  const opencode = createWorkspaceOpencodeClient(local, workspaceId, options.fetchImpl ?? fetch)
-  const created = unwrapOpencodeResult(
-    await opencode.session.create(
-      { title: `Automation: ${assignment.automationName}`.slice(0, 120) },
-      { signal: options.signal },
-    ),
-    "session creation",
-  )
-  const sessionId = typeof created?.id === "string" ? created.id : null
-  if (!sessionId) throw new Error("The desktop runtime returned no thread")
-  if (assignment.instructions) {
-    unwrapOpencodeResult(
-      await opencode.session.promptAsync({
-        sessionID: sessionId,
-        model: {
-          providerID: assignment.model.providerId,
-          modelID: assignment.model.modelId,
-        },
-        ...(assignment.model.variant ? { variant: assignment.model.variant } : {}),
-        parts: [{ type: "text", text: assignment.instructions }],
-      }, { signal: options.signal }),
-      "session prompt",
-    )
-  }
+  const client = createWorkspaceSessionClient(local, workspaceId, options.fetchImpl ?? fetch)
+  const created = await client.createThread({
+    title: `Automation: ${assignment.automationName}`.slice(0, 120),
+    ...(assignment.instructions ? { prompt: assignment.instructions } : {}),
+    model: assignment.model,
+    signal: options.signal,
+  })
+  const sessionId = created.id
   // The assignment signal is already aborted when this listener runs. Do not
   // pass it to the cleanup request or fetch can reject before reaching OpenCode.
-  const abort = () => void opencode.session.abort({ sessionID: sessionId })
-    .then((result) => unwrapOpencodeResult(result, "session abort"))
-    .catch(() => undefined)
+  const abort = () => void client.abortThread(sessionId).catch(() => undefined)
   options.signal.addEventListener("abort", abort, { once: true })
   try {
     const startedAt = Date.now()
     while (true) {
       if (Date.now() - startedAt > assignment.timeoutMs) throw new Error("Desktop Automation execution timed out")
-      const [session, messages, todos, statuses] = await Promise.all([
-        opencode.session.get({ sessionID: sessionId }, { signal: options.signal })
-          .then((result) => unwrapOpencodeResult(result, "session read")),
-        opencode.session.messages({ sessionID: sessionId, limit: 200 }, { signal: options.signal })
-          .then((result) => unwrapOpencodeResult(result, "session messages")),
-        opencode.session.todo({ sessionID: sessionId }, { signal: options.signal })
-          .then((result) => unwrapOpencodeResult(result, "session todos")),
-        opencode.session.status(undefined, { signal: options.signal })
-          .then((result) => unwrapOpencodeResult(result, "session status")),
-      ])
-      const snapshot = {
-        session,
-        messages,
-        todos,
-        status: statuses?.[sessionId] ?? { type: "idle" },
-      }
+      const snapshot = await client.getThreadSnapshot(sessionId, { signal: options.signal, limit: 200 })
       const output = assistantResult(snapshot)
       const snapshotError = assistantFailure(snapshot)
       if (snapshotError) {
@@ -262,32 +205,17 @@ export async function executeDesktopRemoteSession(assignment, options) {
   const workspace = workspaces.find((item) => item?.id === listed?.activeId) ?? workspaces[0]
   if (!workspace?.id) throw new Error("No local workspace is available")
   const workspaceId = String(workspace.id)
-  const opencode = createWorkspaceOpencodeClient(local, workspaceId, options.fetchImpl ?? fetch)
+  const client = createWorkspaceSessionClient(local, workspaceId, options.fetchImpl ?? fetch)
   let sessionId = null
   try {
-    const created = unwrapOpencodeResult(
-      await opencode.session.create({ title: assignment.title }, { signal: options.signal }),
-      "session creation",
-    )
-    sessionId = typeof created?.id === "string" ? created.id : null
-    if (!sessionId) throw new Error("The desktop runtime returned no thread")
-    const started = Boolean(assignment.prompt)
-    if (started) {
-      unwrapOpencodeResult(
-        await opencode.session.promptAsync({
-          sessionID: sessionId,
-          ...(assignment.model ? {
-            model: {
-              providerID: assignment.model.providerId,
-              modelID: assignment.model.modelId,
-            },
-            ...(assignment.model.variant ? { variant: assignment.model.variant } : {}),
-          } : {}),
-          parts: [{ type: "text", text: assignment.prompt }],
-        }, { signal: options.signal }),
-        "session prompt",
-      )
-    }
+    const created = await client.createThread({
+      title: assignment.title,
+      ...(assignment.prompt ? { prompt: assignment.prompt } : {}),
+      ...(assignment.model ? { model: assignment.model } : {}),
+      signal: options.signal,
+    })
+    sessionId = created.id
+    const started = created.started
     return { sessionId, workspaceId, started }
   } catch (error) {
     const contextualError = error instanceof Error ? error : new Error(serializedError(error))

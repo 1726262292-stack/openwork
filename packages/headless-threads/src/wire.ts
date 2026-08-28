@@ -153,7 +153,7 @@ export function toThreadMessage(message: MessageWire): HeadlessThreadMessage {
     parentId: message.info.parentID ?? null,
     createdAt: message.info.time?.created ?? null,
     error: toMessageError(message.info.error),
-    usage: message.info.role === "assistant" ? {
+    usage: message.info.role === "assistant" && message.info.tokens ? {
       inputTokens: message.info.tokens?.input ?? 0,
       outputTokens: message.info.tokens?.output ?? 0,
       reasoningTokens: message.info.tokens?.reasoning ?? 0,
