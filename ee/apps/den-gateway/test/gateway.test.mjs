@@ -247,6 +247,29 @@ describe("den-gateway static UI", () => {
 })
 
 describe("den-gateway proxy", () => {
+  test("passes through Den's Web access denial without resolving an instance", async () => {
+    let instanceCalls = 0
+    const gateway = startGateway({
+      denApiBase: "https://den.example",
+      gatewayKey: "gateway-secret",
+      fetchImpl: async (url) => {
+        if (new URL(url).pathname === "/v1/cloud/gateway/resolve") {
+          return Response.json({ error: "openwork_web_access_required" }, { status: 403 })
+        }
+        instanceCalls += 1
+        return new Response("unexpected")
+      },
+    })
+
+    const response = await fetch(`${serverBase(gateway)}/status`, {
+      headers: { Authorization: "Bearer den-token" },
+    })
+
+    expect(response.status).toBe(403)
+    await expect(response.json()).resolves.toEqual({ error: "gateway_resolve_rejected" })
+    expect(instanceCalls).toBe(0)
+  })
+
   test("retries one connect-phase failure and passes through success", async () => {
     const injected = injectedInstanceFetch((_url, _init, call) => {
       if (call === 1) {

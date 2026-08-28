@@ -11,6 +11,7 @@ import { env, type DenOrgMode } from "../../env.js"
 import { orgMemberRoute } from "../../middleware/index.js"
 import { jsonResponse, notFoundSchema, unauthorizedSchema } from "../../openapi.js"
 import { materializeCloudWorkerProviders } from "../../llm/cloud-provider-materialization.js"
+import { getOpenWorkWebBillingSummary } from "../../stripe-billing.js"
 import { currentDaytonaSandboxName, flushWorkerCheckpointOnDaytona, getDaytonaSandboxRecord, inspectDaytonaSandbox, refreshDaytonaSignedPreview, stopWorkerOnDaytona } from "../../workers/daytona.js"
 import { CLOUD_INSTANCE_BACKEND, CLOUD_INSTANCE_NAME } from "../../workers/cloud-constants.js"
 import { recoverClaimedCloudWorker as defaultRecoverCloudWorker, wakeCloudWorker as defaultWakeCloudWorker } from "../../workers/cloud-lifecycle.js"
@@ -45,6 +46,7 @@ type CloudRouteOptions = {
   flushWorkerCheckpoint?: FlushWorkerCheckpoint
   stopCloudWorker?: StopCloudWorker
   materializeProviders?: typeof materializeCloudWorkerProviders
+  getOpenWorkWebAccess?: (organizationId: OrgId) => Promise<{ hasAccess: boolean }>
   now?: () => number
 }
 
@@ -133,8 +135,20 @@ const cloudGatewayInstanceResponseSchema = z.object({
   }).optional(),
 }).meta({ ref: "CloudGatewayInstanceResponse" })
 
+const openWorkWebAccessRequiredSchema = z.object({
+  error: z.literal("openwork_web_access_required"),
+  message: z.string(),
+}).meta({ ref: "OpenWorkWebAccessRequiredError" })
+
 function cloudNotFound() {
   return { error: "cloud_not_found" }
+}
+
+function openWorkWebAccessRequired() {
+  return {
+    error: "openwork_web_access_required" as const,
+    message: "OpenWork Web access is not active for this organization.",
+  }
 }
 
 const logger = appLogger.child({ component: "cloud_routes" })
@@ -641,6 +655,7 @@ export function registerCloudRoutes<T extends { Variables: OrgRouteVariables }>(
 ) {
   const orgMemberRouteMiddleware = options.memberRoute ?? orgMemberRoute()
   const materializeProviders = options.materializeProviders ?? materializeCloudWorkerProviders
+  const getOpenWorkWebAccess = options.getOpenWorkWebAccess ?? getOpenWorkWebBillingSummary
   const continueProvisioning: typeof continueCloudProvisioning = options.continueProvisioning
     ?? ((input, continueOptions = {}) => continueCloudProvisioning(input, { ...continueOptions, materializeProviders }))
   const refreshSignedPreview = options.refreshSignedPreview ?? refreshDaytonaSignedPreview
@@ -769,6 +784,7 @@ export function registerCloudRoutes<T extends { Variables: OrgRouteVariables }>(
       responses: {
         200: jsonResponse("Cloud instance status returned successfully for the gateway.", cloudGatewayInstanceResponseSchema),
         401: jsonResponse("The caller must be signed in to open Cloud.", unauthorizedSchema),
+        403: jsonResponse("OpenWork Web access is not active for the organization.", openWorkWebAccessRequiredSchema),
         404: jsonResponse("Cloud is not available for this organization or gateway.", notFoundSchema),
       },
     }),
@@ -789,6 +805,11 @@ export function registerCloudRoutes<T extends { Variables: OrgRouteVariables }>(
       const user = c.get("user")
       if (!hasCloudUserId(user)) {
         return c.json({ error: "unauthorized" }, 401)
+      }
+
+      const webAccess = await getOpenWorkWebAccess(payload.organization.id)
+      if (!webAccess.hasAccess) {
+        return c.json(openWorkWebAccessRequired(), 403)
       }
 
       const instance = await resolveCloudInstanceForGateway({
