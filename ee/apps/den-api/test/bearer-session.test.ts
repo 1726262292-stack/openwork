@@ -60,6 +60,7 @@ let sessionModule: typeof import("../src/session.js")
 let routeAccessModule: typeof import("../src/middleware/route-access.js")
 let meRoutesModule: typeof import("../src/routes/me/index.js")
 let mcpTokenRoutesModule: typeof import("../src/routes/mcp/index.js")
+let orgSharedModule: typeof import("../src/routes/org/shared.js")
 
 function seedRequiredEnv() {
   process.env.DATABASE_URL = process.env.DATABASE_URL ?? "mysql://root:password@127.0.0.1:3306/openwork_test"
@@ -392,6 +393,7 @@ beforeAll(async () => {
   routeAccessModule = await import("../src/middleware/route-access.js")
   meRoutesModule = await import("../src/routes/me/index.js")
   mcpTokenRoutesModule = await import("../src/routes/mcp/index.js")
+  orgSharedModule = await import("../src/routes/org/shared.js")
 })
 
 afterEach(() => {
@@ -422,16 +424,16 @@ function enableApiKeySession(now: Date) {
   apiKeyEnabled = true
 }
 
-test("x-api-key resolves a scoped user session without bearer auth", async () => {
+test("x-api-key resolves a scoped user principal without creating a session", async () => {
   const now = new Date("2026-07-09T12:00:00.000Z")
   enableApiKeySession(now)
 
-  const app = new Hono<{ Variables: AuthContextVariables }>()
+  const app = new Hono<{ Variables: AuthContextVariables & { activeOrganizationId: string } }>()
   app.use("*", sessionModule.sessionMiddleware)
   app.get("/session", (c) => c.json({
     userId: c.get("user")?.id ?? null,
     sessionId: c.get("session")?.id ?? null,
-    activeOrganizationId: c.get("session")?.activeOrganizationId ?? null,
+    activeOrganizationId: c.get("activeOrganizationId") ?? null,
     apiKeyId: c.get("apiKey")?.id ?? null,
   }))
 
@@ -441,7 +443,7 @@ test("x-api-key resolves a scoped user session without bearer auth", async () =>
 
   await expect(response.json()).resolves.toEqual({
     userId,
-    sessionId: apiKeyId,
+    sessionId: null,
     activeOrganizationId: organizationId,
     apiKeyId,
   })
@@ -466,7 +468,7 @@ test("x-api-key can call ordinary authenticated routes without bearer auth", asy
   expect(response.status).toBe(200)
   await expect(response.json()).resolves.toEqual({
     userId,
-    sessionId: apiKeyId,
+    sessionId: null,
     apiKeyId,
   })
 })
@@ -499,6 +501,50 @@ test("x-api-key can call ordinary organization routes using its scoped org", asy
   expect(orgContextLookups).toEqual([{ organizationId, userId }])
 })
 
+test("x-api-key explicitly bypasses privileged session freshness after org authorization", async () => {
+  const now = new Date("2026-07-09T12:00:00.000Z")
+  enableApiKeySession(now)
+
+  const app = new Hono<{ Variables: AuthContextVariables & Partial<OrganizationContextVariables> }>()
+  app.use("*", sessionModule.sessionMiddleware)
+  app.get("/privileged-org-route", routeAccessModule.orgMemberRoute(), (c) => {
+    const permission = orgSharedModule.ensureOrganizationAdmin(c, "Workspace admin required.")
+    return permission.ok
+      ? c.json({ ok: true })
+      : c.json(permission.response, 403)
+  })
+
+  const response = await app.request("/privileged-org-route", {
+    headers: { "x-api-key": apiKeySecret },
+  })
+
+  expect(response.status).toBe(200)
+  await expect(response.json()).resolves.toEqual({ ok: true })
+})
+
+test("real user sessions pass the reusable user-session guard", async () => {
+  const now = new Date("2026-07-09T12:00:00.000Z")
+  setSystemTime(now)
+  stored = makeStoredSession({
+    now,
+    updatedAt: now,
+    expiresAt: getDenSessionExpiresAt(now),
+  })
+
+  const app = new Hono<{ Variables: AuthContextVariables }>()
+  app.use("*", sessionModule.sessionMiddleware)
+  app.get("/user-session-route", routeAccessModule.userSessionRoute(), (c) => c.json({
+    sessionId: c.get("session")?.id ?? null,
+  }))
+
+  const response = await app.request("/user-session-route", {
+    headers: { authorization: `Bearer ${token}` },
+  })
+
+  expect(response.status).toBe(200)
+  await expect(response.json()).resolves.toEqual({ sessionId })
+})
+
 test("x-api-key is rejected by active organization switching", async () => {
   const now = new Date("2026-07-09T12:00:00.000Z")
   enableApiKeySession(now)
@@ -519,7 +565,7 @@ test("x-api-key is rejected by active organization switching", async () => {
   expect(response.status).toBe(403)
   await expect(response.json()).resolves.toEqual({
     error: "forbidden",
-    message: "Active organization can only be updated for a user session.",
+    message: "Use a signed-in user session for this operation.",
   })
   expect(activeOrganizationUpdates).toHaveLength(0)
 })
@@ -544,7 +590,7 @@ test("x-api-key is rejected by MCP token minting", async () => {
   expect(response.status).toBe(403)
   await expect(response.json()).resolves.toEqual({
     error: "forbidden",
-    message: "Use a signed-in user session to mint MCP tokens.",
+    message: "Use a signed-in user session for this operation.",
   })
   expect(oauthTokenInserts).toHaveLength(0)
 })

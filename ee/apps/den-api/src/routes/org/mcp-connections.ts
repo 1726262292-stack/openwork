@@ -2336,7 +2336,7 @@ export function registerMcpConnectionRoutes<T extends { Variables: OrgRouteVaria
     jsonValidator(updateConnectionBodySchema),
     async (c) => {
       const payload = c.get("organizationContext")
-      if (!hasFreshPrivilegedSession({ session: c.get("session") })) {
+      if (!c.get("apiKey") && !hasFreshPrivilegedSession({ session: c.get("session") })) {
         return c.json(getFreshPrivilegedSessionRequiredResponse(), 403)
       }
 
@@ -2659,7 +2659,7 @@ export function registerMcpConnectionRoutes<T extends { Variables: OrgRouteVaria
     paramValidator(connectionParamsSchema),
     async (c) => {
       const payload = c.get("organizationContext")
-      if (!hasFreshPrivilegedSession({ session: c.get("session") })) {
+      if (!c.get("apiKey") && !hasFreshPrivilegedSession({ session: c.get("session") })) {
         return c.json(getFreshPrivilegedSessionRequiredResponse(), 403)
       }
 

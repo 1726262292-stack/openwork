@@ -22,7 +22,8 @@ type AuthSessionValue = {
 type AuthSessionLike = AuthSessionValue | null
 type ApiKeyAuthResolution = {
   apiKey: DenApiKeySession
-  authSession: AuthSessionValue
+  user: AuthSessionValue["user"]
+  activeOrganizationId: string
 }
 type SessionRequestContext = {
   method: string
@@ -297,24 +298,10 @@ async function getSessionFromApiKey(headers: Headers): Promise<ApiKeyAuthResolut
     return null
   }
 
-  const now = new Date()
   return {
     apiKey,
-    authSession: {
-      user,
-      session: {
-        id: apiKey.id,
-        token: apiKeySecret,
-        userId: normalizeDenTypeId("user", apiKey.referenceId),
-        activeOrganizationId: normalizeDenTypeId("organization", apiKey.metadata.organizationId),
-        activeTeamId: null,
-        expiresAt: verified.key.expiresAt ?? getDenSessionExpiresAt(now),
-        createdAt: now,
-        updatedAt: now,
-        ipAddress: null,
-        userAgent: headers.get("user-agent"),
-      },
-    },
+    user,
+    activeOrganizationId: normalizeDenTypeId("organization", apiKey.metadata.organizationId),
   }
 }
 
@@ -443,13 +430,16 @@ export const sessionMiddleware: MiddlewareHandler<{ Variables: AuthContextVariab
   const apiKeyResolution = skipRequestSession
     ? null
     : await getSessionFromApiKey(c.req.raw.headers)
-  const resolved = apiKeyResolution?.authSession ?? (skipRequestSession
+  const resolved = apiKeyResolution
+    ? { user: apiKeyResolution.user, session: null }
+    : (skipRequestSession
     ? null
     : await getRequestSession(c.req.raw.headers, c))
   c.set("user", resolved?.user ?? null)
   c.set("session", resolved?.session ?? null)
-  if (resolved?.session?.activeOrganizationId) {
-    ;(c as unknown as { set: (key: string, value: unknown) => void }).set("activeOrganizationId", resolved.session.activeOrganizationId)
+  const activeOrganizationId = apiKeyResolution?.activeOrganizationId ?? resolved?.session?.activeOrganizationId
+  if (activeOrganizationId) {
+    ;(c as unknown as { set: (key: string, value: unknown) => void }).set("activeOrganizationId", activeOrganizationId)
   }
   c.set("apiKey", apiKeyResolution?.apiKey ?? null)
   await next()
