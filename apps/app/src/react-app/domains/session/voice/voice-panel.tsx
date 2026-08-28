@@ -13,28 +13,15 @@ import { ScrollArea, ScrollAreaViewport } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import { publishInspectorSlice, recordInspectorEvent } from "@/app/lib/app-inspector";
 import { useControlAction, type OpenworkControlAction } from "../../../shell/control/control-provider";
-
-type VoiceStatus = "idle" | "connecting" | "listening" | "muted" | "speaking" | "error";
-
-type VoiceTimelineEntry = {
-  id: string;
-  role: "user" | "assistant" | "tool" | "system";
-  text: string;
-  toolName?: string;
-  error?: boolean;
-  at: number;
-};
-
-type VoiceRuntimeSnapshot = {
-  status: VoiceStatus;
-  statusText: string;
-  micMuted: boolean;
-  micDiagnostics: string;
-  realtimeDiagnostics: string;
-  entries: VoiceTimelineEntry[];
-  latestUserTranscript: string;
-  assistantPreview: string;
-};
+import {
+  appendVoiceTimelineEntry,
+  getVoiceRuntimeSnapshot,
+  resetVoiceRuntimeSnapshot,
+  setVoiceRuntimeSnapshot,
+  subscribeVoiceRuntime,
+  type VoiceStatus,
+  type VoiceTimelineEntry,
+} from "./voice-runtime";
 
 type VoicePanelProps = {
   client: OpenworkServerClient | null;
@@ -57,17 +44,6 @@ const TOOL_LABELS: Record<string, string> = {
   openwork_execute_action: "Running UI action",
 };
 
-const initialVoiceRuntimeSnapshot: VoiceRuntimeSnapshot = {
-  status: "idle",
-  statusText: "Ready for voice control.",
-  micMuted: false,
-  micDiagnostics: "Microphone has not started yet.",
-  realtimeDiagnostics: "Realtime is not connected.",
-  entries: [],
-  latestUserTranscript: "",
-  assistantPreview: "",
-};
-
 const voiceRealtime = {
   peer: null as RTCPeerConnection | null,
   channel: null as RTCDataChannel | null,
@@ -78,25 +54,6 @@ const voiceRealtime = {
   pendingResponse: false,
   micMuted: false,
 };
-
-let voiceRuntimeSnapshot: VoiceRuntimeSnapshot = initialVoiceRuntimeSnapshot;
-const voiceRuntimeListeners = new Set<() => void>();
-
-function getVoiceRuntimeSnapshot() {
-  return voiceRuntimeSnapshot;
-}
-
-function subscribeVoiceRuntime(listener: () => void) {
-  voiceRuntimeListeners.add(listener);
-  return () => {
-    voiceRuntimeListeners.delete(listener);
-  };
-}
-
-function setVoiceRuntimeSnapshot(update: (current: VoiceRuntimeSnapshot) => VoiceRuntimeSnapshot) {
-  voiceRuntimeSnapshot = update(voiceRuntimeSnapshot);
-  voiceRuntimeListeners.forEach((listener) => listener());
-}
 
 function useVoiceRuntimeSnapshot() {
   return useSyncExternalStore(subscribeVoiceRuntime, getVoiceRuntimeSnapshot, getVoiceRuntimeSnapshot);
@@ -370,22 +327,7 @@ export function VoicePanel(props: VoicePanelProps) {
   const connected = status === "listening" || status === "speaking" || status === "muted";
 
   const addEntry = useCallback((role: VoiceTimelineEntry["role"], text: string, options: { toolName?: string; error?: boolean } = {}) => {
-    const trimmed = text.trim();
-    if ((role === "user" || role === "assistant") && !trimmed) return;
-    setVoiceRuntimeSnapshot((current) => ({
-      ...current,
-      entries: [
-        ...current.entries,
-        {
-          id: `voice-${Date.now()}-${current.entries.length}`,
-          role,
-          text: trimmed || options.toolName || "Tool call",
-          toolName: options.toolName,
-          error: options.error,
-          at: Date.now(),
-        },
-      ].slice(-120),
-    }));
+    appendVoiceTimelineEntry(role, text, options);
   }, []);
 
   const setRuntimeStatus = useCallback((nextStatus: VoiceStatus, text?: string) => {
@@ -416,15 +358,23 @@ export function VoicePanel(props: VoicePanelProps) {
     voiceRealtime.responseInProgress = false;
     voiceRealtime.pendingResponse = false;
     voiceRealtime.micMuted = false;
-    setVoiceRuntimeSnapshot((current) => ({
-      ...current,
-      micMuted: false,
-      micDiagnostics: "Microphone has not started yet.",
-      realtimeDiagnostics: "Realtime is not connected.",
-      assistantPreview: "",
-    }));
-    setRuntimeStatus("idle");
-    if (!silent) addEntry("system", "Voice session stopped.");
+    if (silent) {
+      // Reconnect path: keep the timeline so the panel stays continuous.
+      setVoiceRuntimeSnapshot((current) => ({
+        ...current,
+        micMuted: false,
+        micDiagnostics: "Microphone has not started yet.",
+        realtimeDiagnostics: "Realtime is not connected.",
+        assistantPreview: "",
+      }));
+      setRuntimeStatus("idle");
+    } else {
+      // Explicit stop: release the module-scope snapshot (timeline text and
+      // transcripts survive panel close otherwise) instead of retaining it
+      // for the rest of the app run.
+      resetVoiceRuntimeSnapshot();
+      addEntry("system", "Voice session stopped.");
+    }
     recordInspectorEvent("voice.disconnected", { sessionId: props.sessionId });
   }, [addEntry, props.sessionId, setRuntimeStatus]);
 
