@@ -1,4 +1,4 @@
-alert,rule,severity,path,remediation,verification
+alert,rule,severity,path,remediation,initial_verification_state
 230,js/insecure-randomness,high,ee/apps/den-api/evals/agent-test-evidence-password-policy.mjs,CSPRNG identifier,CodeQL rerun pending
 229,js/incomplete-html-attribute-sanitization,medium,packages/openwork-bootstrap/evals/agent-test-evidence-openwork-bootstrap.mjs,Context-specific attribute encoding,CodeQL rerun pending
 228,js/incomplete-html-attribute-sanitization,medium,packages/openwork-bootstrap/evals/agent-test-evidence-linux-container.mjs,Context-specific attribute encoding,CodeQL rerun pending

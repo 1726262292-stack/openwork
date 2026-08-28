@@ -4,15 +4,18 @@
 
 **Assessment date:** 2026-08-28
 
-**Status:** Draft — post-remediation CodeQL verification pending
+**Status:** CodeQL remediation verified; release-candidate scan pending
 
 ## Executive summary
 
 OpenWork uses GitHub CodeQL for static application security testing (SAST) and
 GitHub Dependabot for software composition analysis (SCA). The remediation
 branch addresses all 44 CodeQL findings in the assessed `dev` baseline: 33 high
-and 11 medium severity findings. Focused regression tests and affected-package
-type checks pass, subject to the limitations below.
+and 11 medium severity findings. The pull-request scan reports zero open
+findings: 41 findings were resolved by code changes and three password-hashing
+findings were reviewed and dismissed as false positives with recorded security
+rationales. Focused regression tests and affected-package type checks pass,
+subject to the limitations below.
 
 This document intentionally excludes personal data, credentials, tokens, local
 filesystem paths, and individual contact details.
@@ -46,6 +49,14 @@ The detailed alert register is in
 
 ## Verification completed
 
+- GitHub CodeQL completed successfully for remediation commit
+  `44315536e8fbb6f764909d0af5533dffdf9226b4`.
+- CodeQL run: <https://github.com/different-ai/openwork/actions/runs/33215989567>
+- Open CodeQL findings on pull request 4220 after review: **0**.
+- Three findings were dismissed as false positives because the values are not
+  passwords: a process-local keyed configuration revision, a non-secret OAuth
+  identity binding, and a lookup digest for a CSPRNG-generated 256-bit bearer
+  key. Each boundary has regression coverage.
 - Focused tests were run for each changed subsystem.
 - Type checks passed for the affected application, server, Den API, inference,
   and enterprise MCP client packages.
@@ -59,17 +70,14 @@ The detailed alert register is in
 
 ## Verification still required
 
-This assessment must not be presented as a final clean scan until:
+Before using this assessment as release evidence:
 
-1. the remediation branch is committed and pushed;
-2. GitHub CodeQL completes against that exact commit;
-3. any newly detected or persisting findings are resolved or formally
-   risk-accepted;
-4. the release candidate commit is scanned; and
-5. the final CodeQL and Dependabot exports are attached.
+1. merge the reviewed remediation;
+2. scan the release candidate commit; and
+3. attach the final release CodeQL and Dependabot exports.
 
-Current verdict: **Incomplete — remediation implemented; authoritative CodeQL
-rerun pending.**
+Current verdict: **Incomplete — pull-request CodeQL verification passed, but the
+final release candidate has not yet been scanned.**
 
 ## Scope limitations
 
