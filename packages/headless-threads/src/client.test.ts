@@ -546,6 +546,56 @@ describe("failures", () => {
     expect(error.status).toBeNull();
   });
 
+  test("defaults individual request timeouts to 15 seconds", async () => {
+    const originalTimeout = AbortSignal.timeout;
+    const timeoutDescriptor = Object.getOwnPropertyDescriptor(AbortSignal, "timeout");
+    if (!timeoutDescriptor) throw new Error("AbortSignal.timeout is unavailable");
+    const requested: number[] = [];
+    Object.defineProperty(AbortSignal, "timeout", {
+      configurable: true,
+      value: (milliseconds: number) => {
+        requested.push(milliseconds);
+        return originalTimeout(milliseconds);
+      },
+    });
+    try {
+      await createClient(createOpenworkDouble()).createThread({ title: "Default timeout" });
+      expect(requested).toEqual([15_000]);
+    } finally {
+      Object.defineProperty(AbortSignal, "timeout", timeoutDescriptor);
+    }
+  });
+
+  test("disables request timeouts when configured with zero", async () => {
+    const originalTimeout = AbortSignal.timeout;
+    const timeoutDescriptor = Object.getOwnPropertyDescriptor(AbortSignal, "timeout");
+    if (!timeoutDescriptor) throw new Error("AbortSignal.timeout is unavailable");
+    const requested: number[] = [];
+    Object.defineProperty(AbortSignal, "timeout", {
+      configurable: true,
+      value: (milliseconds: number) => {
+        requested.push(milliseconds);
+        return originalTimeout(milliseconds);
+      },
+    });
+    const double = createOpenworkDouble();
+    const client = createHeadlessThreadClient({
+      baseUrl: BASE_URL,
+      workspaceId: "ws_1",
+      token: "owt_test",
+      fetch: double.fetchImpl,
+      requestTimeoutMs: 0,
+    });
+
+    try {
+      await client.createThread({ title: "No timeout" });
+      expect(requested).toEqual([]);
+      expect(double.requests[0]?.signal?.aborted).toBe(false);
+    } finally {
+      Object.defineProperty(AbortSignal, "timeout", timeoutDescriptor);
+    }
+  });
+
   test("merges the client-wide and per-call signals into SDK requests", async () => {
     const globalController = new AbortController();
     const callController = new AbortController();

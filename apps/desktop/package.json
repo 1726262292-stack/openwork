@@ -31,6 +31,7 @@
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@opencode-ai/sdk": "^1.18.15",
     "@openwork/enterprise-mcp-client": "workspace:*",
+    "@openwork/headless-threads": "workspace:*",
     "@openwork/paths": "workspace:*",
     "@sentry/electron": "^7.16.0",
     "ajv": "^8.17.1",
