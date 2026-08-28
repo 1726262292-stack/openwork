@@ -1190,7 +1190,7 @@ describe("Cloud instance failed self-heal", () => {
       .resolves.toEqual(expectedCloudInstance({ status: "ready", url: "https://preview.example.test" }))
   })
 
-  test("throttles passive failed-worker healing but lets an explicit retry bypass the cooldown", async () => {
+  test("lets one explicit retry bypass passive cooldown but rate-limits repeated retries", async () => {
     const worker = storedWorker({ status: "failed" })
     const store = makeCloudWorkerStore({
       initialWorkers: [worker],
@@ -1236,6 +1236,22 @@ describe("Cloud instance failed self-heal", () => {
     await flushMicrotasks()
     expect(store.claimAttempts).toBe(2)
     expect(provisionCalls).toBe(2)
+
+    worker.status = "failed"
+    const repeatedRetry = await app.request("http://den.local/v1/cloud/instance/retry", { method: "POST" })
+    expect(repeatedRetry.status).toBe(200)
+    await expect(repeatedRetry.json()).resolves.toEqual(expectedCloudInstance({ status: "failed", url: null }))
+    await flushMicrotasks()
+    expect(store.claimAttempts).toBe(2)
+    expect(provisionCalls).toBe(2)
+
+    now += 60_000
+    const cooledRetry = await app.request("http://den.local/v1/cloud/instance/retry", { method: "POST" })
+    expect(cooledRetry.status).toBe(200)
+    await expect(cooledRetry.json()).resolves.toEqual(expectedCloudInstance({ status: "provisioning", url: null }))
+    await flushMicrotasks()
+    expect(store.claimAttempts).toBe(3)
+    expect(provisionCalls).toBe(3)
   })
 
   test("two concurrent failed GETs start exactly one heal", async () => {

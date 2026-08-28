@@ -42,6 +42,7 @@ test("Cloud startup failures are diagnosable and explicitly retryable without le
   };
   let claimAttempts = 0;
   let provisionCalls = 0;
+  let now = 1_000;
   const store: CloudRuntimeStore = {
     async claimFailedWorker() {
       claimAttempts += 1;
@@ -67,7 +68,7 @@ test("Cloud startup failures are diagnosable and explicitly retryable without le
     startWake: () => {},
     startRecovery: () => {},
     store,
-    now: () => 1_000,
+    now: () => now,
   };
 
   const first = await runtimeModule.resolveCloudRuntimeState({
@@ -82,17 +83,28 @@ test("Cloud startup failures are diagnosable and explicitly retryable without le
     worker,
     organizationId: createDenTypeId("organization"),
   }, { ...options, forceFailedRecovery: true });
+  const repeatedExplicit = await runtimeModule.resolveCloudRuntimeState({
+    worker,
+    organizationId: createDenTypeId("organization"),
+  }, { ...options, forceFailedRecovery: true });
+  now += 60_000;
+  const cooledExplicit = await runtimeModule.resolveCloudRuntimeState({
+    worker,
+    organizationId: createDenTypeId("organization"),
+  }, { ...options, forceFailedRecovery: true });
   await Promise.resolve();
   await Promise.resolve();
 
   expect(first.status).toBe("provisioning");
   expect(passive.status).toBe("failed");
   expect(explicit.status).toBe("provisioning");
-  expect(claimAttempts).toBe(2);
-  expect(provisionCalls).toBe(2);
+  expect(repeatedExplicit.status).toBe("failed");
+  expect(cooledExplicit.status).toBe("provisioning");
+  expect(claimAttempts).toBe(3);
+  expect(provisionCalls).toBe(3);
   evidence.recordAssertionEvidence(
-    "Retry bypasses only the passive recovery cooldown",
-    "The first failed resolve claimed recovery, a second passive resolve was throttled, and an explicit retry made exactly one new claim and provider attempt.",
+    "Retry bypasses passive recovery without allowing an unbounded request loop",
+    "The first explicit retry bypassed passive polling's cooldown, an immediate repeated retry made no provider attempt, and retry became available again after the separate 60-second limit.",
     true,
   );
 

@@ -106,9 +106,11 @@ type UpdateResultRecord = {
 
 const logger = appLogger.child({ component: "cloud_runtime_access" })
 const failedHealCooldownMs = 60_000
+const explicitFailedHealCooldownMs = 60_000
 const signedPreviewProbeTimeoutMs = 2_500
 const signedPreviewHealthCacheMs = 15_000
 const failedHealAttempts = new Map<WorkerId, number>()
+const explicitFailedHealAttempts = new Map<WorkerId, number>()
 const signedPreviewHealthCache = new Map<WorkerId, { url: string; healthyUntilMs: number }>()
 const wakingWorkers = new Set<WorkerId>()
 const unreachableWorkers = new Set<WorkerId>()
@@ -309,7 +311,13 @@ async function resolveFailedCloudRuntime(input: {
 }): Promise<CloudRuntimeState> {
   const now = input.now()
   const lastAttempt = failedHealAttempts.get(input.worker.id)
-  if (!input.forceRecovery && lastAttempt !== undefined && now - lastAttempt < failedHealCooldownMs) {
+  const lastExplicitAttempt = explicitFailedHealAttempts.get(input.worker.id)
+  if (input.forceRecovery) {
+    if (lastExplicitAttempt !== undefined && now - lastExplicitAttempt < explicitFailedHealCooldownMs) {
+      return { status: "failed", url: null }
+    }
+    explicitFailedHealAttempts.set(input.worker.id, now)
+  } else if (lastAttempt !== undefined && now - lastAttempt < failedHealCooldownMs) {
     return { status: "failed", url: null }
   }
   failedHealAttempts.set(input.worker.id, now)
