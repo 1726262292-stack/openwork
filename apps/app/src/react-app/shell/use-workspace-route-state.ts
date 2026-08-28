@@ -23,6 +23,7 @@ import {
   type WorkspaceList,
 } from "@/app/lib/desktop";
 import { createClient } from "@/app/lib/opencode";
+import { getNativeSession } from "@/app/lib/opencode-session-native";
 import { createOpenworkServerClient, type OpenworkServerClient } from "@/app/lib/openwork-server";
 import { readDenBootstrapConfig } from "@/app/lib/den";
 import { isDesktopRuntime } from "@/app/lib/runtime-env";
@@ -1055,12 +1056,9 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
       for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
         if (cancelled) return;
         try {
-          const response = await selectedWorkspaceEndpoint.client.getSession(
-            selectedWorkspaceEndpoint.workspaceId,
-            selectedSessionId,
-          );
+          const session = await getNativeSession(selectedWorkspaceEndpoint, selectedSessionId);
           if (cancelled) return;
-          if (response.item.id !== selectedSessionId) {
+          if (session.id !== selectedSessionId) {
             setModernRouteSessionResolution({
               key: modernRouteSessionLoadKey,
               status: "error",
@@ -1075,7 +1073,7 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
               return current;
             }
             hydratedRouteSessionIdsRef.current[selectedWorkspaceId] = selectedSessionId;
-            const nextItems = mergeWorkspaceRouteSession(currentItems, response.item);
+            const nextItems = mergeWorkspaceRouteSession(currentItems, session);
             const next = { ...current, [selectedWorkspaceId]: nextItems };
             sessionsByWorkspaceIdRef.current = next;
             return next;

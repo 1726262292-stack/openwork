@@ -23,6 +23,7 @@ import { downloadTextAsFile } from "@/app/lib/download";
 import { canCreateWorkspaces } from "@/app/lib/workspace-creation-policy";
 import { createClient, unwrap } from "@/app/lib/opencode";
 import { abortSessionSafe, forkSession, listCommands, revertSession, setSessionArchived, shellInSession, unrevertSession } from "@/app/lib/opencode-session";
+import { deleteNativeSession, getNativeSessionMessages } from "@/app/lib/opencode-session-native";
 import { useSessionManagementStore as sessionManagementStore } from "@/react-app/domains/session/sidebar/session-management-store";
 import {
   buildOpenworkWorkspaceBaseUrl,
@@ -2444,6 +2445,7 @@ export function SessionRoute() {
     canCreateTask,
     openworkClient: client,
     opencodeClient,
+    endpointForWorkspace,
     navigateToSession: navigateToSessionForControl,
     navigateToSessionRoot: navigateToSessionRootForControl,
     createTaskInWorkspace: handleCreateTaskInWorkspace,
@@ -2682,9 +2684,13 @@ export function SessionRoute() {
     // Cap the transcript fetch to keep multi-workspace scans fast; matches in
     // anything older than the most recent 400 messages are traded away for
     // responsiveness.
-    return async (workspaceId: string, sessionId: string) =>
-      (await client.getSessionMessages(workspaceId, sessionId, { limit: 400 })).items;
-  }, [client]);
+    return async (workspaceId: string, sessionId: string) => {
+      const workspace = workspaces.find((item) => item.id === workspaceId);
+      const endpoint = endpointForWorkspace(workspace);
+      if (!endpoint) throw new Error("Workspace runtime is not connected.");
+      return getNativeSessionMessages(endpoint, sessionId, { limit: 400 });
+    };
+  }, [client, endpointForWorkspace, workspaces]);
 
   const sessionSearchPaletteItem = useMemo<PaletteItem>(() => ({
     id: "session-search.open",
@@ -3422,7 +3428,7 @@ export function SessionRoute() {
           ? async (sessionId) => {
               const endpoint = endpointForWorkspace(selectedWorkspace);
               if (!endpoint) return;
-              await endpoint.client.deleteSession(endpoint.workspaceId, sessionId);
+              await deleteNativeSession(endpoint, sessionId);
               if (selectedSessionId === sessionId) {
                 navigateToWorkspaceSession(selectedWorkspaceId);
               }

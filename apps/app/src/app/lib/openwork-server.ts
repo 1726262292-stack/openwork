@@ -1476,7 +1476,6 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
     listWorkspaces: 8_000,
     activateWorkspace: 10_000,
     deleteWorkspace: 10_000,
-    deleteSession: 12_000,
     sessionRead: 12_000,
     status: 6_000,
     diagnostics: AGENT_CONTEXT_DIAGNOSTICS_REQUEST_TIMEOUT_MS,
@@ -1581,12 +1580,6 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
         `/workspaces/${encodeURIComponent(workspaceId)}`,
         { token, hostToken, method: "DELETE", timeoutMs: timeouts.deleteWorkspace },
       ),
-    deleteSession: (workspaceId: string, sessionId: string) =>
-      requestJson<{ ok: boolean }>(
-        baseUrl,
-        `/workspace/${encodeURIComponent(workspaceId)}/sessions/${encodeURIComponent(sessionId)}`,
-        { token, hostToken, method: "DELETE", timeoutMs: timeouts.deleteSession },
-      ),
     getSessionGroups: (workspaceId: string) =>
       requestJson<{ state: OpenworkSessionGroupState; updatedAt: number | null }>(
         baseUrl,
@@ -1635,32 +1628,6 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
         baseUrl,
         `/workspace/${encodeURIComponent(workspaceId)}/session-groups/events${query}`,
         { token, hostToken },
-      );
-    },
-    getSession: (workspaceId: string, sessionId: string) =>
-      requestJson<{ item: Session }>(
-        baseUrl,
-        `/workspace/${encodeURIComponent(workspaceId)}/sessions/${encodeURIComponent(sessionId)}`,
-        { token, hostToken, timeoutMs: timeouts.sessionRead },
-      ),
-    getSessionMessages: (workspaceId: string, sessionId: string, options?: { limit?: number }) => {
-      const query = new URLSearchParams();
-      if (typeof options?.limit === "number") query.set("limit", String(options.limit));
-      const suffix = query.size ? `?${query.toString()}` : "";
-      return requestJson<{ items: OpenworkSessionMessage[] }>(
-        baseUrl,
-        `/workspace/${encodeURIComponent(workspaceId)}/sessions/${encodeURIComponent(sessionId)}/messages${suffix}`,
-        { token, hostToken, timeoutMs: timeouts.sessionRead },
-      );
-    },
-    getSessionSnapshot: (workspaceId: string, sessionId: string, options?: { limit?: number }) => {
-      const query = new URLSearchParams();
-      if (typeof options?.limit === "number") query.set("limit", String(options.limit));
-      const suffix = query.size ? `?${query.toString()}` : "";
-      return requestJson<{ item: OpenworkSessionSnapshot }>(
-        baseUrl,
-        `/workspace/${encodeURIComponent(workspaceId)}/sessions/${encodeURIComponent(sessionId)}/snapshot${suffix}`,
-        { token, hostToken, timeoutMs: timeouts.sessionRead },
       );
     },
     exportWorkspace: (

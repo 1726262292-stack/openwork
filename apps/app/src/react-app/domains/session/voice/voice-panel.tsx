@@ -5,6 +5,7 @@ import { PaperGrainGradient } from "@openwork/ui/react";
 
 import { desktopFetch } from "@/app/lib/desktop";
 import type { OpenworkServerClient, OpenworkSessionMessage } from "@/app/lib/openwork-server";
+import { getNativeSessionMessages } from "@/app/lib/opencode-session-native";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupTextarea } from "@/components/ui/input-group";
@@ -37,8 +38,9 @@ type VoiceRuntimeSnapshot = {
 
 type VoicePanelProps = {
   client: OpenworkServerClient | null;
-  workspaceId: string | null;
   sessionId: string | null;
+  opencodeBaseUrl: string;
+  openworkToken: string;
   onClose: () => void;
 };
 
@@ -200,11 +202,11 @@ function buildVoiceSessionContext(messages: OpenworkSessionMessage[]) {
     .slice(0, 6_000);
 }
 
-async function loadVoiceSessionContext(client: OpenworkServerClient, workspaceId: string | null, sessionId: string | null) {
-  if (!workspaceId || !sessionId) return "";
+async function loadVoiceSessionContext(opencodeBaseUrl: string, openworkToken: string, sessionId: string | null) {
+  if (!opencodeBaseUrl || !sessionId) return "";
   try {
-    const response = await client.getSessionMessages(workspaceId, sessionId, { limit: 40 });
-    return buildVoiceSessionContext(response.items);
+    const messages = await getNativeSessionMessages({ opencodeBaseUrl, token: openworkToken }, sessionId, { limit: 40 });
+    return buildVoiceSessionContext(messages);
   } catch {
     return "";
   }
@@ -533,7 +535,7 @@ export function VoicePanel(props: VoicePanelProps) {
 
     disconnectRealtime(true);
     setRuntimeStatus("connecting", "Minting Realtime session...");
-    const sessionContext = await loadVoiceSessionContext(client, props.workspaceId, props.sessionId);
+    const sessionContext = await loadVoiceSessionContext(props.opencodeBaseUrl, props.openworkToken, props.sessionId);
     const realtimeSession = await client.createVoiceRealtimeSession({ sessionContext });
 
     const peer = new RTCPeerConnection();
@@ -594,7 +596,16 @@ export function VoicePanel(props: VoicePanelProps) {
     setRuntimeStatus("listening", audioInput ? undefined : "Connected. Send a typed voice command.");
     addEntry("system", `Realtime connected with ${realtimeSession.model} and ${realtimeSession.tools.length} OpenWork tools.`);
     recordInspectorEvent("voice.connected", { sessionId: props.sessionId, model: realtimeSession.model });
-  }, [addEntry, disconnectRealtime, handleRealtimeMessage, props.client, props.sessionId, props.workspaceId, setRuntimeStatus]);
+  }, [
+    addEntry,
+    disconnectRealtime,
+    handleRealtimeMessage,
+    props.client,
+    props.opencodeBaseUrl,
+    props.openworkToken,
+    props.sessionId,
+    setRuntimeStatus,
+  ]);
 
   const startVoice = useCallback(async () => {
     try {
