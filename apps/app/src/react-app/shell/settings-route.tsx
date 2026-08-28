@@ -759,6 +759,13 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
   refreshMcpServersRef.current = connectionsStore.refreshMcpServers;
   notifyMcpReloadingRef.current = connectionsStore.notifyMcpReloading;
   pollMcpServersAfterReloadRef.current = connectionsStore.pollMcpServersAfterReload;
+  // Stable identity: McpView reloads opencode.json whenever this prop changes,
+  // so an inline lambda would refetch the config on every settings re-render
+  // (store snapshots tick every few seconds while idle on the Library page).
+  const readMcpConfigFile = useCallback(
+    (scope: "project" | "global") => connectionsStore.readMcpConfigFile(scope),
+    [connectionsStore],
+  );
   const providerAuthStore = useMemo(
     () =>
       createProviderAuthStore({
@@ -2495,7 +2502,7 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
                     ? (name, enabled) => connectionsStore.setMcpEnabled(name, enabled)
                     : undefined
                 }
-                readConfigFile={(scope) => connectionsStore.readMcpConfigFile(scope)}
+                readConfigFile={readMcpConfigFile}
                 installedSkills={[
                   ...extensionItems.installedSkills,
                   ...connectCapabilities.skills.filter(

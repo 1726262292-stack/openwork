@@ -1,0 +1,97 @@
+import { fileURLToPath } from "node:url";
+import { expect } from "vitest";
+import { createAndSelectWorkspace, evalIn, waitFor } from "@openwork/behaviors";
+import { desktop } from "@openwork/hosts";
+import { needs, test, unmetNeeds } from "@openwork/testkit";
+import type { TestNeeds } from "@openwork/testkit";
+
+const requirements: TestNeeds = { optIn: ["OPENWORK_EVAL_E2E_TESTS"] };
+const missingRequirements = unmetNeeds(requirements, process.env);
+const title = missingRequirements.length > 0
+  ? `library config read budget skipped — needs: ${missingRequirements.join(", ")}`
+  : "an idle Library page keeps opencode-config reads bounded";
+const repoRoot = fileURLToPath(new URL("../..", import.meta.url));
+
+const IDLE_WINDOW_MS = 20_000;
+// One legitimate re-read is tolerated (workspace identity settling after
+// navigation). The regression this guards against produced a project+global
+// pair on every settings re-render: 8+ requests in the same window.
+const IDLE_READ_BUDGET = 2;
+
+test(title, { timeout: 300_000 }, async () => {
+  needs(requirements);
+
+  await using app = await desktop({ name: "library-config-read-budget" });
+  await createAndSelectWorkspace(app, { path: repoRoot });
+
+  // Count opencode-config reads from the renderer before Library mounts so
+  // the initial load is observable (the positive half of the claim). The read
+  // reaches the config through either seam depending on server availability:
+  // an openwork-server fetch (/opencode-config) or the Electron desktop
+  // bridge (readOpencodeConfig IPC). Count both.
+  const installed = await evalIn(app, `(() => {
+    if (window.__opencodeConfigReads !== undefined) return true;
+    window.__opencodeConfigReads = 0;
+    const originalFetch = window.fetch;
+    window.fetch = function (...args) {
+      const target = typeof args[0] === "string" ? args[0] : args[0]?.url;
+      if (typeof target === "string" && target.includes("/opencode-config")) {
+        window.__opencodeConfigReads += 1;
+      }
+      return originalFetch.apply(this, args);
+    };
+    const bridge = window.__OPENWORK_ELECTRON__;
+    if (bridge && typeof bridge.invokeDesktop === "function") {
+      const originalInvoke = bridge.invokeDesktop.bind(bridge);
+      bridge.invokeDesktop = function (command, ...rest) {
+        if (command === "readOpencodeConfig") {
+          window.__opencodeConfigReads += 1;
+        }
+        return originalInvoke(command, ...rest);
+      };
+    }
+    return true;
+  })()`);
+  expect(installed).toBe(true);
+
+  await evalIn(app, `(() => {
+    window.location.hash = "#/settings/extensions";
+    return true;
+  })()`);
+  await waitFor(
+    app,
+    `window.location.hash.includes("/settings/extensions")
+      && [...document.querySelectorAll("h1, h2")].some((heading) => heading.textContent?.trim() === "Library")`,
+    { timeoutMs: 60_000, label: "Library page" },
+  );
+
+  // Positive half: the Library page still reads opencode.json at least once.
+  await waitFor(app, `window.__opencodeConfigReads >= 1`, {
+    timeoutMs: 30_000,
+    label: "initial opencode-config read",
+  });
+
+  // Let the initial mount (project + global scopes, workspace settling) finish.
+  await new Promise((resolve) => setTimeout(resolve, 5_000));
+  const settled = await evalIn(app, `window.__opencodeConfigReads`);
+  expect(typeof settled).toBe("number");
+
+  // Negative half: while idle on Library, background store ticks (health
+  // polls, MCP status refreshes) must not retrigger config reads.
+  await new Promise((resolve) => setTimeout(resolve, IDLE_WINDOW_MS));
+  const afterIdle = await evalIn(app, `window.__opencodeConfigReads`);
+  expect(typeof afterIdle).toBe("number");
+
+  const idleReads = Number(afterIdle) - Number(settled);
+  expect(
+    idleReads,
+    `opencode-config was read ${idleReads} times during a ${IDLE_WINDOW_MS / 1000}s idle window (budget ${IDLE_READ_BUDGET}); the Library page is refetching config on unrelated re-renders`,
+  ).toBeLessThanOrEqual(IDLE_READ_BUDGET);
+
+  // The page must still be alive and on Library after the idle window.
+  const stillOnLibrary = await evalIn(
+    app,
+    `window.location.hash.includes("/settings/extensions")`,
+  );
+  expect(stillOnLibrary).toBe(true);
+});
