@@ -154,10 +154,35 @@ function remoteSessionAssignment(overrides = {}) {
   }
 }
 
+function opencodeSessionPaths(workspaceId, sessionId) {
+  const base = `/workspace/${encodeURIComponent(workspaceId)}/opencode/session`
+  return {
+    create: base,
+    prompt: `${base}/${encodeURIComponent(sessionId)}/prompt_async`,
+    get: `${base}/${encodeURIComponent(sessionId)}`,
+    messages: `${base}/${encodeURIComponent(sessionId)}/message`,
+    todo: `${base}/${encodeURIComponent(sessionId)}/todo`,
+    status: `${base}/status`,
+    abort: `${base}/${encodeURIComponent(sessionId)}/abort`,
+  }
+}
+
+function respondToSnapshotRequest(parsed, paths, snapshot) {
+  if (parsed.pathname === paths.get) return Response.json(snapshot.session ?? { id: paths.get.split("/").at(-1) })
+  if (parsed.pathname === paths.messages) return Response.json(snapshot.messages ?? [])
+  if (parsed.pathname === paths.todo) return Response.json(snapshot.todos ?? [])
+  if (parsed.pathname === paths.status) {
+    const sessionId = paths.get.split("/").at(-1)
+    return Response.json(snapshot.statuses ?? { [sessionId]: snapshot.status ?? { type: "idle" } })
+  }
+  return null
+}
+
 async function observeAssignmentCredentialRejection(status, deniedRoute) {
   const denRequests = []
   let workRequests = 0
   let snapshotStarted = false
+  const sessionPaths = opencodeSessionPaths("workspace-1", "session-1")
   let resolveRejected
   const rejected = new Promise((resolve) => { resolveRejected = resolve })
   const runner = createDesktopAutomationRunner({
@@ -168,10 +193,11 @@ async function observeAssignmentCredentialRejection(status, deniedRoute) {
         if (parsed.pathname === "/workspaces") {
           return Response.json({ items: [{ id: "workspace-1" }], activeId: "workspace-1" })
         }
-        if (parsed.pathname === "/workspace/workspace-1/sessions" && options.method === "POST") {
-          return Response.json({ item: { id: "session-1" } }, { status: 201 })
+        if (parsed.pathname === sessionPaths.create && options.method === "POST") {
+          return Response.json({ id: "session-1" }, { status: 201 })
         }
-        if (parsed.pathname === "/workspace/workspace-1/sessions/session-1/snapshot") {
+        if (parsed.pathname === sessionPaths.prompt) return new Response(null, { status: 204 })
+        if ([sessionPaths.get, sessionPaths.messages, sessionPaths.todo, sessionPaths.status].includes(parsed.pathname)) {
           snapshotStarted = true
           if (deniedRoute === "heartbeat") {
             return new Promise((resolve, reject) => {
@@ -180,13 +206,13 @@ async function observeAssignmentCredentialRejection(status, deniedRoute) {
               else options.signal?.addEventListener("abort", abort, { once: true })
             })
           }
-          return Response.json({ item: {
+          return respondToSnapshotRequest(parsed, sessionPaths, {
             status: { type: "idle" },
             messages: [{
               info: { role: "assistant", tokens: { input: 1, output: 1 } },
               parts: [{ type: "text", text: "Finished" }],
             }],
-          } })
+          })
         }
         throw new Error(`Unexpected local request ${parsed.pathname}`)
       }
@@ -514,21 +540,23 @@ test("routine credential rotation waits for the active assignment to complete", 
   let snapshotStarted = false
   let finishSnapshot = false
   let localAborts = 0
+  const sessionPaths = opencodeSessionPaths("workspace-1", "session-1")
   const runner = createDesktopAutomationRunner({
     getLocalRuntime: async () => ({ baseUrl: "http://127.0.0.1:3000", token: "local" }),
     fetchImpl: async (url, options = {}) => {
       const parsed = new URL(url)
       if (parsed.origin === "http://127.0.0.1:3000") {
         if (parsed.pathname === "/workspaces") return Response.json({ items: [{ id: "workspace-1" }], activeId: "workspace-1" })
-        if (parsed.pathname === "/workspace/workspace-1/sessions") return Response.json({ item: { id: "session-1" } })
-        if (parsed.pathname.endsWith("/abort")) { localAborts += 1; return Response.json({ ok: true }) }
-        if (parsed.pathname.endsWith("/snapshot")) {
+        if (parsed.pathname === sessionPaths.create) return Response.json({ id: "session-1" })
+        if (parsed.pathname === sessionPaths.prompt) return new Response(null, { status: 204 })
+        if (parsed.pathname === sessionPaths.abort) { localAborts += 1; return Response.json(true) }
+        if ([sessionPaths.get, sessionPaths.messages, sessionPaths.todo, sessionPaths.status].includes(parsed.pathname)) {
           snapshotStarted = true
           while (!finishSnapshot) await new Promise((resolve) => setImmediate(resolve))
-          return Response.json({ item: {
+          return respondToSnapshotRequest(parsed, sessionPaths, {
             status: { type: "idle" },
             messages: [{ info: { role: "assistant" }, parts: [{ type: "text", text: "Finished" }] }],
-          } })
+          })
         }
       }
       const path = parsed.pathname
@@ -571,18 +599,20 @@ test("routine credential rotation waits for an in-flight claim", async () => {
   /** @type {(response: Response) => void} */
   let resolveClaim = () => {}
   const claimResponse = new Promise((resolve) => { resolveClaim = resolve })
+  const sessionPaths = opencodeSessionPaths("workspace-1", "session-1")
   const runner = createDesktopAutomationRunner({
     getLocalRuntime: async () => ({ baseUrl: "http://127.0.0.1:3000", token: "local" }),
     fetchImpl: async (url, options = {}) => {
       const parsed = new URL(url)
       if (parsed.origin === "http://127.0.0.1:3000") {
         if (parsed.pathname === "/workspaces") return Response.json({ items: [{ id: "workspace-1" }], activeId: "workspace-1" })
-        if (parsed.pathname === "/workspace/workspace-1/sessions") return Response.json({ item: { id: "session-1" } })
-        if (parsed.pathname.endsWith("/snapshot")) {
-          return Response.json({ item: {
+        if (parsed.pathname === sessionPaths.create) return Response.json({ id: "session-1" })
+        if (parsed.pathname === sessionPaths.prompt) return new Response(null, { status: 204 })
+        if ([sessionPaths.get, sessionPaths.messages, sessionPaths.todo, sessionPaths.status].includes(parsed.pathname)) {
+          return respondToSnapshotRequest(parsed, sessionPaths, {
             status: { type: "idle" },
             messages: [{ info: { role: "assistant" }, parts: [{ type: "text", text: "Finished" }] }],
-          } })
+          })
         }
       }
       const path = parsed.pathname
@@ -716,6 +746,7 @@ test("waking during an active run keeps its lease and starts no second claim loo
   let resolveCompleted
   const completed = new Promise((resolve) => { resolveCompleted = resolve })
   let offered = false
+  const sessionPaths = opencodeSessionPaths("workspace-1", "session-1")
   const runner = createDesktopAutomationRunner({
     getLocalRuntime: async () => ({ baseUrl: "http://127.0.0.1:3000", token: "local-client-token" }),
     fetchImpl: async (url, options = {}) => {
@@ -725,18 +756,19 @@ test("waking during an active run keeps its lease and starts no second claim loo
         if (parsed.pathname === "/workspaces") {
           return Response.json({ items: [{ id: "workspace-1" }], activeId: "workspace-1" })
         }
-        if (parsed.pathname === "/workspace/workspace-1/sessions" && options.method === "POST") {
-          return Response.json({ item: { id: "session-1" }, started: true }, { status: 201 })
+        if (parsed.pathname === sessionPaths.create && options.method === "POST") {
+          return Response.json({ id: "session-1" }, { status: 201 })
         }
-        if (parsed.pathname === "/workspace/workspace-1/sessions/session-1/snapshot") {
+        if (parsed.pathname === sessionPaths.prompt) return new Response(null, { status: 204 })
+        if ([sessionPaths.get, sessionPaths.messages, sessionPaths.todo, sessionPaths.status].includes(parsed.pathname)) {
           await snapshotGate
-          return Response.json({ item: {
+          return respondToSnapshotRequest(parsed, sessionPaths, {
             status: { type: "idle" },
             messages: [{
               info: { role: "assistant", tokens: { input: 1, output: 1 } },
               parts: [{ type: "text", text: "done" }],
             }],
-          } })
+          })
         }
         throw new Error(`Unexpected local request ${parsed.pathname}`)
       }
@@ -763,6 +795,8 @@ test("waking during an active run keeps its lease and starts no second claim loo
   await flushTasks()
   assert.equal(paths.filter((path) => path === "/v1/automation-runner/work").length, 1)
   assert.equal(paths.filter((path) => path.endsWith("/claim")).length, 1)
+  assert.ok([sessionPaths.get, sessionPaths.messages, sessionPaths.todo, sessionPaths.status]
+    .every((path) => paths.includes(path)), "snapshot endpoints did not start in parallel")
 
   // The wake joins the reconcile cycle that is already executing run-1 rather
   // than polling over it, so the desktop cannot double-claim its own work.
@@ -796,6 +830,7 @@ test("a remote-session work item creates a local session and completes with its 
   let createStarted = false
   let resolveCompleted
   const completed = new Promise((resolve) => { resolveCompleted = resolve })
+  const sessionPaths = opencodeSessionPaths("workspace-1", "session-1")
   const runner = createDesktopAutomationRunner({
     getLocalRuntime: async () => ({ baseUrl: "http://127.0.0.1:3000", token: "local-client-token" }),
     fetchImpl: async (url, options = {}) => {
@@ -807,11 +842,12 @@ test("a remote-session work item creates a local session and completes with its 
         if (parsed.pathname === "/workspaces") {
           return Response.json({ items: [{ id: "workspace-1" }], activeId: "workspace-1" })
         }
-        if (parsed.pathname === "/workspace/workspace-1/sessions" && options.method === "POST") {
+        if (parsed.pathname === sessionPaths.create && options.method === "POST") {
           createStarted = true
           await createGate
-          return Response.json({ item: { id: "session-1" }, started: true }, { status: 201 })
+          return Response.json({ id: "session-1" }, { status: 201 })
         }
+        if (parsed.pathname === sessionPaths.prompt) return new Response(null, { status: 204 })
         throw new Error(`Unexpected local request ${parsed.pathname}`)
       }
       denRequests.push({ path: parsed.pathname, authorization, body })
@@ -851,14 +887,18 @@ test("a remote-session work item creates a local session and completes with its 
   assert.deepEqual(localRequests, [
     { path: "/workspaces", method: "GET", body: null, authorization: "Bearer local-client-token" },
     {
-      path: "/workspace/workspace-1/sessions",
+      path: "/workspace/workspace-1/opencode/session",
+      method: "POST",
+      body: { title: "Desktop handoff" },
+      authorization: "Bearer local-client-token",
+    },
+    {
+      path: "/workspace/workspace-1/opencode/session/session-1/prompt_async",
       method: "POST",
       body: {
-        title: "Desktop handoff",
-        prompt: "Inspect the repo",
-        providerId: "provider",
-        modelId: "model",
+        model: { providerID: "provider", modelID: "model" },
         variant: "high",
+        parts: [{ type: "text", text: "Inspect the repo" }],
       },
       authorization: "Bearer local-client-token",
     },
@@ -878,25 +918,50 @@ test("a remote-session work item creates a local session and completes with its 
 
 test("remote-session creation omits nullable prompt and model fields", async () => {
   const requests = []
+  const sessionPaths = opencodeSessionPaths("workspace/first", "session-not-started")
   const result = await executeDesktopRemoteSession(remoteSessionAssignment({ prompt: null, model: null }), {
     getLocalRuntime: async () => ({ baseUrl: "http://127.0.0.1:3000", token: "local-client-token" }),
     fetchImpl: async (url, options = {}) => {
       const parsed = new URL(url)
       requests.push({ path: parsed.pathname, body: options.body ? JSON.parse(options.body) : null })
-      if (parsed.pathname === "/workspaces") return Response.json({ items: [{ id: "workspace-first" }] })
-      if (parsed.pathname === "/workspace/workspace-first/sessions") {
-        return Response.json({ item: { id: "session-not-started" } }, { status: 201 })
+      if (parsed.pathname === "/workspaces") return Response.json({ items: [{ id: "workspace/first" }] })
+      if (parsed.pathname === sessionPaths.create) {
+        return Response.json({ id: "session-not-started" }, { status: 201 })
       }
       throw new Error(`Unexpected request ${parsed.pathname}`)
     },
     signal: new AbortController().signal,
   })
 
-  assert.deepEqual(result, { sessionId: "session-not-started", workspaceId: "workspace-first", started: false })
+  assert.deepEqual(result, { sessionId: "session-not-started", workspaceId: "workspace/first", started: false })
   assert.deepEqual(requests, [
     { path: "/workspaces", body: null },
-    { path: "/workspace/workspace-first/sessions", body: { title: "Desktop handoff" } },
+    { path: "/workspace/workspace%2Ffirst/opencode/session", body: { title: "Desktop handoff" } },
   ])
+})
+
+test("native OpenCode failures preserve upstream status, message, and workspace context", async () => {
+  const sessionPaths = opencodeSessionPaths("workspace-1", "unused")
+  await assert.rejects(
+    executeDesktopRemoteSession(remoteSessionAssignment({ prompt: null, model: null }), {
+      getLocalRuntime: async () => ({ baseUrl: "http://127.0.0.1:3000", token: "local-client-token" }),
+      fetchImpl: async (url) => {
+        const parsed = new URL(url)
+        if (parsed.pathname === "/workspaces") {
+          return Response.json({ items: [{ id: "workspace-1" }], activeId: "workspace-1" })
+        }
+        if (parsed.pathname === sessionPaths.create) {
+          return Response.json({ message: "OpenCode is temporarily unavailable" }, { status: 503 })
+        }
+        throw new Error(`Unexpected request ${parsed.pathname}`)
+      },
+      signal: new AbortController().signal,
+    }),
+    (error) => error instanceof Error
+      && error.message === "OpenCode is temporarily unavailable"
+      && Reflect.get(error, "status") === 503
+      && Reflect.get(error, "workspaceId") === "workspace-1",
+  )
 })
 
 test("a local remote-session failure completes as failed without leaking the response body", async () => {
@@ -905,6 +970,7 @@ test("a local remote-session failure completes as failed without leaking the res
   let offered = false
   let resolveCompleted
   const completed = new Promise((resolve) => { resolveCompleted = resolve })
+  const sessionPaths = opencodeSessionPaths("workspace-1", "unused")
   const runner = createDesktopAutomationRunner({
     getLocalRuntime: async () => ({ baseUrl: "http://127.0.0.1:3000", token: "local-client-token" }),
     fetchImpl: async (url, options = {}) => {
@@ -913,7 +979,7 @@ test("a local remote-session failure completes as failed without leaking the res
         if (parsed.pathname === "/workspaces") {
           return Response.json({ items: [{ id: "workspace-1" }], activeId: "workspace-1" })
         }
-        if (parsed.pathname === "/workspace/workspace-1/sessions") {
+        if (parsed.pathname === sessionPaths.create) {
           return Response.json({ message: "x".repeat(2_500), token: sensitiveToken }, { status: 500 })
         }
       }
@@ -993,25 +1059,27 @@ test("a work poll left hanging by a suspended machine times out and retries", as
 test("desktop Automation execution creates a normal visible local OpenWork thread", async () => {
   const requests = []
   let snapshots = 0
+  const sessionPaths = opencodeSessionPaths("workspace-1", "session-1")
   const fetchImpl = async (url, options = {}) => {
     const parsed = new URL(url)
     const body = options.body ? JSON.parse(options.body) : null
-    requests.push({ path: parsed.pathname, method: options.method ?? "GET", body })
+    requests.push({ path: parsed.pathname, search: parsed.search, method: options.method ?? "GET", body, options })
     if (parsed.pathname === "/workspaces") {
       return Response.json({ items: [{ id: "workspace-1" }], activeId: "workspace-1" })
     }
-    if (parsed.pathname === "/workspace/workspace-1/sessions" && options.method === "POST") {
-      return Response.json({ item: { id: "session-1" }, started: true }, { status: 201 })
+    if (parsed.pathname === sessionPaths.create && options.method === "POST") {
+      return Response.json({ id: "session-1" }, { status: 201 })
     }
-    if (parsed.pathname === "/workspace/workspace-1/sessions/session-1/snapshot") {
-      snapshots += 1
-      return Response.json({ item: {
-        status: { type: snapshots === 1 ? "busy" : "idle" },
-        messages: snapshots === 1 ? [] : [{
+    if (parsed.pathname === sessionPaths.prompt) return new Response(null, { status: 204 })
+    if ([sessionPaths.get, sessionPaths.messages, sessionPaths.todo, sessionPaths.status].includes(parsed.pathname)) {
+      if (parsed.pathname === sessionPaths.get) snapshots += 1
+      return respondToSnapshotRequest(parsed, sessionPaths, {
+        status: { type: snapshots <= 1 ? "busy" : "idle" },
+        messages: snapshots <= 1 ? [] : [{
           info: { role: "assistant", tokens: { input: 12, output: 7 } },
           parts: [{ type: "text", text: "Desktop runner result" }],
         }],
-      } })
+      })
     }
     throw new Error(`Unexpected request ${parsed.pathname}`)
   }
@@ -1022,7 +1090,7 @@ test("desktop Automation execution creates a normal visible local OpenWork threa
     automationId: "automation-1",
     automationName: "Daily brief",
     instructions: "Prepare the brief",
-    model: { providerId: "opencode", modelId: "big-pickle" },
+    model: { providerId: "opencode", modelId: "big-pickle", variant: "high" },
     timeoutMs: 30_000,
     leaseExpiresAt: Date.now() + 60_000,
     attempt: 1,
@@ -1036,32 +1104,51 @@ test("desktop Automation execution creates a normal visible local OpenWork threa
   assert.equal(result.workspaceId, "workspace-1")
   assert.equal(result.resultSummary, "Desktop runner result")
   assert.deepEqual(result.usage, { inputTokens: 12, outputTokens: 7, costMicros: null })
-  const create = requests.find((request) => request.path === "/workspace/workspace-1/sessions")
-  assert.deepEqual(create?.body, {
-    title: "Automation: Daily brief",
-    prompt: "Prepare the brief",
-    providerId: "opencode",
-    modelId: "big-pickle",
-  })
+  const localRequests = requests.filter((request) => request.path !== "/workspaces")
+  assert.deepEqual(localRequests.slice(0, 2).map(({ path, method, body }) => ({ path, method, body })), [
+    {
+      path: sessionPaths.create,
+      method: "POST",
+      body: { title: "Automation: Daily brief" },
+    },
+    {
+      path: sessionPaths.prompt,
+      method: "POST",
+      body: {
+        model: { providerID: "opencode", modelID: "big-pickle" },
+        variant: "high",
+        parts: [{ type: "text", text: "Prepare the brief" }],
+      },
+    },
+  ])
+  for (const path of [sessionPaths.get, sessionPaths.messages, sessionPaths.todo, sessionPaths.status]) {
+    assert.equal(requests.filter((request) => request.path === path).length, 2)
+  }
+  assert.ok(requests.filter((request) => request.path === sessionPaths.messages)
+    .every((request) => request.search === "?limit=200"))
+  assert.ok(requests.every((request) => request.options.signal instanceof AbortSignal))
+  assert.ok(localRequests.every((request) => new Headers(request.options.headers).get("Authorization") === "Bearer local-client-token"))
 })
 
 test("desktop Automation execution accepts a completed tool-only assistant turn", async () => {
+  const sessionPaths = opencodeSessionPaths("workspace-1", "session-tool-only")
   const fetchImpl = async (url, options = {}) => {
     const parsed = new URL(url)
     if (parsed.pathname === "/workspaces") {
       return Response.json({ items: [{ id: "workspace-1" }], activeId: "workspace-1" })
     }
-    if (parsed.pathname === "/workspace/workspace-1/sessions" && options.method === "POST") {
-      return Response.json({ item: { id: "session-tool-only" }, started: true }, { status: 201 })
+    if (parsed.pathname === sessionPaths.create && options.method === "POST") {
+      return Response.json({ id: "session-tool-only" }, { status: 201 })
     }
-    if (parsed.pathname === "/workspace/workspace-1/sessions/session-tool-only/snapshot") {
-      return Response.json({ item: {
-        status: { type: "idle" },
+    if (parsed.pathname === sessionPaths.prompt) return new Response(null, { status: 204 })
+    if ([sessionPaths.get, sessionPaths.messages, sessionPaths.todo, sessionPaths.status].includes(parsed.pathname)) {
+      return respondToSnapshotRequest(parsed, sessionPaths, {
+        statuses: {},
         messages: [{
           info: { role: "assistant", tokens: { input: 9, output: 3 } },
           parts: [{ type: "tool", tool: "example", state: { status: "completed", output: "done" } }],
         }],
-      } })
+      })
     }
     throw new Error(`Unexpected request ${parsed.pathname}`)
   }
@@ -1085,6 +1172,7 @@ test("failed desktop assignments retain their created local thread in the Den co
   const completions = []
   let resolveCompleted
   const completed = new Promise((resolve) => { resolveCompleted = resolve })
+  const sessionPaths = opencodeSessionPaths("workspace-1", "session-failed")
   const runner = createDesktopAutomationRunner({
     getLocalRuntime: async () => ({ baseUrl: "http://127.0.0.1:3000", token: "local-client-token" }),
     fetchImpl: async (url, options = {}) => {
@@ -1093,11 +1181,12 @@ test("failed desktop assignments retain their created local thread in the Den co
         if (parsed.pathname === "/workspaces") {
           return Response.json({ items: [{ id: "workspace-1" }], activeId: "workspace-1" })
         }
-        if (parsed.pathname === "/workspace/workspace-1/sessions" && options.method === "POST") {
-          return Response.json({ item: { id: "session-failed" }, started: true }, { status: 201 })
+        if (parsed.pathname === sessionPaths.create && options.method === "POST") {
+          return Response.json({ id: "session-failed" }, { status: 201 })
         }
-        if (parsed.pathname === "/workspace/workspace-1/sessions/session-failed/snapshot") {
-          return Response.json({ item: {
+        if (parsed.pathname === sessionPaths.prompt) return new Response(null, { status: 204 })
+        if ([sessionPaths.get, sessionPaths.messages, sessionPaths.todo, sessionPaths.status].includes(parsed.pathname)) {
+          return respondToSnapshotRequest(parsed, sessionPaths, {
             status: { type: "idle" },
             messages: [{
               info: {
@@ -1109,7 +1198,7 @@ test("failed desktop assignments retain their created local thread in the Den co
               },
               parts: [],
             }],
-          } })
+          })
         }
         throw new Error(`Unexpected local request ${parsed.pathname}`)
       }
@@ -1150,18 +1239,27 @@ test("cancellation during execution preserves the local thread and reaches a ter
   const completions = []
   let resolveCompleted
   const completed = new Promise((resolve) => { resolveCompleted = resolve })
+  const sessionPaths = opencodeSessionPaths("workspace-1", "session-cancelled")
+  const localRequests = []
   const runner = createDesktopAutomationRunner({
     getLocalRuntime: async () => ({ baseUrl: "http://127.0.0.1:3000", token: "local-client-token" }),
     fetchImpl: async (url, options = {}) => {
       const parsed = new URL(url)
       if (parsed.origin === "http://127.0.0.1:3000") {
+        localRequests.push({
+          path: parsed.pathname,
+          method: options.method ?? "GET",
+          authorization: new Headers(options.headers).get("Authorization"),
+          signal: options.signal,
+        })
         if (parsed.pathname === "/workspaces") {
           return Response.json({ items: [{ id: "workspace-1" }], activeId: "workspace-1" })
         }
-        if (parsed.pathname === "/workspace/workspace-1/sessions" && options.method === "POST") {
-          return Response.json({ item: { id: "session-cancelled" }, started: true }, { status: 201 })
+        if (parsed.pathname === sessionPaths.create && options.method === "POST") {
+          return Response.json({ id: "session-cancelled" }, { status: 201 })
         }
-        if (parsed.pathname === "/workspace/workspace-1/sessions/session-cancelled/snapshot") {
+        if (parsed.pathname === sessionPaths.prompt) return new Response(null, { status: 204 })
+        if ([sessionPaths.get, sessionPaths.messages, sessionPaths.todo, sessionPaths.status].includes(parsed.pathname)) {
           snapshotStarted = true
           return new Promise((resolve, reject) => {
             const abort = () => reject(options.signal?.reason ?? new Error("cancelled"))
@@ -1169,7 +1267,7 @@ test("cancellation during execution preserves the local thread and reaches a ter
             else options.signal?.addEventListener("abort", abort, { once: true })
           })
         }
-        if (parsed.pathname.endsWith("/abort")) return Response.json({ ok: true })
+        if (parsed.pathname === sessionPaths.abort) return Response.json(true)
         throw new Error(`Unexpected local request ${parsed.pathname}`)
       }
       if (parsed.pathname === "/v1/automation-runner/work") {
@@ -1205,19 +1303,25 @@ test("cancellation during execution preserves the local thread and reaches a ter
   assert.equal(completionBody.sessionId, "session-cancelled")
   assert.equal(completionBody.workspaceId, "workspace-1")
   assert.equal(completionBody.error.code, "cancelled")
+  const abortRequest = localRequests.find((request) => request.path === sessionPaths.abort)
+  assert.equal(abortRequest?.method, "POST")
+  assert.equal(abortRequest?.authorization, "Bearer local-client-token")
+  assert.equal(abortRequest?.signal?.aborted, false)
 })
 
 test("an explicit assistant provider failure terminates immediately with its local thread", async () => {
+  const sessionPaths = opencodeSessionPaths("workspace-1", "session-provider-failure")
   const fetchImpl = async (url, options = {}) => {
     const parsed = new URL(url)
     if (parsed.pathname === "/workspaces") {
       return Response.json({ items: [{ id: "workspace-1" }], activeId: "workspace-1" })
     }
-    if (parsed.pathname === "/workspace/workspace-1/sessions" && options.method === "POST") {
-      return Response.json({ item: { id: "session-provider-failure" }, started: true }, { status: 201 })
+    if (parsed.pathname === sessionPaths.create && options.method === "POST") {
+      return Response.json({ id: "session-provider-failure" }, { status: 201 })
     }
-    if (parsed.pathname === "/workspace/workspace-1/sessions/session-provider-failure/snapshot") {
-      return Response.json({ item: {
+    if (parsed.pathname === sessionPaths.prompt) return new Response(null, { status: 204 })
+    if ([sessionPaths.get, sessionPaths.messages, sessionPaths.todo, sessionPaths.status].includes(parsed.pathname)) {
+      return respondToSnapshotRequest(parsed, sessionPaths, {
         status: { type: "idle" },
         messages: [{
           info: {
@@ -1229,7 +1333,7 @@ test("an explicit assistant provider failure terminates immediately with its loc
           },
           parts: [],
         }],
-      } })
+      })
     }
     throw new Error(`Unexpected request ${parsed.pathname}`)
   }
@@ -1264,16 +1368,18 @@ test("a temporarily unavailable workspace fails clearly before session creation"
 })
 
 test("desktop Automation execution surfaces a missing pinned model", async () => {
+  const sessionPaths = opencodeSessionPaths("workspace-1", "session-1")
   const fetchImpl = async (url, options = {}) => {
     const parsed = new URL(url)
     if (parsed.pathname === "/workspaces") {
       return Response.json({ items: [{ id: "workspace-1" }], activeId: "workspace-1" })
     }
-    if (parsed.pathname === "/workspace/workspace-1/sessions" && options.method === "POST") {
-      return Response.json({ item: { id: "session-1" }, started: true }, { status: 201 })
+    if (parsed.pathname === sessionPaths.create && options.method === "POST") {
+      return Response.json({ id: "session-1" }, { status: 201 })
     }
-    if (parsed.pathname === "/workspace/workspace-1/sessions/session-1/snapshot") {
-      return Response.json({ item: {
+    if (parsed.pathname === sessionPaths.prompt) return new Response(null, { status: 204 })
+    if ([sessionPaths.get, sessionPaths.messages, sessionPaths.todo, sessionPaths.status].includes(parsed.pathname)) {
+      return respondToSnapshotRequest(parsed, sessionPaths, {
         status: { type: "idle" },
         messages: [{
           info: {
@@ -1285,7 +1391,7 @@ test("desktop Automation execution surfaces a missing pinned model", async () =>
           },
           parts: [],
         }],
-      } })
+      })
     }
     throw new Error(`Unexpected request ${parsed.pathname}`)
   }
