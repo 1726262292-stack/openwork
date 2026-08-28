@@ -426,6 +426,13 @@ export type DenBillingSummary = {
   benefitId: string | null;
 };
 
+export type DenOpenWorkWebAccessSource = "subscription" | "complimentary" | null;
+
+export type DenOpenWorkWebAccess = {
+  hasAccess: boolean;
+  accessSource: DenOpenWorkWebAccessSource;
+};
+
 type DenAuthResult = {
   user: DenUser | null;
   token: string | null;
@@ -2201,6 +2208,7 @@ function parsePluginConfigObject(value: unknown): DenPluginConfigObject | null {
 
 function parseExtensionSourceFormat(value: unknown): OpenWorkExtensionSourceFormat | null {
   switch (value) {
+    case "agent-plugin":
     case "openwork-builtin":
     case "openwork-extension-manifest":
     case "claude-plugin":
@@ -2708,6 +2716,34 @@ function getBillingSummary(payload: unknown): DenBillingSummary | null {
   };
 }
 
+export function parseDenOpenWorkWebAccess(payload: unknown): DenOpenWorkWebAccess | null {
+  if (!isRecord(payload) || !isRecord(payload.billing)) return null;
+  const stripe = payload.billing.stripe;
+  if (!isRecord(stripe) || !isRecord(stripe.web)) return null;
+
+  const web = stripe.web;
+  const accessSource: DenOpenWorkWebAccessSource | undefined =
+    web.accessSource === "subscription" || web.accessSource === "complimentary"
+      ? web.accessSource
+      : web.accessSource === null
+        ? null
+        : undefined;
+  if (
+    typeof web.hasAccess !== "boolean"
+    || accessSource === undefined
+    || web.hasAccess !== (accessSource !== null)
+    || (accessSource === "subscription" && web.hasEligibleSubscription !== true)
+    || (accessSource === "complimentary" && web.complimentaryAccess !== true)
+  ) {
+    return null;
+  }
+
+  return {
+    hasAccess: web.hasAccess,
+    accessSource,
+  };
+}
+
 // Den requests target a control plane that does not answer CORS preflights.
 // On desktop, route cross-origin Den calls (including a Den API on a different
 // loopback port than the renderer) through the Electron main process so the
@@ -3064,6 +3100,34 @@ export function createDenClient(options: { baseUrl: string; apiBaseUrl?: string 
         throw new DenApiError(500, "invalid_cloud_instance_payload", "Cloud instance response was invalid.");
       }
       return instance;
+    },
+
+    async getOpenWorkWebAccess(orgId: string): Promise<DenOpenWorkWebAccess> {
+      const context = await requestJson<unknown>(baseUrls, "/v1/org", {
+        method: "GET",
+        token,
+        organizationId: orgId,
+      });
+      const capabilities = isRecord(context) && isRecord(context.capabilities)
+        ? context.capabilities
+        : null;
+      // Missing means unsupported. This follows the established Den capability
+      // negotiation pattern so a newer hosted client never calls the Web billing
+      // route on an older Den deployment that does not advertise the contract.
+      if (capabilities?.openworkWeb !== true) {
+        return { hasAccess: false, accessSource: null };
+      }
+
+      const payload = await requestJson<unknown>(baseUrls, "/v1/billing/web", {
+        method: "GET",
+        token,
+        organizationId: orgId,
+      });
+      const access = parseDenOpenWorkWebAccess(payload);
+      if (!access) {
+        throw new DenApiError(500, "invalid_openwork_web_access_payload", "OpenWork Web access response was invalid.");
+      }
+      return access;
     },
 
     async updateCloudInstance(orgId: string): Promise<DenCloudInstanceUpdateResult> {

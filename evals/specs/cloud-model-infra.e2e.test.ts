@@ -615,11 +615,11 @@ test.skipIf(missingRequirements.length > 0)(title, { timeout: 20 * 60_000 }, asy
 
   const sessionsList = await workerJson(
     runtime,
-    `/workspace/${encodeURIComponent(sessionWorkspaceId)}/sessions`,
+    `/workspace/${encodeURIComponent(sessionWorkspaceId)}/opencode/session`,
     workerClientHeaders(runtime),
   );
-  const sessionItems = isRecord(sessionsList.body) && Array.isArray(sessionsList.body.items)
-    ? sessionsList.body.items.filter(isRecord)
+  const sessionItems = Array.isArray(sessionsList.body)
+    ? sessionsList.body.filter(isRecord)
     : [];
   const listedSession = sessionItems.find((item) => item.id === sessionId);
   expect(listedSession, `session ${sessionId} missing from the worker session list`).toBeDefined();

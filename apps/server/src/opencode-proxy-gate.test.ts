@@ -3,10 +3,11 @@ import { describe, expect, test } from "bun:test";
 import {
   assertOpencodeProxyAllowed,
   normalizeOpencodeDirectory,
+  proxyOpencodeRequest,
   scopeWorkspaceOpencodeRequest,
 } from "./server.js";
 import { ApiError } from "./errors.js";
-import type { Actor, TokenScope } from "./types.js";
+import type { Actor, ServerConfig, TokenScope, WorkspaceInfo } from "./types.js";
 
 const actor = (scope: TokenScope | undefined): Actor => ({ type: "remote", scope });
 
@@ -98,5 +99,65 @@ describe("normalizeOpencodeDirectory", () => {
   test("leaves paths unchanged on non-Windows platforms", () => {
     expect(normalizeOpencodeDirectory("\\\\?\\C:\\Users\\agent\\repo", "darwin"))
       .toBe("\\\\?\\C:\\Users\\agent\\repo");
+  });
+});
+
+describe("proxyOpencodeRequest read-only guard", () => {
+  const workspace: WorkspaceInfo = {
+    id: "ws_ro",
+    name: "Read-only workspace",
+    path: "/tmp/openwork-proxy-gate-ro",
+    preset: "starter",
+    workspaceType: "local",
+  };
+
+  const readOnlyConfig: ServerConfig = {
+    host: "127.0.0.1",
+    port: 0,
+    token: "owt_test_token",
+    hostToken: "owt_host_token",
+    approval: { mode: "auto", timeoutMs: 1000 },
+    corsOrigins: ["*"],
+    workspaces: [workspace],
+    authorizedRoots: [workspace.path],
+    readOnly: true,
+    startedAt: Date.now(),
+    tokenSource: "cli",
+    hostTokenSource: "cli",
+    logFormat: "pretty",
+    logRequests: false,
+  };
+
+  const proxy = (method: string) => {
+    const proxyPath = "/session";
+    const url = new URL(`http://openwork.invalid/opencode${proxyPath}`);
+    return proxyOpencodeRequest({
+      config: readOnlyConfig,
+      workspace,
+      proxyPath,
+      url,
+      request: new Request(url, { method }),
+    });
+  };
+
+  test("rejects native proxy writes on a read-only server (parity with the removed ensureWritable wrapper routes)", async () => {
+    for (const method of ["POST", "DELETE", "PATCH", "PUT"]) {
+      const error = await proxy(method).then(
+        () => null,
+        (thrown: unknown) => thrown,
+      );
+      expect(error).toBeInstanceOf(ApiError);
+      expect(error instanceof ApiError ? error.code : null).toBe("read_only");
+    }
+  });
+
+  test("still lets reads through the read-only gate", async () => {
+    // No engine is configured, so a read that passes the read-only gate fails
+    // later with opencode_unconfigured — proving the gate did not block it.
+    const error = await proxy("GET").then(
+      () => null,
+      (thrown: unknown) => thrown,
+    );
+    expect(error instanceof ApiError ? error.code : null).toBe("opencode_unconfigured");
   });
 });

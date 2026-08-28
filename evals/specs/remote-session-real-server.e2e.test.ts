@@ -138,17 +138,17 @@ test(
 
     // ── the same session list the web UI renders now contains it ──
     const listResponse = await fetch(
-      `${runtime.baseUrl}/workspace/${encodeURIComponent(runtime.workspaceId)}/sessions`,
+      `${runtime.baseUrl}/workspace/${encodeURIComponent(runtime.workspaceId)}/opencode/session`,
       { headers: workerHeaders(runtime) },
     );
     expect(listResponse.ok).toBe(true);
-    const list = (await listResponse.json()) as { items?: Array<{ id?: string; title?: string | null }> };
-    const listed = (list.items ?? []).find((item) => item.id === sessionId);
+    const list = (await listResponse.json()) as Array<{ id?: string; title?: string | null }>;
+    const listed = list.find((item) => item.id === sessionId);
     expect(listed, `session ${sessionId} missing from workspace session list`).toBeDefined();
     expect(listed?.title).toBe("Remote session via MCP");
     evidence.recordAssertionEvidence(
       "A capability-created session is a native web-visible session",
-      "remote-session:create produced a session on the real openwork-server, and GET /workspace/:id/sessions — the list the OpenWork Web UI renders — returned that session id with its title.",
+      "remote-session:create produced a session on the real openwork-server, and GET /workspace/:id/opencode/session returned that session id with its title.",
       true,
     );
 

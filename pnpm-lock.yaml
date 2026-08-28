@@ -334,6 +334,9 @@ importers:
       '@openwork/enterprise-mcp-client':
         specifier: workspace:*
         version: link:../../packages/enterprise-mcp-client
+      '@openwork/headless-threads':
+        specifier: workspace:*
+        version: link:../../packages/headless-threads
       '@openwork/paths':
         specifier: workspace:*
         version: link:../../packages/paths
@@ -1232,6 +1235,9 @@ importers:
 
   packages/headless-threads:
     dependencies:
+      '@opencode-ai/sdk':
+        specifier: ^1.18.15
+        version: 1.18.18
       zod:
         specifier: ^4.3.6
         version: 4.3.6

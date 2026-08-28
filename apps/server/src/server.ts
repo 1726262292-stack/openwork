@@ -83,7 +83,7 @@ import { registerCoreRoutes } from "./routes/core.js";
 import { registerFileRoutes } from "./routes/files.js";
 import { registerOperationRoutes } from "./routes/operations.js";
 import { addRoute, matchRoute, type AuthMode, type RequestContext, type Route } from "./routes/registry.js";
-import { registerSessionRoutes } from "./routes/sessions.js";
+import { registerSessionGroupRoutes } from "./routes/session-groups.js";
 import { registerWorkspaceRoutes } from "./routes/workspaces.js";
 import { registerCloudMcpRoutes } from "./routes/cloud-mcp.js";
 import { captureServerException, isExpectedRequestCancellation } from "./telemetry.js";
@@ -1146,10 +1146,18 @@ export async function startServer(config: ServerConfig): Promise<ServeResult> {
 
   // Deliver server-managed provider credentials to the engine on startup. The
   // engine process receives a fixed env allowlist, so credentials materialized
-  // into the env store only reach it through the engine's auth API. Fire and
-  // forget: a credential problem must never stop the server from serving.
+  // into the env store only reach it through the engine's auth API. A delivered
+  // credential also invalidates any SDK client the engine cached before auth
+  // arrived; the sync coordinator lands that reload without interrupting a
+  // live session.
   resetManagedProviderAuthCache();
-  void syncManagedProviderAuth({ config, env, logger: toManagedProviderAuthLogger(logger) }).catch(() => undefined);
+  void syncManagedProviderAuth({ config, env, logger: toManagedProviderAuthLogger(logger) })
+    .then((result) => {
+      if (result.delivered.length > 0 || result.removed.length > 0) {
+        cloudProviderSync.markReloadPending();
+      }
+    })
+    .catch(() => undefined);
 
   engineInstanceReaper.start();
 
@@ -1296,6 +1304,12 @@ export async function proxyOpencodeRequest(input: {
   const workspace = input.workspace;
   const proxyPath = input.proxyPath ?? input.url.pathname;
   const method = input.request.method.toUpperCase();
+  // The wrapper routes enforced the server read-only mode via ensureWritable;
+  // native proxy writes must honor the same guard so a read-only server never
+  // forwards mutations to the engine.
+  if (method !== "GET" && method !== "HEAD") {
+    ensureWritable(input.config);
+  }
   const pool = workspace?.workspaceType === "remote" ? null : enginePoolForConfig(input.config);
   const route = pool?.routeRequest(method, proxyPath) ?? null;
   const baseUrl = route?.target.baseUrl ??
@@ -2076,21 +2090,15 @@ function createRoutes(
     },
   });
 
-  registerSessionRoutes({
+  registerSessionGroupRoutes({
     routes,
     config,
     jsonResponse,
-    parseOptionalBoolean,
-    parseOptionalPositiveInteger,
-    parseOptionalNonNegativeInteger,
     readJsonBody,
     ensureWritable,
     requireClientScope,
     resolveWorkspace,
     resolveWorkspaceWithoutBootstrap,
-    resolveOpencodeDirectory,
-    createWorkspaceOpencodeClient,
-    unwrapOpencodeResult,
   });
 
   registerCloudMcpRoutes({
@@ -2543,7 +2551,18 @@ function createRoutes(
     }));
 
     const fileResult = await writeOpenworkRuntimeConfigFile(config, workspace.id);
-    const shouldReload = result.changed || fileResult.changed;
+    // Auth must land before the reload so the replacement provider instance is
+    // constructed with its credential. This also refreshes SDK clients after
+    // a key rotation even when provider config itself did not change.
+    const authResult = await syncManagedProviderAuth({
+      config,
+      env,
+      logger: toManagedProviderAuthLogger(logger),
+    });
+    const shouldReload = result.changed
+      || fileResult.changed
+      || authResult.delivered.length > 0
+      || authResult.removed.length > 0;
     // A rollover-capable pool can apply this immediately without disposing
     // the generation that owns live sessions. Legacy/external engines keep
     // the established busy deferral.
@@ -2555,14 +2574,6 @@ function createRoutes(
     if (reloadDeferred) {
       cloudProviderSync.markReloadPending();
     }
-    // The provider entry only names its credential env vars; the engine needs
-    // the value itself via its auth API.
-    await syncManagedProviderAuth({
-      config,
-      env,
-      logger: toManagedProviderAuthLogger(logger),
-    }).catch(() => undefined);
-
     return jsonResponse({
       ok: true,
       changed: result.changed,
