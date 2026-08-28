@@ -3102,6 +3102,21 @@ export function createDenClient(options: { baseUrl: string; apiBaseUrl?: string 
     },
 
     async getOpenWorkWebAccess(orgId: string): Promise<DenOpenWorkWebAccess> {
+      const context = await requestJson<unknown>(baseUrls, "/v1/org", {
+        method: "GET",
+        token,
+        organizationId: orgId,
+      });
+      const capabilities = isRecord(context) && isRecord(context.capabilities)
+        ? context.capabilities
+        : null;
+      // Missing means unsupported. This follows the established Den capability
+      // negotiation pattern so a newer hosted client never calls the Web billing
+      // route on an older Den deployment that does not advertise the contract.
+      if (capabilities?.openworkWeb !== true) {
+        return { hasAccess: false, accessSource: null };
+      }
+
       const payload = await requestJson<unknown>(baseUrls, "/v1/billing/web", {
         method: "GET",
         token,

@@ -37,7 +37,7 @@ briefTest(testBrief({
       never: "infer free access from an email, organization role, plan, generic capability, or another organization's grant, or overlap an ongoing paid Web subscription",
     }),
     originContract: claim("the hosted OpenWork Web origin enforces Den's access result for the exact signed-in organization", {
-      never: "provision or proxy a workspace from a client-authored flag, a stale organization result, an inconsistent payload, or an unavailable Den",
+      never: "provision or proxy a workspace from a client-authored flag, a stale organization result, an inconsistent payload, an unavailable Den, or an older Den that does not advertise the Web protocol",
     }),
     checkoutContract: claim("Checkout, return sync, and webhooks bind one subscription to the intended organization", {
       never: "open duplicate subscriptions or grant access from an unrelated or unconfirmed Checkout session",
@@ -89,6 +89,7 @@ briefTest(testBrief({
     auditEventsSource,
     cloudRoutesSource,
     gatewaySource,
+    denClientSource,
     appRootSource,
     productAccessGateSource,
     productAccessStateSource,
@@ -112,6 +113,7 @@ briefTest(testBrief({
     readFile(join(repoRoot, "ee", "apps", "den-api", "src", "audit-events.ts"), "utf8"),
     readFile(join(repoRoot, "ee", "apps", "den-api", "src", "routes", "cloud", "index.ts"), "utf8"),
     readFile(join(repoRoot, "ee", "apps", "den-gateway", "src", "app.ts"), "utf8"),
+    readFile(join(repoRoot, "apps", "app", "src", "app", "lib", "den.ts"), "utf8"),
     readFile(join(repoRoot, "apps", "app", "src", "react-app", "shell", "app-root.tsx"), "utf8"),
     readFile(join(repoRoot, "apps", "app", "src", "react-app", "domains", "cloud", "openwork-web-access-gate.tsx"), "utf8"),
     readFile(join(repoRoot, "apps", "app", "src", "react-app", "domains", "cloud", "openwork-web-access-state.ts"), "utf8"),
@@ -337,6 +339,9 @@ briefTest(testBrief({
     /await getOpenWorkWebAccess\(payload\.organization\.id\)[\s\S]*?if \(!webAccess\.hasAccess\)[\s\S]*?resolveCloudInstanceForGateway/,
   );
   expect(gatewaySource).toContain('"gateway_resolve_rejected"');
+  expect(denClientSource).toMatch(
+    /requestJson<unknown>\(baseUrls, "\/v1\/org"[\s\S]*?capabilities\?\.openworkWeb !== true[\s\S]*?requestJson<unknown>\(baseUrls, "\/v1\/billing\/web"/,
+  );
   expect(productAccessGateSource).toContain('getOpenWorkWebAccess(organizationId)');
   expect(productAccessStateSource).toContain('input.authStatus === "unavailable"');
   expect(productAccessStateSource).toContain('input.check.scope !== input.expectedScope');
@@ -345,7 +350,7 @@ briefTest(testBrief({
   );
   prove.originContract(
     true,
-    "A Den 403 kept the hosted gateway closed without any instance request; the product parser rejected an inconsistent client-shaped claim; only the exact verified principal/org/token scope opened; an organization mismatch waited; Den unavailability locked; and the Web gate mounts before cloud workspace provisioning.",
+    "A Den 403 kept the hosted gateway closed without any instance request; an older Den that omitted the Web capability stayed locked without receiving the billing request; the product parser rejected an inconsistent client-shaped claim; only the exact verified principal/org/token scope opened; an organization mismatch waited; Den unavailability locked; and the Web gate mounts before cloud workspace provisioning.",
   );
 
   expect(openWorkWebCheckoutIdempotencyKey({
