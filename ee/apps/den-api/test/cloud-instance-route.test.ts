@@ -339,6 +339,8 @@ describe("Cloud instance route gate", () => {
 })
 
 describe("Cloud gateway resolve route", () => {
+  const grantedOpenWorkWebAccess = async () => ({ hasAccess: true })
+
   test("returns 404 when the gateway key is not configured", async () => {
     const app = new Hono<{ Variables: OrgRouteVariables }>()
     routes.registerCloudRoutes(app, {
@@ -409,6 +411,34 @@ describe("Cloud gateway resolve route", () => {
     await expect(response.json()).resolves.toEqual({ error: "cloud_not_found" })
   })
 
+  test("denies Web gateway resolution before provisioning when Den has not granted access", async () => {
+    const app = new Hono<{ Variables: OrgRouteVariables }>()
+    let ensureCalls = 0
+    routes.registerCloudRoutes(app, {
+      memberRoute: contextMiddleware(organizationContext(JSON.stringify({ capabilities: { cloud: true } }))),
+      orgMode: "multi_org",
+      provisionerMode: "daytona",
+      daytonaApiKey: "daytona-test-key",
+      gatewayKey: "gateway-secret",
+      getOpenWorkWebAccess: async () => ({ hasAccess: false }),
+      ensureCloudWorker: async () => {
+        ensureCalls += 1
+        return fakeWorker("provisioning")
+      },
+    })
+
+    const response = await app.request("http://den.local/v1/cloud/gateway/resolve", {
+      headers: { "X-OpenWork-Gateway-Key": "gateway-secret" },
+    })
+
+    expect(response.status).toBe(403)
+    await expect(response.json()).resolves.toEqual({
+      error: "openwork_web_access_required",
+      message: "OpenWork Web access is not active for this organization.",
+    })
+    expect(ensureCalls).toBe(0)
+  })
+
   test("returns the gateway tokens only when the instance is ready", async () => {
     const provisioningWorker = fakeWorker("provisioning")
     const provisioningApp = new Hono<{ Variables: OrgRouteVariables }>()
@@ -418,6 +448,7 @@ describe("Cloud gateway resolve route", () => {
       provisionerMode: "daytona",
       daytonaApiKey: "daytona-test-key",
       gatewayKey: "gateway-secret",
+      getOpenWorkWebAccess: grantedOpenWorkWebAccess,
       ensureCloudWorker: async () => provisioningWorker,
       getSandboxRecord: async () => null,
     })
@@ -438,6 +469,7 @@ describe("Cloud gateway resolve route", () => {
       provisionerMode: "daytona",
       daytonaApiKey: "daytona-test-key",
       gatewayKey: "gateway-secret",
+      getOpenWorkWebAccess: grantedOpenWorkWebAccess,
       ensureCloudWorker: async () => readyWorker,
       cloudWorkerStore: store.store,
       getSandboxRecord: async () => fakeSandbox(),
@@ -495,6 +527,7 @@ describe("Cloud gateway resolve route", () => {
       provisionerMode: "daytona",
       daytonaApiKey: "daytona-test-key",
       gatewayKey: "gateway-secret",
+      getOpenWorkWebAccess: grantedOpenWorkWebAccess,
       ensureCloudWorker: async () => readyWorker,
       cloudWorkerStore: store.store,
       getSandboxRecord: async () => fakeSandboxWithId("den-daytona-worker-cloud-test"),
@@ -528,6 +561,7 @@ describe("Cloud gateway resolve route", () => {
       provisionerMode: "daytona",
       daytonaApiKey: "daytona-test-key",
       gatewayKey: "gateway-secret",
+      getOpenWorkWebAccess: grantedOpenWorkWebAccess,
       ensureCloudWorker: async () => readyWorker,
       cloudWorkerStore: store.store,
       getSandboxRecord: async () => fakeSandbox(),
@@ -571,6 +605,7 @@ describe("Cloud gateway resolve route", () => {
       provisionerMode: "daytona",
       daytonaApiKey: "daytona-test-key",
       gatewayKey: "gateway-secret",
+      getOpenWorkWebAccess: grantedOpenWorkWebAccess,
       ensureCloudWorker: async () => readyWorker,
       cloudWorkerStore: store.store,
       getSandboxRecord: async () => fakeSandbox(),

@@ -159,7 +159,7 @@ const {
   upsertOrgSubscriptionFromStripe,
 } = await import("../src/stripe-billing.js")
 const { env } = await import("../src/env.js")
-const { openWorkWebDeploymentAvailable } = await import("../src/openwork-web-availability.js")
+const { openWorkWebAvailableForOrganization, openWorkWebDeploymentAvailable } = await import("../src/openwork-web-availability.js")
 
 function webSubscription(input?: { status?: string; quantity?: number; organizationId?: string }) {
   const organizationId = input?.organizationId ?? "org_test"
@@ -291,9 +291,13 @@ test("only active and trialing Web subscriptions are eligible", () => {
   }
 })
 
-test("Web availability follows only the explicit deployment flag", () => {
+test("the deployment flag is global while the complimentary override is organization-scoped", () => {
   expect(openWorkWebDeploymentAvailable(true)).toBe(true)
   expect(openWorkWebDeploymentAvailable(false)).toBe(false)
+  expect(openWorkWebAvailableForOrganization(false, {})).toBe(false)
+  expect(openWorkWebAvailableForOrganization(false, { capabilities: { openworkWeb: true } })).toBe(false)
+  expect(openWorkWebAvailableForOrganization(false, { complimentaryAccess: { openworkWeb: true } })).toBe(true)
+  expect(openWorkWebAvailableForOrganization(true, {})).toBe(true)
 
   env.orgMode = "single_org"
   expect(openWorkWebDeploymentAvailable(env.openworkWebEnabled)).toBe(true)
@@ -357,7 +361,7 @@ test("the Web flag controls availability while Stripe readiness controls purchas
   expect(summary.hasAccess).toBe(false)
 })
 
-test("complimentary Web access works without Stripe configuration but remains behind the deployment flag", async () => {
+test("complimentary Web access works without Stripe configuration and overrides the deployment flag for that organization", async () => {
   env.stripe.secretKey = ""
   selectResults.push([], [{ count: 2 }], [{ metadata: { complimentaryAccess: { openworkWeb: true } } }])
 
@@ -375,9 +379,19 @@ test("complimentary Web access works without Stripe configuration but remains be
   selectResults.push([], [{ count: 2 }], [{ metadata: { complimentaryAccess: { openworkWeb: true } } }])
   const disabledSummary = await getOpenWorkWebBillingSummary("org_test")
   expect(disabledSummary).toMatchObject({
+    configured: false,
+    hasAccess: true,
+    accessSource: "complimentary",
+    complimentaryAccess: true,
+  })
+
+  selectResults.push([], [{ count: 2 }], [{ metadata: {} }])
+  const ungrantedSummary = await getOpenWorkWebBillingSummary("org_other")
+  expect(ungrantedSummary).toMatchObject({
+    configured: false,
     hasAccess: false,
     accessSource: null,
-    complimentaryAccess: true,
+    complimentaryAccess: false,
   })
 })
 

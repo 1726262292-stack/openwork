@@ -34,25 +34,25 @@ test("revoking the only complimentary grant removes the empty metadata group", (
   expect(setOpenWorkWebComplimentaryAccess({ complimentaryAccess: { openworkWeb: true } }, false)).toEqual({})
 })
 
-test("complimentary Web access fails closed behind the deployment switch", () => {
+test("complimentary Web access is the only organization grant that overrides the deployment switch", () => {
   expect(resolveOpenWorkWebAccess({
     deploymentAvailable: false,
-    hasEligibleSubscription: false,
-    complimentaryAccess: true,
-  })).toEqual({
-    hasAccess: false,
-    accessSource: null,
-    complimentaryAccess: true,
-  })
-
-  expect(resolveOpenWorkWebAccess({
-    deploymentAvailable: true,
     hasEligibleSubscription: false,
     complimentaryAccess: true,
   })).toEqual({
     hasAccess: true,
     accessSource: "complimentary",
     complimentaryAccess: true,
+  })
+
+  expect(resolveOpenWorkWebAccess({
+    deploymentAvailable: false,
+    hasEligibleSubscription: true,
+    complimentaryAccess: false,
+  })).toEqual({
+    hasAccess: false,
+    accessSource: null,
+    complimentaryAccess: false,
   })
 })
 

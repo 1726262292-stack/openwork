@@ -142,6 +142,8 @@ describe("OpenWork Web billing data", () => {
     expect(source).toContain("Revoke complimentary access");
     expect(source).toContain("Reason for audit log");
     expect(source).toContain("Cancel or finish the paid subscription in Stripe");
+    expect(source).toContain("even when deployment-wide availability is off");
+    expect(source).not.toContain("grant is stored, but this deployment has not enabled");
     expect(source).toContain("/openwork-web-access");
   });
 });

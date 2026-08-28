@@ -75,7 +75,7 @@ describe("Web dashboard page", () => {
     confirming: false,
   };
 
-  test("uses the deployment Web offer and fails closed while billing resolves", () => {
+  test("uses Den's effective organization Web offer and fails closed while billing resolves", () => {
     expect(getWebPageAccessState({
       ...accessInput,
       webAvailable: false,
