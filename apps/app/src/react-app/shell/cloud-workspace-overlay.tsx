@@ -3,7 +3,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { AlertTriangle } from "lucide-react";
 import { AnimatePresence, LazyMotion, domMax, m, useReducedMotion } from "motion/react";
 
-import { clearDenSession, createDenClient, readDenSettings } from "@/app/lib/den";
+import { clearDenSession, createDenClient, DenApiError, readDenSettings } from "@/app/lib/den";
 import { isOpenworkGatewayRuntime } from "@/app/lib/gateway-runtime";
 import { denSettingsChangedEvent } from "@/app/lib/den-session-events";
 import { Button } from "@/components/ui/button";
@@ -15,6 +15,7 @@ import { softCardClass } from "@/react-app/domains/workspace/modal-styles";
 import {
   cloudWorkspaceBootIsSlow,
   cloudWorkspaceBootStages,
+  cloudWorkspaceFailureLogFields,
   cloudWorkspaceTakeoverCopy,
   formatCloudWorkspaceElapsed,
   mapCloudWorkspaceState,
@@ -36,6 +37,7 @@ type CloudWorkspaceStatusContextValue = {
   updating: boolean;
   viewModel: CloudWorkspaceViewModel;
   refresh: () => Promise<void>;
+  retry: () => Promise<void>;
   signOut: () => void;
   updateNow: () => void;
   /**
@@ -60,6 +62,7 @@ const fallbackCloudWorkspaceStatus: CloudWorkspaceStatusContextValue = {
   updating: false,
   viewModel: fallbackViewModel,
   refresh: noopRefresh,
+  retry: noopRefresh,
   signOut: noopAction,
   updateNow: noopAction,
   takeoverActive: false,
@@ -88,6 +91,12 @@ export function useCloudWorkspaceStatus() {
   return useContext(CloudWorkspaceStatusContext) ?? fallbackCloudWorkspaceStatus;
 }
 
+export function cloudWorkspaceRequestFailureLogFields(error: unknown) {
+  return error instanceof DenApiError
+    ? { failure_code: error.code, http_status: error.status }
+    : { failure_code: "cloud_instance_request_failed" };
+}
+
 export function CloudWorkspaceStatusProvider(props: { children: ReactNode }) {
   const denAuth = useDenAuth();
   const [instance, setInstance] = useState<DenCloudInstance | null>(null);
@@ -95,6 +104,8 @@ export function CloudWorkspaceStatusProvider(props: { children: ReactNode }) {
   const [updating, setUpdating] = useState(false);
   const [takeoverActive, setTakeoverActive] = useState(false);
   const lastAttemptedVersion = useRef<string | null>(null);
+  const lastLoggedFailureReference = useRef<string | null>(null);
+  const lastLoggedRequestFailure = useRef<string | null>(null);
   const gatewayMode = isOpenworkGatewayRuntime();
   const settingsSnapshot = useSyncExternalStore(
     subscribeToDenSettings,
@@ -121,8 +132,39 @@ export function CloudWorkspaceStatusProvider(props: { children: ReactNode }) {
       const next = await denClient.getCloudInstance(orgId);
       setInstance(next);
       setRequestFailed(false);
-    } catch {
+      lastLoggedRequestFailure.current = null;
+      if (next.failure && next.failure.reference !== lastLoggedFailureReference.current) {
+        lastLoggedFailureReference.current = next.failure.reference;
+        console.error("[cloud-workspace] sandbox startup failed", cloudWorkspaceFailureLogFields(next.failure));
+      }
+    } catch (error) {
       setRequestFailed(true);
+      const fields = cloudWorkspaceRequestFailureLogFields(error);
+      const key = `${fields.failure_code}:${"http_status" in fields ? fields.http_status : "unknown"}`;
+      if (key !== lastLoggedRequestFailure.current) {
+        lastLoggedRequestFailure.current = key;
+        console.error("[cloud-workspace] instance status request failed", fields);
+      }
+    }
+  }, [authToken, denClient, gatewayMode, orgId]);
+
+  const retry = useCallback(async () => {
+    if (!gatewayMode || !authToken || !orgId) {
+      setRequestFailed(true);
+      return;
+    }
+    try {
+      const next = await denClient.retryCloudInstance(orgId);
+      setInstance(next);
+      setRequestFailed(false);
+      lastLoggedRequestFailure.current = null;
+      if (next.failure && next.failure.reference !== lastLoggedFailureReference.current) {
+        lastLoggedFailureReference.current = next.failure.reference;
+        console.error("[cloud-workspace] sandbox recovery requested", cloudWorkspaceFailureLogFields(next.failure));
+      }
+    } catch (error) {
+      setRequestFailed(true);
+      console.error("[cloud-workspace] sandbox recovery request failed", cloudWorkspaceRequestFailureLogFields(error));
     }
   }, [authToken, denClient, gatewayMode, orgId]);
 
@@ -206,11 +248,12 @@ export function CloudWorkspaceStatusProvider(props: { children: ReactNode }) {
     updating,
     viewModel,
     refresh,
+    retry,
     signOut,
     updateNow,
     takeoverActive,
     setTakeoverActive,
-  }), [gatewayMode, instance, refresh, requestFailed, signOut, takeoverActive, updateNow, updating, viewModel, visible]);
+  }), [gatewayMode, instance, refresh, requestFailed, retry, signOut, takeoverActive, updateNow, updating, viewModel, visible]);
 
   return (
     <CloudWorkspaceStatusContext.Provider value={value}>
@@ -370,7 +413,7 @@ export function CloudWorkspaceBootTakeover(props: { decision: CloudWorkspaceMain
 
           {failed || slow ? (
             <m.div layout className="mt-5 flex items-center gap-2">
-              <Button type="button" size="sm" variant="outline" onClick={() => void cloudWorkspace.refresh()}>
+              <Button type="button" size="sm" variant="outline" onClick={() => void cloudWorkspace.retry()}>
                 Retry
               </Button>
               <Button type="button" size="sm" variant="ghost" onClick={cloudWorkspace.signOut}>
@@ -505,7 +548,7 @@ function CloudWorkspaceOverlayInner() {
             <CloudWorkspaceStatusPanel
               viewModel={viewModel}
               updating={cloudWorkspace.updating}
-              onRefresh={() => void cloudWorkspace.refresh()}
+              onRefresh={() => void cloudWorkspace.retry()}
               onUpdateNow={cloudWorkspace.updateNow}
               onSignOut={() => {
                 cloudWorkspace.signOut();
