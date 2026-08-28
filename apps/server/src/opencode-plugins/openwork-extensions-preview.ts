@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readFile, realpath } from "node:fs/promises";
 import { join } from "node:path";
 import { homedir, platform } from "node:os";
 import { z } from "zod";
@@ -98,6 +98,7 @@ const sessionTimeSchema = z.object({
 const sessionInfoSchema = z.object({
   id: z.string(),
   title: z.string().nullish(),
+  directory: z.string().optional(),
   time: sessionTimeSchema.optional(),
 }).passthrough();
 
@@ -621,10 +622,30 @@ async function listWorkspaceSessions(workspace: OpenWorkWorkspace, limit: number
   );
 }
 
+// The removed wrapper route validated that a session actually belongs to the
+// requested workspace before exposing it (requireWorkspaceSession). The native
+// engine route only scopes the upstream request, so a caller supplying a
+// foreign session ID would otherwise read cross-workspace transcript data.
+async function assertSessionInWorkspace(workspace: OpenWorkWorkspace, session: SessionInfo): Promise<void> {
+  const workspacePath = workspace.path?.trim();
+  const sessionDirectory = session.directory?.trim();
+  if (!workspacePath || !sessionDirectory) return;
+  const [root, dir] = await Promise.all([
+    realpath(workspacePath).catch(() => workspacePath),
+    realpath(sessionDirectory).catch(() => sessionDirectory),
+  ]);
+  const normalizedRoot = normalizeDirPath(root);
+  const normalizedDir = normalizeDirPath(dir);
+  if (normalizedDir === normalizedRoot || normalizedDir.startsWith(`${normalizedRoot}/`)) return;
+  throw new Error(`Session ${session.id} not found in workspace ${workspaceLabel(workspace)}`);
+}
+
 async function readWorkspaceSession(workspace: OpenWorkWorkspace, sessionId: string): Promise<SessionInfo> {
-  return sessionInfoSchema.parse(
+  const session = sessionInfoSchema.parse(
     await serverGet(`/workspace/${encodeURIComponent(workspace.id)}/opencode/session/${encodeURIComponent(sessionId)}`),
   );
+  await assertSessionInWorkspace(workspace, session);
+  return session;
 }
 
 async function readSessionMessages(workspace: OpenWorkWorkspace, sessionId: string, limit: number): Promise<SessionMessage[]> {

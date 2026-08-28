@@ -97,7 +97,10 @@ function startFakeOpenWorkServer(options: { failPromptText?: string; failSession
   const workspaceTwo = { id: "ws_2", name: "Archive", displayName: "Archive", path: "/tmp/archive", workspaceType: "remote" };
   const sessionAlpha = { id: "ses_alpha", title: "Alpha planning", time: { created: 100, updated: 300 } };
   const sessionBeta = { id: "ses_beta", title: "Neon backlog", time: { created: 50, updated: 200 } };
-  const sessionArchive = { id: "ses_archive", title: "Archive decisions", time: { created: 10, updated: 100 } };
+  const sessionArchive = { id: "ses_archive", title: "Archive decisions", directory: "/tmp/archive", time: { created: 10, updated: 100 } };
+  // Lives outside every workspace root: reads must refuse to expose it even
+  // though the native engine route happily returns it (cross-workspace leak).
+  const sessionForeign = { id: "ses_foreign", title: "Other tenant secrets", directory: "/tmp/elsewhere", time: { created: 20, updated: 120 } };
 
   const server = Bun.serve({
     hostname: "127.0.0.1",
@@ -180,6 +183,16 @@ function startFakeOpenWorkServer(options: { failPromptText?: string; failSession
       if (url.pathname === "/workspace/ws_1/opencode/session/ses_alpha") return Response.json(sessionAlpha);
       if (url.pathname === "/workspace/ws_1/opencode/session/ses_beta") return Response.json(sessionBeta);
       if (url.pathname === "/workspace/ws_2/opencode/session/ses_archive") return Response.json(sessionArchive);
+      if (url.pathname === "/workspace/ws_1/opencode/session/ses_foreign") return Response.json(sessionForeign);
+      if (url.pathname === "/workspace/ws_2/opencode/session/ses_foreign") return Response.json(sessionForeign);
+      if (url.pathname === "/workspace/ws_1/opencode/session/ses_foreign/message" || url.pathname === "/workspace/ws_2/opencode/session/ses_foreign/message") {
+        return Response.json([
+          {
+            info: { id: "msg_foreign", role: "assistant", time: { created: 121 } },
+            parts: [{ type: "text", text: "Cross-tenant transcript that must never leak." }],
+          },
+        ]);
+      }
 
       if (url.pathname === "/workspace/ws_1/opencode/session/ses_alpha/message") {
         return Response.json([
@@ -383,6 +396,20 @@ describe("OpenWorkExtensionsPreview session tools", () => {
 
     expect(parsed.result.sessionId).toBe("ses_archive");
     expect(parsed.result.messages.at(-1)?.text).toContain("archive importer");
+  });
+
+  test("refuses to expose a session that lives outside the requested workspace", async () => {
+    startFakeOpenWorkServer();
+    const plugin = await OpenWorkExtensionsPreview();
+
+    const output = await plugin.tool.openwork_query.execute({
+      id: "session.read",
+      args: { sessionId: "ses_foreign", count: 2 },
+    });
+
+    expect(output).not.toContain("Other tenant secrets");
+    expect(output).not.toContain("Cross-tenant transcript");
+    expect(output).toContain("was not found");
   });
 
   test("searches past chat transcript text and prefers the user's matching message", async () => {

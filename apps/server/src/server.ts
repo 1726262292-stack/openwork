@@ -1296,6 +1296,12 @@ export async function proxyOpencodeRequest(input: {
   const workspace = input.workspace;
   const proxyPath = input.proxyPath ?? input.url.pathname;
   const method = input.request.method.toUpperCase();
+  // The wrapper routes enforced the server read-only mode via ensureWritable;
+  // native proxy writes must honor the same guard so a read-only server never
+  // forwards mutations to the engine.
+  if (method !== "GET" && method !== "HEAD") {
+    ensureWritable(input.config);
+  }
   const pool = workspace?.workspaceType === "remote" ? null : enginePoolForConfig(input.config);
   const route = pool?.routeRequest(method, proxyPath) ?? null;
   const baseUrl = route?.target.baseUrl ??
