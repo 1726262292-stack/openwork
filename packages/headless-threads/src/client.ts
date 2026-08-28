@@ -128,7 +128,7 @@ export function createHeadlessThreadClient(options: HeadlessThreadClientOptions)
       ...(options.hostToken === undefined ? {} : { "X-OpenWork-Host-Token": options.hostToken }),
     },
     redirect: "error",
-    fetch: Object.assign(sdkFetch, { preconnect: globalThis.fetch.preconnect }),
+    fetch: Object.assign(sdkFetch, { preconnect: () => {} }),
   });
 
   type SdkResult<T> = {
