@@ -356,18 +356,28 @@ function validateReferences(topology: WorldTopology): void {
   for (const [orgName, org] of Object.entries(topology.den.orgs)) {
     for (const connection of org.connections ?? []) {
       const witness = topology.witnesses?.[connection.witness];
-      if (!witness || witness.kind !== "mcp") {
+      if (!witness) {
         throw new Error(
-          `World org ${JSON.stringify(orgName)} connection ${JSON.stringify(connection.name)} must reference an MCP witness; received ${JSON.stringify(connection.witness)}.`,
+          `World org ${JSON.stringify(orgName)} connection ${JSON.stringify(connection.name)} references witness ${JSON.stringify(connection.witness)}, which does not exist in topology.witnesses.`,
+        );
+      }
+      if (witness.kind !== "mcp") {
+        throw new Error(
+          `World org ${JSON.stringify(orgName)} connection ${JSON.stringify(connection.name)} must reference an MCP witness; ${JSON.stringify(connection.witness)} has kind ${JSON.stringify(witness.kind)}.`,
         );
       }
     }
 
     for (const provider of org.llmProviders ?? []) {
       const witness = topology.witnesses?.[provider.witness];
-      if (!witness || witness.kind !== "litellm") {
+      if (!witness) {
         throw new Error(
-          `World org ${JSON.stringify(orgName)} LLM provider ${JSON.stringify(provider.name)} must reference a LiteLLM witness; received ${JSON.stringify(provider.witness)}.`,
+          `World org ${JSON.stringify(orgName)} LLM provider ${JSON.stringify(provider.name)} references witness ${JSON.stringify(provider.witness)}, which does not exist in topology.witnesses.`,
+        );
+      }
+      if (witness.kind !== "litellm") {
+        throw new Error(
+          `World org ${JSON.stringify(orgName)} LLM provider ${JSON.stringify(provider.name)} must reference a LiteLLM witness; ${JSON.stringify(provider.witness)} has kind ${JSON.stringify(witness.kind)}.`,
         );
       }
     }
