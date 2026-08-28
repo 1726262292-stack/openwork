@@ -26,6 +26,16 @@ Every model in `LITELLM_MODELS` must have an exact `model_group` match with fini
 
 After metadata is synchronized, the script lists Den member credential states, mints a LiteLLM virtual key for each `missing` member, and writes the key to Den with LiteLLM's `token_id` as `externalCredentialId`. Summaries report the metadata action and safe model limits but never contain member keys.
 
+## Run the complete local world
+
+From the repository root, launch a signed-in Desktop, an isolated Den organization, and a database-backed LiteLLM gateway with the provider and member keys already reconciled:
+
+```bash
+pnpm world up ./worlds/litellm-per-member.ts
+```
+
+The command prints the Den URLs, LiteLLM URL, synchronized model limits, Den provider record ID, and Desktop CDP URL. Keep it running while testing and press Ctrl-C to tear down the world. Docker, local MySQL, and local Redis are required. The gateway uses a deterministic local OpenAI-compatible witness and does not read or require `OPENAI_API_KEY`.
+
 Offboard a member by organization membership ID:
 
 ```bash

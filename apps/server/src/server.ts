@@ -16,6 +16,13 @@ import {
   type EngineSpawnTemplate,
 } from "./engine-pool.js";
 import { withEngineDirectoryFence } from "./engine-directory-fence.js";
+import {
+  clearEngineInstanceReaperForConfig,
+  EngineInstanceReaper,
+  engineInstanceReaperForConfig,
+  setEngineInstanceReaperForConfig,
+  type TrackedEngineInstance,
+} from "./engine-instance-reaper.js";
 import { shouldDeferInPlaceEngineReload } from "./engine-reload-defer.js";
 import { LatestTrailingWorkQueue } from "./latest-trailing-work-queue.js";
 import { buildEngineAuthProbeHeader } from "./engine-registry.js";
@@ -880,6 +887,20 @@ export async function startServer(config: ServerConfig): Promise<ServeResult> {
     watcherHandle = startReloadWatchers({ config, reloadEvents, logger });
   };
   const engineMcpServerState = beginEngineMcpServerState(config);
+  const engineInstanceReaper = new EngineInstanceReaper({
+    // Only the managed engine is swept: the pool exists exactly when this
+    // server owns the engine process. An attached engine may serve other
+    // clients, so its per-directory instances are not ours to trim.
+    engineBaseUrl: () => enginePoolForConfig(config)?.primaryUrl() ?? null,
+    activeDirectory: () => {
+      const active = config.workspaces[0];
+      return active ? resolveOpencodeDirectory(active) : null;
+    },
+    directoryBusy: (instance) => engineInstanceHasActiveSessions(config, instance),
+    dispose: (instance) => disposeIdleEngineInstance(config, engineMcpServerState, instance),
+    logger,
+  });
+  setEngineInstanceReaperForConfig(config, engineInstanceReaper);
   const cloudProviderSync = new CloudProviderSync({
     config,
     env,
@@ -1104,6 +1125,8 @@ export async function startServer(config: ServerConfig): Promise<ServeResult> {
   } catch (error) {
     captureServerException(error, { method: "START", route: "startServer" });
     cloudProviderSync.stop();
+    engineInstanceReaper.close();
+    clearEngineInstanceReaperForConfig(config);
     invalidateEngineMcpServerState(config, engineMcpServerState);
     watcherHandle.close();
     reloadBaselineRefreshers.delete(config);
@@ -1128,10 +1151,14 @@ export async function startServer(config: ServerConfig): Promise<ServeResult> {
   resetManagedProviderAuthCache();
   void syncManagedProviderAuth({ config, env, logger: toManagedProviderAuthLogger(logger) }).catch(() => undefined);
 
+  engineInstanceReaper.start();
+
   return {
     ...server,
     stop: async () => {
       cloudProviderSync.stop();
+      engineInstanceReaper.close();
+      clearEngineInstanceReaperForConfig(config);
       invalidateEngineMcpServerState(config, engineMcpServerState);
       watcherHandle.close();
       reloadBaselineRefreshers.delete(config);
@@ -1225,6 +1252,7 @@ export function createWorkspaceOpencodeClient(
     });
   }
   const directory = resolveOpencodeDirectory(workspace);
+  touchEngineWorkspaceInstance(config, workspace, baseUrl);
   const baseFetch = directory ? createOpencodeDirectoryFetch(directory) : globalThis.fetch;
   const clientFetch = options?.boundedDiagnosticsReads
     ? createAgentDiagnosticsEngineFetch(baseFetch)
@@ -1298,6 +1326,8 @@ export async function proxyOpencodeRequest(input: {
     headers.set("Authorization", auth);
   }
 
+  if (workspace) touchEngineWorkspaceInstance(input.config, workspace, baseUrl);
+
   // Buffer the request body so it can be forwarded reliably across Node.js
   // stream boundaries (Readable.toWeb streams from the HTTP adapter aren't
   // always accepted directly by Node's global fetch as a body).
@@ -1305,14 +1335,37 @@ export async function proxyOpencodeRequest(input: {
     ? undefined
     : await input.request.arrayBuffer().then((buf) => (buf.byteLength > 0 ? buf : undefined));
   if (pool && method === "GET" && isEngineEventPath(proxyPath)) {
-    return proxyEngineEventStreams({
-      pool,
-      connections: pool.connections(),
-      proxyPath,
-      search,
-      headers,
-      clientSignal: input.request.signal,
-    });
+    // An open engine event stream means this workspace is visible somewhere in
+    // the UI; hold its instance so the idle reaper leaves it alone until the
+    // stream's client goes away.
+    const releaseStreamHold = workspace && workspace.workspaceType !== "remote" && directory
+      ? engineInstanceReaperForConfig(input.config)?.holdStream({
+          directory,
+          workspaceId: workspace.id,
+          engineBaseUrl: baseUrl,
+        }) ?? null
+      : null;
+    if (releaseStreamHold) {
+      if (input.request.signal.aborted) releaseStreamHold();
+      else input.request.signal.addEventListener("abort", releaseStreamHold, { once: true });
+    }
+    try {
+      const response = await proxyEngineEventStreams({
+        pool,
+        connections: pool.connections(),
+        proxyPath,
+        search,
+        headers,
+        clientSignal: input.request.signal,
+      });
+      // A non-stream response completes immediately; holding it would leak
+      // across every client retry.
+      if (releaseStreamHold && (!response.ok || !response.body)) releaseStreamHold();
+      return response;
+    } catch (error) {
+      releaseStreamHold?.();
+      throw error;
+    }
   }
   if (pool && method === "GET" && engineAggregateKind(proxyPath)) {
     return proxyEngineAggregateRead({
@@ -3867,6 +3920,82 @@ async function engineHasActiveSessions(config: ServerConfig, workspace: Workspac
   }
 }
 
+function primaryManagedEngineConnection(config: ServerConfig): EnginePoolConnection | null {
+  return enginePoolForConfig(config)?.connections().find((entry) => entry.role === "primary") ?? null;
+}
+
+/**
+ * Whether a tracked engine instance still reports a non-idle session. Probed
+ * directly against the managed engine (never through the workspace client) so
+ * the reaper's own probe cannot refresh the instance's last-used time.
+ * Throws on an unreadable status: unknown activity must never evict.
+ */
+async function engineInstanceHasActiveSessions(
+  config: ServerConfig,
+  instance: TrackedEngineInstance,
+): Promise<boolean> {
+  const primary = primaryManagedEngineConnection(config);
+  if (!primary || primary.baseUrl !== instance.engineBaseUrl) return false;
+  const url = new URL("/session/status", primary.baseUrl);
+  url.searchParams.set("directory", instance.directory);
+  const response = await loopbackFetch(url.toString(), {
+    headers: { Authorization: buildEngineAuthProbeHeader(primary.username, primary.password) },
+    signal: AbortSignal.timeout(5_000),
+  });
+  if (!response.ok) throw new Error(`OpenCode session status probe failed with status ${response.status}`);
+  const payload: unknown = await response.json();
+  if (!isRecord(payload)) return false;
+  return Object.values(payload).some((status) => isRecord(status) && status.type !== "idle");
+}
+
+/**
+ * Dispose one idle per-directory engine instance without the reload path's
+ * post-refresh sync: re-materializing the instance here would defeat the
+ * eviction. The workspace's MCP registration evidence is invalidated first so
+ * nothing claims the fresh instance already holds the runtime-DB MCPs; the
+ * reaper marks the workspace and the next traffic re-attaches that state.
+ */
+async function disposeIdleEngineInstance(
+  config: ServerConfig,
+  serverState: EngineMcpServerState,
+  instance: TrackedEngineInstance,
+): Promise<void> {
+  const primary = primaryManagedEngineConnection(config);
+  if (!primary || primary.baseUrl !== instance.engineBaseUrl) {
+    throw new Error("The managed engine connection is unavailable for the instance dispose");
+  }
+  const activeState = activeEngineMcpServerState(config, serverState);
+  if (activeState) invalidateEngineMcpWorkspace(activeState, instance.workspaceId);
+  const response = await loopbackFetch(buildOpencodeReloadUrl(primary.baseUrl, instance.directory), {
+    method: "POST",
+    headers: { Authorization: buildEngineAuthProbeHeader(primary.username, primary.password) },
+    signal: AbortSignal.timeout(opencodeDisposeTimeoutMs()),
+  });
+  if (!response.ok) throw new Error(`OpenCode instance dispose failed with status ${response.status}`);
+}
+
+/**
+ * Record engine traffic for a local workspace's directory instance. When this
+ * is the first traffic after that instance was evicted, re-attach the state a
+ * fresh instance cannot recover from disk (the runtime-DB MCP push), detached
+ * from the request that triggered it.
+ */
+function touchEngineWorkspaceInstance(config: ServerConfig, workspace: WorkspaceInfo, engineBaseUrl: string): void {
+  if (workspace.workspaceType === "remote") return;
+  const reaper = engineInstanceReaperForConfig(config);
+  if (!reaper) return;
+  const directory = resolveOpencodeDirectory(workspace);
+  if (!directory) return;
+  const evicted = reaper.noteUsed({ directory, workspaceId: workspace.id, engineBaseUrl });
+  if (!evicted) return;
+  void postEngineRefreshSync(config, workspace, activeEngineMcpServerState(config)).catch((error) => {
+    createServerLogger(config).log("error", "Post-eviction engine MCP re-sync failed.", {
+      "workspace.id": workspace.id,
+      "error.message": error instanceof Error ? error.message : String(error),
+    });
+  });
+}
+
 /**
  * Bring the engine onto current config.
  *
@@ -3949,6 +4078,13 @@ async function reloadOpencodeEngineInPlace(
       status: response.status,
       body,
     });
+  }
+
+  // The reload rebuilt this directory's instance and the post-refresh sync
+  // below re-attaches its runtime state, so any pending post-eviction mark is
+  // satisfied here rather than by the next request.
+  if (directory && workspace.workspaceType !== "remote") {
+    engineInstanceReaperForConfig(config)?.noteUsed({ directory, workspaceId: workspace.id, engineBaseUrl: baseUrl });
   }
 
   const postRefreshSync = postEngineRefreshSync(config, workspace, activeState);
