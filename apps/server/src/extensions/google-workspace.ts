@@ -1,11 +1,16 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
-import type { LookupAddress } from "node:dns";
+import type { LookupAddress, LookupAllOptions } from "node:dns";
 import { lookup } from "node:dns/promises";
 import { createServer, type Server } from "node:http";
 import { chmod, mkdir, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
-import { isIP } from "node:net";
+import { isIP, type LookupFunction } from "node:net";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { openworkServerConfigPath } from "@openwork/paths";
+import {
+  Agent,
+  fetch as undiciFetch,
+  type RequestInit as UndiciRequestInit,
+} from "undici";
 
 import { ApiError } from "../errors.js";
 import { isLocalManagedMcpPrivateAddress } from "../local-managed-mcp-url-guard.js";
@@ -664,6 +669,9 @@ type GmailDraftAttachment = {
   content: Buffer;
 };
 
+type GmailAttachmentFetch = (input: string | URL, init?: RequestInit) => Promise<Response>;
+type GmailAttachmentAddressResolver = (hostname: string, options: LookupAllOptions) => Promise<LookupAddress[]>;
+
 function gmailHeaderValue(value: string): string {
   return value.replace(/[\r\n]+/g, " ").trim();
 }
@@ -827,6 +835,66 @@ async function assertGmailAttachmentHostPublic(url: URL): Promise<void> {
   }
 }
 
+const resolveGmailAttachmentAddresses: GmailAttachmentAddressResolver = (hostname, options) => lookup(hostname, options);
+
+function validateGmailAttachmentAddresses(hostname: string, addresses: LookupAddress[]): void {
+  if (!addresses.length) throw new Error(`Attachment hostname ${hostname} did not resolve.`);
+  const privateAddress = addresses.find((entry) => isLocalManagedMcpPrivateAddress(entry.address));
+  if (privateAddress) {
+    throw new Error(`Attachment hostname ${hostname} resolved to a private or reserved address (${privateAddress.address}).`);
+  }
+}
+
+/**
+ * Resolves and validates the attachment host inside the socket connector. The
+ * same answers are handed to net.connect, closing the DNS-rebinding window
+ * between a preflight lookup and the actual connection.
+ */
+export function createGmailAttachmentPublicLookup(
+  resolver: GmailAttachmentAddressResolver = resolveGmailAttachmentAddresses,
+): LookupFunction {
+  return (hostname, options, callback) => {
+    const lookupOptions: LookupAllOptions = { ...options, all: true, verbatim: true };
+    void resolver(hostname, lookupOptions).then((addresses) => {
+      try {
+        validateGmailAttachmentAddresses(hostname, addresses);
+      } catch (error) {
+        callback(error instanceof Error ? error : new Error("Attachment hostname lookup failed."), []);
+        return;
+      }
+      if (options.all) {
+        callback(null, addresses);
+        return;
+      }
+      const first = addresses[0];
+      callback(null, first.address, first.family);
+    }, (error: unknown) => {
+      callback(error instanceof Error ? error : new Error("Attachment hostname lookup failed."), []);
+    });
+  };
+}
+
+const gmailAttachmentDispatcher = new Agent({
+  connect: {
+    lookup: createGmailAttachmentPublicLookup(),
+    autoSelectFamily: true,
+    autoSelectFamilyAttemptTimeout: 1_000,
+  },
+});
+
+async function defaultGmailAttachmentFetch(input: string | URL, init?: RequestInit): Promise<Response> {
+  // DOM and Undici expose structurally equivalent fetch types from separate
+  // declarations. Keep the conversion at this transport boundary.
+  const requestInit = { ...init, dispatcher: gmailAttachmentDispatcher } as unknown as UndiciRequestInit;
+  return await undiciFetch(input, requestInit) as unknown as Response;
+}
+
+let gmailAttachmentFetch: GmailAttachmentFetch = defaultGmailAttachmentFetch;
+
+export function setGmailAttachmentFetchForTests(fetchImpl?: GmailAttachmentFetch): void {
+  gmailAttachmentFetch = fetchImpl ?? defaultGmailAttachmentFetch;
+}
+
 function gmailAttachmentFilenameFromResponse(url: URL, contentDisposition: string | null): string {
   const disposition = contentDisposition ?? "";
   const quoted = /filename\s*=\s*"([^"]+)"/i.exec(disposition)?.[1];
@@ -877,7 +945,7 @@ async function fetchGmailUrlAttachment(request: GmailDraftAttachmentRequest, url
       await assertGmailAttachmentHostPublic(currentUrl);
       let response: Response;
       try {
-        response = await externalFetch(currentUrl.toString(), { redirect: "manual", signal: controller.signal });
+        response = await gmailAttachmentFetch(currentUrl, { redirect: "manual", signal: controller.signal });
       } catch (error) {
         if (error instanceof Error && error.name === "AbortError") throw new ApiError(502, "attachment_fetch_failed", "Attachment download timed out", { url });
         throw new ApiError(502, "attachment_fetch_failed", `Attachment download failed: ${error instanceof Error ? error.message : String(error)}`, { url });

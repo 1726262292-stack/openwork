@@ -1,5 +1,7 @@
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import type { LookupAddress } from "node:dns";
 import { mkdir, symlink, writeFile } from "node:fs/promises";
+import type { LookupFunction } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -7,10 +9,12 @@ import { ApiError } from "../errors.js";
 import type { ServerConfig } from "../types.js";
 import {
   callGoogleWorkspaceExtensionAction,
+  createGmailAttachmentPublicLookup,
   createGoogleWorkspaceConnectFlowManager,
   googleWorkspaceDisconnect,
   googleWorkspaceSetActiveAccount,
   googleWorkspaceStatus,
+  setGmailAttachmentFetchForTests,
 } from "./google-workspace.js";
 
 function createTestConfig(): ServerConfig {
@@ -91,6 +95,26 @@ function restoreEnv(key: string, value: string | undefined) {
   else delete process.env[key];
 }
 
+async function lookupAll(lookupFunction: LookupFunction, hostname: string): Promise<LookupAddress[]> {
+  return await new Promise<LookupAddress[]>((resolve, reject) => {
+    lookupFunction(hostname, { all: true }, (error, addresses) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+      if (!Array.isArray(addresses)) {
+        reject(new Error("Expected an all-address DNS lookup result."));
+        return;
+      }
+      resolve(addresses);
+    });
+  });
+}
+
+beforeEach(() => {
+  setGmailAttachmentFetchForTests((input, init) => globalThis.fetch(input, init));
+});
+
 afterEach(() => {
   dnsAnswers.clear();
   restoreEnv("OPENWORK_DEV_MODE", previousEnv.devMode);
@@ -99,6 +123,7 @@ afterEach(() => {
   restoreEnv("OPENWORK_GOOGLE_WORKSPACE_OAUTH_CLIENT_SECRET", previousEnv.legacyClientSecret);
   restoreEnv("OPENWORK_GOOGLE_WORKSPACE_TOKEN_BROKER_URL", previousEnv.brokerUrl);
   globalThis.fetch = previousFetch;
+  setGmailAttachmentFetchForTests();
 });
 
 describe("Google Workspace extension", () => {
@@ -906,6 +931,24 @@ describe("Google Workspace extension", () => {
       { preconnect: previousFetch.preconnect },
     );
     await expect(callGoogleWorkspaceExtensionAction(createTestConfig(), "gmail_create_draft", draftArgs({ url: "https://files.example.test/report.pdf" }), {})).rejects.toThrow("Attachment url must be a public https URL");
+  });
+
+  test("gmail attachment socket lookup rejects a private DNS-rebinding answer", async () => {
+    let resolverCalls = 0;
+    const socketLookup = createGmailAttachmentPublicLookup(async () => {
+      resolverCalls += 1;
+      return resolverCalls === 1
+        ? [{ address: "93.184.216.34", family: 4 }]
+        : [{ address: "169.254.169.254", family: 4 }];
+    });
+
+    await expect(lookupAll(socketLookup, "files.example.test")).resolves.toEqual([
+      { address: "93.184.216.34", family: 4 },
+    ]);
+    await expect(lookupAll(socketLookup, "files.example.test")).rejects.toThrow(
+      "resolved to a private or reserved address",
+    );
+    expect(resolverCalls).toBe(2);
   });
 
   test("gmail_create_draft enforces the attachment size cap on url downloads", async () => {
