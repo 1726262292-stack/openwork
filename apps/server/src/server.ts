@@ -113,6 +113,7 @@ import { sanitizeDiagnosticString } from "./diagnostic-sanitizer.js";
 import {
   mergeOpencodeConfigs,
   mergeRuntimeProviderUpdate,
+  migrateWorkspaceRuntimeConfigToEngineGlobal,
   readEffectiveRuntimeOpencodeConfig,
   readGlobalRuntimeOpencodeConfig,
   readRuntimeOpencodeConfig,
@@ -2082,14 +2083,13 @@ function createRoutes(
     ensureWritable,
     resolveWorkspace,
     serializeWorkspace,
-    reloadOpencodeEngine: async (routeConfig, workspace, options) => {
-      await withEngineDirectoryFence(routeConfig, workspace, async () => {
-        if (await shouldDeferInPlaceEngineReload(routeConfig, workspace, engineHasActiveSessions)) {
-          return;
-        }
-        await reloadOpencodeEngine(routeConfig, workspace, engineMcpServerState, options);
-      });
-    },
+    syncWorkspaceRuntimeMcp: (routeConfig, workspace) =>
+      enqueueWorkspaceMcpRefreshSync({
+        config: routeConfig,
+        workspace,
+        serverState: activeEngineMcpServerState(routeConfig),
+        trigger: "workspace_activate",
+      }),
   });
 
   registerSessionGroupRoutes({
@@ -2426,7 +2426,10 @@ function createRoutes(
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const opencode = mergeOpencodeConfigs(
       await readOpencodeConfig(workspace.path),
-      await readRuntimeOpencodeConfig(config, workspace.id),
+      // Global-first: authorized folders live in the ENGINE_GLOBAL row; the
+      // effective read also surfaces legacy per-workspace entries until the
+      // startup migration folds them in.
+      await readEffectiveRuntimeOpencodeConfig(config, workspace.id),
     );
     const foldersConfig = readAuthorizedFoldersFromOpencodeConfig(opencode, workspace.path);
     return jsonResponse(buildAuthorizedFoldersResponse(workspace, foldersConfig));
@@ -2448,7 +2451,7 @@ function createRoutes(
     });
 
     const persistedOpencode = await readOpencodeConfig(workspace.path);
-    const runtimeOpencode = await readRuntimeOpencodeConfig(config, workspace.id);
+    const runtimeOpencode = await readEffectiveRuntimeOpencodeConfig(config, workspace.id);
     const existingOpencode = mergeOpencodeConfigs(persistedOpencode, runtimeOpencode);
     const existingFoldersConfig = readAuthorizedFoldersFromOpencodeConfig(existingOpencode, workspace.path);
     const nextExternalDirectory = mergeAuthorizedFoldersIntoExternalDirectory(
@@ -2456,13 +2459,26 @@ function createRoutes(
       existingFoldersConfig.hiddenEntries,
     );
 
-    await writeRuntimeOpencodeConfig(config, workspace.id, (current) => ({
+    // Authorized folders are engine-global: the injected engine config file is
+    // rendered from the ENGINE_GLOBAL row only. Any legacy per-workspace
+    // entries were folded into the effective read above, so clear them from
+    // the workspace row or removals could never take effect.
+    await writeGlobalRuntimeOpencodeConfig(config, (current) => ({
       ...current,
       permission: {
         ...(ensurePlainObject(current.permission)),
         external_directory: nextExternalDirectory ?? {},
       },
     }));
+    await writeRuntimeOpencodeConfig(config, workspace.id, (current) => {
+      const { permission, ...rest } = current;
+      // Strip only the migrated external_directory; other permission keys stay.
+      const { external_directory: _legacyExternalDirectory, ...permissionRest } = ensurePlainObject(permission);
+      return {
+        ...rest,
+        ...(Object.keys(permissionRest).length ? { permission: permissionRest } : {}),
+      };
+    });
 
     const updatedAt = Date.now();
     await recordAudit(workspace.path, {
@@ -2495,7 +2511,9 @@ function createRoutes(
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const body = await readJsonBody(ctx.request);
     const providers = parseDisabledProvidersPayload(body.providers);
-    const result = await writeRuntimeOpencodeConfig(config, workspace.id, (current) => ({
+    // Disabled providers are engine-global: the injected engine config file is
+    // rendered from the ENGINE_GLOBAL row only.
+    const result = await writeGlobalRuntimeOpencodeConfig(config, (current) => ({
       ...current,
       disabled_providers: providers,
     }));
@@ -2552,7 +2570,7 @@ function createRoutes(
       provider: mergeRuntimeProviderUpdate(current.provider, providerPatch),
     }));
 
-    const fileResult = await writeOpenworkRuntimeConfigFile(config, workspace.id);
+    const fileResult = await writeOpenworkRuntimeConfigFile(config);
     // Auth must land before the reload so the replacement provider instance is
     // constructed with its credential. This also refreshes SDK clients after
     // a key rotation even when provider config itself did not change.
@@ -2594,7 +2612,9 @@ function createRoutes(
     const rawGlobalOpencode = await readRawOpencodeConfig(globalOpencodePath);
     const emptyGlobalOpencode: Record<string, unknown> = {};
     const globalOpencode = (await readJsoncFile(globalOpencodePath, emptyGlobalOpencode, { allowInvalid: true })).data;
-    const effectiveRuntime = await buildOpenworkRuntimeConfigObject(config, workspace.id);
+    // The injected file is rendered from the ENGINE_GLOBAL row only; the
+    // workspace runtime row reaches the engine via the dynamic MCP push.
+    const effectiveRuntime = await buildOpenworkRuntimeConfigObject(config);
     const managedFile = await readManagedRuntimeConfigDebug(config);
 
     return jsonResponse({
@@ -2834,7 +2854,7 @@ function createRoutes(
       summary: `Add plugin ${spec}`,
       paths: [openworkConfigPath(workspace.path)],
     });
-    const changed = await addPlugin(config, workspace.id, spec);
+    const changed = await addPlugin(config, spec);
     await recordAudit(workspace.path, {
       id: shortId(),
       workspaceId: workspace.id,
@@ -2867,7 +2887,7 @@ function createRoutes(
       summary: `Remove plugin ${name}`,
       paths: [openworkConfigPath(workspace.path)],
     });
-    const removed = await removePlugin(config, workspace.id, name);
+    const removed = await removePlugin(config, name);
     await recordAudit(workspace.path, {
       id: shortId(),
       workspaceId: workspace.id,
@@ -4141,7 +4161,7 @@ async function postEngineRefreshSync(
   });
 }
 
-type WorkspaceMcpRefreshTrigger = "startup" | "engine_reload";
+type WorkspaceMcpRefreshTrigger = "startup" | "engine_reload" | "workspace_activate";
 
 type WorkspaceMcpRefreshRequest = {
   config: ServerConfig;
@@ -4196,14 +4216,13 @@ async function runWorkspaceMcpRefreshSync(input: WorkspaceMcpRefreshRequest): Pr
   } catch (error) {
     logPersistedCloudMcpReconcileError({ config, workspace, trigger, error });
   }
-  // The MCP re-registration above writes the runtime DB; refresh the
+  // The reconcile above may write the ENGINE_GLOBAL runtime row; refresh the
   // engine-visible file synchronously so the next provider-sync pass compares
   // against post-reload state instead of racing the async fresh-keeper and
   // reporting a phantom "changed" (which would schedule yet another reload).
   try {
-    const engineWorkspace = resolveEngineRuntimeWorkspace(config);
-    if (trigger === "engine_reload" && engineWorkspace.id === workspace.id) {
-      await writeOpenworkRuntimeConfigFile(config, workspace.id);
+    if (trigger === "engine_reload") {
+      await writeOpenworkRuntimeConfigFile(config);
     }
   } catch {
     // Best-effort: the fresh-keeper listener still converges eventually.
@@ -4759,7 +4778,7 @@ export function createEnginePoolForConfig(input: {
         await postEngineRefreshSync(poolConfig, workspace, activeEngineMcpServerState(poolConfig));
         await syncAllWorkspacesRuntimeMcpToEngine(poolConfig);
       },
-      writeRuntimeConfigFile: (poolConfig, workspaceId) => writeOpenworkRuntimeConfigFile(poolConfig, workspaceId),
+      writeRuntimeConfigFile: (poolConfig) => writeOpenworkRuntimeConfigFile(poolConfig),
       registerTrusted: (poolConfig, generation) => registerTrustedOpencodeProcess(poolConfig, generation),
       clearTrusted: (poolConfig, identity) => clearTrustedOpencodeProcess(poolConfig, identity),
       logger: createServerLogger(config),
@@ -5174,7 +5193,7 @@ function deleteEngineMcpRegistration(
 function logPersistedCloudMcpReconcileResult(input: {
   config: ServerConfig;
   workspace: WorkspaceInfo;
-  trigger: "startup" | "engine_reload";
+  trigger: WorkspaceMcpRefreshTrigger;
   health: CloudMcpHealth;
 }): void {
   if (!input.health.desired.present || input.health.usable) return;
@@ -5197,7 +5216,7 @@ function logPersistedCloudMcpReconcileResult(input: {
 function logRuntimeMcpSyncError(input: {
   config: ServerConfig;
   workspace: WorkspaceInfo;
-  trigger: "startup" | "engine_reload";
+  trigger: WorkspaceMcpRefreshTrigger;
   error: unknown;
 }): void {
   createServerLogger(input.config).log(
@@ -5232,7 +5251,7 @@ function logDetachedPostEngineRefreshSyncError(input: {
 function logPersistedCloudMcpReconcileError(input: {
   config: ServerConfig;
   workspace: WorkspaceInfo;
-  trigger: "startup" | "engine_reload";
+  trigger: WorkspaceMcpRefreshTrigger;
   error: unknown;
 }): void {
   createServerLogger(input.config).log(
@@ -5254,6 +5273,7 @@ function logPersistedCloudMcpReconcileError(input: {
 // something re-syncs them. Best-effort.
 export async function syncAllWorkspacesRuntimeMcpToEngine(config: ServerConfig): Promise<void> {
   await migrateOpenworkCloudMcpRuntimeConfig(config);
+  await migrateWorkspaceRuntimeConfigToEngineGlobal(config);
   const serverState = activeEngineMcpServerState(config);
   for (const workspace of config.workspaces) {
     await enqueueWorkspaceMcpRefreshSync({ config, workspace, serverState, trigger: "startup" });
