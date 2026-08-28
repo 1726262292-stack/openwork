@@ -23,6 +23,7 @@ import {
 import { ensureLocalWorkspaceFiles } from "./workspace-init.js";
 import { findManagedEngineWorkspace } from "./workspaces.js";
 import { keepOpenworkRuntimeConfigFileFresh, writeOpenworkRuntimeConfigFile } from "./openwork-runtime-config.js";
+import { migrateOpenworkCloudMcpRuntimeConfig } from "./cloud-mcp-health.js";
 import { resolveOpencodeModelsUrl } from "./opencode-models-url.js";
 import { startWorkerActivityHeartbeat } from "./worker-activity-heartbeat.js";
 import pkg from "../package.json" with { type: "json" };
@@ -48,6 +49,7 @@ let enginePool: EnginePool | null = null;
 
 if (!config.readOnly) {
   await ensureLocalWorkspaceFiles(config.workspaces);
+  await migrateOpenworkCloudMcpRuntimeConfig(config);
 }
 
 // Bind the HTTP server before spawning the engine: serve-node may fall back
