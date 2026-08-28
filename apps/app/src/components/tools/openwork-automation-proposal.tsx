@@ -21,6 +21,7 @@ import {
   resolveProposalModel,
 } from "@/react-app/domains/automations/automation-model-options"
 import { automationsRoute } from "@/react-app/shell/workspace-routes"
+import { useWorkspaceMaybe } from "@/react-app/shell/workspace-provider"
 
 function parseOutputValue(output: unknown): unknown {
   if (typeof output !== "string") return output
@@ -57,6 +58,7 @@ export function OpenWorkAutomationProposalTool({ part }: { part: DynamicToolUIPa
   const navigate = useNavigate()
   const denAuth = useDenAuth()
   const automationsEnabled = useAutomationDeploymentEnabled()
+  const workspaceContext = useWorkspaceMaybe()
   const [created, setCreated] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
@@ -82,6 +84,8 @@ export function OpenWorkAutomationProposalTool({ part }: { part: DynamicToolUIPa
     return <Tool toolPart={part} title="Proposed an Automation" />
   }
 
+  const pinnedWorkspaceId = proposal?.workspaceId ?? (workspaceContext?.workspaceId?.trim() || null)
+
   const blocker = !automationsEnabled
     ? "Automations are disabled for this deployment."
     : !signedIn
@@ -101,6 +105,10 @@ export function OpenWorkAutomationProposalTool({ part }: { part: DynamicToolUIPa
           providerId: AUTOMATION_FREE_MODEL.providerId,
           modelId: AUTOMATION_FREE_MODEL.modelId,
         },
+        // Pin the proposal's originating workspace, falling back to the pane
+        // this card renders in, so the Automation keeps running there instead
+        // of following whichever workspace is active at run time.
+        ...(pinnedWorkspaceId ? { workspaceId: pinnedWorkspaceId } : {}),
       })
       setCreated(detail.automation.id)
       toast.success("Automation created and active")

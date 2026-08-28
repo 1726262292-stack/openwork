@@ -469,7 +469,7 @@ async function executeOpenworkAffordance(
   if (request.id === "automation.propose") {
     return affordanceResult(
       request.id,
-      proposeAutomation(request.args ?? {}),
+      proposeAutomation(request.args ?? {}, context),
       affordanceProposalEffects,
     );
   }
@@ -883,8 +883,12 @@ async function createOpenWorkSessions(rawArgs: unknown, context: OpenCodeContext
  * and the Den credential lives in the renderer, so an agent can describe an
  * Automation but only a person can create one.
  */
-function proposeAutomation(rawArgs: unknown): object {
-  const proposal = automationProposalSchema.parse(rawArgs);
+function proposeAutomation(rawArgs: unknown, context: OpenCodeContext): object {
+  const parsed = automationProposalSchema.parse(rawArgs);
+  // Pin the proposing conversation's workspace so the Automation keeps running
+  // there even after the person activates a different workspace.
+  const workspaceId = parsed.workspaceId ?? context.workspaceId ?? context.workspaceID;
+  const proposal = workspaceId ? { ...parsed, workspaceId } : parsed;
   return {
     ok: true,
     kind: "automation-proposal",

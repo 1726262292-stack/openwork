@@ -3219,7 +3219,7 @@ export function SessionRoute() {
       }
       primaryTitle={automationsRouteActive ? "Automations" : dashboardRouteActive ? "Dashboard" : undefined}
       primarySlot={automationsRouteActive ? (
-        <AutomationsPage providerCatalog={providerCatalog} />
+        <AutomationsPage providerCatalog={providerCatalog} workspaceId={selectedWorkspaceId} />
       ) : dashboardRouteActive ? (
         <WorkspaceProvider
           client={opencodeClient}
