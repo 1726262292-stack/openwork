@@ -2208,6 +2208,7 @@ function parsePluginConfigObject(value: unknown): DenPluginConfigObject | null {
 
 function parseExtensionSourceFormat(value: unknown): OpenWorkExtensionSourceFormat | null {
   switch (value) {
+    case "agent-plugin":
     case "openwork-builtin":
     case "openwork-extension-manifest":
     case "claude-plugin":
