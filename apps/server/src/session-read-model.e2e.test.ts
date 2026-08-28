@@ -350,6 +350,33 @@ describe("workspace session read APIs", () => {
     expect(response.status).toBe(200);
     const proxyRequest = mock.requests.find((request) => request.pathname === "/session");
     expect(proxyRequest?.directory).toBe(encodeURIComponent(workspaceRoot));
+    expect(new URLSearchParams(proxyRequest?.search).get("directory")).toBe(workspaceRoot);
+  });
+
+  test("prevents opencode proxy callers from escaping the mounted workspace directory", async () => {
+    const workspaceRoot = await createWorkspaceRoot();
+    const mock = startMockOpencode();
+    const openwork = await startOpenworkServer({
+      workspaceRoot,
+      opencodeBaseUrl: `http://127.0.0.1:${mock.server.port}`,
+    });
+
+    const foreignDirectory = "/tmp/foreign-workspace";
+    const response = await fetch(
+      `http://127.0.0.1:${openwork.server.port}/workspace/ws_1/opencode/session?directory=${encodeURIComponent(foreignDirectory)}&roots=true`,
+      {
+        headers: {
+          ...auth(openwork.token),
+          "x-opencode-directory": foreignDirectory,
+        },
+      },
+    );
+
+    expect(response.status).toBe(200);
+    const proxyRequest = mock.requests.find((request) => request.pathname === "/session");
+    expect(proxyRequest?.directory).toBe(workspaceRoot);
+    expect(new URLSearchParams(proxyRequest?.search).getAll("directory")).toEqual([workspaceRoot]);
+    expect(new URLSearchParams(proxyRequest?.search).get("roots")).toBe("true");
   });
 
   test("keeps opencode proxy requests off the workspace bootstrap path", async () => {
