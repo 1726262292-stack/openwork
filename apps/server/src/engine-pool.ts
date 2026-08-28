@@ -89,6 +89,7 @@ type Generation = {
   trustedIdentity: string | null;
   drainTimer: ReturnType<typeof setInterval> | null;
   drainDeadline: number | null;
+  drainActivityWatch: AbortController | null;
 };
 
 export type EnginePoolSnapshot = {
@@ -137,9 +138,18 @@ function nonNegativeIntFromEnv(name: string, fallback: number): number {
   return Number.isFinite(raw) && raw >= 0 ? raw : fallback;
 }
 
-/** How long a draining engine may keep running before its sessions are aborted. */
+/**
+ * How long a draining engine may go without any owned-session activity before
+ * its sessions are aborted. Activity on the engine event stream pushes the
+ * deadline out, so this bounds inactivity, not total drain time.
+ */
 function drainTimeoutMs(): number {
   return positiveIntFromEnv("OPENWORK_ENGINE_DRAIN_TIMEOUT_MS", 15 * 60_000);
+}
+
+/** Delay before the drain activity watch reconnects to a lost engine event stream. */
+function drainActivityReconnectMs(): number {
+  return positiveIntFromEnv("OPENWORK_ENGINE_DRAIN_ACTIVITY_RECONNECT_MS", 1_000);
 }
 
 /** Floor between automatic spawns, so a burst of triggers cannot thrash. 0 disables it. */
@@ -279,6 +289,21 @@ function eventIdentifiers(payload: unknown): { sessionIds: Set<string>; requestI
   return { sessionIds, requestIds };
 }
 
+/** Decode one SSE frame's `data:` payload; null when the frame carries none. */
+function sseFramePayload(frame: string): unknown {
+  const data = frame
+    .split(/\r?\n/)
+    .filter((line) => line.startsWith("data:"))
+    .map((line) => line.slice("data:".length).trim())
+    .join("\n");
+  if (!data) return null;
+  try {
+    return JSON.parse(data);
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Everything a spawned engine reads at build time. Comparing this is what
  * lets a repeated no-op reload skip spawning a replacement.
@@ -347,6 +372,7 @@ export class EnginePool {
       trustedIdentity: input.trustedIdentity,
       drainTimer: null,
       drainDeadline: null,
+      drainActivityWatch: null,
     });
     this.lastSpawnAt = Date.now();
   }
@@ -636,6 +662,7 @@ export class EnginePool {
       trustedIdentity: null,
       drainTimer: null,
       drainDeadline: null,
+      drainActivityWatch: null,
     };
     this.generations.push(generation);
 
@@ -746,11 +773,16 @@ export class EnginePool {
   }
 
   /**
-   * Watch a draining engine and close it once its runs finish. Past the grace
-   * window the remaining sessions are aborted rather than kept alive forever.
+   * Watch a draining engine and close it once its runs finish. The grace
+   * window bounds inactivity, not total drain time: engine events for an
+   * owned session push the deadline out, so a run that is actively making
+   * progress is never aborted mid-flight, while a non-idle session that stops
+   * reporting anything for the whole window is aborted rather than kept alive
+   * forever.
    */
   private startDrainMonitor(generation: Generation, workspace: WorkspaceInfo): void {
     generation.drainDeadline = Date.now() + drainTimeoutMs();
+    this.watchDrainActivity(generation);
     const tick = async (): Promise<void> => {
       if (generation.status !== "draining") return;
       const remaining = await this.nonIdleSessionIds(generation);
@@ -760,7 +792,7 @@ export class EnginePool {
         return;
       }
       if (generation.drainDeadline !== null && Date.now() >= generation.drainDeadline) {
-        this.hooks.logger?.log("warn", "Engine drain exceeded its grace period; aborting the remaining sessions.", {
+        this.hooks.logger?.log("warn", "Engine drain saw no session activity for the grace period; aborting the remaining sessions.", {
           "engine.drain.sessions": remaining.join(","),
           "engine.drain.session_count": remaining.length,
         });
@@ -778,6 +810,93 @@ export class EnginePool {
     void tick().catch(() => undefined);
   }
 
+  /**
+   * Hold an event-stream subscription per instance directory on the draining
+   * engine so owned-session activity keeps extending the drain deadline. The
+   * client event fan-in only exists while a client is attached; the pool owns
+   * this watch so a background run with no observer still counts as active.
+   */
+  private watchDrainActivity(generation: Generation): void {
+    const controller = new AbortController();
+    generation.drainActivityWatch = controller;
+    for (const directory of this.engineProbeDirectories()) {
+      void this.runDrainActivityWatch(generation, directory, controller.signal).catch(() => undefined);
+    }
+  }
+
+  private async runDrainActivityWatch(
+    generation: Generation,
+    directory: string | null,
+    signal: AbortSignal,
+  ): Promise<void> {
+    while (!signal.aborted && generation.status === "draining") {
+      try {
+        const url = new URL("/event", generation.handle.url);
+        if (directory !== null) url.searchParams.set("directory", directory);
+        const response = await loopbackFetch(url.toString(), {
+          headers: { Authorization: buildEngineAuthProbeHeader(generation.handle.username, generation.handle.password) },
+          signal,
+        });
+        if (response.ok && response.body) {
+          await this.consumeDrainActivityEvents(generation, response.body, signal);
+        }
+      } catch {
+        // Losing the stream only pauses activity credit. The poll loop still
+        // owns the abort decision, and an unreachable engine reports no
+        // sessions to drain in the first place.
+      }
+      if (signal.aborted || generation.status !== "draining") return;
+      await new Promise<void>((resolve) => {
+        const timer = setTimeout(resolve, drainActivityReconnectMs());
+        timer.unref?.();
+      });
+    }
+  }
+
+  private async consumeDrainActivityEvents(
+    generation: Generation,
+    body: ReadableStream<Uint8Array>,
+    signal: AbortSignal,
+  ): Promise<void> {
+    const reader = body.getReader();
+    const decoder = new TextDecoder();
+    let buffered = "";
+    try {
+      while (!signal.aborted && generation.status === "draining") {
+        const chunk = await reader.read();
+        if (chunk.done) return;
+        buffered += decoder.decode(chunk.value, { stream: true });
+        while (true) {
+          const delimiter = buffered.match(/\r?\n\r?\n/);
+          if (!delimiter || delimiter.index === undefined) break;
+          const frame = buffered.slice(0, delimiter.index);
+          buffered = buffered.slice(delimiter.index + delimiter[0].length);
+          this.noteDrainActivity(generation, sseFramePayload(frame));
+        }
+      }
+    } finally {
+      await reader.cancel().catch(() => undefined);
+    }
+  }
+
+  /** An engine event naming an owned session is proof of progress: push the deadline out. */
+  private noteDrainActivity(generation: Generation, payload: unknown): void {
+    if (payload === null || generation.status !== "draining" || generation.drainDeadline === null) return;
+    const owned = this.activeSessionsByGeneration.get(generation.id);
+    if (!owned || owned.size === 0) return;
+    const { sessionIds } = eventIdentifiers(payload);
+    let hasOwnedSession = false;
+    for (const sessionId of sessionIds) {
+      if (owned.has(sessionId)) {
+        hasOwnedSession = true;
+        break;
+      }
+    }
+    if (!hasOwnedSession) return;
+    const extended = Date.now() + drainTimeoutMs();
+    if (extended > generation.drainDeadline) generation.drainDeadline = extended;
+  }
+
   private async retire(generation: Generation, cause: "idle" | "forced" | "shutdown"): Promise<void> {
     if (generation.status === "dead") return;
     generation.status = "dead";
@@ -785,6 +904,8 @@ export class EnginePool {
       clearInterval(generation.drainTimer);
       generation.drainTimer = null;
     }
+    generation.drainActivityWatch?.abort();
+    generation.drainActivityWatch = null;
     generation.drainDeadline = null;
     this.activeSessionsByGeneration.delete(generation.id);
     for (const [sessionId, generationId] of this.sessionOwnership) {
@@ -917,6 +1038,7 @@ export class EnginePool {
         trustedIdentity: null,
         drainTimer: null,
         drainDeadline: null,
+        drainActivityWatch: null,
       };
       this.generations.push(generation);
       if (handle.pid) {
@@ -1122,7 +1244,7 @@ export class EnginePool {
     this.hooks.logger?.log("info", "Aborting OpenCode session from engine pool.", {
       "abort.source": "engine_pool.drain_timeout",
       "abort.initiator": "system",
-      "abort.reason": "draining engine exceeded grace period",
+      "abort.reason": "draining engine saw no session activity for the grace period",
       "session.id": sessionId,
       "engine.generation_id": generation.id,
     });
