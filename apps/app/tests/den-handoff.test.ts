@@ -231,10 +231,12 @@ describe("exchangeHandoffAndSignIn", () => {
     expect(window.localStorage.getItem("openwork.den.authToken")).toBe("tok_b");
     expect(window.localStorage.getItem("openwork.den.activeOrgId")).toBe("org_b");
     expect(window.localStorage.getItem("openwork.den.sessionOrigin")).toBe("https://den-b.test");
-    // The grant went to the destination API host only — never to A.
+    // The grant went to the destination origin only — never to A. A
+    // non-hosted destination has no derivable API sibling, so the exchange
+    // stays on the destination's own same-origin API proxy.
     expect(requests.length).toBeGreaterThan(0);
     for (const request of requests) {
-      expect(new URL(request.url).hostname).toBe("api.den-b.test");
+      expect(new URL(request.url).hostname).toBe("den-b.test");
     }
   });
 
@@ -354,7 +356,7 @@ describe("exchangeHandoffAndSignIn", () => {
     // Every request of the transaction targeted the normalized destination.
     expect(requests.length).toBeGreaterThan(0);
     for (const request of requests) {
-      expect(new URL(request.url).hostname).toBe("api.den-b.test");
+      expect(new URL(request.url).hostname).toBe("den-b.test");
     }
     expect(window.localStorage.getItem("openwork.den.baseUrl")).toBe("https://den-b.test");
   });
@@ -365,7 +367,7 @@ describe("exchangeHandoffAndSignIn", () => {
 
     let resolveOld: ((response: Response) => void) | null = null;
     stubFetch((url) => {
-      if (url.hostname === "api.den-old.test") {
+      if (url.hostname === "den-old.test") {
         return new Promise<Response>((resolve) => {
           resolveOld = resolve;
         });
@@ -448,8 +450,8 @@ describe("exchangeHandoffAndSignIn", () => {
       ));
     };
     // B's exchange returns first, then C's — the newest attempt still wins.
-    respond("api.den-b.test", "tok_b", "org_b");
-    respond("api.den-c.test", "tok_c", "org_c");
+    respond("den-b.test", "tok_b", "org_b");
+    respond("den-c.test", "tok_c", "org_c");
 
     const [resultB, resultC] = await Promise.all([attemptB, attemptC]);
 
@@ -472,6 +474,8 @@ describe("exchangeHandoffAndSignIn on desktop (durable bootstrap commit)", () =>
   function stubDesktopWindow(input: {
     bootstrap: BootstrapFile;
     failBootstrapWrites?: boolean;
+    /** Optional runtime-config payload served by the destination web origin. */
+    runtimeConfig?: Record<string, unknown>;
     exchange: (url: URL) => { status: number; body?: unknown };
   }) {
     const state = {
@@ -503,6 +507,14 @@ describe("exchangeHandoffAndSignIn on desktop (durable bootstrap commit)", () =>
               method: ((args[1] as { method?: string } | undefined)?.method) ?? "GET",
             });
             if (url.pathname === "/api/runtime-config") {
+              if (input.runtimeConfig) {
+                return {
+                  status: 200,
+                  statusText: "",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify(input.runtimeConfig),
+                };
+              }
               return { status: 404, statusText: "Not Found", headers: {}, body: "" };
             }
             const outcome = input.exchange(url);
@@ -714,5 +726,126 @@ describe("exchangeHandoffAndSignIn on desktop (durable bootstrap commit)", () =>
     expect(settings.baseUrl).toBe("https://den-b.test");
     expect(settings.authToken).toBe("tok_b");
     expect(settings.activeOrgId).toBe("org_b");
+  });
+
+  test("a runtime-published API origin with no verified relationship never receives the grant", async () => {
+    const { state } = stubDesktopWindow({
+      bootstrap: { baseUrl: "https://den-a.test", requireSignin: false, fromFile: true },
+      // The destination's runtime config points the API at an unrelated host.
+      // A syntactically valid URL is not authority: the one-time grant and
+      // the resulting bearer credential must never be routed there.
+      runtimeConfig: { denApiUrl: "https://collector.attacker.test" },
+      exchange: () => ({
+        status: 200,
+        body: { token: "tok_b_secret", user: exchangeUser, organization: { id: "org_b", slug: "org-b", name: "Org B" } },
+      }),
+    });
+    await initializeDenBootstrapConfig();
+
+    const result = await exchangeHandoffAndSignIn("grant_b_secret", {
+      baseUrl: "https://den-b.test",
+      desktopInitiated: false,
+    });
+
+    expect(result.ok).toBe(true);
+    // The one-time grant never left the destination's own origin: no request
+    // of any kind reached the unverified published origin during the
+    // handoff transaction.
+    for (const request of state.requests) {
+      expect(new URL(request.url).hostname).not.toBe("collector.attacker.test");
+    }
+    // The exchange stayed on the destination's own same-origin API proxy.
+    const exchangeRequests = state.requests.filter((request) =>
+      request.url.includes("/v1/auth/desktop-handoff/exchange"),
+    );
+    expect(exchangeRequests.length).toBeGreaterThan(0);
+    for (const request of exchangeRequests) {
+      expect(new URL(request.url).hostname).toBe("den-b.test");
+    }
+    expect(readDenSettings().authToken).toBe("tok_b_secret");
+  });
+
+  test("a runtime-published same-origin API base is still adopted", async () => {
+    const { state } = stubDesktopWindow({
+      bootstrap: { baseUrl: "https://den-a.test", requireSignin: false, fromFile: true },
+      runtimeConfig: { denApiUrl: "https://den-b.test" },
+      exchange: () => ({
+        status: 200,
+        body: { token: "tok_b_secret", user: exchangeUser, organization: { id: "org_b", slug: "org-b", name: "Org B" } },
+      }),
+    });
+    await initializeDenBootstrapConfig();
+
+    const result = await exchangeHandoffAndSignIn("grant_b_secret", {
+      baseUrl: "https://den-b.test",
+      desktopInitiated: false,
+    });
+
+    expect(result.ok).toBe(true);
+    const exchangeRequests = state.requests.filter((request) =>
+      request.url.includes("/v1/auth/desktop-handoff/exchange"),
+    );
+    expect(exchangeRequests.length).toBeGreaterThan(0);
+    for (const request of exchangeRequests) {
+      expect(new URL(request.url).hostname).toBe("den-b.test");
+    }
+  });
+
+  test("a cross-origin handoff clears the previous origin's enterprise activation stamp", async () => {
+    const { state } = stubDesktopWindow({
+      bootstrap: {
+        baseUrl: "https://den-a.test",
+        requireSignin: false,
+        requireActivation: true,
+        enterpriseActivation: { activatedAt: "2026-01-01T00:00:00.000Z", denBaseUrl: "https://den-a.test" },
+        fromFile: true,
+      },
+      exchange: () => ({
+        status: 200,
+        body: { token: "tok_b_secret", user: exchangeUser, organization: { id: "org_b", slug: "org-b", name: "Org B" } },
+      }),
+    });
+    await initializeDenBootstrapConfig();
+
+    const result = await exchangeHandoffAndSignIn("grant_b_secret", {
+      baseUrl: "https://den-b.test",
+      desktopInitiated: false,
+    });
+
+    expect(result.ok).toBe(true);
+    // The committed B bootstrap must not inherit A's activation stamp:
+    // an inherited stamp would mark the new control plane as already
+    // activated and bypass its activation gate.
+    expect(state.bootstrapFile.baseUrl).toBe("https://den-b.test");
+    expect(state.bootstrapFile.enterpriseActivation).toBeUndefined();
+    expect(readDenBootstrapConfig().enterpriseActivation ?? null).toBeNull();
+  });
+
+  test("a same-origin recommit preserves the origin's own enterprise activation stamp", async () => {
+    const stamp = { activatedAt: "2026-01-01T00:00:00.000Z", denBaseUrl: "https://den-a.test" };
+    const { state } = stubDesktopWindow({
+      bootstrap: {
+        baseUrl: "https://den-a.test",
+        requireSignin: false,
+        enterpriseActivation: stamp,
+        fromFile: true,
+      },
+      exchange: () => ({
+        status: 200,
+        body: { token: "tok_a_next", user: exchangeUser, organization: { id: "org_a", slug: "org-a", name: "Org A" } },
+      }),
+    });
+    await initializeDenBootstrapConfig();
+
+    const result = await exchangeHandoffAndSignIn("grant_a_refresh", {
+      baseUrl: "https://den-a.test",
+      desktopInitiated: false,
+      // Force a bootstrap commit on the same origin.
+      bootstrap: { requireSignin: false },
+    });
+
+    expect(result.ok).toBe(true);
+    expect(state.bootstrapFile.baseUrl).toBe("https://den-a.test");
+    expect(state.bootstrapFile.enterpriseActivation).toEqual(stamp);
   });
 });

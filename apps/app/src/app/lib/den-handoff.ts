@@ -242,11 +242,15 @@ export async function exchangeHandoffAndSignIn(
           ...(carryOriginScopedFields && previousBootstrap.prepared
             ? { prepared: previousBootstrap.prepared }
             : {}),
-          ...(options.bootstrap?.enterpriseActivation
-            ? { enterpriseActivation: options.bootstrap.enterpriseActivation }
+          // The activation stamp is origin-scoped. Cross-origin commits clear
+          // it explicitly: omitting it would let the persist layer retain the
+          // previous origin's stamp and mark the new control plane as already
+          // activated.
+          enterpriseActivation: options.bootstrap?.enterpriseActivation
+            ? options.bootstrap.enterpriseActivation
             : carryOriginScopedFields && previousBootstrap.enterpriseActivation
-              ? { enterpriseActivation: previousBootstrap.enterpriseActivation }
-              : {}),
+              ? previousBootstrap.enterpriseActivation
+              : null,
         });
       } catch (error) {
         // Nothing was activated: the previous enrollment (origin, token, and

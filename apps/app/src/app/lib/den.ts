@@ -1026,7 +1026,7 @@ export async function resolveDenBaseUrlsForDestination(
   }
 
   const runtimeApiBaseUrl = await fetchRuntimeConfigDenApiUrl(resolved.baseUrl);
-  if (!runtimeApiBaseUrl) {
+  if (!runtimeApiBaseUrl || !destinationApiOriginVerified(resolved.baseUrl, runtimeApiBaseUrl)) {
     return resolved;
   }
 
@@ -1037,6 +1037,29 @@ export async function resolveDenBaseUrlsForDestination(
       apiBaseUrl: runtimeApiBaseUrl,
     }).apiBaseUrl,
   };
+}
+
+/**
+ * A destination-published API origin receives the one-time handoff grant and
+ * the bearer credential minted from it, so a syntactically valid URL is not
+ * enough: the published origin must have a relationship to the destination
+ * web origin this client can verify on its own. That is either the same
+ * origin (the destination's own `/api/den` proxy) or the deterministic API
+ * sibling derived for hosted deployments. Every other published value is
+ * ignored and the exchange stays on the destination's same-origin proxy,
+ * which reaches the same control plane without trusting the runtime config
+ * to route credentials.
+ */
+function destinationApiOriginVerified(webBaseUrl: string, candidate: string): boolean {
+  try {
+    const webOrigin = new URL(webBaseUrl).origin;
+    const candidateOrigin = new URL(candidate).origin;
+    if (candidateOrigin === webOrigin) return true;
+    const deterministic = denApiOriginForDenBaseUrl(webBaseUrl);
+    return deterministic !== null && new URL(deterministic).origin === candidateOrigin;
+  } catch {
+    return false;
+  }
 }
 
 function getPendingBootstrapConfig(next: DenSettings): DenBootstrapConfig | null {
@@ -1282,7 +1305,13 @@ export async function setDenBootstrapConfig(
   const previous = readDenBootstrapConfig();
   const normalized = await resolveDenBootstrapConfigWithRuntimeApi({
     ...next,
-    enterpriseActivation: next.enterpriseActivation ?? previous.enterpriseActivation,
+    // An omitted stamp retains the previous one; an explicit null clears it.
+    // Cross-origin handoffs rely on the explicit clear: the old control
+    // plane's activation must never mark a new control plane as activated.
+    enterpriseActivation:
+      next.enterpriseActivation !== undefined
+        ? next.enterpriseActivation
+        : previous.enterpriseActivation,
   });
 
   if (isDesktopRuntime()) {
