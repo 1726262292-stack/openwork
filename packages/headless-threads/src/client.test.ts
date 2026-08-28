@@ -457,6 +457,43 @@ describe("waitForThread", () => {
     expect(result.polls).toBe(0);
   });
 
+  test("aborting mid-wait stops polling after the in-flight beat and never calls abortThread implicitly", async () => {
+    const controller = new AbortController();
+    const clock = createClock();
+    // The turn never settles: every beat reports a busy engine.
+    const double = createOpenworkDouble({
+      beats: [{ status: { type: "busy" }, messages: [reply("msg_1", "user")] }],
+    });
+    // Abort while the wait sleeps between polls — mid-stream, not before the call.
+    const sleep = async (ms: number) => {
+      await clock.sleep(ms);
+      controller.abort();
+    };
+    const client = createHeadlessThreadClient({
+      baseUrl: BASE_URL,
+      workspaceId: "ws_1",
+      token: "owt_test",
+      fetch: double.fetchImpl,
+      now: clock.now,
+      sleep,
+    });
+
+    const result = await client.waitForThread(SESSION_ID, {
+      timeoutMs: 10_000,
+      pollIntervalMs: 100,
+      signal: controller.signal,
+    });
+
+    expect(result.outcome).toBe("aborted");
+    expect(result.observedRunning).toBe(true);
+    // Exactly one live poll happened before the abort; the final snapshot read
+    // documents state at abort time instead of counting as a poll.
+    expect(result.polls).toBe(1);
+    expect(double.snapshotReads()).toBe(2);
+    // Cancelling a wait must never cancel the engine turn on the caller's behalf.
+    expect(double.requests.some((request) => request.path.endsWith("/abort"))).toBe(false);
+  });
+
   test("matches the assistant response to the stable user message", async () => {
     const double = createOpenworkDouble({
       beats: [{
