@@ -319,7 +319,12 @@ describe("Cloud runtime access resolver", () => {
       runtimeStore: store({ tokens: [{ scope: "client", token: "client-token" }] }),
     }))
 
-    expect(result).toEqual({ status: "failed", workerId: runtimeWorker.id, reason: "missing_tokens" })
+    expect(result).toEqual(expect.objectContaining({
+      status: "failed",
+      workerId: runtimeWorker.id,
+      reason: "missing_tokens",
+      failure: expect.objectContaining({ code: "access_tokens_missing", stage: "runtime" }),
+    }))
   })
 
   test("signed preview health probe refuses sandbox-controlled redirects", async () => {

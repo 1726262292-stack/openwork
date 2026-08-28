@@ -65,6 +65,12 @@ shows this conversation in the sidebar.
 
 ## Contract
 
+`AgentSessionClient` is the intentionally small replaceable runtime port:
+create a thread, send a turn, read a snapshot, and abort. `HeadlessThreadClient`
+extends it with polling and transcript helpers. OpenCode is currently the only
+implementation; UI inventory and cross-workspace plugin routing stay on the
+native protocol instead of expanding this port speculatively.
+
 | Function | Does |
 | --- | --- |
 | `createThread` | Creates a thread, optionally with its first turn and a model. |

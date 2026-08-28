@@ -406,8 +406,8 @@ async function readSessionFacts(desktopApp: App, workspaceId: string, sessionId:
     ]);
     const failed = responses.find((response) => !response.ok);
     if (failed) return { ok: false, status: failed.status, sessionId: ${JSON.stringify(sessionId)}, text: "", tools: [] };
-    const [session, messages, todos, statuses] = await Promise.all(responses.map((response) => response.json()));
-    const item = { session, messages, todos, status: statuses?.[session?.id] ?? { type: "idle" } };
+    const [session, messageWires, todos, statuses] = await Promise.all(responses.map((response) => response.json()));
+    const item = { session, messages: messageWires, todos, status: statuses?.[session?.id] ?? { type: "idle" } };
     const messages = Array.isArray(item?.messages) ? item.messages : [];
     const text = messages.flatMap((message) => Array.isArray(message?.parts) ? message.parts : [])
       .flatMap((part) => typeof part?.text === "string" ? [part.text] : []).join("\\n");
@@ -429,7 +429,7 @@ async function readSessionFacts(desktopApp: App, workspaceId: string, sessionId:
       });
     return {
       ok: true,
-      status,
+      status: responses[0].status,
       sessionId: typeof item?.session?.id === "string" ? item.session.id : "",
       text,
       tools,

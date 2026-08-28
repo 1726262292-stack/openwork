@@ -210,8 +210,8 @@ async function observeAssignmentCredentialRejection(status, deniedRoute) {
           return respondToSnapshotRequest(parsed, sessionPaths, {
             status: { type: "idle" },
             messages: [{
-              info: { role: "assistant", tokens: { input: 1, output: 1 } },
-              parts: [{ type: "text", text: "Finished" }],
+              info: { id: "msg-finished", role: "assistant", tokens: { input: 1, output: 1 } },
+              parts: [{ id: "part-finished", type: "text", text: "Finished" }],
             }],
           })
         }
@@ -556,7 +556,7 @@ test("routine credential rotation waits for the active assignment to complete", 
           while (!finishSnapshot) await new Promise((resolve) => setImmediate(resolve))
           return respondToSnapshotRequest(parsed, sessionPaths, {
             status: { type: "idle" },
-            messages: [{ info: { role: "assistant" }, parts: [{ type: "text", text: "Finished" }] }],
+            messages: [{ info: { id: "msg-finished", role: "assistant" }, parts: [{ id: "part-finished", type: "text", text: "Finished" }] }],
           })
         }
       }
@@ -612,7 +612,7 @@ test("routine credential rotation waits for an in-flight claim", async () => {
         if ([sessionPaths.get, sessionPaths.messages, sessionPaths.todo, sessionPaths.status].includes(parsed.pathname)) {
           return respondToSnapshotRequest(parsed, sessionPaths, {
             status: { type: "idle" },
-            messages: [{ info: { role: "assistant" }, parts: [{ type: "text", text: "Finished" }] }],
+            messages: [{ info: { id: "msg-finished", role: "assistant" }, parts: [{ id: "part-finished", type: "text", text: "Finished" }] }],
           })
         }
       }
@@ -766,8 +766,8 @@ test("waking during an active run keeps its lease and starts no second claim loo
           return respondToSnapshotRequest(parsed, sessionPaths, {
             status: { type: "idle" },
             messages: [{
-              info: { role: "assistant", tokens: { input: 1, output: 1 } },
-              parts: [{ type: "text", text: "done" }],
+              info: { id: "msg-done", role: "assistant", tokens: { input: 1, output: 1 } },
+              parts: [{ id: "part-done", type: "text", text: "done" }],
             }],
           })
         }
@@ -1077,8 +1077,8 @@ test("desktop Automation execution creates a normal visible local OpenWork threa
       return respondToSnapshotRequest(parsed, sessionPaths, {
         status: { type: snapshots <= 1 ? "busy" : "idle" },
         messages: snapshots <= 1 ? [] : [{
-          info: { role: "assistant", tokens: { input: 12, output: 7 } },
-          parts: [{ type: "text", text: "Desktop runner result" }],
+          info: { id: "msg-result", role: "assistant", tokens: { input: 12, output: 7 } },
+          parts: [{ id: "part-result", type: "text", text: "Desktop runner result" }],
         }],
       })
     }
@@ -1125,8 +1125,10 @@ test("desktop Automation execution creates a normal visible local OpenWork threa
   for (const path of [sessionPaths.get, sessionPaths.messages, sessionPaths.todo, sessionPaths.status]) {
     assert.equal(requests.filter((request) => request.path === path).length, 2)
   }
-  assert.ok(requests.filter((request) => request.path === sessionPaths.messages)
-    .every((request) => request.search === "?limit=200"))
+  assert.deepEqual(
+    requests.filter((request) => request.path === sessionPaths.messages).map((request) => request.search),
+    ["?limit=200", "?limit=200"],
+  )
   assert.ok(requests.every((request) => request.options.signal instanceof AbortSignal))
   assert.ok(localRequests.every((request) => new Headers(request.options.headers).get("Authorization") === "Bearer local-client-token"))
 })
@@ -1173,8 +1175,8 @@ test("desktop Automation execution runs in the assignment's pinned workspace", a
     if ([sessionPaths.get, sessionPaths.messages, sessionPaths.todo, sessionPaths.status].includes(parsed.pathname)) {
       return respondToSnapshotRequest(parsed, sessionPaths, {
         messages: [{
-          info: { role: "assistant", tokens: { input: 5, output: 2 } },
-          parts: [{ type: "text", text: "Pinned result" }],
+          info: { id: "msg-pinned", role: "assistant", tokens: { input: 5, output: 2 } },
+          parts: [{ id: "part-pinned", type: "text", text: "Pinned result" }],
         }],
       })
     }
@@ -1205,8 +1207,8 @@ test("desktop Automation execution accepts a completed tool-only assistant turn"
       return respondToSnapshotRequest(parsed, sessionPaths, {
         statuses: {},
         messages: [{
-          info: { role: "assistant", tokens: { input: 9, output: 3 } },
-          parts: [{ type: "tool", tool: "example", state: { status: "completed", output: "done" } }],
+          info: { id: "msg-tool", role: "assistant", tokens: { input: 9, output: 3 } },
+          parts: [{ id: "part-tool", type: "tool", tool: "example", state: { status: "completed", output: "done" } }],
         }],
       })
     }
@@ -1250,6 +1252,7 @@ test("failed desktop assignments retain their created local thread in the Den co
             status: { type: "idle" },
             messages: [{
               info: {
+                id: "msg-failed",
                 role: "assistant",
                 error: {
                   name: "ProviderModelNotFoundError",
@@ -1385,6 +1388,7 @@ test("an explicit assistant provider failure terminates immediately with its loc
         status: { type: "idle" },
         messages: [{
           info: {
+            id: "msg-provider-failure",
             role: "assistant",
             error: {
               name: "APIError",
@@ -1443,6 +1447,7 @@ test("desktop Automation execution surfaces a missing pinned model", async () =>
         status: { type: "idle" },
         messages: [{
           info: {
+            id: "msg-missing-model",
             role: "assistant",
             error: {
               name: "ProviderModelNotFoundError",

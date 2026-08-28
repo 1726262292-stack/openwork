@@ -1,7 +1,7 @@
 {
   "version": "5",
   "dialect": "mysql",
-  "id": "6deb5ab3-492c-47e9-b02e-e0c9e6620947",
+  "id": "5690c5de-dd09-4f99-b019-517f391dfdaf",
   "prevId": "4eb033fa-e66c-4f93-8883-5832cd95be6f",
   "tables": {
     "account": {
@@ -5435,13 +5435,6 @@
           "autoincrement": false,
           "default": "'desktop'"
         },
-        "workspace_id": {
-          "name": "workspace_id",
-          "type": "varchar(240)",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "maximum_runtime_ms": {
           "name": "maximum_runtime_ms",
           "type": "int",
@@ -10122,6 +10115,20 @@
         "source_repository_url": {
           "name": "source_repository_url",
           "type": "varchar(1024)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "source_format": {
+          "name": "source_format",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "source_schema_version": {
+          "name": "source_schema_version",
+          "type": "varchar(100)",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false

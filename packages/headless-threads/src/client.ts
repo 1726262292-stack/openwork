@@ -100,10 +100,10 @@ export function createHeadlessThreadClient(options: HeadlessThreadClientOptions)
     return prompt;
   }
 
-  function requestSignal(signal?: AbortSignal): AbortSignal {
+  function requestSignal(signal?: AbortSignal): AbortSignal | undefined {
     const signals = [options.signal, signal].filter((item): item is AbortSignal => item !== undefined);
-    signals.push(AbortSignal.timeout(requestTimeoutMs));
-    return AbortSignal.any(signals);
+    if (requestTimeoutMs !== 0) signals.push(AbortSignal.timeout(requestTimeoutMs));
+    return signals.length === 0 ? undefined : signals.length === 1 ? signals[0] : AbortSignal.any(signals);
   }
 
   const sdkFetch = async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -177,7 +177,7 @@ export function createHeadlessThreadClient(options: HeadlessThreadClientOptions)
     );
   }
 
-  async function getThreadSnapshot(threadId: string, input?: { signal?: AbortSignal }): Promise<HeadlessThreadSnapshot> {
+  async function getThreadSnapshot(threadId: string, input?: { signal?: AbortSignal; limit?: number }): Promise<HeadlessThreadSnapshot> {
     const encodedThreadId = encodeURIComponent(threadId);
     const sessionPath = `${opencodePath}/session/${encodedThreadId}`;
     const messagesPath = `${sessionPath}/message`;
@@ -185,7 +185,7 @@ export function createHeadlessThreadClient(options: HeadlessThreadClientOptions)
     const statusPath = `${opencodePath}/session/status`;
     const [sessionResult, messagesResult, todosResult, statusResult] = await Promise.all([
       opencode.session.get({ sessionID: threadId }, { signal: requestSignal(input?.signal) }),
-      opencode.session.messages({ sessionID: threadId }, { signal: requestSignal(input?.signal) }),
+      opencode.session.messages({ sessionID: threadId, limit: input?.limit }, { signal: requestSignal(input?.signal) }),
       opencode.session.todo({ sessionID: threadId }, { signal: requestSignal(input?.signal) }),
       opencode.session.status(undefined, { signal: requestSignal(input?.signal) }),
     ]);

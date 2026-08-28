@@ -261,6 +261,80 @@ describe("workspace OpenCode proxy", () => {
     expect(new URLSearchParams(proxyRequest?.search).get("roots")).toBe("true");
   });
 
+  test("pins the workspace directory against repeated, encoded, and traversal spoof variants", async () => {
+    const workspaceRoot = await createWorkspaceRoot();
+    const mock = startMockOpencode();
+    const openwork = await startOpenworkServer({
+      workspaceRoot,
+      opencodeBaseUrl: `http://127.0.0.1:${mock.server.port}`,
+    });
+
+    const hostileQueries = [
+      // Repeated directory params: the proxy must collapse them to exactly one.
+      `directory=${encodeURIComponent("/tmp/foreign-a")}&directory=${encodeURIComponent("/tmp/foreign-b")}`,
+      // Double-encoded traversal out of the mounted workspace.
+      `directory=${encodeURIComponent(`${workspaceRoot}/%2e%2e/%2e%2e/etc`)}`,
+      // Plain traversal plus an unrelated param that must survive.
+      `directory=${encodeURIComponent(`${workspaceRoot}/../outside`)}&roots=true`,
+    ];
+
+    for (const [index, query] of hostileQueries.entries()) {
+      mock.requests.length = 0;
+      const response = await fetch(
+        `http://127.0.0.1:${openwork.server.port}/workspace/ws_1/opencode/session?${query}`,
+        {
+          method: "GET",
+          headers: {
+            ...auth(openwork.token),
+            "x-opencode-directory": "/tmp/foreign-header",
+          },
+        },
+      );
+
+      expect({ index, status: response.status }).toEqual({ index, status: 200 });
+      await response.body?.cancel();
+      const proxyRequest = mock.requests.find((request) => request.pathname === "/session");
+      expect({ index, directory: proxyRequest?.directory }).toEqual({ index, directory: workspaceRoot });
+      expect({ index, queryDirectories: new URLSearchParams(proxyRequest?.search).getAll("directory") })
+        .toEqual({ index, queryDirectories: [workspaceRoot] });
+    }
+
+    const lastRequest = mock.requests.find((request) => request.pathname === "/session");
+    expect(new URLSearchParams(lastRequest?.search).get("roots")).toBe("true");
+  });
+
+  test("scopes spoofed directories on POST proxy requests without touching the body", async () => {
+    const workspaceRoot = await createWorkspaceRoot();
+    const mock = startMockOpencode();
+    const openwork = await startOpenworkServer({
+      workspaceRoot,
+      opencodeBaseUrl: `http://127.0.0.1:${mock.server.port}`,
+      readOnly: false,
+    });
+
+    const body = { title: "Spoofed create", directory: "/tmp/foreign-body" };
+    const response = await fetch(
+      `http://127.0.0.1:${openwork.server.port}/workspace/ws_1/opencode/session?directory=${encodeURIComponent("/tmp/foreign-query")}`,
+      {
+        method: "POST",
+        headers: {
+          ...auth(openwork.token),
+          "Content-Type": "application/json",
+          "x-opencode-directory": "/tmp/foreign-header",
+        },
+        body: JSON.stringify(body),
+      },
+    );
+
+    expect(response.status).toBe(200);
+    await response.body?.cancel();
+    const proxyRequest = mock.requests.find((request) => request.pathname === "/session" && request.method === "POST");
+    expect(proxyRequest?.directory).toBe(workspaceRoot);
+    expect(new URLSearchParams(proxyRequest?.search).getAll("directory")).toEqual([workspaceRoot]);
+    // The proxy scopes routing inputs only; the JSON body is the caller's contract.
+    expect(proxyRequest?.body).toEqual(body);
+  });
+
   test("keeps opencode proxy requests off the workspace bootstrap path", async () => {
     const workspaceRoot = await createWorkspaceRoot();
     const mock = startMockOpencode();

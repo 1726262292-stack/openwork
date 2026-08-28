@@ -53,15 +53,7 @@ export function resolveOpenWorkWebAccess(input: {
   accessSource: OpenWorkWebAccessSource
   complimentaryAccess: boolean
 } {
-  if (!input.deploymentAvailable) {
-    return {
-      hasAccess: false,
-      accessSource: null,
-      complimentaryAccess: input.complimentaryAccess,
-    }
-  }
-
-  const accessSource: OpenWorkWebAccessSource = input.hasEligibleSubscription
+  const accessSource: OpenWorkWebAccessSource = input.deploymentAvailable && input.hasEligibleSubscription
     ? "subscription"
     : input.complimentaryAccess
       ? "complimentary"
