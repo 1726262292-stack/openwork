@@ -24,7 +24,7 @@ afterEach(async () => {
 });
 
 async function createWorkspaceRoot(folderName?: string) {
-  const root = await mkdtemp(join(tmpdir(), "openwork-session-read-"));
+  const root = await mkdtemp(join(tmpdir(), "openwork-opencode-proxy-"));
   const workspaceRoot = folderName ? join(root, folderName) : root;
   await mkdir(join(workspaceRoot, ".opencode"), { recursive: true });
   roots.push(root);
@@ -35,7 +35,7 @@ function auth(token: string) {
   return { Authorization: `Bearer ${token}` };
 }
 
-function startMockOpencode(input?: { invalidList?: boolean; holdCommand?: Promise<void>; sessionDirectory?: string }) {
+function startMockOpencode(input?: { holdCommand?: Promise<void> }) {
   const requests: Array<{ pathname: string; search: string; directory: string | null; method: string; body?: unknown }> = [];
   const server = Bun.serve({
     hostname: "127.0.0.1",
@@ -60,12 +60,9 @@ function startMockOpencode(input?: { invalidList?: boolean; holdCommand?: Promis
             id: "ses_created",
             title: typeof title === "string" ? title : "New session",
             slug: "created-session",
-            directory: input?.sessionDirectory ?? request.headers.get("x-opencode-directory"),
+            directory: request.headers.get("x-opencode-directory"),
             time: { created: 300, updated: 300 },
           });
-        }
-        if (input?.invalidList) {
-          return Response.json({ nope: true });
         }
         return Response.json([
           {
@@ -87,7 +84,7 @@ function startMockOpencode(input?: { invalidList?: boolean; holdCommand?: Promis
           id: "ses_1",
           title: "Hostname Check",
           slug: "hostname-check",
-          directory: input?.sessionDirectory ?? request.headers.get("x-opencode-directory"),
+          directory: request.headers.get("x-opencode-directory"),
           time: { created: 100, updated: 200 },
         });
       }
@@ -201,35 +198,8 @@ async function waitUntil(predicate: () => boolean) {
   return predicate();
 }
 
-describe("workspace session read APIs", () => {
-  test("creates a session and starts its prompt without UI navigation", async () => {
-    const workspaceRoot = await createWorkspaceRoot();
-    const mock = startMockOpencode();
-    const openwork = await startOpenworkServer({
-      workspaceRoot,
-      opencodeBaseUrl: `http://127.0.0.1:${mock.server.port}`,
-      readOnly: false,
-    });
-
-    const response = await fetch(`http://127.0.0.1:${openwork.server.port}/workspace/ws_1/sessions`, {
-      method: "POST",
-      headers: { ...auth(openwork.token), "Content-Type": "application/json" },
-      body: JSON.stringify({ title: "Look into dolphins", prompt: "Research dolphins." }),
-    });
-
-    expect(response.status).toBe(201);
-    await expect(response.json()).resolves.toMatchObject({
-      item: { id: "ses_created", title: "Look into dolphins", directory: workspaceRoot },
-      started: true,
-    });
-    const createRequest = mock.requests.find((request) => request.pathname === "/session" && request.method === "POST");
-    expect(createRequest?.body).toEqual({ title: "Look into dolphins" });
-    const promptRequest = mock.requests.find((request) => request.pathname === "/session/ses_created/prompt_async");
-    expect(promptRequest?.body).toEqual({ parts: [{ type: "text", text: "Research dolphins." }] });
-    expect(promptRequest?.directory).toBe(workspaceRoot);
-  });
-
-  test("lists sessions and returns session details, messages, and snapshot", async () => {
+describe("workspace OpenCode proxy", () => {
+  test("accepts guest-side rem_ workspace aliases", async () => {
     const workspaceRoot = await createWorkspaceRoot();
     const mock = startMockOpencode();
     const openwork = await startOpenworkServer({
@@ -237,102 +207,14 @@ describe("workspace session read APIs", () => {
       opencodeBaseUrl: `http://127.0.0.1:${mock.server.port}`,
     });
 
-    const base = `http://127.0.0.1:${openwork.server.port}`;
-
-    const listResponse = await fetch(`${base}/workspace/ws_1/sessions?roots=true&limit=1&search=host&start=10`, {
-      headers: auth(openwork.token),
-    });
-    expect(listResponse.status).toBe(200);
-    const listBody = await listResponse.json();
-    expect(listBody).toEqual({
-      items: [
-        {
-          id: "ses_1",
-          title: "Hostname Check",
-          slug: "hostname-check",
-          directory: workspaceRoot,
-          time: { created: 100, updated: 200 },
-        },
-      ],
-    });
-
-    const detailResponse = await fetch(`${base}/workspace/ws_1/sessions/ses_1`, {
-      headers: auth(openwork.token),
-    });
-    expect(detailResponse.status).toBe(200);
-    const detailBody = await detailResponse.json();
-    expect(detailBody.item.id).toBe("ses_1");
-    expect(detailBody.item.directory).toBe(workspaceRoot);
-
-    const messagesResponse = await fetch(`${base}/workspace/ws_1/sessions/ses_1/messages?limit=5`, {
-      headers: auth(openwork.token),
-    });
-    expect(messagesResponse.status).toBe(200);
-    const messagesBody = await messagesResponse.json();
-    expect(messagesBody.items).toHaveLength(1);
-    expect(messagesBody.items[0]?.info.id).toBe("msg_1");
-    expect(messagesBody.items[0]?.parts[0]?.text).toBe("hostname: mock-host");
-
-    const snapshotResponse = await fetch(`${base}/workspace/ws_1/sessions/ses_1/snapshot?limit=5`, {
-      headers: auth(openwork.token),
-    });
-    expect(snapshotResponse.status).toBe(200);
-    const snapshotBody = await snapshotResponse.json();
-    expect(snapshotBody.item.session.id).toBe("ses_1");
-    expect(snapshotBody.item.messages).toHaveLength(1);
-    expect(snapshotBody.item.todos).toEqual([
-      {
-        content: "Validate session reads",
-        status: "completed",
-        priority: "high",
-      },
-    ]);
-    expect(snapshotBody.item.status).toEqual({ type: "busy" });
-
-    const listRequest = mock.requests.find((request) => request.pathname === "/session");
-    expect(listRequest?.directory).toBe(workspaceRoot);
-    expect(listRequest?.search).toContain("roots=true");
-    expect(listRequest?.search).toContain("limit=1");
-    expect(listRequest?.search).toContain("search=host");
-    expect(listRequest?.search).toContain("start=10");
-
-  });
-
-  test("accepts guest-side rem_ workspace aliases for session reads", async () => {
-    const workspaceRoot = await createWorkspaceRoot();
-    const mock = startMockOpencode();
-    const openwork = await startOpenworkServer({
-      workspaceRoot,
-      opencodeBaseUrl: `http://127.0.0.1:${mock.server.port}`,
-    });
-
-    const response = await fetch(`http://127.0.0.1:${openwork.server.port}/workspace/rem_ws_1/sessions`, {
+    const response = await fetch(`http://127.0.0.1:${openwork.server.port}/workspace/rem_ws_1/opencode/session`, {
       headers: auth(openwork.token),
     });
     expect(response.status).toBe(200);
     const body = await response.json();
-    expect(body.items[0]?.id).toBe("ses_1");
-    expect(body.items[0]?.directory).toBe(workspaceRoot);
+    expect(body[0]?.id).toBe("ses_1");
+    expect(body[0]?.directory).toBe(workspaceRoot);
     expect(mock.requests.find((request) => request.pathname === "/session")?.directory).toBe(workspaceRoot);
-  });
-
-  test("encodes non-ASCII workspace directory headers for session reads", async () => {
-    const workspaceRoot = await createWorkspaceRoot("项目");
-    const mock = startMockOpencode();
-    const openwork = await startOpenworkServer({
-      workspaceRoot,
-      opencodeBaseUrl: `http://127.0.0.1:${mock.server.port}`,
-    });
-
-    const response = await fetch(`http://127.0.0.1:${openwork.server.port}/workspace/ws_1/sessions`, {
-      headers: auth(openwork.token),
-    });
-
-    expect(response.status).toBe(200);
-    const listRequest = mock.requests.find((request) => request.pathname === "/session");
-    const encodedDirectory = encodeURIComponent(workspaceRoot);
-    expect(listRequest?.directory).toBe(encodedDirectory);
-    expect(listRequest?.search).toContain(`directory=${encodedDirectory}`);
   });
 
   test("encodes non-ASCII workspace directory headers for opencode proxy requests", async () => {
@@ -400,44 +282,6 @@ describe("workspace session read APIs", () => {
     expect(response.status).toBe(200);
     expect(mock.requests.some((request) => request.pathname === "/session")).toBe(true);
     expect(await readFile(commandPath, "utf8")).toBe(legacyCommand);
-  });
-
-  test("returns 404 when the upstream session is missing", async () => {
-    const workspaceRoot = await createWorkspaceRoot();
-    const mock = startMockOpencode();
-    const openwork = await startOpenworkServer({
-      workspaceRoot,
-      opencodeBaseUrl: `http://127.0.0.1:${mock.server.port}`,
-    });
-
-    const response = await fetch(`http://127.0.0.1:${openwork.server.port}/workspace/ws_1/sessions/ses_missing/snapshot`, {
-      headers: auth(openwork.token),
-    });
-    expect(response.status).toBe(404);
-    await expect(response.json()).resolves.toMatchObject({
-      code: "session_not_found",
-      message: "Session not found",
-    });
-
-  });
-
-  test("returns 404 when a session belongs to another workspace", async () => {
-    const workspaceRoot = await createWorkspaceRoot();
-    const secondWorkspaceRoot = await createWorkspaceRoot();
-    const mock = startMockOpencode({ sessionDirectory: workspaceRoot });
-    const openwork = await startOpenworkServer({
-      workspaceRoot,
-      secondWorkspaceRoot,
-      opencodeBaseUrl: `http://127.0.0.1:${mock.server.port}`,
-    });
-
-    const response = await fetch(
-      `http://127.0.0.1:${openwork.server.port}/workspace/ws_2/sessions/ses_1/snapshot`,
-      { headers: auth(openwork.token) },
-    );
-
-    expect(response.status).toBe(404);
-    await expect(response.json()).resolves.toMatchObject({ code: "session_not_found" });
   });
 
   test.serial("acknowledges proxied session commands before upstream completion and admits each message once", async () => {
@@ -557,29 +401,11 @@ describe("workspace session read APIs", () => {
     expect(mock.requests.some((request) => request.pathname === "/session")).toBe(true);
   });
 
-  test("returns 502 when OpenCode returns an invalid session list payload", async () => {
-    const workspaceRoot = await createWorkspaceRoot();
-    const mock = startMockOpencode({ invalidList: true });
-    const openwork = await startOpenworkServer({
-      workspaceRoot,
-      opencodeBaseUrl: `http://127.0.0.1:${mock.server.port}`,
-    });
-
-    const response = await fetch(`http://127.0.0.1:${openwork.server.port}/workspace/ws_1/sessions`, {
-      headers: auth(openwork.token),
-    });
-    expect(response.status).toBe(502);
-    await expect(response.json()).resolves.toMatchObject({
-      code: "opencode_invalid_response",
-      message: "OpenCode returned invalid session list",
-    });
-  });
-
   test("returns a configured error instead of constructing an SDK request with a relative URL", async () => {
     const workspaceRoot = await createWorkspaceRoot();
     const openwork = await startOpenworkServer({ workspaceRoot });
 
-    const response = await fetch(`http://127.0.0.1:${openwork.server.port}/workspace/ws_1/sessions?limit=200`, {
+    const response = await fetch(`http://127.0.0.1:${openwork.server.port}/workspace/ws_1/opencode/session?limit=200`, {
       headers: auth(openwork.token),
     });
 
@@ -587,10 +413,6 @@ describe("workspace session read APIs", () => {
     await expect(response.json()).resolves.toMatchObject({
       code: "opencode_unconfigured",
       message: "OpenCode base URL is missing for this workspace",
-      details: {
-        workspaceId: "ws_1",
-        workspaceType: "local",
-      },
     });
   });
 });

@@ -512,7 +512,7 @@ describe("den-gateway proxy", () => {
     const headers = { Authorization: "Bearer den-api", Accept: "application/json" }
 
     const requests = [
-      ["POST", "/files/sessions/abc/read-batch"],
+      ["POST", "/files/sessions/abc/ops"],
       ["POST", "/workspaces/local"],
       ["POST", "/workspaces/ws_1/activate"],
       ["GET", "/env/keys"],
@@ -525,7 +525,7 @@ describe("den-gateway proxy", () => {
     }
 
     expect(upstream.observed.requests.map((request) => `${request.method} ${request.path}`)).toEqual([
-      "POST /files/sessions/abc/read-batch",
+      "POST /files/sessions/abc/ops",
       "POST /workspaces/local",
       "POST /workspaces/ws_1/activate",
       "GET /env/keys",
@@ -547,11 +547,11 @@ describe("den-gateway proxy", () => {
     expect(await navigation.text()).toContain("OpenWork App")
     expect(upstream.observed.requests).toHaveLength(0)
 
-    const api = await fetch(`${base}/workspace/ws_1/sessions`, {
+    const api = await fetch(`${base}/workspace/ws_1/opencode/session`, {
       headers: { Authorization: "Bearer den-workspace", Accept: "application/json" },
     })
     expect(api.status).toBe(200)
-    expect(upstream.observed.requests[0].path).toBe("/workspace/ws_1/sessions")
+    expect(upstream.observed.requests[0].path).toBe("/workspace/ws_1/opencode/session")
   })
 
   test("proxies workspace opencode SSE without buffering", async () => {
