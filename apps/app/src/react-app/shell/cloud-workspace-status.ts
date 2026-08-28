@@ -1,4 +1,13 @@
-import type { DenCloudInstance } from "@/app/lib/den";
+import type { DenCloudInstance, DenCloudStartupFailure } from "@/app/lib/den";
+
+export function cloudWorkspaceFailureLogFields(failure: DenCloudStartupFailure) {
+  return {
+    failure_code: failure.code,
+    failure_stage: failure.stage,
+    failure_reference: failure.reference,
+    failure_occurred_at: failure.occurredAt,
+  };
+}
 
 export type CloudWorkspacePillVariant =
   | "ready"

@@ -25,6 +25,11 @@ import {
   type CloudRuntimeWorker,
 } from "../../workers/worker-access.js"
 import { appLogger } from "../../observability/logger.js"
+import {
+  cloudStartupFailureFromWorker,
+  publicCloudStartupFailure,
+  type PublicCloudStartupFailure,
+} from "../../workers/cloud-failure.js"
 import type { OrgRouteVariables } from "../org/shared.js"
 import { continueCloudProvisioning, token } from "../workers/shared.js"
 
@@ -64,6 +69,7 @@ type CloudRouteUser = {
 type CloudInstanceResponse = {
   status: "provisioning" | "waking" | "ready" | "failed"
   url: string | null
+  failure?: PublicCloudStartupFailure
 }
 type CloudInstanceMemberResponse = CloudInstanceResponse & {
   imageVersion?: string | null
@@ -110,6 +116,12 @@ const cloudInstanceResponseSchema = z.object({
   imageVersion: z.string().nullable().optional(),
   instanceName: z.string().nullable().optional(),
   latestVersion: z.string().nullable().optional(),
+  failure: z.object({
+    code: z.string(),
+    stage: z.enum(["provisioning", "recovery", "runtime"]),
+    reference: z.string(),
+    occurredAt: z.string().datetime(),
+  }).optional(),
 }).meta({ ref: "CloudInstanceResponse" })
 
 const cloudInstanceUpdateResponseSchema = z.union([
@@ -129,6 +141,12 @@ const cloudGatewayInstanceResponseSchema = z.object({
   clientToken: z.string().nullable(),
   hostToken: z.string().nullable(),
   expiresAt: z.string().datetime().nullable(),
+  failure: z.object({
+    code: z.string(),
+    stage: z.enum(["provisioning", "recovery", "runtime"]),
+    reference: z.string(),
+    occurredAt: z.string().datetime(),
+  }).optional(),
   providerSync: z.object({
     status: z.literal("degraded"),
     reason: z.literal("unsupported").optional(),
@@ -483,12 +501,14 @@ function cloudInstanceName(worker: CloudWorker, sandbox: CloudSandboxRecord | nu
 
 function memberCloudInstanceResponse(worker: CloudWorker, instance: CloudInstanceResponse, sandbox: CloudSandboxRecord | null): CloudInstanceMemberResponse {
   const instanceName = cloudInstanceName(worker, sandbox)
+  const failure = cloudStartupFailureFromWorker(worker)
   return {
     status: instance.status,
     url: instance.url,
     imageVersion: worker.image_version ?? null,
     ...(instanceName ? { instanceName } : {}),
     latestVersion: env.daytona.snapshot ?? null,
+    ...(failure ? { failure: publicCloudStartupFailure(failure) } : {}),
   }
 }
 
@@ -505,6 +525,7 @@ async function resolveCloudInstanceForMember(input: {
   startWake: (workerId: CloudWorker["id"]) => void
   startRecovery: (workerId: CloudWorker["id"]) => void
   now: () => number
+  forceFailedRecovery?: boolean
 }) {
   const worker = await input.ensureWorker({
     orgId: input.payload.organization.id,
@@ -526,6 +547,7 @@ async function resolveCloudInstanceForMember(input: {
     startRecovery: input.startRecovery,
     store: input.store,
     now: input.now,
+    forceFailedRecovery: input.forceFailedRecovery,
   })
 
   return { worker, instance }
@@ -614,7 +636,16 @@ async function resolveCloudInstanceForGateway(input: {
   })
   if (resolved.status !== "ready") {
     const status = resolved.status === "missing" ? "failed" : resolved.status
-    return { status, url: null, clientToken: null, hostToken: null, expiresAt: null }
+    return {
+      status,
+      url: null,
+      clientToken: null,
+      hostToken: null,
+      expiresAt: null,
+      ...("failure" in resolved && resolved.failure
+        ? { failure: publicCloudStartupFailure(resolved.failure) }
+        : {}),
+    }
   }
 
   let providerSync: CloudGatewayInstanceResponse["providerSync"] | null = null
@@ -731,6 +762,51 @@ export function registerCloudRoutes<T extends { Variables: OrgRouteVariables }>(
         startWake,
         startRecovery,
         now,
+      })
+
+      const sandbox = await getSandboxRecord(resolved.worker.id)
+      return c.json(memberCloudInstanceResponse(resolved.worker, resolved.instance, sandbox))
+    },
+  )
+
+  app.post(
+    "/v1/cloud/instance/retry",
+    describeRoute({
+      tags: ["Cloud"],
+      summary: "Retry the active organization's Cloud instance",
+      description: "Bypasses the passive recovery cooldown and makes one explicit attempt to recover the caller's failed Cloud instance.",
+      responses: {
+        200: jsonResponse("Cloud instance recovery was requested.", cloudInstanceResponseSchema),
+        401: jsonResponse("The caller must be signed in to retry Cloud.", unauthorizedSchema),
+        404: jsonResponse("Cloud is not available for this organization.", notFoundSchema),
+      },
+    }),
+    orgMemberRouteMiddleware,
+    async (c) => {
+      const payload = c.get("organizationContext")
+      if (!cloudAvailable(payload, options)) {
+        return c.json(cloudNotFound(), 404)
+      }
+
+      const user = c.get("user")
+      if (!hasCloudUserId(user)) {
+        return c.json({ error: "unauthorized" }, 401)
+      }
+
+      const resolved = await resolveCloudInstanceForMember({
+        payload,
+        user,
+        continueProvisioning,
+        refreshSignedPreview,
+        store,
+        ensureWorker,
+        getSandboxRecord,
+        inspectSandbox,
+        probeSignedPreview: signedPreviewProbe,
+        startWake,
+        startRecovery,
+        now,
+        forceFailedRecovery: true,
       })
 
       const sandbox = await getSandboxRecord(resolved.worker.id)

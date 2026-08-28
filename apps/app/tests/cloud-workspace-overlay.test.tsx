@@ -1,17 +1,19 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import type { DenCloudInstance } from "../src/app/lib/den";
+import { DenApiError, type DenCloudInstance } from "../src/app/lib/den";
 import {
   CloudWorkspaceBootTakeover,
   CloudWorkspaceOverlay,
   CloudWorkspaceStatusContext,
   CloudWorkspaceStatusPanel,
+  cloudWorkspaceRequestFailureLogFields,
 } from "../src/react-app/shell/cloud-workspace-overlay";
 import {
   CLOUD_WORKSPACE_SLOW_BOOT_MS,
   cloudWorkspaceBootIsSlow,
   cloudWorkspaceBootStages,
+  cloudWorkspaceFailureLogFields,
   cloudWorkspaceStatusHasReadyContent,
   cloudWorkspaceTakeoverCopy,
   cloudWorkspaceUpdateAvailable,
@@ -38,6 +40,26 @@ function instance(input: Partial<DenCloudInstance> = {}): DenCloudInstance {
 }
 
 describe("cloud workspace overlay state", () => {
+  test("formats safe browser diagnostics without raw response details", () => {
+    expect(cloudWorkspaceFailureLogFields({
+      code: "runtime_health_timeout",
+      stage: "recovery",
+      reference: "cwf_test",
+      occurredAt: "2026-08-28T12:00:00.000Z",
+    })).toEqual({
+      failure_code: "runtime_health_timeout",
+      failure_stage: "recovery",
+      failure_reference: "cwf_test",
+      failure_occurred_at: "2026-08-28T12:00:00.000Z",
+    });
+    expect(cloudWorkspaceRequestFailureLogFields(new DenApiError(
+      503,
+      "workspace_not_ready",
+      "raw response with Bearer secret",
+      { token: "secret" },
+    ))).toEqual({ failure_code: "workspace_not_ready", http_status: 503 });
+  });
+
   test("maps ready and current workers to a quiet status", () => {
     const state = mapCloudWorkspaceState({ instance: instance(), updating: false });
 
@@ -265,6 +287,7 @@ function renderTakeover(status: DenCloudInstance["status"]) {
         updating: false,
         viewModel,
         refresh: async () => {},
+        retry: async () => {},
         signOut: () => {},
         updateNow: () => {},
         takeoverActive: true,
