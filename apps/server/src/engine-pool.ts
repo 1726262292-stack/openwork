@@ -811,28 +811,24 @@ export class EnginePool {
   }
 
   /**
-   * Hold an event-stream subscription per instance directory on the draining
-   * engine so owned-session activity keeps extending the drain deadline. The
-   * client event fan-in only exists while a client is attached; the pool owns
-   * this watch so a background run with no observer still counts as active.
+   * Hold one global event-stream subscription on the draining engine so
+   * owned-session activity keeps extending the drain deadline. The client
+   * event fan-in only exists while a client is attached; the pool owns this
+   * watch so a background run with no observer still counts as active.
    */
   private watchDrainActivity(generation: Generation): void {
     const controller = new AbortController();
     generation.drainActivityWatch = controller;
-    for (const directory of this.engineProbeDirectories()) {
-      void this.runDrainActivityWatch(generation, directory, controller.signal).catch(() => undefined);
-    }
+    void this.runDrainActivityWatch(generation, controller.signal).catch(() => undefined);
   }
 
   private async runDrainActivityWatch(
     generation: Generation,
-    directory: string | null,
     signal: AbortSignal,
   ): Promise<void> {
     while (!signal.aborted && generation.status === "draining") {
       try {
-        const url = new URL("/event", generation.handle.url);
-        if (directory !== null) url.searchParams.set("directory", directory);
+        const url = new URL("/global/event", generation.handle.url);
         const response = await loopbackFetch(url.toString(), {
           headers: { Authorization: buildEngineAuthProbeHeader(generation.handle.username, generation.handle.password) },
           signal,

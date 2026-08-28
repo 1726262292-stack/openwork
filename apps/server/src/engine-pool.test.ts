@@ -92,8 +92,8 @@ async function writeFakeEngineBin(root: string): Promise<string> {
     "      const sessionID = url.searchParams.get('session') ?? busySessions(server.port, url.searchParams.get('directory'))[0] ?? `ses_${server.port}`;",
     "      return Response.json([{ id: url.searchParams.get('request') ?? `req_${server.port}`, sessionID }]);",
     "    }",
-    "    if (url.pathname === '/event') {",
-    "      const frame = (id) => `data: ${JSON.stringify({ type: 'session.updated', properties: { sessionID: id } })}\\n\\n`;",
+    "    if (url.pathname === '/global/event') {",
+    "      const frame = (id) => `data: ${JSON.stringify({ directory: '/workspace', payload: { type: 'session.updated', properties: { sessionID: id } } })}\\n\\n`;",
     "      if (eventSessions(server.port) !== null) {",
     "        // Test-controlled live bus: emit an event per configured session",
     "        // every 50ms on a held stream, re-reading state between beats.",
@@ -108,6 +108,10 @@ async function writeFakeEngineBin(root: string): Promise<string> {
     "        });",
     "        return new Response(body, { headers: { 'content-type': 'text/event-stream' } });",
     "      }",
+    "      return new Response(frame(`ses_${server.port}`), { headers: { 'content-type': 'text/event-stream' } });",
+    "    }",
+    "    if (url.pathname === '/event') {",
+    "      const frame = (id) => `data: ${JSON.stringify({ type: 'session.updated', properties: { sessionID: id } })}\\n\\n`;",
     "      const sessionID = busySessions(server.port, url.searchParams.get('directory'))[0] ?? `ses_${server.port}`;",
     "      if (url.searchParams.has('hold')) {",
     "        const body = new ReadableStream({ start(controller) { controller.enqueue(new TextEncoder().encode(frame(sessionID))); } });",
@@ -756,10 +760,18 @@ describe("engine pool", () => {
     expect(lines).toContain(`${oldPort} SIGTERM`);
   });
 
-  test("never aborts an actively streaming session at the drain deadline, then retires the engine once it idles", async () => {
+  test("uses one global activity stream across many workspaces and never aborts an active session", async () => {
     setEnv("OPENWORK_ENGINE_DRAIN_TIMEOUT_MS", "300");
     setEnv("OPENWORK_ENGINE_ABORT_SETTLE_MS", "100");
     const fixture = await createFixture();
+    for (let index = 1; index < 32; index += 1) {
+      fixture.config.workspaces.push({
+        ...fixture.workspace,
+        id: `ws_pool_${index}`,
+        name: `Pool workspace ${index}`,
+        path: join(fixture.root, `workspace-${index}`),
+      });
+    }
     const { pool, primary } = await createPool(fixture);
     const oldPort = portOf(primary.url);
     // The run keeps streaming: the engine event bus names it continuously.
@@ -769,12 +781,17 @@ describe("engine pool", () => {
 
     expect((await pool.requestRollover({ reason: "config_changed", workspace: fixture.workspace })).action)
       .toBe("rolled_over");
+    expect(await waitUntil(async () => (await fixture.logLines()).includes(`${oldPort} GET /global/event`), 2_000))
+      .toBe(true);
 
     // Wait out four full grace periods: an actively working session must
     // never be aborted, so the draining engine stays alive the whole time.
     await new Promise((resolve) => setTimeout(resolve, 1_200));
     expect(primary.isAlive()).toBe(true);
-    expect((await fixture.logLines()).some((line) => line.includes("/abort"))).toBe(false);
+    const activeLines = await fixture.logLines();
+    expect(activeLines.filter((line) => line === `${oldPort} GET /global/event`)).toHaveLength(1);
+    expect(activeLines.some((line) => line === `${oldPort} GET /event`)).toBe(false);
+    expect(activeLines.some((line) => line.includes("/abort"))).toBe(false);
 
     // The run finishes: the engine idles and the drained generation closes
     // without ever aborting anything.
