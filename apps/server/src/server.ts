@@ -101,7 +101,10 @@ import {
 } from "./local-managed-mcp.js";
 import {
   markOpenworkCloudMcpStale,
+  migrateOpenworkCloudMcpRuntimeConfig,
+  OPENWORK_CLOUD_MCP_NAME,
   reconcilePersistedOpenworkCloudMcp,
+  removeOpenworkCloudMcpDesiredConfig,
   type CloudMcpHealth,
 } from "./cloud-mcp-health.js";
 import { runAgentContextDiagnostics } from "./agent-context-diagnostics.js";
@@ -110,6 +113,7 @@ import { sanitizeDiagnosticString } from "./diagnostic-sanitizer.js";
 import {
   mergeOpencodeConfigs,
   mergeRuntimeProviderUpdate,
+  readEffectiveRuntimeOpencodeConfig,
   readGlobalRuntimeOpencodeConfig,
   readRuntimeOpencodeConfig,
   runtimeDisabledProviderList,
@@ -3245,8 +3249,12 @@ function createRoutes(
       summary: `Remove MCP ${name}`,
       paths: [openworkConfigPath(workspace.path)],
     });
-    const managedRemoved = await deleteLocalManagedMcp(config, workspace.id, name);
-    const removed = managedRemoved || await removeMcp(config, workspace.id, name);
+    const managedRemoved = name === OPENWORK_CLOUD_MCP_NAME
+      ? false
+      : await deleteLocalManagedMcp(config, workspace.id, name);
+    const removed = name === OPENWORK_CLOUD_MCP_NAME
+      ? await removeOpenworkCloudMcpDesiredConfig(config)
+      : managedRemoved || await removeMcp(config, workspace.id, name);
     await recordAudit(workspace.path, {
       id: shortId(),
       workspaceId: workspace.id,
@@ -3257,8 +3265,11 @@ function createRoutes(
       timestamp: Date.now(),
     });
     if (removed) {
-      deleteEngineMcpRegistration(config, engineMcpServerState, workspace, name);
-      await disconnectMcpFromOpencodeEngine(config, workspace, name).catch(() => undefined);
+      const affectedWorkspaces = name === OPENWORK_CLOUD_MCP_NAME ? config.workspaces : [workspace];
+      await Promise.all(affectedWorkspaces.map(async (affectedWorkspace) => {
+        deleteEngineMcpRegistration(config, engineMcpServerState, affectedWorkspace, name);
+        await disconnectMcpFromOpencodeEngine(config, affectedWorkspace, name).catch(() => undefined);
+      }));
       emitReloadEvent(ctx.reloadEvents, workspace, "mcp", {
         type: "mcp",
         name,
@@ -4236,7 +4247,7 @@ async function runRuntimeMcpSyncToOpencodeEngine(
     return { status: "skipped", syncedNames: [], failures: [] };
   }
 
-  const runtimeConfig = await readRuntimeOpencodeConfig(config, workspace.id);
+  const runtimeConfig = await readEffectiveRuntimeOpencodeConfig(config, workspace.id);
   const entries = Object.entries(runtimeMcpMap(runtimeConfig)).filter(
     ([name]) => !name.startsWith(CONNECT_MCP_SERVER_NAME_PREFIX)
       && (!onlyNames || onlyNames.includes(name)),
@@ -5231,6 +5242,7 @@ function logPersistedCloudMcpReconcileError(input: {
 // only, so other workspaces' runtime MCPs are invisible to the engine until
 // something re-syncs them. Best-effort.
 export async function syncAllWorkspacesRuntimeMcpToEngine(config: ServerConfig): Promise<void> {
+  await migrateOpenworkCloudMcpRuntimeConfig(config);
   const serverState = activeEngineMcpServerState(config);
   for (const workspace of config.workspaces) {
     await enqueueWorkspaceMcpRefreshSync({ config, workspace, serverState, trigger: "startup" });

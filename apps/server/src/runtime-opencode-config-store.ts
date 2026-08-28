@@ -18,6 +18,9 @@ export type RuntimeOpencodeConfig = {
 
 export const ENGINE_GLOBAL_RUNTIME_CONFIG_ID = "__openwork_engine_global__";
 
+/** Reserved Connect MCP name; kept in sync with OPENWORK_CLOUD_MCP_NAME in cloud-mcp-health.ts. */
+const OPENWORK_CLOUD_MCP_RESERVED_NAME = "openwork-cloud";
+
 export function isEngineGlobalRuntimeConfigId(workspaceId: string): boolean {
   return workspaceId === ENGINE_GLOBAL_RUNTIME_CONFIG_ID;
 }
@@ -104,6 +107,13 @@ export async function readRuntimeMcpConfig(
   return runtimeMcpMap(await readRuntimeOpencodeConfig(config, workspaceId))[name] ?? null;
 }
 
+export async function readGlobalRuntimeMcpConfig(
+  config: ServerConfig,
+  name: string,
+): Promise<Record<string, unknown> | null> {
+  return await readRuntimeMcpConfig(config, ENGINE_GLOBAL_RUNTIME_CONFIG_ID, name);
+}
+
 export function runtimeExternalDirectory(config: RuntimeOpencodeConfig): Record<string, unknown> {
   const permission = isRecord(config.permission) ? config.permission : null;
   const externalDirectory = permission && isRecord(permission.external_directory) ? permission.external_directory : null;
@@ -139,6 +149,63 @@ export async function readGlobalRuntimeOpencodeConfig(config: ServerConfig): Pro
   return await readRuntimeOpencodeConfig(config, ENGINE_GLOBAL_RUNTIME_CONFIG_ID);
 }
 
+export type RuntimeOpencodeConfigRow = {
+  workspaceId: string;
+  value: RuntimeOpencodeConfig;
+  updatedAt: number;
+};
+
+function runtimeOpencodeConfigRow(value: unknown): RuntimeOpencodeConfigRow | null {
+  if (
+    !isRecord(value)
+    || typeof value.workspaceId !== "string"
+    || typeof value.configJson !== "string"
+    || typeof value.updatedAt !== "number"
+  ) return null;
+  return {
+    workspaceId: value.workspaceId,
+    value: parseRuntimeOpencodeConfig(value.configJson),
+    updatedAt: value.updatedAt,
+  };
+}
+
+/** Read all runtime config rows without creating or modifying the runtime DB. */
+export async function listRuntimeOpencodeConfigRows(config: ServerConfig): Promise<RuntimeOpencodeConfigRow[]> {
+  const path = runtimeDbPath(config);
+  if (!existsSync(path)) return [];
+  const sql = `
+    SELECT workspace_id AS workspaceId, config_json AS configJson, updated_at AS updatedAt
+    FROM runtime_opencode_configs
+  `;
+  try {
+    let rows: unknown[];
+    if (typeof process.versions.bun === "string") {
+      const { Database } = await import("bun:sqlite");
+      const sqlite = new Database(path, { readonly: true, create: false });
+      try {
+        rows = sqlite.query(sql).all();
+      } finally {
+        sqlite.close();
+      }
+    } else {
+      const { DatabaseSync } = await importNodeSqlite();
+      const sqlite = new DatabaseSync(path, { readOnly: true });
+      try {
+        rows = sqlite.prepare(sql).all();
+      } finally {
+        sqlite.close();
+      }
+    }
+    return rows.flatMap((row) => {
+      const parsed = runtimeOpencodeConfigRow(row);
+      return parsed ? [parsed] : [];
+    });
+  } catch (error) {
+    if (classifyReadonlySqliteFailure(error) === "table-missing") return [];
+    throw error;
+  }
+}
+
 export async function writeGlobalRuntimeOpencodeConfig(
   config: ServerConfig,
   updater: (current: RuntimeOpencodeConfig) => RuntimeOpencodeConfig,
@@ -150,7 +217,7 @@ function uniqueStrings(items: string[]): string[] {
   return items.filter((item, index, list) => list.indexOf(item) === index);
 }
 
-function mergeRuntimeOpencodeConfigLayers(
+export function mergeRuntimeOpencodeConfigLayers(
   base: RuntimeOpencodeConfig,
   overlay: RuntimeOpencodeConfig,
 ): RuntimeOpencodeConfig {
@@ -166,6 +233,11 @@ function mergeRuntimeOpencodeConfigLayers(
     ...runtimeMcpMap(base),
     ...runtimeMcpMap(overlay),
   };
+  // The Connect MCP is account-scoped: the global row is authoritative, so a
+  // stale legacy per-workspace copy must not shadow it. Mirrors
+  // OPENWORK_CLOUD_MCP_NAME in cloud-mcp-health.ts (import would be cyclic).
+  const globalCloudMcp = runtimeMcpMap(base)[OPENWORK_CLOUD_MCP_RESERVED_NAME];
+  if (globalCloudMcp) mcp[OPENWORK_CLOUD_MCP_RESERVED_NAME] = globalCloudMcp;
   const basePermission = isRecord(base.permission) ? base.permission : {};
   const overlayPermission = isRecord(overlay.permission) ? overlay.permission : {};
   const externalDirectory = {

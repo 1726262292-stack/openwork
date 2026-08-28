@@ -33,6 +33,7 @@ import {
 import { ensureLocalWorkspaceFiles } from "./workspace-init.js";
 import { findManagedEngineWorkspace } from "./workspaces.js";
 import { keepOpenworkRuntimeConfigFileFresh, writeOpenworkRuntimeConfigFile } from "./openwork-runtime-config.js";
+import { migrateOpenworkCloudMcpRuntimeConfig } from "./cloud-mcp-health.js";
 import { resolveOpencodeModelsUrl } from "./opencode-models-url.js";
 import type { ServeResult } from "./serve-node.js";
 import type { LocalManagedMcpVaultKeyProvider, ServerConfig } from "./types.js";
@@ -171,6 +172,7 @@ export async function startEmbeddedServer(options: EmbeddedServerOptions): Promi
 
   if (!config.readOnly) {
     await ensureLocalWorkspaceFiles(config.workspaces);
+    await migrateOpenworkCloudMcpRuntimeConfig(config);
   }
 
   // Bind the HTTP server before spawning the engine: serve-node may fall back
