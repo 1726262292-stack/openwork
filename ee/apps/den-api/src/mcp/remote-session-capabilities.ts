@@ -21,6 +21,7 @@ import {
 import { resolveCloudRuntimeAccess, type CloudWorkerAccess } from "../workers/worker-access.js"
 import { fetchPreviewNoRedirect, previewFetch } from "../workers/preview-fetch.js"
 import { scoreText, tokenize, type CapabilityMatch } from "./search.js"
+import { normalizeToolBody } from "./invoke.js"
 
 /**
  * Remote sessions over the capability gateway: create and drive a native
