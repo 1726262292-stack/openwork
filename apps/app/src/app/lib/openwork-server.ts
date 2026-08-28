@@ -1587,22 +1587,6 @@ export function createOpenworkServerClient(options: { baseUrl: string; token?: s
         `/workspace/${encodeURIComponent(workspaceId)}/sessions/${encodeURIComponent(sessionId)}`,
         { token, hostToken, method: "DELETE", timeoutMs: timeouts.deleteSession },
       ),
-    listSessions: (
-      workspaceId: string,
-      options?: { roots?: boolean; start?: number; search?: string; limit?: number },
-    ) => {
-      const query = new URLSearchParams();
-      if (typeof options?.roots === "boolean") query.set("roots", String(options.roots));
-      if (typeof options?.start === "number") query.set("start", String(options.start));
-      if (options?.search?.trim()) query.set("search", options.search.trim());
-      if (typeof options?.limit === "number") query.set("limit", String(options.limit));
-      const suffix = query.size ? `?${query.toString()}` : "";
-      return requestJson<{ items: Session[] }>(
-        baseUrl,
-        `/workspace/${encodeURIComponent(workspaceId)}/sessions${suffix}`,
-        { token, hostToken, timeoutMs: timeouts.sessionRead },
-      );
-    },
     getSessionGroups: (workspaceId: string) =>
       requestJson<{ state: OpenworkSessionGroupState; updatedAt: number | null }>(
         baseUrl,

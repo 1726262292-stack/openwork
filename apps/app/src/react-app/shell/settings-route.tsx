@@ -49,6 +49,7 @@ import {
   downloadWorkspaceJson,
   getSessionStatus,
   isActiveSessionStatus,
+  listRouteSessions,
   mapDesktopWorkspace,
   mergeRouteWorkspaces,
   orderRouteWorkspaces,
@@ -1510,15 +1511,15 @@ function SettingsRouteContent(props: SettingsSurfaceProps = {}) {
           }
           try {
             const response = await readRouteSessionsWithRetry({
-              load: () => endpoint.client.listSessions(endpoint.workspaceId, { limit: 200 }),
+              load: () => listRouteSessions(endpoint),
               retryDelaysMs: [250, 750, 1_500],
             });
             const workspaceRoot = normalizeDirectoryPath(workspace.path ?? "");
             const items = workspaceRoot && !endpoint.isRemote
-              ? (response.items ?? []).filter((session) =>
+              ? response.filter((session) =>
                   normalizeDirectoryPath(session?.directory ?? "") === workspaceRoot,
                 )
-              : (response.items ?? []);
+              : response;
             return {
               workspaceId: workspace.id,
               sessions: items,
