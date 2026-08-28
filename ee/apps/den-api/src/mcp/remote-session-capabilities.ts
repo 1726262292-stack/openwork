@@ -21,7 +21,6 @@ import {
 import { resolveCloudRuntimeAccess, type CloudWorkerAccess } from "../workers/worker-access.js"
 import { fetchPreviewNoRedirect, previewFetch } from "../workers/preview-fetch.js"
 import { scoreText, tokenize, type CapabilityMatch } from "./search.js"
-import { normalizeToolBody } from "./invoke.js"
 
 /**
  * Remote sessions over the capability gateway: create and drive a native
@@ -249,6 +248,17 @@ export function remoteSessionCapabilitiesEnabled(
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null
+}
+
+function normalizeToolBody(body: unknown): unknown {
+  if (typeof body !== "string") return body
+  const trimmed = body.trim()
+  if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) return body
+  try {
+    return JSON.parse(trimmed)
+  } catch {
+    return body
+  }
 }
 
 function sleep(ms: number): Promise<void> {
