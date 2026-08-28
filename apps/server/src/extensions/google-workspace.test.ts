@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, mock, test } from "bun:test";
 import { mkdir, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -75,12 +75,24 @@ const previousEnv = {
 };
 const previousFetch = globalThis.fetch;
 
+// Attachment url validation resolves hostnames; answer from a fixture map so
+// tests never touch real DNS. Unmapped hostnames resolve to a public address.
+const dnsAnswers = new Map<string, string | Error>();
+mock.module("node:dns/promises", () => ({
+  lookup: async (hostname: string) => {
+    const answer = dnsAnswers.get(hostname);
+    if (answer instanceof Error) throw answer;
+    return [{ address: typeof answer === "string" ? answer : "93.184.216.34", family: 4 }];
+  },
+}));
+
 function restoreEnv(key: string, value: string | undefined) {
   if (typeof value === "string") process.env[key] = value;
   else delete process.env[key];
 }
 
 afterEach(() => {
+  dnsAnswers.clear();
   restoreEnv("OPENWORK_DEV_MODE", previousEnv.devMode);
   restoreEnv("OPENWORK_GOOGLE_WORKSPACE_ALLOW_PLAINTEXT_VAULT", previousEnv.plaintextVault);
   restoreEnv("GOOGLE_WORKSPACE_OAUTH_CLIENT_SECRET", previousEnv.clientSecret);
@@ -876,6 +888,10 @@ describe("Google Workspace extension", () => {
     await expect(callGoogleWorkspaceExtensionAction(createTestConfig(), "gmail_create_draft", draftArgs({ url: "http://files.example.test/report.pdf" }), {})).rejects.toThrow("Attachment url must be a public https URL");
     await expect(callGoogleWorkspaceExtensionAction(createTestConfig(), "gmail_create_draft", draftArgs({ url: "https://localhost/report.pdf" }), {})).rejects.toThrow("Attachment url must be a public https URL");
     await expect(callGoogleWorkspaceExtensionAction(createTestConfig(), "gmail_create_draft", draftArgs({ url: "https://192.168.1.10/report.pdf" }), {})).rejects.toThrow("Attachment url must be a public https URL");
+    dnsAnswers.set("internal.corp.example", "10.0.0.5");
+    await expect(callGoogleWorkspaceExtensionAction(createTestConfig(), "gmail_create_draft", draftArgs({ url: "https://internal.corp.example/report.pdf" }), {})).rejects.toThrow("Attachment url must resolve to a public address");
+    dnsAnswers.set("missing.example.test", new Error("NXDOMAIN"));
+    await expect(callGoogleWorkspaceExtensionAction(createTestConfig(), "gmail_create_draft", draftArgs({ url: "https://missing.example.test/report.pdf" }), {})).rejects.toThrow("Attachment url hostname could not be resolved");
     await expect(callGoogleWorkspaceExtensionAction(createTestConfig(), "gmail_create_draft", draftArgs({}), {})).rejects.toThrow("Each attachment must provide exactly one of url or path");
     await expect(callGoogleWorkspaceExtensionAction(createTestConfig(), "gmail_create_draft", draftArgs({ path: "report.pdf", url: "https://files.example.test/report.pdf" }), {})).rejects.toThrow("Each attachment must provide exactly one of url or path");
 

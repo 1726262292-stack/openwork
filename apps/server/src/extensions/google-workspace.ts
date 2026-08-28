@@ -1,4 +1,6 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
+import type { LookupAddress } from "node:dns";
+import { lookup } from "node:dns/promises";
 import { createServer, type Server } from "node:http";
 import { chmod, mkdir, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { isIP } from "node:net";
@@ -807,6 +809,24 @@ function assertGmailAttachmentUrl(rawUrl: string): URL {
   return parsed;
 }
 
+// Hostnames must resolve to public addresses, unconditionally, like the
+// literal-address checks above. externalFetch re-resolves when it connects,
+// so this validates every answer we can observe but cannot pin the socket to
+// it the way the managed MCP undici dispatcher does.
+async function assertGmailAttachmentHostPublic(url: URL): Promise<void> {
+  const hostname = url.hostname.replace(/^\[|\]$/g, "");
+  if (isIP(hostname) !== 0) return;
+  let addresses: LookupAddress[];
+  try {
+    addresses = await lookup(hostname, { all: true, verbatim: true });
+  } catch {
+    throw new ApiError(502, "attachment_fetch_failed", "Attachment url hostname could not be resolved", { hostname });
+  }
+  if (!addresses.length || addresses.some((entry) => isLocalManagedMcpPrivateAddress(entry.address))) {
+    throw new ApiError(400, "invalid_payload", "Attachment url must resolve to a public address", { hostname });
+  }
+}
+
 function gmailAttachmentFilenameFromResponse(url: URL, contentDisposition: string | null): string {
   const disposition = contentDisposition ?? "";
   const quoted = /filename\s*=\s*"([^"]+)"/i.exec(disposition)?.[1];
@@ -854,6 +874,7 @@ async function fetchGmailUrlAttachment(request: GmailDraftAttachmentRequest, url
   const timeout = setTimeout(() => controller.abort(), GOOGLE_WORKSPACE_API_TIMEOUT_MS);
   try {
     for (let redirects = 0; ; redirects += 1) {
+      await assertGmailAttachmentHostPublic(currentUrl);
       let response: Response;
       try {
         response = await externalFetch(currentUrl.toString(), { redirect: "manual", signal: controller.signal });
@@ -946,12 +967,40 @@ function gmailHtmlDivs(text: string): string {
   return text.replace(/\r\n?/g, "\n").split("\n").map((line) => line ? `<div>${escapeHtml(line)}</div>` : "<div><br></div>").join("");
 }
 
+const GMAIL_HTML_BREAK_TAGS = new Set(["p", "div", "tr", "li", "h1", "h2", "h3", "h4", "h5", "h6", "blockquote", "table", "ul", "ol"]);
+
+// Character scan instead of regex tag-stripping: nested or malformed markup
+// can reassemble into tags after a single-pass replace, and an unterminated
+// tag consumes the rest of the input the way browsers treat it.
+function stripGmailHtmlMarkup(html: string): string {
+  let text = "";
+  let index = 0;
+  while (index < html.length) {
+    const character = html[index];
+    if (character !== "<") {
+      text += character;
+      index += 1;
+      continue;
+    }
+    const tagEnd = html.indexOf(">", index + 1);
+    if (tagEnd === -1) break;
+    const rawTag = html.slice(index + 1, tagEnd).trim();
+    index = tagEnd + 1;
+    const closing = rawTag.startsWith("/");
+    const name = (closing ? rawTag.slice(1) : rawTag).split(/[\s/]/, 1)[0]?.toLowerCase() ?? "";
+    if (!closing && (name === "script" || name === "style")) {
+      const closeMatch = new RegExp(`</${name}\\b[^>]*>`, "i").exec(html.slice(index));
+      if (!closeMatch) break;
+      index += closeMatch.index + closeMatch[0].length;
+      continue;
+    }
+    if (name === "br" || (closing && GMAIL_HTML_BREAK_TAGS.has(name))) text += "\n";
+  }
+  return text;
+}
+
 function gmailHtmlToText(html: string): string {
-  const text = html
-    .replace(/<(style|script)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, "")
-    .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<\/(?:p|div|tr|li|h[1-6]|blockquote|table|ul|ol)\s*>/gi, "\n")
-    .replace(/<[^>]+>/g, "")
+  const text = stripGmailHtmlMarkup(html)
     .replace(/&nbsp;/gi, " ")
     .replace(/&#x([0-9a-f]+);/gi, (match, hex: string) => {
       const code = Number.parseInt(hex, 16);
