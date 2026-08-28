@@ -1301,7 +1301,10 @@ export async function runAgentContextDiagnostics(input: {
     : mergeRuntimeOpencodeConfigLayers(globalRuntimeInspection.config, runtimeInspection.config);
   input.dependencies?.signal?.throwIfAborted();
   const runtimeDuration = elapsed(runtimeStarted, now);
-  const expectedRuntimeConfig = buildOpenworkRuntimeConfigObjectFromSnapshot(runtime);
+  // The injected engine config file is rendered from the ENGINE_GLOBAL row
+  // only; the merged per-workspace runtime row informs MCP inventory below
+  // but is not part of the injected file.
+  const expectedRuntimeConfig = buildOpenworkRuntimeConfigObjectFromSnapshot(globalRuntimeInspection.config);
   const expectedAgents = isRecord(expectedRuntimeConfig.agent) ? expectedRuntimeConfig.agent : {};
   const expectedAgent = isRecord(expectedAgents.openwork) ? expectedAgents.openwork : null;
   const effectiveOpenworkAgent = effectiveEngine?.agents.find((agent) => agent.name === "openwork") ?? null;

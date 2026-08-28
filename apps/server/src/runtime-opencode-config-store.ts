@@ -278,6 +278,70 @@ export async function readEffectiveRuntimeOpencodeConfig(
   return mergeRuntimeOpencodeConfigLayers(globalRuntime, workspaceRuntime);
 }
 
+/**
+ * One-time (idempotent) startup migration for the workspace-independent
+ * injected engine config file: fold per-workspace `permission.external_directory`
+ * (union), `disabled_providers` (union), and `plugin` (union) into the
+ * ENGINE_GLOBAL row, then remove those fields from the workspace rows. `mcp`
+ * stays per-workspace — the dynamic engine push owns its delivery. No-op on
+ * repeat runs and when the config is read-only.
+ */
+export async function migrateWorkspaceRuntimeConfigToEngineGlobal(
+  config: ServerConfig,
+): Promise<{ changed: boolean }> {
+  const rows = await listRuntimeOpencodeConfigRows(config);
+  const workspaceRows = rows.filter((row) =>
+    !isEngineGlobalRuntimeConfigId(row.workspaceId)
+    && (
+      runtimePluginList(row.value).length > 0
+      || runtimeDisabledProviderList(row.value).length > 0
+      || Object.keys(runtimeExternalDirectory(row.value)).length > 0
+    ),
+  );
+  if (workspaceRows.length === 0 || config.readOnly) return { changed: false };
+
+  let changed = false;
+  const globalResult = await writeGlobalRuntimeOpencodeConfig(config, (current) => {
+    const plugin = uniqueStrings([
+      ...runtimePluginList(current),
+      ...workspaceRows.flatMap((row) => runtimePluginList(row.value)),
+    ]);
+    const disabledProviders = uniqueStrings([
+      ...runtimeDisabledProviderList(current),
+      ...workspaceRows.flatMap((row) => runtimeDisabledProviderList(row.value)),
+    ]);
+    const externalDirectory = {
+      ...workspaceRows.reduce<Record<string, unknown>>(
+        (union, row) => ({ ...union, ...runtimeExternalDirectory(row.value) }),
+        {},
+      ),
+      ...runtimeExternalDirectory(current),
+    };
+    return {
+      ...current,
+      ...(plugin.length ? { plugin } : {}),
+      ...(disabledProviders.length ? { disabled_providers: disabledProviders } : {}),
+      ...(Object.keys(externalDirectory).length
+        ? { permission: { ...(isRecord(current.permission) ? current.permission : {}), external_directory: externalDirectory } }
+        : {}),
+    };
+  });
+  changed = globalResult.changed;
+  for (const row of workspaceRows) {
+    const result = await writeRuntimeOpencodeConfig(config, row.workspaceId, (current) => {
+      const { plugin: _plugin, disabled_providers: _disabledProviders, permission, ...rest } = current;
+      // Strip only external_directory; any other permission keys stay put.
+      const { external_directory: _externalDirectory, ...permissionRest } = isRecord(permission) ? permission : {};
+      return {
+        ...rest,
+        ...(Object.keys(permissionRest).length ? { permission: permissionRest } : {}),
+      };
+    });
+    changed = result.changed || changed;
+  }
+  return { changed };
+}
+
 export type RuntimeOpencodeConfigInspection = {
   status: "available" | "database-missing" | "row-missing" | "table-missing" | "unreadable" | "invalid-row" | "remote-workspace";
   config: RuntimeOpencodeConfig;

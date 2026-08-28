@@ -884,7 +884,7 @@ export class CloudProviderSync {
     const workspaceCleanup = await this.cleanupWorkspaceTakeovers();
     const engineWorkspace = findManagedEngineWorkspace(this.config.workspaces) ?? this.config.workspaces[0];
     const runtimeFileChanged = engineWorkspace
-      ? (await writeOpenworkRuntimeConfigFile(this.config, engineWorkspace.id)).changed
+      ? (await writeOpenworkRuntimeConfigFile(this.config)).changed
       : false;
     // Credentials reach a live engine through PUT /auth/{providerID} below, so
     // a key rotation never needs a reload. Provider *config* (models, npm,
@@ -1014,7 +1014,7 @@ export class CloudProviderSync {
 
     const engineWorkspace = findManagedEngineWorkspace(this.config.workspaces) ?? this.config.workspaces[0];
     if (engineWorkspace) {
-      const fileResult = await writeOpenworkRuntimeConfigFile(this.config, engineWorkspace.id);
+      const fileResult = await writeOpenworkRuntimeConfigFile(this.config);
       this.reloadPending = this.reloadPending || providerChanged || fileResult.changed;
     }
     let reloadError: unknown;
