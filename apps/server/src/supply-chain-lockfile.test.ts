@@ -14,7 +14,16 @@ describe("root pnpm lockfile supply chain", () => {
 
     const resolutionLines = lockfile
       .split("\n")
-      .filter((line) => line.includes("cdn.sheetjs.com") && line.includes("resolution:"));
+      .filter((line) => {
+        if (!line.includes("resolution:")) return false;
+        const tarballMatch = line.match(/tarball:\s*([^,\s}]+)/);
+        if (!tarballMatch) return false;
+        try {
+          return new URL(tarballMatch[1]).hostname === "cdn.sheetjs.com";
+        } catch {
+          return false;
+        }
+      });
 
     expect(resolutionLines.length).toBeGreaterThan(0);
     for (const line of resolutionLines) {
