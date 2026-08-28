@@ -45,8 +45,8 @@ test("desktop Automation runner retires rejected credentials without changing tr
   expect(unit.stdout).toContain("remote-session creation omits nullable prompt and model fields");
   expect(unit.stdout).toContain("a local remote-session failure completes as failed without leaking the response body");
   expect(unit.stdout).not.toContain("not ok");
-  expect(unit.stdout).toMatch(/# tests 33\b/);
-  expect(unit.stdout).toMatch(/# pass 33\b/);
+  expect(unit.stdout).toMatch(/# tests 34\b/);
+  expect(unit.stdout).toMatch(/# pass 34\b/);
   expect(unit.stdout).toMatch(/# fail 0\b/);
   expect(unit.stdout).toMatch(/# skipped 0\b/);
   expect(unit.stdout).toMatch(/# todo 0\b/);
