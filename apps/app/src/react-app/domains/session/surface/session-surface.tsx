@@ -9,6 +9,7 @@ import { toast } from "@/components/ui/sonner";
 import { captureAnalyticsEvent } from "@/app/lib/analytics";
 import { createClient, unwrap } from "@/app/lib/opencode";
 import { abortSessionSafe } from "@/app/lib/opencode-session";
+import { composeNativeSessionSnapshot } from "@/app/lib/opencode-session-native";
 import { setThemeMode } from "@/app/theme";
 import { t } from "@/i18n";
 import type { ComposerSettingsSection } from "@/react-app/domains/settings/library";
@@ -1019,9 +1020,13 @@ export function SessionSurface(props: SessionSurfaceProps) {
   );
   const snapshotQuery = useQuery<OpenworkSessionSnapshot>({
     queryKey: snapshotQueryKey,
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       const startedAt = Date.now();
-      const item = (await props.client.getSessionSnapshot(props.workspaceId, props.sessionId, { limit: 140 })).item;
+      const item = await composeNativeSessionSnapshot(
+        { opencodeBaseUrl: props.opencodeBaseUrl, token: props.openworkToken },
+        props.sessionId,
+        { limit: 140, signal },
+      );
       markSessionSnapshotFetchStart(item, startedAt);
       return item;
     },
