@@ -1154,7 +1154,7 @@ test("a pinned workspace missing locally fails instead of silently retargeting",
   const listed = { items: [{ id: "workspace-active" }], activeId: "workspace-active" }
   assert.throws(
     () => resolveAssignmentWorkspace(listed, "workspace-gone"),
-    (error) => error instanceof Error && error.code === "execution_runtime_unavailable",
+    (error) => error instanceof Error && Reflect.get(error, "code") === "execution_runtime_unavailable",
   )
 })
 
