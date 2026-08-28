@@ -3,6 +3,8 @@ import {
   createInferenceBearerKey,
   INFERENCE_BEARER_KEY_RANDOM_BYTES,
   inferenceBearerKeyLookupDigest,
+  inferenceBearerKey,
+  legacyInferenceBearerKeyLookupDigest,
 } from "./inference-bearer-key"
 
 describe("inference bearer keys", () => {
@@ -17,12 +19,17 @@ describe("inference bearer keys", () => {
     }
   })
 
-  test("uses a deterministic SHA-256 lookup digest without retaining the bearer value", () => {
+  test("uses a deterministic lookup tag without retaining the bearer value", async () => {
     const key = createInferenceBearerKey()
-    const digest = inferenceBearerKeyLookupDigest(key)
+    const digest = await inferenceBearerKeyLookupDigest(key)
 
     expect(digest).toMatch(/^[a-f0-9]{64}$/)
-    expect(digest).toBe(inferenceBearerKeyLookupDigest(key))
+    expect(digest).toBe(await inferenceBearerKeyLookupDigest(key))
     expect(digest).not.toContain(key.value)
+  })
+
+  test("retains lookup compatibility for previously issued keys", async () => {
+    expect(await legacyInferenceBearerKeyLookupDigest(inferenceBearerKey("ow_inf_test")))
+      .toBe("7ec741b641b37c90e595b382831e2eea8d8a359e99b90b81031ffc81a0045c28")
   })
 })

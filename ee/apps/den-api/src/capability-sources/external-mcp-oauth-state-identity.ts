@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto"
 import type {
   ExternalMcpAuthType,
   ExternalMcpConnectionKind,
@@ -38,11 +37,9 @@ function nonSecretOAuthStateIdentity(source: ExternalMcpOAuthStateIdentitySource
 
 /**
  * Binds signed OAuth state to non-secret connection identity fields. Credential
- * values are deliberately outside this input type; SHA-256 is not used here as
- * password storage or as protection for a secret.
+ * values are deliberately outside this input type. The signed OAuth state owns
+ * integrity, so this value only needs a stable URL-safe representation.
  */
 export function externalMcpIdentityBinding(source: ExternalMcpOAuthStateIdentitySource): string {
-  return createHash("sha256")
-    .update(JSON.stringify(nonSecretOAuthStateIdentity(source)))
-    .digest("base64url")
+  return Buffer.from(JSON.stringify(nonSecretOAuthStateIdentity(source))).toString("base64url")
 }

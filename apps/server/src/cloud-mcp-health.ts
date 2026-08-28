@@ -1,4 +1,4 @@
-import { createHash, createHmac, randomBytes } from "node:crypto";
+import { createHash, webcrypto } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import type { createOpencodeClient, McpStatus, ToolIds, ToolList } from "@opencode-ai/sdk/v2/client";
 import { ApiError } from "./errors.js";
@@ -836,17 +836,24 @@ function revisionValue(value: unknown): unknown {
 
 // Delivery state is process-local, so this process-local key keeps revisions
 // useful for equality without exposing a reusable fingerprint of bearer auth.
-const CLOUD_MCP_REVISION_KEY = randomBytes(32);
+const cloudMcpRevisionKey = webcrypto.subtle.generateKey(
+  { name: "HMAC", hash: "SHA-256" },
+  false,
+  ["sign"],
+);
 
-export function calculateCloudMcpDesiredRevision(config: Record<string, unknown>, metadata: CloudMcpDesiredMetadata): string {
-  return createHmac("sha256", CLOUD_MCP_REVISION_KEY).update(JSON.stringify(revisionValue({
+export async function calculateCloudMcpDesiredRevision(config: Record<string, unknown>, metadata: CloudMcpDesiredMetadata): Promise<string> {
+  const revisionKey = await cloudMcpRevisionKey;
+  const revision = JSON.stringify(revisionValue({
     config,
     metadata: {
       token: metadata.token,
       org: metadata.org,
       connectCatalogEnabled: metadata.connectCatalogEnabled,
     },
-  }))).digest("hex");
+  }));
+  const tag = await webcrypto.subtle.sign("HMAC", revisionKey, new TextEncoder().encode(revision));
+  return Buffer.from(tag).toString("hex");
 }
 
 async function readDesiredState(input: {
@@ -865,7 +872,7 @@ async function readDesiredState(input: {
   const storedMetadata = cloudMcpDeliveryState.latestMetadata(input.workspace, input.directory);
   const metadata = storedMetadata ?? defaultDesiredMetadata(config, input.connectCatalogEnabled ?? true);
   const validationProblem = strictCloudMcpDesiredConfigProblem(config, metadata) ?? undefined;
-  const revision = calculateCloudMcpDesiredRevision(config, metadata);
+  const revision = await calculateCloudMcpDesiredRevision(config, metadata);
   const revisionMetadata = cloudMcpDeliveryState.metadata(input.workspace, input.directory, revision) ?? metadata;
   return {
     present: true,
@@ -2303,7 +2310,7 @@ export async function reconcileOpenworkCloudMcp(input: {
     const validationFailure = failureFromValidationProblem(validationProblem);
     return healthWithFailure(await readHealth(), validationFailure);
   }
-  const desiredRevision = calculateCloudMcpDesiredRevision(desiredConfig, metadata);
+  const desiredRevision = await calculateCloudMcpDesiredRevision(desiredConfig, metadata);
   await persistDesiredConfig(input.config, input.workspace.id, desiredConfig);
   cloudMcpDeliveryState.markDesired(input.workspace, input.directory, desiredRevision, metadata);
 

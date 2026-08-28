@@ -1,7 +1,15 @@
-import { createHash, randomBytes } from "node:crypto"
+import { randomBytes, webcrypto } from "node:crypto"
 
 export const INFERENCE_BEARER_KEY_RANDOM_BYTES = 32
 const INFERENCE_BEARER_KEY_PREFIX = "ow_inf_"
+const INFERENCE_BEARER_KEY_LOOKUP_DOMAIN = new TextEncoder().encode("openwork-inference-bearer-key-lookup-v1")
+const inferenceBearerKeyLookupKey = webcrypto.subtle.importKey(
+  "raw",
+  INFERENCE_BEARER_KEY_LOOKUP_DOMAIN,
+  { name: "HMAC", hash: "SHA-256" },
+  false,
+  ["sign"],
+)
 
 export type InferenceBearerKey = Readonly<{
   purpose: "inference-bearer-key"
@@ -16,9 +24,17 @@ export function createInferenceBearerKey(): InferenceBearerKey {
   return inferenceBearerKey(`${INFERENCE_BEARER_KEY_PREFIX}${randomBytes(INFERENCE_BEARER_KEY_RANDOM_BYTES).toString("base64url")}`)
 }
 
-/** Fast database lookup digest for a CSPRNG-generated 256-bit bearer key, not a password hash. */
-export function inferenceBearerKeyLookupDigest(key: InferenceBearerKey): string {
-  return createHash("sha256").update(key.value).digest("hex")
+/** Fast domain-separated database lookup tag for a CSPRNG-generated 256-bit bearer key. */
+export async function inferenceBearerKeyLookupDigest(key: InferenceBearerKey): Promise<string> {
+  const lookupKey = await inferenceBearerKeyLookupKey
+  const tag = await webcrypto.subtle.sign("HMAC", lookupKey, new TextEncoder().encode(key.value))
+  return Buffer.from(tag).toString("hex")
+}
+
+/** Compatibility tag for keys issued before domain-separated lookup tags. */
+export async function legacyInferenceBearerKeyLookupDigest(key: InferenceBearerKey): Promise<string> {
+  const digest = await webcrypto.subtle.digest("SHA-256", new TextEncoder().encode(key.value))
+  return Buffer.from(digest).toString("hex")
 }
 
 export function inferenceBearerKeyPrefix(key: InferenceBearerKey): string {

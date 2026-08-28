@@ -145,7 +145,7 @@ async function createMemberInferenceKey(input: { organizationId: OrgId; memberId
     organization_id: input.organizationId,
     org_membership_id: input.memberId,
     name: "OpenWork Models",
-    key_hash: inferenceBearerKeyLookupDigest(key),
+    key_hash: await inferenceBearerKeyLookupDigest(key),
     key_prefix: inferenceBearerKeyPrefix(key),
     status: "active",
   })

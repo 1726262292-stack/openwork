@@ -28,5 +28,6 @@ test("OAuth state identity binding excludes connection credentials", () => {
     refreshToken: "different-refresh-token",
   })).toBe(binding)
   expect(externalMcpIdentityBinding({ ...connection, url: "https://other.example.test/api" })).not.toBe(binding)
-  expect(binding).toMatch(/^[A-Za-z0-9_-]{43}$/)
+  expect(binding).toMatch(/^[A-Za-z0-9_-]+$/)
+  expect(Buffer.from(binding, "base64url").toString("utf8")).not.toContain("secret")
 })

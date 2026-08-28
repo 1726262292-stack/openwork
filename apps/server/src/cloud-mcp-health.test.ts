@@ -323,24 +323,24 @@ describe("cloud MCP health foundation", () => {
     expect(text).toContain("[REDACTED]");
   });
 
-  test("desired revisions detect token changes without exposing reusable auth fingerprints", () => {
+  test("desired revisions detect token changes without exposing reusable auth fingerprints", async () => {
     const config = {
       type: "remote",
       url: "https://api.openworklabs.com/mcp/agent",
       headers: { Authorization: "Bearer owt_super_secret" },
       oauth: false,
     };
-    const first = calculateCloudMcpDesiredRevision(config, {
+    const first = await calculateCloudMcpDesiredRevision(config, {
       token: { present: true, metadata: { expiresAt: "2026-07-13T00:00:00.000Z" } },
       connectCatalogEnabled: true,
       updatedAt: 1,
     });
-    const second = calculateCloudMcpDesiredRevision(config, {
+    const second = await calculateCloudMcpDesiredRevision(config, {
       token: { present: true, metadata: { expiresAt: "2026-07-14T00:00:00.000Z" } },
       connectCatalogEnabled: true,
       updatedAt: 1,
     });
-    const changedToken = calculateCloudMcpDesiredRevision({
+    const changedToken = await calculateCloudMcpDesiredRevision({
       ...config,
       headers: { Authorization: "Bearer owt_different_secret" },
     }, {
@@ -570,7 +570,7 @@ describe("cloud MCP health foundation", () => {
       connectCatalogEnabled: true,
       updatedAt: Date.now(),
     };
-    const orgARevision = calculateCloudMcpDesiredRevision(changedConfig, orgAMetadata);
+    const orgARevision = await calculateCloudMcpDesiredRevision(changedConfig, orgAMetadata);
     cloudMcpDeliveryState.markDesired(workspaceA, workspaceA.path, orgARevision, orgAMetadata);
     const orgAToolIds = harness.blockToolIds();
     const orgInitialize = harness.blockInitialize();
@@ -584,7 +584,7 @@ describe("cloud MCP health foundation", () => {
       connectCatalogEnabled: true,
       updatedAt: Date.now(),
     };
-    const orgBRevision = calculateCloudMcpDesiredRevision(changedConfig, orgBMetadata);
+    const orgBRevision = await calculateCloudMcpDesiredRevision(changedConfig, orgBMetadata);
     cloudMcpDeliveryState.markDesired(workspaceA, workspaceA.path, orgBRevision, orgBMetadata);
     const orgBToolIds = harness.blockToolIds();
     const orgBCheck = harness.read("ws_a");
