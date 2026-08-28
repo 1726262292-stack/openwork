@@ -1191,6 +1191,29 @@ function buildOpencodeDirectoryHeader(directory: string) {
   return /[^\x00-\x7F]/.test(directory) ? encodeURIComponent(directory) : directory;
 }
 
+export function scopeWorkspaceOpencodeRequest(
+  headers: Headers,
+  search: string,
+  directory: string | null,
+): { headers: Headers; search: string } {
+  const scopedHeaders = new Headers(headers);
+  scopedHeaders.delete("x-opencode-directory");
+
+  const searchParams = new URLSearchParams(search);
+  searchParams.delete("directory");
+
+  if (directory) {
+    scopedHeaders.set("x-opencode-directory", buildOpencodeDirectoryHeader(directory));
+    searchParams.set("directory", directory);
+  }
+
+  const scopedSearch = searchParams.toString();
+  return {
+    headers: scopedHeaders,
+    search: scopedSearch ? `?${scopedSearch}` : "",
+  };
+}
+
 function createOpencodeDirectoryFetch(directory: string, fetchImpl: typeof fetch = globalThis.fetch): typeof fetch {
   return Object.assign(
     (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
@@ -1281,7 +1304,7 @@ export async function proxyOpencodeRequest(input: {
     throw new ApiError(400, "opencode_unconfigured", "OpenCode base URL is missing for this workspace");
   }
 
-  const headers = new Headers(input.request.headers);
+  let headers = new Headers(input.request.headers);
   headers.delete("authorization");
   headers.delete("x-openwork-host-token");
   headers.delete("x-openwork-client-id");
@@ -1289,8 +1312,11 @@ export async function proxyOpencodeRequest(input: {
   headers.delete("origin");
 
   const directory = workspace ? resolveOpencodeDirectory(workspace) : null;
-  if (directory && !headers.has("x-opencode-directory")) {
-    headers.set("x-opencode-directory", buildOpencodeDirectoryHeader(directory));
+  let search = input.url.search;
+  if (workspace) {
+    const scoped = scopeWorkspaceOpencodeRequest(headers, search, directory);
+    headers = scoped.headers;
+    search = scoped.search;
   }
 
   const auth = route
@@ -1328,7 +1354,7 @@ export async function proxyOpencodeRequest(input: {
         pool,
         connections: pool.connections(),
         proxyPath,
-        search: input.url.search,
+        search,
         headers,
         clientSignal: input.request.signal,
       });
@@ -1346,12 +1372,12 @@ export async function proxyOpencodeRequest(input: {
       pool,
       connections: pool.connections(),
       proxyPath,
-      search: input.url.search,
+      search,
       headers,
       kind: engineAggregateKind(proxyPath) ?? "pending",
     });
   }
-  const targetUrl = buildOpencodeProxyUrl(baseUrl, proxyPath, input.url.search);
+  const targetUrl = buildOpencodeProxyUrl(baseUrl, proxyPath, search);
   // Managed OpenCode proxy traffic is loopback/engine I/O; keep streaming on Node fetch.
   if (isSessionCommandProxyRequest(method, proxyPath)) {
     const commandAdmission = commandAdmissionFromBody(body);
@@ -1398,7 +1424,7 @@ export async function proxyOpencodeRequest(input: {
       let fallbackResponse: Response;
       try {
         fallbackResponse = await loopbackFetch(
-          buildOpencodeProxyUrl(route.fallback.baseUrl, proxyPath, input.url.search),
+          buildOpencodeProxyUrl(route.fallback.baseUrl, proxyPath, search),
           { method, headers: fallbackHeaders, body },
         );
       } catch (error) {
@@ -3831,12 +3857,15 @@ function resolveOpencodeDirectory(workspace: WorkspaceInfo): string | null {
   return null;
 }
 
-function normalizeOpencodeDirectory(directory: string): string {
+export function normalizeOpencodeDirectory(
+  directory: string,
+  platform: NodeJS.Platform = process.platform,
+): string {
   // OpenCode stores/list-filters Windows sessions by regular drive paths
   // (`C:\Users\...`). Electron can persist local workspaces as extended-length
   // paths (`\\?\C:\Users\...`); passing those through as the directory query
   // makes OpenCode return an empty session list even though the sessions exist.
-  if (process.platform === "win32") {
+  if (platform === "win32") {
     return directory.replace(/^\\\\\?\\/, "").replace(/^\/\/\?\//, "");
   }
   return directory;
