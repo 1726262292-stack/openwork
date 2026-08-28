@@ -3130,12 +3130,25 @@ export function createDenClient(options: { baseUrl: string; apiBaseUrl?: string 
     },
 
     async retryCloudInstance(orgId: string): Promise<DenCloudInstance> {
-      const payload = await requestJson<unknown>(baseUrls, "/v1/cloud/instance/retry", {
-        method: "POST",
-        token,
-        organizationId: orgId,
-        body: {},
-      });
+      let payload: unknown;
+      try {
+        payload = await requestJson<unknown>(baseUrls, "/v1/cloud/instance/retry", {
+          method: "POST",
+          token,
+          organizationId: orgId,
+          body: {},
+        });
+      } catch (error) {
+        // Desktop releases can reach a Den that predates explicit recovery.
+        // Fall back to the established status request so the Retry action stays
+        // safe during staggered rollouts; newer Dens still bypass the cooldown.
+        if (!(error instanceof DenApiError) || error.status !== 404) throw error;
+        payload = await requestJson<unknown>(baseUrls, "/v1/cloud/instance", {
+          method: "GET",
+          token,
+          organizationId: orgId,
+        });
+      }
       const instance = parseCloudInstance(payload);
       if (!instance) {
         throw new DenApiError(500, "invalid_cloud_instance_payload", "Cloud retry response was invalid.");

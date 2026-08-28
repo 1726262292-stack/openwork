@@ -14,10 +14,11 @@ function seedRequiredEnv() {
 
 test("Cloud startup failures are diagnosable and explicitly retryable without leaking credentials", async ({ evidence }) => {
   seedRequiredEnv();
-  const [failureModule, runtimeModule, gatewayModule] = await Promise.all([
+  const [failureModule, runtimeModule, gatewayModule, clientModule] = await Promise.all([
     import("../../ee/apps/den-api/src/workers/cloud-failure.js"),
     import("../../ee/apps/den-api/src/workers/worker-access.js"),
     import("../../ee/apps/den-gateway/src/app.js"),
+    import("../../apps/app/src/app/lib/den.js"),
   ]);
 
   const failure = failureModule.createCloudStartupFailure({
@@ -92,6 +93,39 @@ test("Cloud startup failures are diagnosable and explicitly retryable without le
   evidence.recordAssertionEvidence(
     "Retry bypasses only the passive recovery cooldown",
     "The first failed resolve claimed recovery, a second passive resolve was throttled, and an explicit retry made exactly one new claim and provider attempt.",
+    true,
+  );
+
+  const originalFetch = globalThis.fetch;
+  const retryRequests: Array<{ method: string; path: string }> = [];
+  const retryFetch: typeof fetch = async (input, init) => {
+    const request = {
+      method: init?.method ?? "GET",
+      path: new URL(String(input)).pathname,
+    };
+    retryRequests.push(request);
+    return request.path.endsWith("/retry")
+      ? Response.json({ error: "not_found" }, { status: 404 })
+      : Response.json({ status: "failed", url: null });
+  };
+  Object.defineProperty(globalThis, "fetch", { configurable: true, value: retryFetch });
+  let legacyRetry;
+  try {
+    legacyRetry = await clientModule
+      .createDenClient({ baseUrl: "https://den.example.test", token: "den-token" })
+      .retryCloudInstance("org_test");
+  } finally {
+    Object.defineProperty(globalThis, "fetch", { configurable: true, value: originalFetch });
+  }
+
+  expect(legacyRetry.status).toBe("failed");
+  expect(retryRequests).toEqual([
+    { method: "POST", path: "/api/den/v1/cloud/instance/retry" },
+    { method: "GET", path: "/api/den/v1/cloud/instance" },
+  ]);
+  evidence.recordAssertionEvidence(
+    "Retry stays compatible with a Den that predates explicit recovery",
+    "When the explicit retry route returned 404, the client made one fallback request to the established instance-status route, preserved the failed workspace state, and did not repeat the unsupported POST.",
     true,
   );
 
