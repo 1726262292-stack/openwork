@@ -35,14 +35,6 @@ type CommandParameters = {
   reasoning_effort?: string;
 };
 
-type SessionListParameters = {
-  directory?: string;
-  roots?: boolean;
-  start?: number;
-  search?: string;
-  limit?: number;
-};
-
 type SessionLookupParameters = {
   sessionID: string;
   directory?: string;
@@ -381,31 +373,11 @@ export function createClient(baseUrl: string, directory?: string, auth?: Opencod
   // TODO(2026-04-12): remove the old-server compatibility path here once all
   // OpenWork servers expose the workspace-scoped session read APIs.
   const sessionOverrides = session as any as {
-    list: (parameters?: SessionListParameters, options?: { throwOnError?: boolean }) => Promise<FieldsResult<Session[]>>;
     get: (parameters: SessionLookupParameters, options?: { throwOnError?: boolean }) => Promise<FieldsResult<Session>>;
     messages: (parameters: SessionMessagesParameters, options?: { throwOnError?: boolean }) => Promise<FieldsResult<Array<{ info: Message; parts: Part[] }>>>;
     todo: (parameters: SessionLookupParameters, options?: { throwOnError?: boolean }) => Promise<FieldsResult<Todo[]>>;
     promptAsync: (parameters: PromptAsyncParameters, options?: { throwOnError?: boolean }) => Promise<FieldsResult<{}>>;
     command: (parameters: CommandParameters, options?: { throwOnError?: boolean }) => Promise<FieldsResult<{}>>;
-  };
-
-  const listOriginal = sessionOverrides.list.bind(session);
-  sessionOverrides.list = (parameters?: SessionListParameters, options?: { throwOnError?: boolean }) => {
-    if (!openworkMount || !openworkSessionClient) {
-      return listOriginal(parameters, options);
-    }
-    const query = new URLSearchParams();
-    if (typeof parameters?.roots === "boolean") query.set("roots", String(parameters.roots));
-    if (typeof parameters?.start === "number") query.set("start", String(parameters.start));
-    if (parameters?.search?.trim()) query.set("search", parameters.search.trim());
-    if (typeof parameters?.limit === "number") query.set("limit", String(parameters.limit));
-    const url = `${openworkMount.baseUrl}/workspace/${encodeURIComponent(openworkMount.workspaceId)}/sessions${query.size ? `?${query.toString()}` : ""}`;
-    return wrapOpenworkReadWithFallback(
-      url,
-      async () => (await openworkSessionClient.listSessions(openworkMount.workspaceId, parameters)).items,
-      () => listOriginal(parameters, options),
-      options,
-    );
   };
 
   const getOriginal = sessionOverrides.get.bind(session);

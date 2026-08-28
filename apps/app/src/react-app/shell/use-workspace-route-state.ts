@@ -58,6 +58,7 @@ import {
 import {
   classifyRouteSessionReadError,
   describeRouteError,
+  listRouteSessions,
   mapDesktopWorkspace,
   refreshRouteWorkspaceListState,
   stabilizeRouteWorkspaceOrder,
@@ -342,8 +343,7 @@ export function useWorkspaceRouteState(input: UseWorkspaceRouteStateInput) {
           }));
         }
         try {
-          const response = await endpoint.client.listSessions(endpoint.workspaceId, { limit: 200 });
-          const fetchedItems = response.items ?? [];
+          const fetchedItems = await listRouteSessions(endpoint);
           const workspaceRoot = normalizeDirectoryPath(workspace.path ?? "");
           const items = workspaceRoot && !isRemoteOpenworkWorkspace
             ? fetchedItems.filter((session) =>
