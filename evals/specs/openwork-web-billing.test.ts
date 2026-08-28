@@ -19,13 +19,13 @@ function seedAppLessDenEnvironment() {
 }
 
 briefTest(testBrief({
-  behavior: "OpenWork Web resolves paid or explicitly granted complimentary organization access behind one fail-closed deployment gate.",
+  behavior: "OpenWork Web resolves paid or explicitly granted complimentary organization access behind a fail-closed global default with a platform-admin organization override.",
   claims: {
     priceContract: claim("OpenWork Web has a dedicated recurring USD monthly price contract", {
       never: "reuse the generic seat product or silently drift from $50 per user each month",
     }),
-    availabilityContract: claim("every organization sees Web only when the deployment explicitly enables it", {
-      never: "surface Web when the flag is missing or false, or infer availability from tenancy, Stripe configuration, or organization metadata",
+    availabilityContract: claim("the deployment switch enables Web globally while a complimentary admin grant enables only its organization", {
+      never: "surface Web for an ungranted organization when the switch is missing or false, or infer availability from tenancy, Stripe configuration, or unrelated organization metadata",
     }),
     quantityContract: claim("billing quantity counts joined, non-removed organization members", {
       never: "charge for pending invitations, removed members, roles, or free-seat offsets",
@@ -34,7 +34,7 @@ briefTest(testBrief({
       never: "unlock for payment failure, cancellation, expiry, incomplete checkout, unpaid, or paused states",
     }),
     complimentaryContract: claim("platform admins can explicitly grant and revoke audited complimentary Web access", {
-      never: "infer free access from an email, organization role, plan, capability, or a deployment where Web is disabled, or overlap an ongoing paid Web subscription",
+      never: "infer free access from an email, organization role, plan, generic capability, or another organization's grant, or overlap an ongoing paid Web subscription",
     }),
     originContract: claim("the hosted OpenWork Web origin enforces Den's access result for the exact signed-in organization", {
       never: "provision or proxy a workspace from a client-authored flag, a stale organization result, an inconsistent payload, or an unavailable Den",
@@ -60,7 +60,10 @@ briefTest(testBrief({
     openWorkWebCheckoutIdempotencyKey,
     openWorkWebPaymentStatus,
   } = await import("../../ee/apps/den-api/src/stripe-billing");
-  const { openWorkWebDeploymentAvailable } = await import("../../ee/apps/den-api/src/openwork-web-availability");
+  const {
+    openWorkWebAvailableForOrganization,
+    openWorkWebDeploymentAvailable,
+  } = await import("../../ee/apps/den-api/src/openwork-web-availability");
   const {
     hasOpenWorkWebComplimentaryAccess,
     resolveOpenWorkWebAccess,
@@ -130,15 +133,20 @@ briefTest(testBrief({
 
   expect(openWorkWebDeploymentAvailable(true)).toBe(true);
   expect(openWorkWebDeploymentAvailable(false)).toBe(false);
+  expect(openWorkWebAvailableForOrganization(false, {})).toBe(false);
+  expect(openWorkWebAvailableForOrganization(false, { capabilities: { openworkWeb: true } })).toBe(false);
+  expect(openWorkWebAvailableForOrganization(false, { complimentaryAccess: { openworkWeb: true } })).toBe(true);
+  expect(openWorkWebAvailableForOrganization(true, {})).toBe(true);
   expect(environmentSource).toContain("DEN_OPENWORK_WEB_ENABLED: z.string().optional()");
   expect(environmentSource).toContain('parseBooleanFlag(parsed.DEN_OPENWORK_WEB_ENABLED ?? "false")');
   expect(availabilitySource).toContain("env.openworkWebEnabled");
   expect(availabilitySource).not.toContain("orgMode");
   expect(availabilitySource).not.toContain("stripeSecretKey");
   expect(availabilitySource).not.toContain("openWorkWebPriceId");
+  expect(availabilitySource).toContain("hasOpenWorkWebComplimentaryAccess(metadata)");
   expect(helmValuesSource).toContain('openworkWebEnabled: "false"');
   expect(helmConfigMapSource).toContain("DEN_OPENWORK_WEB_ENABLED: {{ .Values.config.public.openworkWebEnabled | quote }}");
-  expect(orgCoreSource).toContain("openworkWeb: isOpenWorkWebAvailable()");
+  expect(orgCoreSource).toContain("openworkWeb: isOpenWorkWebAvailableForOrganization(payload.organization.metadata)");
   expect(dashboardShellSource).toContain("const showWeb = runtimeConfigLoaded\n    && orgContext?.capabilities.openworkWeb === true");
   expect(dashboardShellSource).not.toMatch(/const showWeb =[\s\S]{0,160}runtimeConfig\.orgMode/);
   expect(dashboardShellSource).toContain("orgContext?.capabilities.openworkWeb === true");
@@ -149,11 +157,11 @@ briefTest(testBrief({
   expect(billingPageSource).not.toContain('runtimeConfig.orgMode === "multi_org"');
   expect(billingPageSource).toContain("orgContext?.capabilities.openworkWeb === true");
   expect(billingRoutesSource).toContain("openwork_web_not_available");
-  expect(billingRoutesSource).toContain('subscriptionType === "web" && !isOpenWorkWebAvailable()');
+  expect(billingRoutesSource).toContain("isOpenWorkWebAvailableForOrganization(payload.organization.metadata)");
   expect(stripeSource).toContain("Boolean(env.stripe.secretKey && env.stripe.openworkWebPriceId)");
   prove.availabilityContract(
     true,
-    "The deployment gate passed only for an explicit enabled value; the environment and Helm defaults are false, every organization reads one server-advertised capability, and tenancy, Stripe presence, and mutable org metadata do not decide availability.",
+    "The environment and Helm defaults remain false; the switch enabled every organization, the platform-admin complimentary grant enabled only its organization, and tenancy, Stripe presence, and unrelated metadata or capabilities did not decide availability.",
   );
 
   const now = new Date("2026-08-25T00:00:00.000Z");
@@ -212,7 +220,12 @@ briefTest(testBrief({
     deploymentAvailable: false,
     hasEligibleSubscription: false,
     complimentaryAccess: true,
-  })).toEqual({ hasAccess: false, accessSource: null, complimentaryAccess: true });
+  })).toEqual({ hasAccess: true, accessSource: "complimentary", complimentaryAccess: true });
+  expect(resolveOpenWorkWebAccess({
+    deploymentAvailable: false,
+    hasEligibleSubscription: true,
+    complimentaryAccess: false,
+  })).toEqual({ hasAccess: false, accessSource: null, complimentaryAccess: false });
   expect(resolveOpenWorkWebAccess({
     deploymentAvailable: true,
     hasEligibleSubscription: false,
@@ -238,9 +251,10 @@ briefTest(testBrief({
   expect(adminPanelSource).toContain("OpenWork Web billing access");
   expect(adminPanelSource).toContain("Grant complimentary access");
   expect(adminPanelSource).toContain("Reason for audit log");
+  expect(adminPanelSource).toContain("even when deployment-wide availability is off");
   prove.complimentaryContract(
     true,
-    "The explicit metadata grant preserved unrelated organization settings; the deployment-off matrix remained locked; paid access won if both sources existed; the platform-admin route required an audit reason, rejected ongoing subscriptions twice around the transaction, and Checkout refused a complimentary organization.",
+    "The explicit metadata grant preserved unrelated organization settings and opened only that organization while the deployment switch was off; an ungranted paid subscription stayed locked, paid access won when the switch was on, and the platform-admin route required an audit reason, rejected ongoing subscriptions twice around the transaction, and Checkout refused a complimentary organization.",
   );
 
   const { createGatewayApp } = await import("../../ee/apps/den-gateway/src/app");
@@ -503,6 +517,6 @@ briefTest(testBrief({
   expect(billingPageSource).toContain("without a Stripe subscription or per-member charge");
   prove.surfaceContract(
     true,
-    "The paywall uses the deployment Web offer, waits for server-resolved access, renders complimentary access without a purchase action or charge, and otherwise offers the exact $50/user/month purchase; Billing keeps paid lifecycle management while labeling complimentary members as covered rather than billed.",
+    "The paywall uses the server-advertised effective organization offer, waits for server-resolved access, renders complimentary access without a purchase action or charge, and otherwise offers the exact $50/user/month purchase; Billing keeps paid lifecycle management while labeling complimentary members as covered rather than billed.",
   );
 });

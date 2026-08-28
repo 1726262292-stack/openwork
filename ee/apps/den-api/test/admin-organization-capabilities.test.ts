@@ -272,8 +272,8 @@ test("platform admins grant and revoke audited complimentary Web access", async 
     organization: {
       id: organizationId,
       openworkWebAccess: {
-        hasAccess: false,
-        accessSource: null,
+        hasAccess: true,
+        accessSource: "complimentary",
         complimentaryAccess: true,
         hasOngoingSubscription: false,
       },
