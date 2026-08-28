@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, createHmac, randomBytes } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import type { createOpencodeClient, McpStatus, ToolIds, ToolList } from "@opencode-ai/sdk/v2/client";
 import { ApiError } from "./errors.js";
@@ -624,10 +624,9 @@ function authorizationHeader(config: Record<string, unknown>): string | null {
   return null;
 }
 
-function tokenHealthFromConfig(config: Record<string, unknown> | null, metadata?: Record<string, string | number | boolean | null>): CloudMcpTokenHealth {
+export function cloudMcpTokenHealthFromConfig(config: Record<string, unknown> | null, metadata?: Record<string, string | number | boolean | null>): CloudMcpTokenHealth {
   const authorization = config ? authorizationHeader(config) : null;
   const tokenMetadata: Record<string, string | number | boolean | null> = { ...(metadata ?? {}) };
-  if (authorization) tokenMetadata.authorizationHash = hashString(authorization);
   return {
     present: Boolean(authorization) || Object.keys(tokenMetadata).length > 0,
     metadata: tokenMetadata,
@@ -644,7 +643,7 @@ function extractDesiredMetadata(body: Record<string, unknown>, config: Record<st
   const trigger = readString(body.trigger);
   const connectCatalogEnabled = readBoolean(body.connectCatalogEnabled) ?? true;
   return {
-    token: tokenHealthFromConfig(config, tokenMetadata),
+    token: cloudMcpTokenHealthFromConfig(config, tokenMetadata),
     ...(org ? { org } : {}),
     ...(app ? { app } : {}),
     connectCatalogEnabled,
@@ -655,7 +654,7 @@ function extractDesiredMetadata(body: Record<string, unknown>, config: Record<st
 
 function defaultDesiredMetadata(config: Record<string, unknown> | null, connectCatalogEnabled: boolean): CloudMcpDesiredMetadata {
   return {
-    token: tokenHealthFromConfig(config),
+    token: cloudMcpTokenHealthFromConfig(config),
     connectCatalogEnabled,
     updatedAt: Date.now(),
   };
@@ -823,31 +822,31 @@ function redactedConfig(config: Record<string, unknown>): RedactedCloudMcpConfig
   };
 }
 
-function revisionValue(value: unknown, key?: string): unknown {
-  if (key && ["authorization", "token", "secret", "password", "cookie", "api_key", "api-key", "apikey", "client_secret"].includes(key.toLowerCase())) {
-    if (typeof value === "string") return { redacted: true, sha256: hashString(value) };
-    if (!isRecord(value) && !Array.isArray(value)) return "[REDACTED]";
-  }
+function revisionValue(value: unknown): unknown {
   if (typeof value === "string" || typeof value === "number" || typeof value === "boolean" || value === null) return value;
   if (Array.isArray(value)) return value.map((item) => revisionValue(item));
   if (!isRecord(value)) return null;
   const output: Record<string, unknown> = {};
   for (const nestedKey of Object.keys(value).sort()) {
     const nested = value[nestedKey];
-    if (nested !== undefined) output[nestedKey] = revisionValue(nested, nestedKey);
+    if (nested !== undefined) output[nestedKey] = revisionValue(nested);
   }
   return output;
 }
 
+// Delivery state is process-local, so this process-local key keeps revisions
+// useful for equality without exposing a reusable fingerprint of bearer auth.
+const CLOUD_MCP_REVISION_KEY = randomBytes(32);
+
 export function calculateCloudMcpDesiredRevision(config: Record<string, unknown>, metadata: CloudMcpDesiredMetadata): string {
-  return hashString(JSON.stringify(revisionValue({
+  return createHmac("sha256", CLOUD_MCP_REVISION_KEY).update(JSON.stringify(revisionValue({
     config,
     metadata: {
       token: metadata.token,
       org: metadata.org,
       connectCatalogEnabled: metadata.connectCatalogEnabled,
     },
-  })));
+  }))).digest("hex");
 }
 
 async function readDesiredState(input: {

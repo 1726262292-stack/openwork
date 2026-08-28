@@ -1902,7 +1902,7 @@ type AuthorizedFoldersConfig = {
   hiddenEntries: Record<string, unknown>;
 };
 
-function normalizeAuthorizedFolderPath(input: string | null | undefined): string {
+export function normalizeAuthorizedFolderPath(input: string | null | undefined): string {
   const trimmed = (input ?? "").trim();
   if (!trimmed) return "";
   if (trimmed === "/*") return "/";
@@ -1913,7 +1913,9 @@ function normalizeAuthorizedFolderPath(input: string | null | undefined): string
       ? withoutWildcard.slice(4)
       : withoutWildcard;
   const unified = withoutVerbatim.replace(/\\/g, "/");
-  const withoutTrailing = unified.replace(/\/+$/, "");
+  let end = unified.length;
+  while (end > 0 && unified[end - 1] === "/") end -= 1;
+  const withoutTrailing = end === unified.length ? unified : unified.slice(0, end);
   return withoutTrailing || "/";
 }
 

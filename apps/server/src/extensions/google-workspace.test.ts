@@ -263,6 +263,30 @@ describe("Google Workspace extension", () => {
     expect(requestedUrls[0]).toBe("https://gmail.googleapis.com/gmail/v1/users/me/messages/m1/attachments/att-1");
   });
 
+  test("drive_search_files escapes backslashes before apostrophes in query literals", async () => {
+    process.env.OPENWORK_DEV_MODE = "1";
+    process.env.OPENWORK_GOOGLE_WORKSPACE_ALLOW_PLAINTEXT_VAULT = "1";
+    process.env.GOOGLE_WORKSPACE_OAUTH_CLIENT_SECRET = "secret";
+    const config = createTestConfig();
+    await writePlaintextVault(config, {
+      version: 2,
+      activeAccountId: "sub-one",
+      accounts: [accountRecord("one@example.com", "sub-one")],
+    });
+    let requestedUrl = "";
+    globalThis.fetch = Object.assign(
+      async (input: string | URL | Request) => {
+        requestedUrl = String(input instanceof Request ? input.url : input);
+        return new Response(JSON.stringify({ files: [] }), { status: 200 });
+      },
+      { preconnect: previousFetch.preconnect },
+    );
+
+    await callGoogleWorkspaceExtensionAction(config, "drive_search_files", { query: String.raw`reports\O'Brien` }, {});
+
+    expect(new URL(requestedUrl).searchParams.get("q")).toBe(String.raw`name contains 'reports\\O\'Brien' and trashed = false`);
+  });
+
   test("gmail_create_draft attaches local workspace files", async () => {
     process.env.OPENWORK_DEV_MODE = "1";
     process.env.OPENWORK_GOOGLE_WORKSPACE_ALLOW_PLAINTEXT_VAULT = "1";

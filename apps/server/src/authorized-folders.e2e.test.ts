@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
-import { startServer } from "./server.js";
+import { normalizeAuthorizedFolderPath, startServer } from "./server.js";
 import type { ServerConfig } from "./types.js";
 import { readRuntimeOpencodeConfig } from "./runtime-opencode-config-store.js";
 
@@ -104,6 +104,10 @@ afterEach(async () => {
 });
 
 describe("authorized folders routes", () => {
+  test("normalizes a slash-heavy folder path", () => {
+    expect(normalizeAuthorizedFolderPath(`/shared${"/".repeat(100_000)}`)).toBe("/shared");
+  });
+
   test("lists visible folders and counts preserved hidden entries", async () => {
     const root = resolve(await createWorkspaceRoot());
     await writeFile(join(root, "opencode.jsonc"), JSON.stringify({

@@ -2,9 +2,14 @@ import { describe, expect, test } from "bun:test";
 
 import { getImportPluginRoute } from "../app/(den)/_lib/den-org";
 import {
+  clearPluginImportDraft,
+  minimizePluginImportDraft,
+  normalizePublicGitHubPluginUrl,
   parsePluginImportPreview,
   pluginImportSourceLabel,
   pluginImportSuggestedName,
+  savePluginImportDraft,
+  type PluginImportDraft,
 } from "../app/(den)/dashboard/_components/plugin-import-draft";
 
 describe("plugin import flow", () => {
@@ -41,5 +46,103 @@ describe("plugin import flow", () => {
     expect(pluginImportSuggestedName(preview)).toBe("Sales");
     expect(preview.servers[0]?.serverKey).toBe("salesforce");
     expect(preview.skills[0]?.skillKey).toBe("account-research");
+  });
+
+  test("accepts only public credential-free GitHub URLs", () => {
+    expect(normalizePublicGitHubPluginUrl(" https://github.com/acme/plugin/tree/main/sales "))
+      .toBe("https://github.com/acme/plugin/tree/main/sales");
+
+    for (const unsafeUrl of [
+      "http://github.com/acme/plugin",
+      "https://token@github.com/acme/plugin",
+      "https://github.com/acme/plugin?token=secret",
+      "https://example.com/acme/plugin",
+      "javascript:alert(1)",
+    ]) {
+      expect(() => normalizePublicGitHubPluginUrl(unsafeUrl)).toThrow();
+    }
+  });
+
+  test("persists only selected non-sensitive import metadata", () => {
+    const sourceDraft: PluginImportDraft = {
+      version: 1,
+      authType: "oauth",
+      credentialMode: "per_member",
+      githubUrl: "https://github.com/acme/plugin/tree/main/sales",
+      preview: {
+        repositoryFullName: "acme/plugin",
+        rootPath: "sales",
+        servers: [
+          { name: "CRM", serverKey: "crm", url: "https://mcp.example.com/mcp?region=us", supported: true, skippedReason: null },
+          { name: "Skipped", serverKey: "skipped", url: "https://unused.example.com/mcp", supported: true, skippedReason: null },
+        ],
+        skills: [
+          { name: "Research", skillKey: "research", sourcePath: "skills/research/SKILL.md", description: "Private preview copy", supported: true, skippedReason: null },
+        ],
+        warnings: ["Preview-only warning"],
+      },
+      selectedServerKeys: ["crm"],
+      selectedSkillKeys: ["research"],
+    };
+    const draft = minimizePluginImportDraft(sourceDraft);
+
+    expect(draft.preview.servers).toEqual([
+      { name: "CRM", serverKey: "crm", url: null, supported: true, skippedReason: null },
+    ]);
+    expect(draft.preview.skills[0]?.description).toBeNull();
+    expect(draft.preview.warnings).toEqual([]);
+    expect(JSON.stringify(draft)).not.toContain("mcp.example.com");
+    expect(JSON.stringify(draft)).not.toContain("Private preview copy");
+    expect(JSON.stringify(draft)).not.toContain("unused.example.com");
+
+    const originalWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
+    const storedValues = new Map<string, string>();
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: {
+        sessionStorage: {
+          setItem: (key: string, value: string) => storedValues.set(key, value),
+          removeItem: (key: string) => storedValues.delete(key),
+        },
+      },
+    });
+    try {
+      savePluginImportDraft(sourceDraft);
+      const persisted = [...storedValues.values()][0] ?? "";
+      expect(persisted).not.toContain("authType");
+      expect(persisted).not.toContain("credentialMode");
+      expect(persisted).not.toContain("mcp.example.com");
+      clearPluginImportDraft();
+    } finally {
+      if (originalWindow) Object.defineProperty(globalThis, "window", originalWindow);
+      else Reflect.deleteProperty(globalThis, "window");
+    }
+  });
+
+  test("rejects selected server URLs that are unsafe or credential-bearing", () => {
+    const draftForServerUrl = (url: string): PluginImportDraft => ({
+      version: 1,
+      authType: "oauth",
+      credentialMode: "per_member",
+      githubUrl: "https://github.com/acme/plugin",
+      preview: {
+        repositoryFullName: "acme/plugin",
+        rootPath: "",
+        servers: [{ name: "CRM", serverKey: "crm", url, supported: true, skippedReason: null }],
+        skills: [],
+        warnings: [],
+      },
+      selectedServerKeys: ["crm"],
+      selectedSkillKeys: [],
+    });
+
+    for (const unsafeUrl of [
+      "http://mcp.example.com/mcp",
+      "https://user:secret@mcp.example.com/mcp",
+      "https://mcp.example.com/mcp?api_key=secret",
+      "javascript:alert(1)",
+    ]) {
+      expect(() => minimizePluginImportDraft(draftForServerUrl(unsafeUrl))).toThrow();
+    }
   });
 });

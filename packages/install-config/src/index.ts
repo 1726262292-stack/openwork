@@ -39,7 +39,42 @@ export const desktopBootstrapConfigSchema = z.object({
 export type DesktopBootstrapConfig = z.infer<typeof desktopBootstrapConfigSchema>
 
 const TOKEN_PATTERN = /^[A-Za-z0-9_-]{8,}$/
-const FILENAME_TAG_PATTERN = /^.+--([A-Za-z0-9.-]+(?:_[0-9]+)?)--([A-Za-z0-9_-]{8,})(?:\.exe)?$/
+
+function isAsciiLetterOrDigit(code: number) {
+  return (code >= 48 && code <= 57) || (code >= 65 && code <= 90) || (code >= 97 && code <= 122)
+}
+
+function isInstallToken(value: string) {
+  if (value.length < 8) return false
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index)
+    if (!isAsciiLetterOrDigit(code) && code !== 95 && code !== 45) return false
+  }
+  return true
+}
+
+function isFilenameHost(value: string) {
+  const portSeparator = value.indexOf("_")
+  const hostnameEnd = portSeparator === -1 ? value.length : portSeparator
+  if (hostnameEnd === 0) return false
+  for (let index = 0; index < hostnameEnd; index += 1) {
+    const code = value.charCodeAt(index)
+    if (!isAsciiLetterOrDigit(code) && code !== 46 && code !== 45) return false
+  }
+  if (portSeparator === -1) return true
+  if (portSeparator === value.length - 1) return false
+  for (let index = portSeparator + 1; index < value.length; index += 1) {
+    const code = value.charCodeAt(index)
+    if (code < 48 || code > 57) return false
+  }
+  return true
+}
+
+function trimTrailingSlashes(value: string) {
+  let end = value.length
+  while (end > 0 && value[end - 1] === "/") end -= 1
+  return end === value.length ? value : value.slice(0, end)
+}
 
 function decodeFilenameHost(value: string) {
   return value.replace(/_(\d+)$/, ":$1")
@@ -52,22 +87,25 @@ function usesLocalHttp(host: string) {
 
 export function parseInstallerFilenameTag(fileName: string): { host: string; token: string } | null {
   const trimmed = fileName.trim()
-  const match = FILENAME_TAG_PATTERN.exec(trimmed)
-  if (!match) {
+  const prefixEnd = trimmed.indexOf("--")
+  const hostEnd = prefixEnd === -1 ? -1 : trimmed.indexOf("--", prefixEnd + 2)
+  if (prefixEnd < 1 || hostEnd === -1) return null
+  for (let index = 0; index < prefixEnd; index += 1) {
+    const code = trimmed.charCodeAt(index)
+    if (code === 10 || code === 13 || code === 0x2028 || code === 0x2029) return null
+  }
+  const encodedHost = trimmed.slice(prefixEnd + 2, hostEnd)
+  const tokenWithExtension = trimmed.slice(hostEnd + 2)
+  const token = tokenWithExtension.endsWith(".exe") ? tokenWithExtension.slice(0, -4) : tokenWithExtension
+  if (!isFilenameHost(encodedHost) || !isInstallToken(token)) {
     return null
   }
 
-  const host = decodeFilenameHost(match[1])
-  const token = match[2]
-  if (!TOKEN_PATTERN.test(token)) {
-    return null
-  }
-
-  return { host, token }
+  return { host: decodeFilenameHost(encodedHost), token }
 }
 
 export function installConfigUrlFor(host: string, token: string) {
-  const normalizedHost = decodeFilenameHost(host.trim()).replace(/^https?:\/\//, "").replace(/\/+$/, "")
+  const normalizedHost = trimTrailingSlashes(decodeFilenameHost(host.trim()).replace(/^https?:\/\//, ""))
   const protocol = usesLocalHttp(normalizedHost) ? "http" : "https"
   const url = new URL(`/v1/install-config?token=${encodeURIComponent(token)}`, `${protocol}://${normalizedHost}`)
   return url.toString()

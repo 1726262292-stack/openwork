@@ -1073,7 +1073,12 @@ describe("agent context diagnostics analyzer", () => {
       "https://den.customer.example/custom/mcp/agent",
       "https://den.customer.example/custom/mcp/agent",
     ]);
-    expect(fetchCalls.some((call) => call.url.includes("openworklabs.com"))).toBe(false);
+    const openWorkHostedOrigins = new Set([
+      "https://openworklabs.com",
+      "https://api.openworklabs.com",
+      "https://app.openworklabs.com",
+    ]);
+    expect(fetchCalls.some((call) => openWorkHostedOrigins.has(new URL(call.url).origin))).toBe(false);
     expect(report.mcps).toContainEqual(expect.objectContaining({
       name: "openwork-cloud",
       source: "config.remote",

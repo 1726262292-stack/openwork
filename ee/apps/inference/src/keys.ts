@@ -1,12 +1,9 @@
-import { createHash, timingSafeEqual } from "node:crypto"
+import { timingSafeEqual } from "node:crypto"
 import { and, eq, isNull } from "@openwork-ee/den-db/drizzle"
 import { InferenceKeyTable, InferenceOrgUpstreamProviderKeyTable, MemberTable } from "@openwork-ee/den-db"
+import { inferenceBearerKeyLookupDigest, type InferenceBearerKey } from "@openwork-ee/utils/inference-bearer-key"
 import { normalizeDenTypeId } from "@openwork-ee/utils/typeid"
 import { db } from "./db.js"
-
-export function sha256(value: string) {
-  return createHash("sha256").update(value).digest("hex")
-}
 
 export function constantTimeEquals(a: string, b: string) {
   const left = new Uint8Array(Buffer.from(a))
@@ -14,13 +11,13 @@ export function constantTimeEquals(a: string, b: string) {
   return left.length === right.length && timingSafeEqual(left, right)
 }
 
-export async function findActiveInferenceKey(rawKey: string) {
+export async function findActiveInferenceKey(key: InferenceBearerKey) {
   const [row] = await db
     .select({ inferenceKey: InferenceKeyTable })
     .from(InferenceKeyTable)
     .innerJoin(MemberTable, eq(InferenceKeyTable.org_membership_id, MemberTable.id))
     .where(and(
-      eq(InferenceKeyTable.key_hash, sha256(rawKey)),
+      eq(InferenceKeyTable.key_hash, inferenceBearerKeyLookupDigest(key)),
       eq(InferenceKeyTable.status, "active"),
       eq(MemberTable.organizationId, InferenceKeyTable.organization_id),
       isNull(MemberTable.removedAt),

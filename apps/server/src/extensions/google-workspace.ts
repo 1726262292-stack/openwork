@@ -1159,7 +1159,8 @@ async function googleWorkspaceSearchFiles(config: ServerConfig, args: Record<str
   const maxResults = Math.min(Math.max(Number(args.maxResults ?? 10), 1), 50);
   const { accessToken } = await googleWorkspaceAccessToken(config);
   const url = new URL("https://www.googleapis.com/drive/v3/files");
-  url.searchParams.set("q", `name contains '${query.replace(/'/g, "\\'")}' and trashed = false`);
+  const escapedQuery = query.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+  url.searchParams.set("q", `name contains '${escapedQuery}' and trashed = false`);
   url.searchParams.set("pageSize", String(maxResults));
   url.searchParams.set("fields", "files(id,name,mimeType,webViewLink,modifiedTime,size)");
   return fetchGoogleJson(url.toString(), { headers: { Authorization: `Bearer ${accessToken}` } });
