@@ -250,6 +250,17 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null
 }
 
+function normalizeToolBody(body: unknown): unknown {
+  if (typeof body !== "string") return body
+  const trimmed = body.trim()
+  if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) return body
+  try {
+    return JSON.parse(trimmed)
+  } catch {
+    return body
+  }
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
@@ -455,7 +466,7 @@ export async function executeRemoteSessionCapability(
     })
   }
 
-  const parsedBody = BODY_SCHEMAS[input.action].safeParse(input.body ?? {})
+  const parsedBody = BODY_SCHEMAS[input.action].safeParse(normalizeToolBody(input.body) ?? {})
   if (!parsedBody.success) {
     return errorResult({
       error: "invalid_capability_arguments",

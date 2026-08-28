@@ -324,3 +324,21 @@ test("remote-session capabilities drive a real openwork-server wire with scoped 
     true,
   );
 });
+
+test("remote-session capability accepts a JSON-stringified body", async ({ evidence }) => {
+  const created = await executeRemoteSessionCapability(
+    input("create", JSON.stringify({ title: "Stringified handoff" })),
+    deps,
+  );
+
+  expect(created.isError).toBeUndefined();
+  expect(payload(created).sessionId).toMatch(/^ses_witness_/);
+  expect(witness.requests.findLast(
+    (request) => request.method === "POST" && request.path === `/workspace/${WORKSPACE_ID}/opencode/session`,
+  )?.body).toMatchObject({ title: "Stringified handoff" });
+  evidence.recordAssertionEvidence(
+    "JSON-stringified capability body is normalized",
+    "remote-session:create accepted a JSON-stringified body and passed its title to the native session route.",
+    true,
+  );
+});
