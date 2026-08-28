@@ -213,77 +213,6 @@ describe("runtime OpenCode config store", () => {
     });
   });
 
-  test("explicitly migrates legacy OpenWork runtime config into the runtime DB", async () => {
-    await withWorkspace(async ({ root, config }) => {
-      await mkdir(join(root, ".opencode"), { recursive: true });
-      const openworkPath = join(root, ".opencode", "openwork.json");
-      await writeFile(openworkPath, JSON.stringify({
-        version: 1,
-        workspace: { name: "Test" },
-        plugin: ["legacy-plugin"],
-        mcp: { legacy: { type: "remote", url: "https://legacy.example/mcp" } },
-        permission: { external_directory: { "/legacy/*": "allow" } },
-        provider: { legacy: { npm: "legacy-provider" } },
-      }, null, 2) + "\n", "utf8");
-
-      const server = await startServer(config) as Served;
-      try {
-        const response = await fetch(`http://127.0.0.1:${server.port}/workspace/${WORKSPACE_ID}/runtime-config/migrate`, {
-          method: "POST",
-          headers: { authorization: `Bearer ${config.token}`, "content-type": "application/json" },
-        });
-        expect(response.status).toBe(200);
-        expect(await response.json()).toMatchObject({
-          migrated: true,
-          keys: ["plugin", "mcp", "permission", "provider"],
-        });
-
-        const runtime = await readRuntimeOpencodeConfig(config, WORKSPACE_ID);
-        expect(runtime.plugin).toEqual(["legacy-plugin"]);
-        expect(runtime.mcp?.legacy?.url).toBe("https://legacy.example/mcp");
-        expect(runtime.permission?.external_directory?.["/legacy/*"]).toBe("allow");
-        expect(runtime.provider?.legacy).toEqual({ npm: "legacy-provider" });
-
-        // The legacy file is migrated into the runtime DB and never rewritten.
-        // The cleaned config (legacy runtime keys stripped, metadata kept)
-        // now lives in the DB-backed openwork config.
-        const openwork = await readOpenworkWorkspaceConfig(config, WORKSPACE_ID);
-        expect(openwork.version).toBe(1);
-        expect(openwork.workspace).toEqual({ name: "Test" });
-        expect(openwork.plugin).toBeUndefined();
-        expect(openwork.mcp).toBeUndefined();
-        expect(openwork.permission).toBeUndefined();
-        expect(openwork.provider).toBeUndefined();
-
-        const statusResponse = await fetch(`http://127.0.0.1:${server.port}/workspace/${WORKSPACE_ID}/runtime-config`, {
-          headers: { authorization: `Bearer ${config.token}` },
-        });
-        expect(statusResponse.status).toBe(200);
-        const status = await statusResponse.json() as {
-          effectiveRuntime: Record<string, unknown>;
-          sources: Record<string, { exists?: boolean; keys: string[]; config?: Record<string, unknown> }>;
-        };
-        expect(status).toMatchObject({
-          runtimeKeys: ["plugin", "mcp", "permission", "provider"],
-          sources: {
-            projectOpencode: { exists: false, keys: [] },
-            runtimeDatabase: { keys: ["plugin", "mcp", "permission", "provider"] },
-          },
-          legacyOpenwork: { keys: [] },
-          userOpencode: { exists: false, keys: [] },
-        });
-        expect(status.effectiveRuntime.default_agent).toBe("openwork");
-        expect(status.effectiveRuntime.agent).toMatchObject({ openwork: { mode: "primary" } });
-        expect(status.effectiveRuntime.provider).toMatchObject({ legacy: { npm: "legacy-provider" } });
-        expect(status.sources.injected.config?.agent).toMatchObject({ openwork: { mode: "primary" } });
-        expect(status.sources.injected.keys).toContain("provider");
-        expect(status.sources.globalOpencode).toHaveProperty("path");
-      } finally {
-        await server.stop(true);
-      }
-    });
-  });
-
   test("runtime config status tolerates malformed legacy OpenWork metadata", async () => {
     await withWorkspace(async ({ root, config }) => {
       await mkdir(join(root, ".opencode"), { recursive: true });
@@ -298,51 +227,7 @@ describe("runtime OpenCode config store", () => {
         expect(response.status).toBe(200);
         expect(await response.json()).toMatchObject({
           runtimeKeys: ["mcp"],
-          legacyOpenwork: { keys: [], error: "Failed to parse openwork.json" },
         });
-      } finally {
-        await server.stop(true);
-      }
-    });
-  });
-
-  test("explicitly migrates safe OpenWork-managed keys from user opencode config", async () => {
-    await withWorkspace(async ({ root, config }) => {
-      const opencodePath = join(root, "opencode.jsonc");
-      await writeFile(opencodePath, JSON.stringify({
-        $schema: "https://opencode.ai/config.json",
-        default_agent: "openwork",
-        plugin: ["opencode-chrome-devtools", "user-plugin"],
-        provider: { local: { npm: "@ai-sdk/openai-compatible" } },
-        disabled_providers: ["old-provider"],
-        custom_user_key: true,
-      }, null, 2) + "\n", "utf8");
-
-      const server = await startServer(config) as Served;
-      try {
-        const response = await fetch(`http://127.0.0.1:${server.port}/workspace/${WORKSPACE_ID}/runtime-config/migrate`, {
-          method: "POST",
-          headers: { authorization: `Bearer ${config.token}`, "content-type": "application/json" },
-        });
-        expect(response.status).toBe(200);
-        expect(await response.json()).toMatchObject({
-          migrated: true,
-          userOpencodeKeys: ["default_agent", "plugin", "disabled_providers", "provider"],
-        });
-
-        const runtime = await readRuntimeOpencodeConfig(config, WORKSPACE_ID);
-        expect(runtime.default_agent).toBe("openwork");
-        expect(runtime.plugin).toEqual(["opencode-chrome-devtools", "user-plugin"]);
-        expect(runtime.provider?.local).toEqual({ npm: "@ai-sdk/openai-compatible" });
-        expect(runtime.disabled_providers).toEqual(["old-provider"]);
-
-        const opencode = JSON.parse(await readFile(opencodePath, "utf8")) as Record<string, unknown>;
-        expect(opencode.$schema).toBe("https://opencode.ai/config.json");
-        expect(opencode.custom_user_key).toBe(true);
-        expect(opencode.default_agent).toBeUndefined();
-        expect(opencode.plugin).toBeUndefined();
-        expect(opencode.provider).toBeUndefined();
-        expect(opencode.disabled_providers).toBeUndefined();
       } finally {
         await server.stop(true);
       }

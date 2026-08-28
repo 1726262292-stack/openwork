@@ -38,7 +38,6 @@ import {
   MCP_APP_SANDBOX_PROXY_SCRIPT,
   parseMcpAppSandboxCsp,
 } from "./mcp-app-sandbox.js";
-import { exportExtensions } from "./extensions-export.js";
 import { deleteSkill, listSkills, renderSkillContentForResponse, upsertSkill } from "./skills.js";
 import { deleteCommand, listCommands, repairCommands, upsertCommand } from "./commands.js";
 import { ApiError, formatError } from "./errors.js";
@@ -62,26 +61,11 @@ import {
 } from "./desktop-cloud-sync.js";
 import { installCloudPlugin, readCloudPluginResolved, readInstalledCloudPlugins, removeCloudPlugin } from "./cloud-plugins.js";
 import { resolveClaudePluginBundle } from "./claude-plugin-bundle.js";
-import {
-  applyMaterializedBlueprintSessions,
-  normalizeBlueprintSessionTemplates,
-  readMaterializedBlueprintSessions,
-  sanitizeOpenworkTemplateConfig,
-} from "./blueprint-sessions.js";
 import { resolveWorkspaceOpencodeConnection } from "./opencode-connection.js";
-import { seedOpencodeSessionMessages } from "./opencode-db.js";
 import { listPortableFiles } from "./portable-files.js";
 import {
-  buildWorkspaceImportPreview,
-  normalizeWorkspaceImportPayload,
-  publicWorkspaceImportPreview,
-  summarizeWorkspaceImportApplied,
-  summarizeWorkspaceImportPreview,
-  type WorkspaceImportPlan,
-  workspaceImportPreviewApprovalPaths,
-} from "./workspace-import-preview.js";
-import {
   collectWorkspaceExportWarnings,
+  sanitizeOpenworkTemplateConfig,
   stripSensitiveWorkspaceExportData,
   type WorkspaceExportSensitiveMode,
 } from "./workspace-export-safety.js";
@@ -136,7 +120,6 @@ import {
   writeOpenworkWorkspaceConfig,
 } from "./openwork-workspace-config-store.js";
 import { buildOpenworkRuntimeConfigObject, openworkRuntimeConfigFilePath, writeOpenworkRuntimeConfigFile } from "./openwork-runtime-config.js";
-import { readLegacyConfigSweepState } from "./legacy-config-sweep.js";
 import { findManagedEngineWorkspace } from "./workspaces.js";
 import { CloudProviderSync, parseCloudProviderDenSession } from "./cloud-provider-sync.js";
 import pkg from "../package.json" with { type: "json" };
@@ -271,94 +254,6 @@ function readStringField(value: unknown, key: string): string {
   return typeof field === "string" ? field.trim() : "";
 }
 
-const LEGACY_RUNTIME_CONFIG_KEYS = ["plugin", "mcp", "permission", "provider"] as const;
-const USER_OPENCODE_RUNTIME_CONFIG_KEYS = ["default_agent", "plugin", "mcp", "disabled_providers", "provider"] as const;
-
-type LegacyRuntimeConfigKey = typeof LEGACY_RUNTIME_CONFIG_KEYS[number];
-type UserOpencodeRuntimeConfigKey = typeof USER_OPENCODE_RUNTIME_CONFIG_KEYS[number];
-
-function legacyRuntimeConfigFromOpenworkConfig(openwork: Record<string, unknown>): {
-  config: RuntimeOpencodeConfig;
-  keys: LegacyRuntimeConfigKey[];
-} {
-  const keys: LegacyRuntimeConfigKey[] = [];
-  const plugin = Array.isArray(openwork.plugin) ? openwork.plugin.filter((item) => typeof item === "string") : [];
-  const mcp: Record<string, Record<string, unknown>> = {};
-  if (isRecord(openwork.mcp)) {
-    for (const [name, value] of Object.entries(openwork.mcp)) {
-      if (isRecord(value)) mcp[name] = value;
-    }
-  }
-  const permission = isRecord(openwork.permission) ? openwork.permission : null;
-  const externalDirectory = permission && isRecord(permission.external_directory) ? permission.external_directory : null;
-  const provider = isRecord(openwork.provider) ? openwork.provider : null;
-
-  if (plugin.length) keys.push("plugin");
-  if (Object.keys(mcp).length) keys.push("mcp");
-  if (externalDirectory && Object.keys(externalDirectory).length) keys.push("permission");
-  if (provider && Object.keys(provider).length) keys.push("provider");
-
-  return {
-    keys,
-    config: {
-      ...(plugin.length ? { plugin } : {}),
-      ...(Object.keys(mcp).length ? { mcp } : {}),
-      ...(externalDirectory ? { permission: { external_directory: externalDirectory } } : {}),
-      ...(provider ? { provider } : {}),
-    },
-  };
-}
-
-function removeLegacyRuntimeConfig(openwork: Record<string, unknown>): Record<string, unknown> {
-  const next = { ...openwork };
-  for (const key of LEGACY_RUNTIME_CONFIG_KEYS) {
-    delete next[key];
-  }
-  return next;
-}
-
-function userRuntimeConfigFromOpencodeConfig(opencode: Record<string, unknown>): {
-  config: RuntimeOpencodeConfig;
-  keys: UserOpencodeRuntimeConfigKey[];
-} {
-  const keys: UserOpencodeRuntimeConfigKey[] = [];
-  const defaultAgent = opencode.default_agent === "openwork" ? "openwork" : undefined;
-  const plugin = Array.isArray(opencode.plugin) ? opencode.plugin.filter((item) => typeof item === "string") : undefined;
-  const mcp: Record<string, Record<string, unknown>> = {};
-  if (isRecord(opencode.mcp)) {
-    for (const [name, value] of Object.entries(opencode.mcp)) {
-      if (isRecord(value)) mcp[name] = value;
-    }
-  }
-  const disabledProviders = Array.isArray(opencode.disabled_providers)
-    ? opencode.disabled_providers.filter((item) => typeof item === "string")
-    : undefined;
-  const provider = isRecord(opencode.provider) ? opencode.provider : undefined;
-
-  if (defaultAgent) keys.push("default_agent");
-  if (Array.isArray(opencode.plugin)) keys.push("plugin");
-  if (Object.keys(mcp).length) keys.push("mcp");
-  if (Array.isArray(opencode.disabled_providers)) keys.push("disabled_providers");
-  if (isRecord(opencode.provider)) keys.push("provider");
-
-  return {
-    keys,
-    config: {
-      ...(defaultAgent ? { default_agent: defaultAgent } : {}),
-      ...(plugin?.length ? { plugin } : {}),
-      ...(Object.keys(mcp).length ? { mcp } : {}),
-      ...(disabledProviders?.length ? { disabled_providers: disabledProviders } : {}),
-      ...(provider && Object.keys(provider).length ? { provider } : {}),
-    },
-  };
-}
-
-async function removeUserRuntimeConfigFromOpencode(workspaceRoot: string, keys: UserOpencodeRuntimeConfigKey[]): Promise<void> {
-  if (!keys.length) return;
-  const updates = Object.fromEntries(keys.map((key) => [key, undefined]));
-  await updateJsoncTopLevel(opencodeConfigPath(workspaceRoot), updates);
-}
-
 function runtimeConfigKeys(config: RuntimeOpencodeConfig): string[] {
   const keys: string[] = [];
   if (config.default_agent) keys.push("default_agent");
@@ -463,43 +358,6 @@ async function readManagedRuntimeConfigDebug(config: ServerConfig): Promise<{
 
 function userOpencodeConfigKeys(config: Record<string, unknown>): string[] {
   return Object.keys(config).filter((key) => key !== "$schema").sort();
-}
-
-function mergeLegacyRuntimeConfig(
-  current: RuntimeOpencodeConfig,
-  legacy: RuntimeOpencodeConfig,
-): RuntimeOpencodeConfig {
-  const currentPermission = isRecord(current.permission) ? current.permission : {};
-  const legacyPermission = isRecord(legacy.permission) ? legacy.permission : {};
-  const currentExternalDirectory = isRecord(currentPermission.external_directory) ? currentPermission.external_directory : {};
-  const legacyExternalDirectory = isRecord(legacyPermission.external_directory) ? legacyPermission.external_directory : {};
-  return {
-    default_agent: current.default_agent ?? legacy.default_agent,
-    plugin: [
-      ...(Array.isArray(current.plugin) ? current.plugin.filter((item) => typeof item === "string") : []),
-      ...(Array.isArray(legacy.plugin) ? legacy.plugin.filter((item) => typeof item === "string") : []),
-    ].filter((item, index, list) => list.indexOf(item) === index),
-    disabled_providers: [
-      ...(Array.isArray(current.disabled_providers) ? current.disabled_providers.filter((item) => typeof item === "string") : []),
-      ...(Array.isArray(legacy.disabled_providers) ? legacy.disabled_providers.filter((item) => typeof item === "string") : []),
-    ].filter((item, index, list) => list.indexOf(item) === index),
-    mcp: {
-      ...(isRecord(legacy.mcp) ? legacy.mcp : {}),
-      ...(isRecord(current.mcp) ? current.mcp : {}),
-    },
-    permission: {
-      ...legacyPermission,
-      ...currentPermission,
-      external_directory: {
-        ...legacyExternalDirectory,
-        ...currentExternalDirectory,
-      },
-    },
-    provider: {
-      ...(isRecord(legacy.provider) ? legacy.provider : {}),
-      ...(isRecord(current.provider) ? current.provider : {}),
-    },
-  };
 }
 
 async function resolveOpenAiRealtimeApiKey(env: EnvService): Promise<string> {
@@ -2540,63 +2398,6 @@ function createRoutes(
     return jsonResponse(response);
   });
 
-  addRoute(routes, "POST", "/workspace/:id/runtime-config/migrate", "client", async (ctx) => {
-    ensureWritable(config);
-    requireClientScope(ctx, "collaborator");
-    const workspace = await resolveWorkspace(config, ctx.params.id);
-    const configPath = openworkConfigPath(workspace.path);
-
-    await requireApproval(ctx, {
-      workspaceId: workspace.id,
-      action: "config.runtime_migrate",
-      summary: "Migrate legacy runtime OpenCode config",
-      paths: [configPath],
-    });
-
-    // Resolve the effective openwork config (DB, migrating any legacy file
-    // contents in on read) so legacy runtime keys are detected wherever they
-    // currently live.
-    let openworkError: string | null = null;
-    let openworkData: Record<string, unknown> = {};
-    try {
-      openworkData = await readOpenworkConfigForWorkspace(config, workspace);
-    } catch (error) {
-      if (error instanceof ApiError && error.code === "invalid_json") {
-        openworkError = error.message;
-      } else {
-        throw error;
-      }
-    }
-    const legacy = legacyRuntimeConfigFromOpenworkConfig(openworkData);
-    const user = userRuntimeConfigFromOpencodeConfig(await readOpencodeConfig(workspace.path));
-    if (!legacy.keys.length && !user.keys.length) {
-      return jsonResponse({ migrated: false, keys: [], legacyKeys: [], userOpencodeKeys: [], updatedAt: null, legacyError: openworkError });
-    }
-
-    await writeRuntimeOpencodeConfig(config, workspace.id, (current) => (
-      mergeLegacyRuntimeConfig(mergeLegacyRuntimeConfig(current, legacy.config), user.config)
-    ));
-    if (legacy.keys.length && !openworkError) {
-      await writeOpenworkConfigForWorkspace(config, workspace, removeLegacyRuntimeConfig(openworkData), false);
-    }
-    await removeUserRuntimeConfigFromOpencode(workspace.path, user.keys);
-
-    const updatedAt = Date.now();
-    const keys = [...legacy.keys, ...user.keys];
-    await recordAudit(workspace.path, {
-      id: shortId(),
-      workspaceId: workspace.id,
-      actor: ctx.actor ?? { type: "remote" },
-      action: "config.runtime_migrate",
-      target: configPath,
-      summary: `Migrated runtime OpenCode config: ${keys.join(", ")}`,
-      timestamp: updatedAt,
-    });
-    emitReloadEvent(ctx.reloadEvents, workspace, "config", buildConfigTrigger(configPath));
-
-    return jsonResponse({ migrated: true, keys, legacyKeys: legacy.keys, userOpencodeKeys: user.keys, updatedAt, legacyError: openworkError });
-  });
-
   addRoute(routes, "POST", "/workspace/:id/runtime-config/disabled-providers", "client", async (ctx) => {
     ensureWritable(config);
     requireClientScope(ctx, "collaborator");
@@ -2693,12 +2494,6 @@ function createRoutes(
   addRoute(routes, "GET", "/workspace/:id/runtime-config", "client", async (ctx) => {
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const runtime = await readRuntimeOpencodeConfig(config, workspace.id);
-    // Report legacy runtime keys from the effective (DB-backed) openwork config
-    // so the status reflects post-migration state, while still surfacing parse
-    // errors from a malformed legacy file.
-    const fileStatus = await readOpenworkConfigForStatus(workspace.path);
-    const effectiveOpenwork = fileStatus.error ? {} : await readOpenworkConfigForWorkspace(config, workspace);
-    const legacy = legacyRuntimeConfigFromOpenworkConfig(effectiveOpenwork);
     const rawOpencode = await readRawOpencodeConfig(opencodeConfigPath(workspace.path));
     const persistedOpencode = await readOpencodeConfig(workspace.path);
     const globalOpencodePath = resolveOpencodeConfigFilePath("global", workspace.path);
@@ -2706,16 +2501,13 @@ function createRoutes(
     const emptyGlobalOpencode: Record<string, unknown> = {};
     const globalOpencode = (await readJsoncFile(globalOpencodePath, emptyGlobalOpencode, { allowInvalid: true })).data;
     const effectiveRuntime = await buildOpenworkRuntimeConfigObject(config, workspace.id);
-    const user = userRuntimeConfigFromOpencodeConfig(persistedOpencode);
     const managedFile = await readManagedRuntimeConfigDebug(config);
-    const sweep = await readLegacyConfigSweepState(config);
 
     return jsonResponse({
       runtime,
       runtimeKeys: runtimeConfigKeys(runtime),
       effectiveRuntime,
       ...managedFile,
-      sweep,
       sources: {
         projectOpencode: {
           path: opencodeConfigPath(workspace.path),
@@ -2738,16 +2530,10 @@ function createRoutes(
           config: effectiveRuntime,
         },
       },
-      legacyOpenwork: {
-        path: openworkConfigPath(workspace.path),
-        keys: legacy.keys,
-        error: fileStatus.error,
-      },
       userOpencode: {
         path: opencodeConfigPath(workspace.path),
         exists: rawOpencode.exists,
         keys: userOpencodeConfigKeys(persistedOpencode),
-        migratableKeys: user.keys,
       },
     });
   });
@@ -3324,32 +3110,6 @@ function createRoutes(
   addRoute(routes, "GET", "/mcp/managed/:workspaceId/:name", "none", managedGatewayHandler);
   addRoute(routes, "DELETE", "/mcp/managed/:workspaceId/:name", "none", managedGatewayHandler);
 
-  // Portable export of installed skills and MCP servers (including
-  // OpenWork-managed runtime MCPs that only live in the runtime DB), so
-  // agents can package them into marketplace plugins. Read-only; MCP
-  // secrets (headers/environment) are always redacted.
-  addRoute(routes, "POST", "/workspace/:id/extensions/export", "client", async (ctx) => {
-    const workspace = await resolveWorkspace(config, ctx.params.id);
-    const body = await readJsonBody(ctx.request);
-    const skills = Array.isArray(body.skills)
-      ? body.skills.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
-      : [];
-    const mcps = Array.isArray(body.mcps)
-      ? body.mcps.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
-      : [];
-    if (skills.length === 0 && mcps.length === 0) {
-      throw new ApiError(400, "invalid_payload", "At least one skill or mcp name is required");
-    }
-    const result = await exportExtensions({
-      serverConfig: config,
-      workspaceId: workspace.id,
-      workspaceRoot: workspace.path,
-      skills,
-      mcps,
-    });
-    return jsonResponse(result);
-  });
-
   addRoute(routes, "POST", "/workspace/:id/mcp", "client", async (ctx) => {
     ensureWritable(config);
     requireClientScope(ctx, "collaborator");
@@ -3640,100 +3400,6 @@ function createRoutes(
     return jsonResponse(exportPayload);
   });
 
-  addRoute(routes, "POST", "/workspace/:id/import/preview", "client", async (ctx) => {
-    requireClientScope(ctx, "viewer");
-    const workspace = await resolveWorkspace(config, ctx.params.id);
-    const body = await readJsonBody(ctx.request);
-    const preview = await buildWorkspaceImportPreview(workspace.path, body);
-    return jsonResponse(publicWorkspaceImportPreview(preview));
-  });
-
-  addRoute(routes, "POST", "/workspace/:id/import", "client", async (ctx) => {
-    ensureWritable(config);
-    requireClientScope(ctx, "collaborator");
-    const workspace = await resolveWorkspace(config, ctx.params.id);
-    const body = await readJsonBody(ctx.request);
-    const expectedFingerprint = parseWorkspaceImportPreviewFingerprint(body);
-    const preview = await buildWorkspaceImportPreview(workspace.path, body);
-    if (expectedFingerprint && expectedFingerprint !== preview.fingerprint) {
-      return jsonResponse(
-        {
-          ok: false,
-          code: "workspace_import_preview_stale",
-          message: "Workspace changed after this import was previewed. Review the latest preview before importing.",
-          preview: publicWorkspaceImportPreview(preview),
-        },
-        409,
-      );
-    }
-    const approvalPaths = workspaceImportPreviewApprovalPaths(preview);
-    if (approvalPaths.length === 0) {
-      return jsonResponse({ ok: true, preview: publicWorkspaceImportPreview(preview) });
-    }
-    if (!expectedFingerprint) {
-      return jsonResponse(
-        {
-          ok: false,
-          code: "workspace_import_preview_required",
-          message: "Review this import preview before applying workspace changes.",
-          preview: publicWorkspaceImportPreview(preview),
-        },
-        409,
-      );
-    }
-    await requireApproval(ctx, {
-      workspaceId: workspace.id,
-      action: "config.import",
-      summary: summarizeWorkspaceImportPreview(preview),
-      paths: approvalPaths,
-    });
-    const latestPreview = await buildWorkspaceImportPreview(workspace.path, body);
-    if (latestPreview.fingerprint !== expectedFingerprint) {
-      return jsonResponse(
-        {
-          ok: false,
-          code: "workspace_import_preview_stale",
-          message: "Workspace changed after this import was previewed. Review the latest preview before importing.",
-          preview: publicWorkspaceImportPreview(latestPreview),
-        },
-        409,
-      );
-    }
-    const configFingerprintBefore = await computeReloadFingerprint(workspace.path, "config");
-    await importWorkspace(config, workspace, body, latestPreview);
-    await recordAudit(workspace.path, {
-      id: shortId(),
-      workspaceId: workspace.id,
-      actor: ctx.actor ?? { type: "remote" },
-      action: "config.import",
-      target: "workspace",
-      summary: summarizeWorkspaceImportApplied(latestPreview),
-      timestamp: Date.now(),
-    });
-    if (configFingerprintBefore !== await computeReloadFingerprint(workspace.path, "config")) {
-      emitReloadEvent(ctx.reloadEvents, workspace, "config", buildConfigTrigger(opencodeConfigPath(workspace.path)));
-    }
-    return jsonResponse({ ok: true, preview: publicWorkspaceImportPreview(latestPreview) });
-  });
-
-  addRoute(routes, "POST", "/workspace/:id/blueprint/sessions/materialize", "client", async (ctx) => {
-    ensureWritable(config);
-    requireClientScope(ctx, "collaborator");
-    const workspace = await resolveWorkspace(config, ctx.params.id);
-    const result = await materializeBlueprintSessions(config, workspace);
-    await recordAudit(workspace.path, {
-      id: shortId(),
-      workspaceId: workspace.id,
-      actor: ctx.actor ?? { type: "remote" },
-      action: "blueprint.sessions.materialize",
-      target: "workspace",
-      summary: result.created.length
-        ? `Materialized ${result.created.length} template starter session${result.created.length === 1 ? "" : "s"}`
-        : "Checked template starter sessions",
-      timestamp: Date.now(),
-    });
-    return jsonResponse(result);
-  });
 
   return routes;
 }
@@ -5510,153 +5176,4 @@ function parseWorkspaceExportSensitiveMode(input: string | null): WorkspaceExpor
     return trimmed;
   }
   throw new ApiError(400, "invalid_workspace_export_sensitive_mode", `Invalid workspace export sensitive mode: ${trimmed}`);
-}
-
-function parseWorkspaceImportPreviewFingerprint(payload: Record<string, unknown>): string | null {
-  const value = payload.previewFingerprint;
-  if (value === undefined || value === null || value === "") return null;
-  if (typeof value !== "string") {
-    throw new ApiError(
-      400,
-      "invalid_workspace_import_preview_fingerprint",
-      "Workspace import preview fingerprint must be a string",
-    );
-  }
-  return value;
-}
-
-function workspaceImportRelativePath(workspace: WorkspaceInfo, path: string): string {
-  return relative(workspace.path, path).replaceAll("\\", "/");
-}
-
-async function importWorkspace(config: ServerConfig, workspace: WorkspaceInfo, payload: Record<string, unknown>, preview: WorkspaceImportPlan): Promise<void> {
-  const input = normalizeWorkspaceImportPayload(workspace.path, payload);
-  const changed = new Set(
-    preview.changes
-      .filter((change) => change.action !== "unchanged")
-      .map((change) => `${change.kind}:${change.path}`),
-  );
-  const changedPath = (kind: string, path: string) => changed.has(`${kind}:${path}`);
-
-  if (
-    input.opencode !== undefined &&
-    changedPath("opencode", workspaceImportRelativePath(workspace, opencodeConfigPath(workspace.path)))
-  ) {
-    if (input.modes.opencode === "replace") {
-      await writeJsoncFile(opencodeConfigPath(workspace.path), input.opencode);
-    } else {
-      await updateJsoncTopLevel(opencodeConfigPath(workspace.path), input.opencode);
-    }
-  }
-
-  if (
-    input.openwork !== undefined &&
-    changedPath("openwork", workspaceImportRelativePath(workspace, openworkConfigPath(workspace.path)))
-  ) {
-    if (input.modes.openwork === "replace") {
-      await writeOpenworkConfigForWorkspace(config, workspace, input.openwork, false);
-    } else {
-      await writeOpenworkConfigForWorkspace(config, workspace, input.openwork, true);
-    }
-  }
-
-  if (input.sections.skills) {
-    for (const skill of input.skills) {
-      const path = workspaceImportRelativePath(workspace, join(projectSkillsDir(workspace.path), skill.name, "SKILL.md"));
-      if (!changedPath("skill", path)) continue;
-      await upsertSkill(workspace.path, skill);
-    }
-    if (input.modes.skills === "replace") {
-      for (const change of preview.changes) {
-        if (change.kind === "skill" && change.action === "delete") {
-          await rm(change.absolutePath, { recursive: true, force: true });
-        }
-      }
-    }
-  }
-
-  if (input.sections.commands) {
-    for (const command of input.commands) {
-      const path = workspaceImportRelativePath(workspace, join(projectCommandsDir(workspace.path), `${command.name}.md`));
-      if (!changedPath("command", path)) continue;
-      await upsertCommand(workspace.path, command);
-    }
-    if (input.modes.commands === "replace") {
-      for (const change of preview.changes) {
-        if (change.kind === "command" && change.action === "delete") {
-          await rm(change.absolutePath, { force: true });
-        }
-      }
-    }
-  }
-
-  if (input.sections.files) {
-    for (const file of input.files) {
-      if (!changedPath("file", file.path)) continue;
-      const path = join(workspace.path, file.path);
-      await ensureDir(dirname(path));
-      await writeFile(path, file.content, "utf8");
-    }
-    if (input.modes.files === "replace") {
-      for (const change of preview.changes) {
-        if (change.kind === "file" && change.action === "delete") {
-          await rm(change.absolutePath, { force: true });
-        }
-      }
-    }
-  }
-}
-
-async function materializeBlueprintSessions(config: ServerConfig, workspace: WorkspaceInfo): Promise<{
-  ok: boolean;
-  created: Array<{ templateId: string; sessionId: string; title: string }>;
-  existing: Array<{ templateId: string; sessionId: string }>;
-  openSessionId: string | null;
-}> {
-  const openwork = await readOpenworkConfigForWorkspace(config, workspace);
-  const templates = normalizeBlueprintSessionTemplates(openwork);
-  if (!templates.length) {
-    return { ok: true, created: [], existing: [], openSessionId: null };
-  }
-
-  const existing = readMaterializedBlueprintSessions(openwork);
-  if (existing.length > 0) {
-    const preferredTemplate = templates.find((template) => template.openOnFirstLoad) ?? templates[0] ?? null;
-    const openSessionId = preferredTemplate
-      ? existing.find((item) => item.templateId === preferredTemplate.id)?.sessionId ?? existing[0]?.sessionId ?? null
-      : existing[0]?.sessionId ?? null;
-    return { ok: true, created: [], existing, openSessionId };
-  }
-
-  const created: Array<{ templateId: string; sessionId: string; title: string }> = [];
-  const opencode = createWorkspaceOpencodeClient(config, workspace);
-  for (const template of templates) {
-    const result = unwrapOpencodeResult(await opencode.session.create({ title: template.title }), "/session");
-    const sessionId =
-      result && typeof result === "object" && "id" in result && typeof result.id === "string" ? result.id.trim() : "";
-    if (!sessionId) {
-      throw new ApiError(502, "opencode_failed", "OpenCode session did not return an id");
-    }
-    seedOpencodeSessionMessages({
-      sessionId,
-      workspaceRoot: resolveOpencodeDirectory(workspace) ?? workspace.path,
-      messages: template.messages,
-    });
-    created.push({ templateId: template.id, sessionId, title: template.title });
-  }
-
-  const now = Date.now();
-  const nextOpenwork = applyMaterializedBlueprintSessions(
-    openwork,
-    created.map(({ templateId, sessionId }) => ({ templateId, sessionId })),
-    now,
-  );
-  await writeOpenworkConfigForWorkspace(config, workspace, nextOpenwork, false);
-
-  const preferredTemplate = templates.find((template) => template.openOnFirstLoad) ?? templates[0] ?? null;
-  const openSessionId = preferredTemplate
-    ? created.find((item) => item.templateId === preferredTemplate.id)?.sessionId ?? created[0]?.sessionId ?? null
-    : created[0]?.sessionId ?? null;
-
-  return { ok: true, created, existing: [], openSessionId };
 }
