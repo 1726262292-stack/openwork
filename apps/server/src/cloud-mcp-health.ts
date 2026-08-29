@@ -943,17 +943,23 @@ export async function migrateOpenworkCloudMcpRuntimeConfig(
   const globalEntry = globalRow
     ? runtimeMcpMap(globalRow.value)[OPENWORK_CLOUD_MCP_NAME]
     : undefined;
-  const newestValidLegacy = rows
-    .filter((row) => row.workspaceId !== ENGINE_GLOBAL_RUNTIME_CONFIG_ID)
-    .flatMap((row) => {
-      const entry = runtimeMcpMap(row.value)[OPENWORK_CLOUD_MCP_NAME];
-      if (!entry || !isRecord(entry)) return [];
-      const normalized = canonicalizeCloudMcpConfig(entry);
-      const metadata = defaultDesiredMetadata(normalized, true);
-      return strictCloudMcpDesiredConfigProblem(normalized, metadata)
-        ? []
-        : [{ config: normalized, updatedAt: row.updatedAt, workspaceId: row.workspaceId }];
-    })
+  const legacyCandidates: Array<{ config: Record<string, unknown>; updatedAt: number; workspaceId: string }> = [];
+  for (const row of rows) {
+    if (row.workspaceId === ENGINE_GLOBAL_RUNTIME_CONFIG_ID) continue;
+    const entry = runtimeMcpMap(row.value)[OPENWORK_CLOUD_MCP_NAME];
+    if (!entry || !isRecord(entry)) continue;
+    const normalized = canonicalizeCloudMcpConfig(entry);
+    const metadata = defaultDesiredMetadata(normalized, true);
+    if (strictCloudMcpDesiredConfigProblem(normalized, metadata)) continue;
+    // Promotion escalates a workspace-scoped entry to account-global scope, so
+    // it must clear the same trust bar as a collaborator reconcile: a stale or
+    // planted workspace row pointing at an untrusted endpoint stays workspace-
+    // scoped (pre-migration blast radius) instead of becoming global.
+    const url = typeof normalized.url === "string" ? normalized.url : "";
+    if (!await isTrustedCloudMcpEndpointForGlobalPersist(url)) continue;
+    legacyCandidates.push({ config: normalized, updatedAt: row.updatedAt, workspaceId: row.workspaceId });
+  }
+  const newestValidLegacy = legacyCandidates
     .sort((left, right) => right.updatedAt - left.updatedAt || left.workspaceId.localeCompare(right.workspaceId))[0];
   const selected = globalEntry ?? newestValidLegacy?.config;
   if (!selected || config.readOnly) return { config: selected ?? null, changed: false };

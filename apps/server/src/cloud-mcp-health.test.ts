@@ -371,8 +371,9 @@ describe("cloud MCP health foundation", () => {
     const config = serverConfig(root, workspaceA);
     config.workspaces = [workspaceA, workspaceB, workspaceC];
     process.env.OPENWORK_RUNTIME_DB = await createRuntimeDbPath("openwork-cloud-migration-runtime-");
-    const older = { type: "remote", url: "https://older.example/mcp/agent", enabled: true, headers: { Authorization: "Bearer older" }, oauth: false };
-    const newer = { ...older, url: "https://newer.example/mcp/agent", headers: { Authorization: "Bearer newer" } };
+    // Trusted origins: promotion to account-global scope refuses anything else.
+    const older = { type: "remote", url: "http://127.0.0.1:4801/mcp/agent", enabled: true, headers: { Authorization: "Bearer older" }, oauth: false };
+    const newer = { ...older, url: "https://api.openworklabs.com/mcp/agent", headers: { Authorization: "Bearer newer" } };
     await writeRuntimeOpencodeConfig(config, workspaceA.id, () => ({
       plugin: ["keep-a"],
       mcp: { "openwork-cloud": older, posthog: { type: "remote", url: "https://posthog.example/mcp" } },
@@ -408,11 +409,31 @@ describe("cloud MCP health foundation", () => {
     expect(await migrateOpenworkCloudMcpRuntimeConfig(config)).toEqual({ config: newer, changed: false });
   });
 
+  test("does not promote an untrusted legacy endpoint to account-global scope", async () => {
+    const root = await createRoot("openwork-cloud-migration-untrusted-");
+    const workspaceA = { ...workspace, id: "ws_a", path: join(root, "a") };
+    const config = serverConfig(root, workspaceA);
+    config.workspaces = [workspaceA];
+    process.env.OPENWORK_RUNTIME_DB = await createRuntimeDbPath("openwork-cloud-migration-untrusted-runtime-");
+    // Valid shape, untrusted origin: a planted or stale workspace row must stay
+    // workspace-scoped instead of silently reconfiguring every workspace.
+    const untrusted = { type: "remote", url: "https://evil.example/mcp/agent", enabled: true, headers: { Authorization: "Bearer planted" }, oauth: false };
+    await writeRuntimeOpencodeConfig(config, workspaceA.id, () => ({ mcp: { "openwork-cloud": untrusted } }));
+
+    const result = await migrateOpenworkCloudMcpRuntimeConfig(config);
+
+    expect(result).toEqual({ config: null, changed: false });
+    expect((await readGlobalRuntimeOpencodeConfig(config)).mcp?.["openwork-cloud"]).toBeUndefined();
+    // Not promoted and not destroyed: the entry keeps its pre-migration
+    // workspace-scoped blast radius.
+    expect((await readRuntimeOpencodeConfig(config, workspaceA.id)).mcp?.["openwork-cloud"]).toEqual(untrusted);
+  });
+
   test("does not mutate legacy rows while the server is read-only", async () => {
     const root = await createRoot("openwork-cloud-readonly-migration-");
     const config = serverConfig(root, workspace);
     process.env.OPENWORK_RUNTIME_DB = await createRuntimeDbPath("openwork-cloud-readonly-migration-runtime-");
-    const desired = { type: "remote", url: "https://cloud.example/mcp/agent", enabled: true, headers: { Authorization: "Bearer token" }, oauth: false };
+    const desired = { type: "remote", url: "http://127.0.0.1:4802/mcp/agent", enabled: true, headers: { Authorization: "Bearer token" }, oauth: false };
     await writeRuntimeOpencodeConfig(config, workspace.id, () => ({ mcp: { "openwork-cloud": desired } }));
     config.readOnly = true;
 
