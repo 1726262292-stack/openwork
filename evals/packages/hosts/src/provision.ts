@@ -364,30 +364,40 @@ log = open("/tmp/warmup-electron.log", "ab", buffering=0)
 subprocess.Popen(["bash", "-lc", "cd /workspace && env OPENWORK_ELECTRON_USERDATA=/tmp/warmup-profile OPENWORK_ELECTRON_REMOTE_DEBUG_PORT=9825 bash .devcontainer/start-daytona-electron.sh"], stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT, start_new_session=True, close_fds=True)
 PYEOF
 echo detached`;
-    await execInSandbox(exec, sandbox, detachScript, { timeoutMs: 30_000, context: `first boot detach for ${sandbox}` });
-    const deadline = Date.now() + 420_000;
+    // A cold sandbox occasionally loses the first Electron boot outright (CDP
+    // never binds; nightly 2026-08-29). One clean relaunch into a fresh
+    // profile is bounded and distinguishes a lost boot from a broken build:
+    // a second consecutive dead boot fails the gate loudly.
+    const attempts = 2;
     let last = "not attempted";
     let ready = false;
-    while (Date.now() < deadline) {
-      const probe = await execInSandbox(
+    for (let attempt = 1; attempt <= attempts && !ready; attempt += 1) {
+      await execInSandbox(exec, sandbox, detachScript, { timeoutMs: 30_000, context: `first boot detach for ${sandbox}` });
+      const deadline = Date.now() + 420_000;
+      while (Date.now() < deadline) {
+        const probe = await execInSandbox(
+          exec,
+          sandbox,
+          "curl -s --max-time 5 http://127.0.0.1:9825/json/version || echo CDP_DOWN",
+          { timeoutMs: 15_000, context: `first boot probe for ${sandbox}` },
+        ).catch((error) => ({ stdout: messageText(error), stderr: "", code: 1 }));
+        last = probe.stdout.trim().slice(0, 200);
+        if (last.includes("Browser")) {
+          ready = true;
+          break;
+        }
+        await delay(5_000);
+      }
+      await execInSandbox(
         exec,
         sandbox,
-        "curl -s --max-time 5 http://127.0.0.1:9825/json/version || echo CDP_DOWN",
-        { timeoutMs: 15_000, context: `first boot probe for ${sandbox}` },
-      ).catch((error) => ({ stdout: messageText(error), stderr: "", code: 1 }));
-      last = probe.stdout.trim().slice(0, 200);
-      if (last.includes("Browser")) {
-        ready = true;
-        break;
+        "pkill -f \"[e]lectron\" >/dev/null 2>&1; pkill -f \"[o]pencode\" >/dev/null 2>&1; sleep 1; rm -rf /tmp/warmup-profile; true",
+        { timeoutMs: 30_000, context: `first boot cleanup for ${sandbox}` },
+      ).catch(() => undefined);
+      if (!ready && attempt < attempts) {
+        log(`==> first boot attempt ${attempt} of ${attempts} never answered CDP (last probe: ${last}); relaunching once`);
       }
-      await delay(5_000);
     }
-    await execInSandbox(
-      exec,
-      sandbox,
-      "pkill -f \"[e]lectron\" >/dev/null 2>&1; pkill -f \"[o]pencode\" >/dev/null 2>&1; sleep 1; rm -rf /tmp/warmup-profile; true",
-      { timeoutMs: 30_000, context: `first boot cleanup for ${sandbox}` },
-    ).catch(() => undefined);
     if (!ready) {
       const bootLog = await execInSandbox(
         exec,
@@ -395,7 +405,7 @@ echo detached`;
         "tail -60 /tmp/warmup-electron.log 2>&1 || true",
         { timeoutMs: 30_000, context: `first boot log for ${sandbox}` },
       ).catch(() => null);
-      throw new Error(`First boot gate failed for ${sandbox}: CDP never answered on 9825. Last probe: ${last}. Log tail:\n${bootLog ? outputTail(bootLog) : "unavailable"}`);
+      throw new Error(`First boot gate failed for ${sandbox} after ${attempts} boot attempts: CDP never answered on 9825. Last probe: ${last}. Log tail:\n${bootLog ? outputTail(bootLog) : "unavailable"}`);
     }
   });
 

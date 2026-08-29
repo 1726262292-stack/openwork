@@ -83,8 +83,8 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DAYTONA_API_KEY: ${{ secrets.DAYTONA_API_KEY }}
-          DAYTONA_CLI_TAG: v0.204.0
-          DAYTONA_CLI_SHA256: 76701138c2ce93c14b30e7b10f51aa5ea2a9e156777bab933a4272237d81f14d
+          DAYTONA_CLI_TAG: v0.207.0
+          DAYTONA_CLI_SHA256: 39b6db86f06e38ebabc6f891465ffbba72e19574bde32c534dea810ec3e48a2f
         run: |
           set -euo pipefail
           gh release download "$DAYTONA_CLI_TAG" --repo daytona/clients --pattern daytona-linux-amd64 --output /tmp/daytona --clobber

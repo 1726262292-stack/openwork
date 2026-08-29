@@ -419,8 +419,14 @@ test.skipIf(missingRequirements.length > 0)(title, { timeout: 45 * 60_000 }, asy
   const providerModelAbsentBeforePublish = !providerBaseline.some((provider) => (
     provider.name === providerName && provider.modelIds.includes(target.catalogModelId)
   ));
-  expect(providerAbsentBeforePublish).toBe(true);
-  expect(providerModelAbsentBeforePublish).toBe(true);
+  expect(
+    providerAbsentBeforePublish,
+    `Provider ${JSON.stringify(providerName)} leaked to the teammate before publish; baseline providers: ${JSON.stringify(providerBaseline.map((provider) => provider.name))}`,
+  ).toBe(true);
+  expect(
+    providerModelAbsentBeforePublish,
+    `Model ${target.catalogModelId} leaked to the teammate before publish; baseline models: ${JSON.stringify(baselineModels)}`,
+  ).toBe(true);
   evidence.recordAssertionEvidence(
     "The teammate cannot see the lifecycle provider before it is published",
     `Provider baseline: ${JSON.stringify(providerBaseline.map((provider) => provider.name))}; model baseline: ${JSON.stringify(baselineModels)}.`,
@@ -591,7 +597,10 @@ test.skipIf(missingRequirements.length > 0)(title, { timeout: 45 * 60_000 }, asy
     });
     const teammateFoundBeforeGrant = [...gatewaySearchMatches(deniedSkillSearch), ...gatewaySearchMatches(deniedAllSearch)]
       .some((match) => match.name === skillCapabilityName);
-    expect(teammateFoundBeforeGrant).toBe(false);
+    expect(
+      teammateFoundBeforeGrant,
+      `The teammate discovered creator-only capability ${JSON.stringify(skillCapabilityName)} through gateway search before any grant`,
+    ).toBe(false);
     evidence.recordAssertionEvidence(
       "The teammate cannot discover the creator-only skill before the grant",
       `Both skills-only and all-capability searches omitted ${skillCapabilityName}.`,
@@ -647,8 +656,14 @@ test.skipIf(missingRequirements.length > 0)(title, { timeout: 45 * 60_000 }, asy
   const teammateMarketplace = await readResolvedMarketplace(teammate, marketplace.id);
   const teammateSeesPlugin = teammateMarketplace.pluginNames.includes(pluginWitness.name);
   const teammateSeesSkill = teammateMarketplace.skillNames.includes(pluginWitness.skillName);
-  expect(teammateSeesPlugin).toBe(true);
-  expect(teammateSeesSkill).toBe(true);
+  expect(
+    teammateSeesPlugin,
+    `Granted teammate cannot see plugin ${JSON.stringify(pluginWitness.name)}; resolved marketplace plugins: ${JSON.stringify(teammateMarketplace.pluginNames)}`,
+  ).toBe(true);
+  expect(
+    teammateSeesSkill,
+    `Granted teammate cannot see skill ${JSON.stringify(pluginWitness.skillName)}; resolved marketplace skills: ${JSON.stringify(teammateMarketplace.skillNames)}`,
+  ).toBe(true);
 
   let outsiderMarketplace: Awaited<ReturnType<typeof readResolvedMarketplace>> | null = null;
   let outsiderReadError = "";
@@ -659,8 +674,14 @@ test.skipIf(missingRequirements.length > 0)(title, { timeout: 45 * 60_000 }, asy
   }
   const outsiderSeesPlugin = outsiderMarketplace?.pluginNames.includes(pluginWitness.name) === true;
   const outsiderSeesSkill = outsiderMarketplace?.skillNames.includes(pluginWitness.skillName) === true;
-  expect(outsiderSeesPlugin).toBe(false);
-  expect(outsiderSeesSkill).toBe(false);
+  expect(
+    outsiderSeesPlugin,
+    `Ungranted outsider can see plugin ${JSON.stringify(pluginWitness.name)}; outsider read error: ${JSON.stringify(outsiderReadError)}`,
+  ).toBe(false);
+  expect(
+    outsiderSeesSkill,
+    `Ungranted outsider can see skill ${JSON.stringify(pluginWitness.skillName)}; outsider read error: ${JSON.stringify(outsiderReadError)}`,
+  ).toBe(false);
   evidence.recordAssertionEvidence(
     "The ungranted outsider cannot see the person-scoped marketplace content",
     outsiderMarketplace
@@ -780,7 +801,10 @@ test.skipIf(missingRequirements.length > 0)(title, { timeout: 45 * 60_000 }, asy
     });
     const skillServedTexts = skillCalls.map((call) => String(call.args.text ?? ""));
     const skillMarkerSeen = skillServedTexts.some((text) => text.includes(skillMarker));
-    expect(skillMarkerSeen).toBe(true);
+    expect(
+      skillMarkerSeen,
+      `The gateway-served skill never reached the connector with marker ${JSON.stringify(skillMarker)}; served mock_echo texts: ${JSON.stringify(skillServedTexts).slice(0, 800)}`,
+    ).toBe(true);
     const skillReply = await waitForAssistantReply(appMate, { timeoutMs: 300_000 });
     evidence.recordAssertionEvidence(
       "The shared skill made the teammate's agent use the organization connector",
