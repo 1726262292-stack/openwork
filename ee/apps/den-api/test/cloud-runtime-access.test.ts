@@ -72,7 +72,6 @@ function options(input: {
   return {
     loadWorker: async () => input.runtimeWorker,
     store: input.runtimeStore ?? store(),
-    continueProvisioning: async () => {},
     getSandboxRecord: async () => ({
       signed_preview_url: input.signedPreviewUrl ?? "https://fresh.preview.example.test",
       signed_preview_url_expires_at: input.expiresAt ?? new Date("2026-08-27T12:00:00.000Z"),
@@ -178,7 +177,12 @@ describe("Cloud runtime access resolver", () => {
       },
     })
 
-    expect(result).toEqual({ status: "failed", workerId: runtimeWorker.id, reason: "preview_expired" })
+    expect(result).toEqual(expect.objectContaining({
+      status: "failed",
+      workerId: runtimeWorker.id,
+      reason: "preview_expired",
+      failure: expect.objectContaining({ code: "preview_expired", stage: "runtime" }),
+    }))
     expect(probes).toBe(0)
   })
 
@@ -235,7 +239,12 @@ describe("Cloud runtime access resolver", () => {
       workerId: runtimeWorker.id,
     }, resolverOptions)
 
-    expect(first).toEqual({ status: "waking", workerId: runtimeWorker.id, reason: "unreachable" })
+    expect(first).toEqual(expect.objectContaining({
+      status: "waking",
+      workerId: runtimeWorker.id,
+      reason: "unreachable",
+      failure: expect.objectContaining({ code: "runtime_unreachable", stage: "runtime" }),
+    }))
     expect(recovering).toEqual({ status: "waking", workerId: runtimeWorker.id, reason: "unreachable" })
   })
 

@@ -145,6 +145,9 @@ function makeDaytonaWakeRuntime(input: {
       }
       state = "started"
     },
+    async stop() {
+      state = "stopped"
+    },
     async delete() {},
     async getSignedPreviewUrl() {
       return { url: "https://wake.preview.example.test" }

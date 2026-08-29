@@ -21,12 +21,14 @@ import {
   resolveCloudRuntimeState,
   type CloudRuntimeSandboxInspection,
   type CloudRuntimeSandboxRecord,
+  type CloudRuntimeState,
   type CloudRuntimeStore,
   type CloudRuntimeWorker,
 } from "../../workers/worker-access.js"
 import { appLogger } from "../../observability/logger.js"
 import {
   cloudStartupFailureFromWorker,
+  cloudStartupFailureUpdate,
   publicCloudStartupFailure,
   type PublicCloudStartupFailure,
 } from "../../workers/cloud-failure.js"
@@ -87,8 +89,15 @@ type CloudInstanceUpdateResponse =
   | { ok: false; error: "already_current" | "flush_failed" }
 type CloudWorkerStore = CloudRuntimeStore & {
   getCloudWorker: (input: { orgId: OrgId; userId: UserId }) => Promise<CloudWorker | null>
-  insertCloudWorker: (input: { workerId: WorkerId; orgId: OrgId; userId: UserId; name: string }) => Promise<void>
-  insertWorkerTokens: (input: { workerId: WorkerId; hostToken: string; clientToken: string; activityToken: string }) => Promise<void>
+  insertCloudWorkerWithTokens: (input: {
+    workerId: WorkerId
+    orgId: OrgId
+    userId: UserId
+    name: string
+    hostToken: string
+    clientToken: string
+    activityToken: string
+  }) => Promise<void>
   deleteCreateRaceLoser: (workerId: WorkerId) => Promise<void>
 }
 type EnsureCloudWorker = (input: {
@@ -266,39 +275,39 @@ const databaseCloudWorkerStore: CloudWorkerStore = {
 
     return rows[0] ?? null
   },
-  async insertCloudWorker(input) {
-    await db.insert(WorkerTable).values({
-      id: input.workerId,
-      org_id: input.orgId,
-      created_by_user_id: input.userId,
-      name: input.name,
-      description: "OpenWork Cloud browser instance",
-      destination: "cloud",
-      status: "provisioning",
-      sandbox_backend: CLOUD_INSTANCE_BACKEND,
+  async insertCloudWorkerWithTokens(input) {
+    await db.transaction(async (tx) => {
+      await tx.insert(WorkerTable).values({
+        id: input.workerId,
+        org_id: input.orgId,
+        created_by_user_id: input.userId,
+        name: input.name,
+        description: "OpenWork Cloud browser instance",
+        destination: "cloud",
+        status: "provisioning",
+        sandbox_backend: CLOUD_INSTANCE_BACKEND,
+      })
+      await tx.insert(WorkerTokenTable).values([
+        {
+          id: createDenTypeId("workerToken"),
+          worker_id: input.workerId,
+          scope: "host",
+          token: input.hostToken,
+        },
+        {
+          id: createDenTypeId("workerToken"),
+          worker_id: input.workerId,
+          scope: "client",
+          token: input.clientToken,
+        },
+        {
+          id: createDenTypeId("workerToken"),
+          worker_id: input.workerId,
+          scope: "activity",
+          token: input.activityToken,
+        },
+      ])
     })
-  },
-  async insertWorkerTokens(input) {
-    await db.insert(WorkerTokenTable).values([
-      {
-        id: createDenTypeId("workerToken"),
-        worker_id: input.workerId,
-        scope: "host",
-        token: input.hostToken,
-      },
-      {
-        id: createDenTypeId("workerToken"),
-        worker_id: input.workerId,
-        scope: "client",
-        token: input.clientToken,
-      },
-      {
-        id: createDenTypeId("workerToken"),
-        worker_id: input.workerId,
-        scope: "activity",
-        token: input.activityToken,
-      },
-    ])
   },
   async deleteCreateRaceLoser(workerId) {
     await db.transaction(async (tx) => {
@@ -328,16 +337,16 @@ const databaseCloudWorkerStore: CloudWorkerStore = {
       .from(WorkerTokenTable)
       .where(and(eq(WorkerTokenTable.worker_id, workerId), isNull(WorkerTokenTable.revoked_at)))
   },
-  async markProvisioningWorkerFailed(workerId) {
+  async markProvisioningWorkerFailed(workerId, failure) {
     await db
       .update(WorkerTable)
-      .set({ status: "failed" })
+      .set({ status: "failed", ...(failure ? cloudStartupFailureUpdate(failure) : {}) })
       .where(and(eq(WorkerTable.id, workerId), eq(WorkerTable.status, "provisioning")))
   },
-  async markHealthyWorkerFailed(workerId) {
+  async markHealthyWorkerFailed(workerId, failure) {
     await db
       .update(WorkerTable)
-      .set({ status: "failed" })
+      .set({ status: "failed", ...(failure ? cloudStartupFailureUpdate(failure) : {}) })
       .where(and(eq(WorkerTable.id, workerId), eq(WorkerTable.status, "healthy")))
   },
 }
@@ -419,8 +428,15 @@ async function createCloudWorker(input: {
   const clientToken = token()
   const activityToken = token()
 
-  await input.store.insertCloudWorker({ workerId, orgId: input.orgId, userId: input.createdByUserId, name: input.name })
-  await input.store.insertWorkerTokens({ workerId, hostToken, clientToken, activityToken })
+  await input.store.insertCloudWorkerWithTokens({
+    workerId,
+    orgId: input.orgId,
+    userId: input.createdByUserId,
+    name: input.name,
+    hostToken,
+    clientToken,
+    activityToken,
+  })
 
   const canonical = await getCloudWorker(input.orgId, input.createdByUserId, input.store)
   if (canonical && canonical.id !== workerId) {
@@ -499,9 +515,11 @@ function cloudInstanceName(worker: CloudWorker, sandbox: CloudSandboxRecord | nu
   return null
 }
 
-function memberCloudInstanceResponse(worker: CloudWorker, instance: CloudInstanceResponse, sandbox: CloudSandboxRecord | null): CloudInstanceMemberResponse {
+function memberCloudInstanceResponse(worker: CloudWorker, instance: CloudRuntimeState, sandbox: CloudSandboxRecord | null): CloudInstanceMemberResponse {
   const instanceName = cloudInstanceName(worker, sandbox)
-  const failure = cloudStartupFailureFromWorker(worker)
+  const failure = instance.status === "ready"
+    ? null
+    : instance.failure ?? cloudStartupFailureFromWorker(worker)
   return {
     status: instance.status,
     url: instance.url,
@@ -538,7 +556,6 @@ async function resolveCloudInstanceForMember(input: {
     worker,
     organizationId: input.payload.organization.id,
   }, {
-    continueProvisioning: input.continueProvisioning,
     refreshSignedPreview: input.refreshSignedPreview,
     getSandboxRecord: input.getSandboxRecord,
     inspectSandbox: input.inspectSandbox,
@@ -624,7 +641,6 @@ async function resolveCloudInstanceForGateway(input: {
       continueProvisioning: input.continueProvisioning,
       store: input.store,
     }),
-    continueProvisioning: input.continueProvisioning,
     refreshSignedPreview: input.refreshSignedPreview,
     getSandboxRecord: input.getSandboxRecord,
     inspectSandbox: input.inspectSandbox,
