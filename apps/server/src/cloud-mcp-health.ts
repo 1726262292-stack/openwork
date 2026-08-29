@@ -694,6 +694,47 @@ function canonicalizeCloudMcpConfig(config: Record<string, unknown>): Record<str
   return normalizedUrl ? { ...config, url: normalizedUrl } : config;
 }
 
+const BUILT_IN_CLOUD_MCP_ORIGINS = new Set([
+  "https://api.openworklabs.com",
+  "https://api.app.openworklabs.com",
+]);
+
+function isLoopbackHostname(hostname: string): boolean {
+  const normalized = hostname.toLowerCase();
+  return normalized === "localhost" || normalized === "127.0.0.1" || normalized === "[::1]" || normalized === "::1";
+}
+
+/**
+ * Whether a proposed openwork-cloud endpoint may be persisted as the
+ * account-global desired config by a collaborator-scoped client.
+ *
+ * The desired config is global: one write reconfigures Connect for every
+ * workspace this server hosts. Built-in OpenWork Cloud origins, the
+ * administrator-activated enterprise Den origin, and loopback (local
+ * development Dens) are trusted; anything else requires owner scope so a
+ * collaborator on one shared workspace cannot silently redirect every other
+ * workspace's Connect tools to an attacker-controlled endpoint.
+ */
+export async function isTrustedCloudMcpEndpointForGlobalPersist(rawUrl: string): Promise<boolean> {
+  const normalized = normalizeCloudEndpointUrl(rawUrl);
+  // An unnormalizable URL cannot be persisted at all: strict desired-config
+  // validation fails closed downstream, so scope enforcement is moot here and
+  // the caller keeps the richer stage-tagged validation error.
+  if (!normalized) return true;
+  let url: URL;
+  try {
+    url = new URL(normalized);
+  } catch {
+    return true;
+  }
+  if (isLoopbackHostname(url.hostname)) return true;
+  if (url.protocol !== "https:") return false;
+  if (BUILT_IN_CLOUD_MCP_ORIGINS.has(url.origin)) return true;
+  const { readActivatedEnterpriseDenOrigin } = await import("./enterprise-den-origin.js");
+  const enterpriseOrigin = await readActivatedEnterpriseDenOrigin();
+  return enterpriseOrigin !== null && url.origin === enterpriseOrigin;
+}
+
 function normalizeCloudMcpConfig(input: unknown): Record<string, unknown> {
   if (!isRecord(input)) {
     throw new ApiError(400, "invalid_payload", "config is required");

@@ -84,7 +84,10 @@ export function OpenWorkAutomationProposalTool({ part }: { part: DynamicToolUIPa
     return <Tool toolPart={part} title="Proposed an Automation" />
   }
 
-  const pinnedWorkspaceId = proposal?.workspaceId ?? (workspaceContext?.workspaceId?.trim() || null)
+  // Pin the workspace of the pane this card renders in — renderer-owned state.
+  // The proposal's own workspaceId is agent-supplied and deliberately ignored:
+  // a manipulated agent must not be able to retarget the Automation.
+  const pinnedWorkspaceId = workspaceContext?.workspaceId?.trim() || null
 
   const blocker = !automationsEnabled
     ? "Automations are disabled for this deployment."
@@ -150,6 +153,7 @@ export function OpenWorkAutomationProposalTool({ part }: { part: DynamicToolUIPa
           <p className="truncate text-sm font-medium text-dls-primary" title={proposal.name}>{proposal.name}</p>
           <p className="text-xs text-dls-secondary">{formatAutomationSchedule(proposal.schedule)}</p>
           {modelLabel ? <p className="text-xs text-dls-secondary">Runs with {modelLabel}</p> : null}
+          {pinnedWorkspaceId ? <p className="text-xs text-dls-secondary" data-automation-pinned-workspace={pinnedWorkspaceId}>Runs in this workspace</p> : null}
         </div>
         <p className="whitespace-pre-wrap text-sm text-dls-secondary">{proposal.instructions}</p>
       </div>

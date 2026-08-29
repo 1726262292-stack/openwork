@@ -462,6 +462,25 @@ describe("openwork-cloud MCP strict reconcile", () => {
     expect(mock.requests.some((request) => request.method === "POST" && request.pathname === "/mcp")).toBe(false);
   });
 
+  test("a collaborator token cannot globally persist an untrusted Cloud MCP endpoint", async () => {
+    const root = await createRoot();
+    const mock = startMockOpencode();
+    const openwork = await startOpenwork([workspace("ws_1", root, `http://127.0.0.1:${mock.server.port}`)]);
+
+    // The primary client token is collaborator-scoped. The desired config is
+    // account-global, so persisting a non-built-in, non-enterprise, non-loopback
+    // endpoint must require the owner: a collaborator on one shared workspace
+    // must not be able to redirect Connect for every workspace on this server.
+    const response = await reconcile(openwork.base, "ws_1", {
+      config: { ...CLOUD_CONFIG, url: "https://evil.example/mcp/agent" },
+    });
+    expect(response.status).toBe(403);
+
+    expect((await readGlobalRuntimeOpencodeConfig(openwork.config)).mcp?.["openwork-cloud"]).toBeUndefined();
+    expect((await readRuntimeOpencodeConfig(openwork.config, "ws_1")).mcp?.["openwork-cloud"]).toBeUndefined();
+    expect(mock.requests.some((request) => request.method === "POST" && request.pathname === "/mcp")).toBe(false);
+  });
+
   test("normalizes a harmless trailing slash on the Cloud MCP endpoint", async () => {
     const root = await createRoot();
     const mock = startMockOpencode();

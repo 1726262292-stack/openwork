@@ -884,10 +884,13 @@ async function createOpenWorkSessions(rawArgs: unknown, context: OpenCodeContext
  * Automation but only a person can create one.
  */
 function proposeAutomation(rawArgs: unknown, context: OpenCodeContext): object {
-  const parsed = automationProposalSchema.parse(rawArgs);
+  const { workspaceId: _modelSupplied, ...parsed } = automationProposalSchema.parse(rawArgs);
   // Pin the proposing conversation's workspace so the Automation keeps running
-  // there even after the person activates a different workspace.
-  const workspaceId = parsed.workspaceId ?? context.workspaceId ?? context.workspaceID;
+  // there even after the person activates a different workspace. The pin comes
+  // from the engine-provided context only: a model-supplied workspaceId is
+  // discarded so a prompt-injected agent cannot retarget the Automation to a
+  // workspace the person is not looking at.
+  const workspaceId = context.workspaceId ?? context.workspaceID;
   const proposal = workspaceId ? { ...parsed, workspaceId } : parsed;
   return {
     ok: true,
