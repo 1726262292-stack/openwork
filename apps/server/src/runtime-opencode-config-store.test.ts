@@ -226,12 +226,15 @@ describe("runtime OpenCode config store", () => {
         disabled_providers: ["anthropic"],
         permission: { external_directory: { "/folders/a": "allow" } },
         mcp: { notion: { type: "remote", url: "https://notion.example/mcp" } },
+        provider: { "user-lmstudio": { npm: "@ai-sdk/openai-compatible", options: { baseURL: "https://a.example/v1" } }, local: { npm: "stale-copy" } },
         default_agent: "openwork",
       }));
+      await Bun.sleep(2);
       await writeRuntimeOpencodeConfig(config, "ws_b", () => ({
         plugin: ["plugin-b", "plugin-shared"],
         disabled_providers: ["anthropic", "openai"],
         permission: { external_directory: { "/folders/b": "allow" } },
+        provider: { "user-lmstudio": { npm: "@ai-sdk/openai-compatible", options: { baseURL: "https://b.example/v1" } } },
       }));
       await writeGlobalRuntimeOpencodeConfig(config, () => ({
         plugin: ["plugin-global"],
@@ -248,14 +251,21 @@ describe("runtime OpenCode config store", () => {
         "/folders/a": "allow",
         "/folders/b": "allow",
       });
-      // Unrelated global fields survive.
+      // Providers fold globally: the global row wins per key (cloud-managed
+      // authority beats the stale ws_a copy of `local`), and the newest
+      // workspace write wins between workspace rows.
       expect(globalRuntime.provider?.local).toEqual({ npm: "@ai-sdk/openai-compatible" });
+      expect(globalRuntime.provider?.["user-lmstudio"]).toEqual({
+        npm: "@ai-sdk/openai-compatible",
+        options: { baseURL: "https://b.example/v1" },
+      });
 
       // Workspace rows are cleaned; mcp stays per-workspace (dynamic push owns delivery).
       const workspaceA = await readRuntimeOpencodeConfig(config, "ws_a");
       expect(workspaceA.plugin).toBeUndefined();
       expect(workspaceA.disabled_providers).toBeUndefined();
       expect(workspaceA.permission).toBeUndefined();
+      expect(workspaceA.provider).toBeUndefined();
       expect(workspaceA.mcp?.notion?.url).toBe("https://notion.example/mcp");
       expect(workspaceA.default_agent).toBe("openwork");
       expect(await readRuntimeOpencodeConfig(config, "ws_b")).toEqual({});

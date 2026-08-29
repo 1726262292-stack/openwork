@@ -2191,9 +2191,12 @@ function createRoutes(
   addRoute(routes, "GET", "/workspace/:id/config", "client", async (ctx) => {
     const workspace = await resolveWorkspace(config, ctx.params.id);
     const openwork = await readOpenworkConfigForWorkspace(config, workspace);
+    // Effective runtime view (ENGINE_GLOBAL ⊕ workspace row): providers,
+    // plugins, and authorized folders live in the global row now, and the UI
+    // must keep seeing them after migration.
     const opencode = mergeOpencodeConfigs(
       await readOpencodeConfig(workspace.path),
-      await readRuntimeOpencodeConfig(config, workspace.id),
+      await readEffectiveRuntimeOpencodeConfig(config, workspace.id),
     );
     const lastAudit = await readLastAudit(workspace.path, workspace.id);
     return jsonResponse({ opencode, openwork, updatedAt: lastAudit?.timestamp ?? null });
@@ -2747,39 +2750,50 @@ function createRoutes(
       // Per-provider merge: record values upsert, explicit `null` deletes
       // (mergeRuntimeProviderUpdate) — so clients can remove runtime-managed
       // providers (e.g. cloud imports) without read-modify-write races.
+      // Providers are engine-global: the injected engine config file is
+      // rendered from the ENGINE_GLOBAL row only, so a workspace-row write
+      // would never reach the engine.
       const providerUpdate = isRecord(provider) ? provider : {};
       if (Object.keys(providerUpdate).length) {
-        const currentRuntime = await readRuntimeOpencodeConfig(config, workspace.id);
-        logicalUpdates.provider = mergeRuntimeProviderUpdate(currentRuntime.provider, providerUpdate);
+        const providerResult = await writeGlobalRuntimeOpencodeConfig(config, (current) => ({
+          ...current,
+          provider: mergeRuntimeProviderUpdate(current.provider, providerUpdate),
+        }));
+        runtimeChanged = providerResult.changed || runtimeChanged;
       }
 
       const permissionUpdate = ensurePlainObject(permission);
       if (Object.prototype.hasOwnProperty.call(permissionUpdate, "external_directory")) {
-        const existingRuntime = await readRuntimeOpencodeConfig(config, workspace.id);
-        const existingPermission = ensurePlainObject(existingRuntime.permission);
+        // Authorized folders are engine-global for the same reason as providers.
         const nextExternalDirectory = permissionUpdate.external_directory;
-        const existingPermissionKeys = Object.keys(existingPermission);
-        const removePermissionParent =
-          typeof nextExternalDirectory === "undefined" &&
-            (existingPermissionKeys.length === 0 ||
-            (existingPermissionKeys.length === 1 && Object.prototype.hasOwnProperty.call(existingPermission, "external_directory")));
-
-        if (removePermissionParent) {
-          logicalUpdates.permission = undefined;
-        } else {
-          logicalUpdates.permission = {
-            ...existingPermission,
-            external_directory: nextExternalDirectory,
+        const permissionResult = await writeGlobalRuntimeOpencodeConfig(config, (current) => {
+          const existingPermission = ensurePlainObject(current.permission);
+          const existingPermissionKeys = Object.keys(existingPermission);
+          const removePermissionParent =
+            typeof nextExternalDirectory === "undefined" &&
+              (existingPermissionKeys.length === 0 ||
+              (existingPermissionKeys.length === 1 && Object.prototype.hasOwnProperty.call(existingPermission, "external_directory")));
+          if (removePermissionParent) {
+            const { permission: _removed, ...rest } = current;
+            return rest;
+          }
+          return {
+            ...current,
+            permission: {
+              ...existingPermission,
+              external_directory: ensurePlainObject(nextExternalDirectory),
+            },
           };
-        }
+        });
+        runtimeChanged = permissionResult.changed || runtimeChanged;
       }
 
-      if (Object.keys(logicalUpdates).length || Object.prototype.hasOwnProperty.call(logicalUpdates, "permission")) {
+      if (Object.keys(logicalUpdates).length) {
         const result = await writeRuntimeOpencodeConfig(config, workspace.id, (current) => ({
           ...current,
           ...logicalUpdates,
         }));
-        runtimeChanged = result.changed;
+        runtimeChanged = result.changed || runtimeChanged;
       }
     }
     if (openwork) {

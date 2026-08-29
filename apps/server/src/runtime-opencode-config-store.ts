@@ -296,10 +296,14 @@ export async function migrateWorkspaceRuntimeConfigToEngineGlobal(
       runtimePluginList(row.value).length > 0
       || runtimeDisabledProviderList(row.value).length > 0
       || Object.keys(runtimeExternalDirectory(row.value)).length > 0
+      || Object.keys(runtimeProviderMap(row.value)).length > 0
     ),
   );
   if (workspaceRows.length === 0 || config.readOnly) return { changed: false };
 
+  // Oldest write first so the newest workspace edit of a provider key wins;
+  // the global row (cloud-managed authority) wins over every legacy copy.
+  const rowsByAge = [...workspaceRows].sort((left, right) => left.updatedAt - right.updatedAt);
   let changed = false;
   const globalResult = await writeGlobalRuntimeOpencodeConfig(config, (current) => {
     const plugin = uniqueStrings([
@@ -317,10 +321,18 @@ export async function migrateWorkspaceRuntimeConfigToEngineGlobal(
       ),
       ...runtimeExternalDirectory(current),
     };
+    const provider = {
+      ...rowsByAge.reduce<Record<string, unknown>>(
+        (union, row) => ({ ...union, ...runtimeProviderMap(row.value) }),
+        {},
+      ),
+      ...runtimeProviderMap(current),
+    };
     return {
       ...current,
       ...(plugin.length ? { plugin } : {}),
       ...(disabledProviders.length ? { disabled_providers: disabledProviders } : {}),
+      ...(Object.keys(provider).length ? { provider } : {}),
       ...(Object.keys(externalDirectory).length
         ? { permission: { ...(isRecord(current.permission) ? current.permission : {}), external_directory: externalDirectory } }
         : {}),
@@ -329,7 +341,7 @@ export async function migrateWorkspaceRuntimeConfigToEngineGlobal(
   changed = globalResult.changed;
   for (const row of workspaceRows) {
     const result = await writeRuntimeOpencodeConfig(config, row.workspaceId, (current) => {
-      const { plugin: _plugin, disabled_providers: _disabledProviders, permission, ...rest } = current;
+      const { plugin: _plugin, disabled_providers: _disabledProviders, provider: _provider, permission, ...rest } = current;
       // Strip only external_directory; any other permission keys stay put.
       const { external_directory: _externalDirectory, ...permissionRest } = isRecord(permission) ? permission : {};
       return {
