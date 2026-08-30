@@ -214,6 +214,12 @@ function killTerminalsForWebContents(webContentsId) {
 app.setName(APP_NAME);
 app.setAppUserModelId(APP_IDENTIFIER);
 if (BLANK_SLATE_LAUNCH.homePath) app.setPath("home", BLANK_SLATE_LAUNCH.homePath);
+// Windows 汉化版：该机器组合（Insider 内核 + NVIDIA + TranslucentTB）下 GPU 合成会导致窗口疯狂闪烁，
+// 默认走软件渲染；如需硬件加速可设 OPENWORK_ENABLE_GPU=1 覆盖。
+if (process.platform === "win32" && process.env.OPENWORK_ENABLE_GPU !== "1") {
+  app.commandLine.appendSwitch("disable-gpu");
+  app.commandLine.appendSwitch("disable-gpu-compositing");
+}
 if (
   app.isPackaged
   && !BLANK_SLATE_LAUNCH.enabled
