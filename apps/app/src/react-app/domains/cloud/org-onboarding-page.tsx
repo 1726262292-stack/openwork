@@ -112,6 +112,9 @@ function onboardingUpdaterBridge(): OnboardingUpdaterBridge | undefined {
 async function stageOnboardingUpdate(
   desktopConfig: DenDesktopConfig,
 ): Promise<boolean> {
+  // 汉化版：跳过引导期自动下载更新（0.0.0-dev 构建永远命中更新判定，
+  // 且主进程下载不走代理时会在无网络提示下无限挂起）。更新改走 Settings → Updates 手动触发。
+  return false;
   const updater = onboardingUpdaterBridge();
   if (!updater?.getChannel || !updater.check || !updater.download) return false;
 

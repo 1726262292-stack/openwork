@@ -76,7 +76,7 @@ export const isLanguage = (value: unknown): value is Language => {
   return typeof value === "string" && LANGUAGES.includes(value as Language);
 };
 
-let localeValue: Language = "en";
+let localeValue: Language = "zh"; // 汉化版：默认简体中文
 
 /**
  * Get current locale
@@ -197,7 +197,7 @@ export const t = (
  */
 export const initLocale = (): Language => {
   if (typeof window === "undefined") {
-    return "en";
+    return "zh"; // 汉化版：默认简体中文
   }
 
   try {
@@ -214,8 +214,8 @@ export const initLocale = (): Language => {
   }
 
   if (typeof document !== "undefined") {
-    document.documentElement.setAttribute("lang", "en");
+    document.documentElement.setAttribute("lang", "zh"); // 汉化版：默认简体中文
   }
 
-  return "en";
+  return "zh";
 };
