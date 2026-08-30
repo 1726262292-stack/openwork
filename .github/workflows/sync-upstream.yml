@@ -1,0 +1,63 @@
+name: Sync upstream (keep zh localization)
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-upstream
+  cancel-in-progress: true
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: dev
+          fetch-depth: 0
+
+      - name: Merge upstream/dev
+        id: merge
+        run: |
+          git remote add upstream https://github.com/different-ai/openwork.git
+          git fetch upstream dev
+          git config user.name "zh-sync-bot"
+          git config user.email "1726262292-stack@users.noreply.github.com"
+
+          UPSTREAM_HEAD="$(git rev-parse upstream/dev)"
+          LOCAL_HEAD="$(git rev-parse HEAD)"
+          if [ "$UPSTREAM_HEAD" = "$LOCAL_HEAD" ]; then
+            echo "Already up to date with upstream/dev."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          CHANGED=false
+          if git merge upstream/dev --no-edit; then
+            CHANGED=true
+          else
+            git merge --abort
+            # 冲突时保留本 fork 的汉化侧（主要影响 zh.ts），其余文件正常向上游对齐
+            git merge -X ours upstream/dev --no-edit \
+              -m "Merge upstream/dev (conflicts resolved keeping zh localization via -X ours)"
+            CHANGED=true
+          fi
+          echo "changed=$CHANGED" >> "$GITHUB_OUTPUT"
+
+      - name: Push
+        if: steps.merge.outputs.changed == 'true'
+        run: git push origin dev
+
+      - name: Summary
+        run: |
+          {
+            echo "已与上游 different-ai/openwork@dev 同步。"
+            echo ""
+            echo "后续维护：上游若新增 UI 文案（en.ts 新键），会先回退显示英文。"
+            echo "本地运行 \`node scripts/i18n-audit.mjs --missing\` 可列出待补译键位。"
+          } >> "$GITHUB_STEP_SUMMARY"
