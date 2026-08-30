@@ -29,10 +29,8 @@ jobs:
           git config user.name "zh-sync-bot"
           git config user.email "1726262292-stack@users.noreply.github.com"
 
-          UPSTREAM_HEAD="$(git rev-parse upstream/dev)"
-          LOCAL_HEAD="$(git rev-parse HEAD)"
-          if [ "$UPSTREAM_HEAD" = "$LOCAL_HEAD" ]; then
-            echo "Already up to date with upstream/dev."
+          if git merge-base --is-ancestor upstream/dev HEAD; then
+            echo "dev already contains upstream/dev."
             echo "changed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
